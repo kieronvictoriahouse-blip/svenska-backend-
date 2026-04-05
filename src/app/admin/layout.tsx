@@ -4,11 +4,20 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 const NAV = [
-  { href: '/admin',           icon: '🏠', label: 'Tableau de bord' },
-  { href: '/admin/produits',  icon: '📦', label: 'Produits' },
-  { href: '/admin/categories',icon: '🗂️', label: 'Catégories' },
-  { href: '/admin/homepage',  icon: '🖼️', label: 'Page d\'accueil' },
-  { href: '/admin/medias',    icon: '🖼',  label: 'Médiathèque' },
+  { section: 'Boutique' },
+  { href: '/admin',              icon: '📊', label: 'Tableau de bord' },
+  { href: '/admin/produits',     icon: '📦', label: 'Produits' },
+  { href: '/admin/categories',   icon: '🗂️', label: 'Catégories' },
+  { href: '/admin/stock',        icon: '🔢', label: 'Stocks' },
+  { href: '/admin/commandes',    icon: '🛒', label: 'Commandes' },
+  { section: 'Contenu' },
+  { href: '/admin/home-cms',     icon: '🏠', label: 'Page d\'accueil' },
+  { href: '/admin/medias',       icon: '🖼️', label: 'Médiathèque' },
+  { section: 'Gestion' },
+  { href: '/admin/gestion',      icon: '🧾', label: 'Factures clients' },
+  { href: '/admin/gestion',      icon: '📦', label: 'Achats fournisseurs', hash: '#achats' },
+  { href: '/admin/gestion',      icon: '📈', label: 'Calcul des marges', hash: '#marges' },
+  { href: '/admin/gestion',      icon: '🚚', label: 'Transport', hash: '#transport' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -22,7 +31,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const mail  = localStorage.getItem('sd_admin_email');
     if (!token) { router.replace('/login'); return; }
     setEmail(mail || 'Admin');
-    // Vérif token côté serveur
     fetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!r.ok) { localStorage.clear(); router.replace('/login'); } });
   }, []);
@@ -36,37 +44,37 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="admin-shell">
-      {/* Sidebar */}
       <aside className={`sidebar ${mobOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
           <span className="sidebar-logo-main">Svenska Delikatessen</span>
           <span className="sidebar-logo-tag">Back-office Admin</span>
         </div>
-
         <nav className="sidebar-nav">
-          <div className="nav-section-label">Navigation</div>
-          {NAV.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-link ${pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href)) ? 'active' : ''}`}
-              onClick={() => setMob(false)}
-            >
-              <span className="nav-link-icon">{item.icon}</span>
-              {item.label}
-            </Link>
-          ))}
+          {NAV.map((item, i) => {
+            if ('section' in item) {
+              return <div key={i} className="nav-section-label">{item.section}</div>;
+            }
+            const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
+            return (
+              <Link
+                key={i}
+                href={item.hash ? item.href + item.hash : item.href}
+                className={`nav-link ${isActive ? 'active' : ''}`}
+                onClick={() => setMob(false)}
+              >
+                <span className="nav-link-icon">{item.icon}</span>
+                {item.label}
+              </Link>
+            );
+          })}
           <div className="nav-section-label" style={{ marginTop: 16 }}>Liens</div>
-          <a href={process.env.NEXT_PUBLIC_FRONT_URL || '#'} target="_blank" rel="noopener" className="nav-link">
-            <span className="nav-link-icon">🌐</span>
-            Voir le site
+          <a href={process.env.NEXT_PUBLIC_FRONT_URL || 'https://thriving-pony-1275a9.netlify.app'} target="_blank" rel="noopener" className="nav-link">
+            <span className="nav-link-icon">🌐</span>Voir le site
           </a>
           <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" className="nav-link">
-            <span className="nav-link-icon">🗄️</span>
-            Supabase
+            <span className="nav-link-icon">🗄️</span>Supabase
           </a>
         </nav>
-
         <div className="sidebar-foot">
           <div className="sidebar-user">
             <div className="sidebar-avatar">{initials}</div>
@@ -78,17 +86,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
       </aside>
-
-      {/* Main */}
       <main className="admin-main">
-        {/* Mobile top bar */}
         <div style={{ display: 'none' }} className="mobile-topbar">
           <button onClick={() => setMob(!mobOpen)}>☰</button>
         </div>
         {children}
       </main>
-
-      {/* Mobile overlay */}
       {mobOpen && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 199 }}
