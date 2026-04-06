@@ -24,7 +24,7 @@ const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDig
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 const fmtPct = (n: number) => (n || 0).toFixed(1) + '%';
 
-export default function MarketingPage() {
+function MarketingInner() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') || 'campaigns');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -335,3 +335,4 @@ export default function MarketingPage() {
     </>
   );
 }
+export default function MarketingPage() { return <Suspense><MarketingInner /></Suspense>; }

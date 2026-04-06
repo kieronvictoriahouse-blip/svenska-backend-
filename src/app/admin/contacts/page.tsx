@@ -16,7 +16,7 @@ const fmtDate = (d: string) => new Date(d).toLocaleDateString('fr-FR');
 
 const EMPTY: Partial<Contact> = { type: 'client', country: 'France', tags: [] };
 
-export default function ContactsPage() {
+function ContactsInner() {
   const searchParams = useSearchParams();
   const typeFilter = searchParams.get('type') || '';
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -297,3 +297,4 @@ export default function ContactsPage() {
     </>
   );
 }
+export default function ContactsPage() { return <Suspense><ContactsInner /></Suspense>; }

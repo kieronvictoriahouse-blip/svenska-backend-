@@ -23,7 +23,7 @@ const DEFAULT_CONFIG: Config = {
   smtp_host: '', smtp_user: '', smtp_from: '',
 };
 
-export default function WhiteLabelPage() {
+function WhiteLabelInner() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') || 'identity');
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
@@ -351,3 +351,4 @@ export default function WhiteLabelPage() {
     </>
   );
 }
+export default function WhiteLabelPage() { return <Suspense><WhiteLabelInner /></Suspense>; }
