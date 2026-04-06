@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import * as Papa from 'papaparse';
+
 
 export async function GET() {
   const { data } = await supabaseAdmin.from('white_label_config').select('*').limit(1).single();
