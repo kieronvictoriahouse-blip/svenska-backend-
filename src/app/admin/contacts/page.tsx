@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 
 type Contact = {
   id: string; type: string; company?: string; first_name?: string; last_name?: string;
-  email?: string; phone?: string; mobile?: string; address?: string; city?: string;
+  email?: string; phone?: string; mobile?: string; address?: string; city?: string; zip?: string;
   country?: string; siret?: string; notes?: string; tags?: string[];
   total_orders?: number; total_purchases?: number; is_active?: boolean; created_at: string;
 };
