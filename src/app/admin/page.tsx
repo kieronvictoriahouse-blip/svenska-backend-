@@ -1,174 +1,182 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+
+const APPS = [
+  {
+    href: '/admin/produits',
+    icon: '🛍️',
+    label: 'Boutique',
+    desc: 'Produits · Stock · Commandes',
+    color: '#3E5238',
+    bg: 'linear-gradient(135deg, #3E5238 0%, #587050 100%)',
+  },
+  {
+    href: '/admin/achats',
+    icon: '📬',
+    label: 'Achats',
+    desc: 'Commandes · Réceptions',
+    color: '#1A6B55',
+    bg: 'linear-gradient(135deg, #1A6B55 0%, #2E9B7B 100%)',
+  },
+  {
+    href: '/admin/gestion',
+    icon: '💰',
+    label: 'Finance',
+    desc: 'Factures · Marges · Rapports',
+    color: '#1C4E80',
+    bg: 'linear-gradient(135deg, #1C4E80 0%, #2E6FAD 100%)',
+  },
+  {
+    href: '/admin/contacts',
+    icon: '👥',
+    label: 'Contacts',
+    desc: 'Clients · Fournisseurs',
+    color: '#5B3427',
+    bg: 'linear-gradient(135deg, #5B3427 0%, #8B5E3C 100%)',
+  },
+  {
+    href: '/admin/marketing',
+    icon: '📣',
+    label: 'Marketing',
+    desc: 'Campagnes · Codes promo',
+    color: '#7B2D8B',
+    bg: 'linear-gradient(135deg, #7B2D8B 0%, #A855C0 100%)',
+  },
+  {
+    href: '/admin/home-cms',
+    icon: '🖼️',
+    label: 'Contenu',
+    desc: 'Home CMS · Médiathèque',
+    color: '#8B5E3C',
+    bg: 'linear-gradient(135deg, #8B5E3C 0%, #BC7455 100%)',
+  },
+  {
+    href: '/admin/stock',
+    icon: '📦',
+    label: 'Stocks',
+    desc: 'Niveaux · Alertes · Mouvements',
+    color: '#C67C3A',
+    bg: 'linear-gradient(135deg, #C67C3A 0%, #E09A55 100%)',
+  },
+  {
+    href: '/admin/white-label',
+    icon: '⚙️',
+    label: 'Configuration',
+    desc: 'White Label · Import données',
+    color: '#424242',
+    bg: 'linear-gradient(135deg, #424242 0%, #616161 100%)',
+  },
+];
 
 type Stats = {
-  total_products: number;
-  active_products: number;
+  products: number;
+  orders: number;
   categories: number;
   bestsellers: number;
-  new_products: number;
 };
 
-export default function AdminDashboard() {
+export default function AdminHome() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [recentProducts, setRecentProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [greeting, setGreeting] = useState('Bonjour');
 
   useEffect(() => {
-    const token = localStorage.getItem('sd_admin_token');
+    const h = new Date().getHours();
+    if (h < 12) setGreeting('Bonjour');
+    else if (h < 18) setGreeting('Bon après-midi');
+    else setGreeting('Bonsoir');
+
     Promise.all([
-      fetch('/api/products?limit=100').then(r => r.json()),
-      fetch('/api/categories').then(r => r.json()),
-    ]).then(([products, cats]) => {
-      const ps = products.products || [];
+      fetch('/api/products?limit=200').then(r => r.json()).catch(() => ({})),
+      fetch('/api/categories').then(r => r.json()).catch(() => ({})),
+    ]).then(([p, c]) => {
+      const ps = p.products || [];
       setStats({
-        total_products: ps.length,
-        active_products: ps.filter((p: any) => p.is_active).length,
-        categories: (cats.categories || []).length,
-        bestsellers: ps.filter((p: any) => p.is_bestseller).length,
-        new_products: ps.filter((p: any) => p.is_new).length,
+        products: ps.length,
+        orders: 0,
+        categories: (c.categories || []).length,
+        bestsellers: ps.filter((x: any) => x.is_bestseller).length,
       });
-      setRecentProducts(ps.slice(0, 8));
-    }).finally(() => setLoading(false));
+    });
   }, []);
 
-  if (loading) return (
-    <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-      <div style={{ textAlign: 'center', color: 'var(--dust)' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>🇸🇪</div>
-        <p>Chargement du tableau de bord…</p>
-      </div>
-    </div>
-  );
+  const email = typeof window !== 'undefined' ? (localStorage.getItem('sd_admin_email') || '') : '';
+  const firstName = email.split('@')[0] || 'Admin';
+
+  const QUICK = [
+    { href: '/admin/produits/nouveau', icon: '➕', label: 'Nouveau produit' },
+    { href: '/admin/commandes',        icon: '🛒', label: 'Commandes' },
+    { href: '/admin/home-cms',         icon: '✏️', label: 'Modifier la home' },
+    { href: '/admin/medias',           icon: '📸', label: 'Uploader photos' },
+  ];
 
   return (
-    <>
-      <div className="topbar">
-        <div className="topbar-title">Tableau de bord</div>
-        <div className="topbar-actions">
-          <a href="/admin/produits/nouveau" className="btn btn-primary btn-sm">+ Nouveau produit</a>
-        </div>
+    <div className="launcher">
+      {/* Welcome */}
+      <div className="launcher-welcome">
+        <div className="launcher-flag">🇸🇪</div>
+        <h1 className="launcher-title">
+          {greeting}, <em>{firstName}</em>
+        </h1>
+        <p className="launcher-sub">
+          Svenska Delikatessen · Admin &nbsp;·&nbsp;
+          {stats ? `${stats.products} produits · ${stats.categories} catégories` : '···'}
+        </p>
       </div>
 
-      <div className="page-content">
-        {/* Welcome */}
-        <div style={{ marginBottom: 28 }}>
-          <h1 className="page-title">Bonjour 🇸🇪</h1>
-          <p className="page-subtitle">Voici l'état de votre boutique Svenska Delikatessen</p>
-        </div>
-
-        {/* Stats */}
-        <div className="stats-grid">
-          <div className="stat-card">
-            <span className="stat-icon">📦</span>
-            <div>
-              <div className="stat-num">{stats?.total_products}</div>
-              <div className="stat-label">Produits total</div>
-            </div>
-            <span className="stat-trend up">✓ actifs : {stats?.active_products}</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-icon">🗂️</span>
-            <div>
-              <div className="stat-num">{stats?.categories}</div>
-              <div className="stat-label">Catégories</div>
-            </div>
-          </div>
-          <div className="stat-card">
-            <span className="stat-icon">⭐</span>
-            <div>
-              <div className="stat-num">{stats?.bestsellers}</div>
-              <div className="stat-label">Best-sellers</div>
-            </div>
-          </div>
-          <div className="stat-card">
-            <span className="stat-icon">🆕</span>
-            <div>
-              <div className="stat-num">{stats?.new_products}</div>
-              <div className="stat-label">Nouveautés</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Raccourcis */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 28 }}>
-          {[
-            { href: '/admin/produits/nouveau', icon: '➕', label: 'Ajouter un produit' },
-            { href: '/admin/medias',           icon: '📸', label: 'Uploader des images' },
-            { href: '/admin/homepage',         icon: '🖼️', label: 'Éditer la home' },
-            { href: '/admin/categories',       icon: '🗂️', label: 'Gérer les catégories' },
-          ].map(s => (
-            <a key={s.href} href={s.href} style={{
-              background: 'white', border: '1px solid var(--linen)',
-              borderRadius: 'var(--radius)', padding: '20px 18px',
-              textDecoration: 'none', textAlign: 'center',
-              transition: 'all 0.18s', display: 'block',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#587050')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--linen)')}
-            >
-              <div style={{ fontSize: 28, marginBottom: 8 }}>{s.icon}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--midnight)' }}>{s.label}</div>
-            </a>
-          ))}
-        </div>
-
-        {/* Produits récents */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Derniers produits</span>
-            <a href="/admin/produits" className="btn btn-ghost btn-sm">Voir tous →</a>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Image</th>
-                  <th>Nom (FR)</th>
-                  <th>Catégorie</th>
-                  <th>Prix</th>
-                  <th>Statut</th>
-                  <th>Flags</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentProducts.map(p => (
-                  <tr key={p.id}>
-                    <td>
-                      {p.image_url
-                        ? <img src={p.image_url} alt={p.name_fr} className="td-img" />
-                        : <div className="td-img" style={{ display:'flex',alignItems:'center',justifyContent:'center',fontSize:24 }}>📦</div>
-                      }
-                    </td>
-                    <td>
-                      <div className="td-name">{p.name_fr}</div>
-                      <div className="td-sub">{p.subtitle_fr}</div>
-                    </td>
-                    <td><span style={{ fontSize: 12, color: 'var(--dust)' }}>{p.categories?.name_fr || '—'}</span></td>
-                    <td><span className="td-price">€{parseFloat(p.price).toFixed(2)}</span></td>
-                    <td>
-                      <span className={`badge ${p.is_active ? 'badge-active' : 'badge-inactive'}`}>
-                        {p.is_active ? 'Actif' : 'Masqué'}
-                      </span>
-                    </td>
-                    <td style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {p.is_bestseller && <span className="badge badge-bestseller">⭐ BS</span>}
-                      {p.is_new && <span className="badge badge-new">Nouveau</span>}
-                      {p.badge && <span className={`badge badge-${p.badge.replace('badge-','')}`}>{p.badge.replace('badge-','')}</span>}
-                    </td>
-                    <td>
-                      <div className="td-actions">
-                        <a href={`/admin/produits/${p.id}`} className="btn btn-ghost btn-sm btn-icon" title="Éditer">✏️</a>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      {/* Quick actions */}
+      <div style={{
+        display: 'flex', gap: 10, marginBottom: 48, flexWrap: 'wrap', justifyContent: 'center',
+      }}>
+        {QUICK.map(q => (
+          <Link key={q.href} href={q.href} style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 24, padding: '8px 18px',
+            fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)',
+            textDecoration: 'none', transition: 'all 0.15s',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
+          >
+            <span>{q.icon}</span> {q.label}
+          </Link>
+        ))}
       </div>
-    </>
+
+      {/* App Grid */}
+      <div className="launcher-grid">
+        {APPS.map(app => (
+          <Link key={app.href} href={app.href} className="app-tile">
+            <div className="app-tile-icon" style={{ background: app.bg }}>
+              {app.icon}
+            </div>
+            <div>
+              <div className="app-tile-label">{app.label}</div>
+              <div className="app-tile-desc">{app.desc}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {/* Footer links */}
+      <div className="launcher-footer">
+        <a href="https://svenska-delikatessen.vercel.app" target="_blank" rel="noopener" className="launcher-footer-link">
+          🌐 Voir le site
+        </a>
+        <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
+        <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" className="launcher-footer-link">
+          🗄️ Supabase
+        </a>
+        <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
+        <a href="https://vercel.com/dashboard" target="_blank" rel="noopener" className="launcher-footer-link">
+          ▲ Vercel
+        </a>
+        <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>
+          Svenska Delikatessen © 2026
+        </span>
+      </div>
+    </div>
   );
 }
