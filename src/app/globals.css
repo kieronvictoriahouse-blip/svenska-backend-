@@ -3,11 +3,11 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  --moss:        #3E5238;
+  --moss:        #7B4F7B;
   --moss-mid:    #587050;
   --moss-light:  #7A9468;
   --moss-pale:   #E8EEE5;
-  --copper:      #9E5A3C;
+  --copper:      #8B2E3C;
   --copper-mid:  #BC7455;
   --copper-pale: #F2E4DC;
   --midnight:    #1C2028;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM_EMAIL = process.env.SMTP_FROM || 'Svenska Delikatessen <noreply@svenska-delikatessen.fr>';
+const FROM_EMAIL = process.env.SMTP_FROM || 'Heather & Lingon <noreply@heather-lingon.fr>';
 const FRONT_URL = process.env.NEXT_PUBLIC_FRONT_URL || 'https://thriving-pony-1275a9.netlify.app';
 
 // ── SEND VIA RESEND ────────────────────────────────────────
@@ -31,18 +31,18 @@ function baseTemplate(content: string, title: string) {
 <style>
   body { margin: 0; padding: 0; background: #EDEAE4; font-family: 'Georgia', serif; }
   .wrap { max-width: 600px; margin: 40px auto; background: #FDFAF5; border-radius: 8px; overflow: hidden; }
-  .header { background: #3E5238; padding: 28px 40px; text-align: center; }
+  .header { background: #7B4F7B; padding: 28px 40px; text-align: center; }
   .logo { color: #fff; font-size: 22px; font-weight: 300; letter-spacing: 2px; text-transform: uppercase; margin: 0; }
   .logo-tag { color: rgba(255,255,255,0.6); font-size: 10px; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
   .body { padding: 40px; }
   .title { font-size: 26px; color: #1C2028; font-weight: 300; margin-bottom: 16px; }
   .text { font-size: 15px; color: #3E4550; line-height: 1.8; margin-bottom: 16px; }
   .box { background: #F6F1E9; border-radius: 6px; padding: 20px 24px; margin: 24px 0; }
-  .box-title { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #9E5A3C; margin-bottom: 12px; }
+  .box-title { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #8B2E3C; margin-bottom: 12px; }
   .line { display: flex; justify-content: space-between; font-size: 14px; color: #1C2028; padding: 4px 0; border-bottom: 1px solid #D8CEBC; }
   .line:last-child { border-bottom: none; }
   .total { font-size: 16px; font-weight: 700; color: #1C2028; padding: 10px 0 0; }
-  .btn { display: inline-block; background: #3E5238; color: #fff; text-decoration: none; padding: 14px 32px; border-radius: 4px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; margin: 20px 0; }
+  .btn { display: inline-block; background: #7B4F7B; color: #fff; text-decoration: none; padding: 14px 32px; border-radius: 4px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; margin: 20px 0; }
   .footer { background: #1C2028; padding: 24px 40px; text-align: center; }
   .footer-text { color: rgba(255,255,255,0.4); font-size: 11px; line-height: 1.8; }
   .footer-link { color: rgba(255,255,255,0.6); text-decoration: none; }
@@ -52,15 +52,15 @@ function baseTemplate(content: string, title: string) {
 <body>
 <div class="wrap">
   <div class="header">
-    <p class="logo">Svenska Delikatessen</p>
-    <p class="logo-tag">Saveurs authentiques de Suède</p>
+    <p class="logo">Heather & Lingon</p>
+    <p class="logo-tag">British & Nordic Pantry</p>
   </div>
   <div class="body">
     ${content}
   </div>
   <div class="footer">
     <p class="footer-text">
-      Svenska Delikatessen · <a href="${FRONT_URL}" class="footer-link">${FRONT_URL}</a><br>
+      Heather & Lingon · <a href="${FRONT_URL}" class="footer-link">${FRONT_URL}</a><br>
       Vous recevez cet email car vous avez passé une commande sur notre site.<br>
       <a href="${FRONT_URL}/cgv" class="footer-link">CGV</a> · 
       <a href="${FRONT_URL}/politique-confidentialite" class="footer-link">Confidentialité</a>
@@ -80,7 +80,7 @@ function orderConfirmationTemplate(order: any) {
     </div>`).join('');
 
   const content = `
-    <h1 class="title">Merci pour votre commande ! 🇸🇪</h1>
+    <h1 class="title">Merci pour votre commande ! 🇸🇪🇬🇧</h1>
     <p class="text">Bonjour ${order.customer_name},</p>
     <p class="text">Nous avons bien reçu votre commande et nous la préparons avec soin. Vous recevrez un email dès qu'elle sera expédiée.</p>
     
@@ -98,8 +98,8 @@ function orderConfirmationTemplate(order: any) {
       <p style="font-size:14px;color:#1C2028;margin:0">${order.customer_address || 'Adresse non renseignée'}</p>
     </div>
 
-    <p class="text">Des questions ? Répondez simplement à cet email ou contactez-nous à <a href="mailto:hej@svenska-delikatessen.fr" style="color:#9E5A3C">hej@svenska-delikatessen.fr</a></p>
-    <p class="text">Tack så mycket ! 🎉</p>`;
+    <p class="text">Des questions ? Répondez simplement à cet email ou contactez-nous à <a href="mailto:hej@heather-lingon.fr" style="color:#8B2E3C">hej@heather-lingon.fr</a></p>
+    <p class="text">Merci beaucoup ! 🎉</p>`;
 
   return baseTemplate(content, `Commande ${order.order_number} confirmée`);
 }
@@ -109,7 +109,7 @@ function abandonedCartTemplate(cart: any, step: number) {
   const subject = step === 1 
     ? 'Vous avez oublié quelque chose… 🛒'
     : step === 2 
-    ? 'Votre panier vous attend ! 🇸🇪'
+    ? 'Votre panier vous attend ! 🛒'
     : 'Dernière chance — 10% de réduction 🎟️';
 
   const content = `
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
       
       await sendEmail({
         to: order.customer_email,
-        subject: `✅ Commande ${order.order_number} confirmée — Svenska Delikatessen`,
+        subject: `✅ Commande ${order.order_number} confirmée — Heather & Lingon`,
         html: orderConfirmationTemplate(order),
       });
 
@@ -238,7 +238,7 @@ export async function POST(req: NextRequest) {
       const { to } = body;
       await sendEmail({
         to: to || 'test@example.com',
-        subject: '✅ Test email — Svenska Delikatessen',
+        subject: '✅ Test email — Heather & Lingon',
         html: baseTemplate('<h1 class="title">Email de test</h1><p class="text">Votre configuration email fonctionne parfaitement !</p>', 'Test'),
       });
       return NextResponse.json({ success: true });

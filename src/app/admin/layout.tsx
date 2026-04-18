@@ -8,7 +8,7 @@ const APPS = [
     key: 'boutique',
     label: 'Boutique',
     icon: '🛍️',
-    color: '#3E5238',
+    color: '#7B4F7B',
     paths: ['/admin/produits', '/admin/categories', '/admin/stock', '/admin/commandes'],
     nav: [
       { href: '/admin/produits',  icon: '📦', label: 'Produits' },
@@ -111,7 +111,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   function logout() { localStorage.clear(); router.replace('/login'); }
 
   const initials = email.split('@')[0]?.slice(0, 2).toUpperCase() || 'AD';
-  const appColor = currentApp?.color || '#3E5238';
+  const appColor = currentApp?.color || '#7B4F7B';
 
   const css = `
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -248,7 +248,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       font-size: 42px; font-weight: 300; color: #fff;
       margin-bottom: 8px;
     }
-    .launcher-title em { font-style: italic; color: #BC7455; }
+    .launcher-title em { font-style: italic; color: #AA4455; }
     .launcher-sub {
       font-size: 14px; color: rgba(255,255,255,0.35);
       letter-spacing: 1px;
@@ -316,7 +316,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     .stat-icon { font-size:32px; }
     .stat-num { font-size:28px; font-weight:800; color:#1C2028; line-height:1; }
     .stat-label { font-size:11px; color:#8B7E72; margin-top:3px; text-transform:uppercase; letter-spacing:1px; }
-    .stat-trend { font-size:11px; padding:3px 8px; border-radius:20px; background:#E8EEE5; color:#3E5238; margin-left:auto; font-weight:600; align-self:flex-start; }
+    .stat-trend { font-size:11px; padding:3px 8px; border-radius:20px; background:#E8EEE5; color:#7B4F7B; margin-left:auto; font-weight:600; align-self:flex-start; }
     .data-table { width:100%; border-collapse:collapse; }
     .data-table th { padding:10px 16px; text-align:left; font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#8B7E72; border-bottom:1px solid #F0EDE8; white-space:nowrap; }
     .data-table td { padding:12px 16px; font-size:13px; color:#3A3228; border-bottom:1px solid #F8F5F0; vertical-align:middle; }
@@ -334,7 +334,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     .badge-new       { background:#E3F2FD; color:#1565C0; }
     .btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; border:none; transition:all 0.15s; }
     .btn-sm { padding:6px 12px; font-size:12px; }
-    .btn-primary { background:#3E5238; color:#fff; }
+    .btn-primary { background:#7B4F7B; color:#fff; }
     .btn-primary:hover { background:#2D3D28; }
     .btn-ghost { background:transparent; color:#5A5248; border:1px solid #E8E4DE; }
     .btn-ghost:hover { background:#F0EDE8; }
@@ -344,12 +344,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     .form-group { margin-bottom:18px; }
     .form-label { display:block; font-size:12px; font-weight:700; color:#5A5248; margin-bottom:6px; letter-spacing:0.5px; text-transform:uppercase; }
     .form-control { width:100%; padding:10px 14px; border:1.5px solid #E8E4DE; border-radius:8px; font-size:14px; color:#1C2028; background:#fff; outline:none; transition:border-color 0.15s; }
-    .form-control:focus { border-color:#3E5238; }
+    .form-control:focus { border-color:#7B4F7B; }
     select.form-control { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238B7E72' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; padding-right:36px; }
     .form-two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
     .toast-bar { position:fixed; bottom:24px; right:24px; background:#1C2028; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:600; z-index:9999; box-shadow:0 4px 20px rgba(0,0,0,0.25); animation:slideUp 0.25s ease; }
     @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-    input[type="checkbox"] { width:16px; height:16px; accent-color:#3E5238; cursor:pointer; }
+    input[type="checkbox"] { width:16px; height:16px; accent-color:#7B4F7B; cursor:pointer; }
     img { max-width:100%; }
     .empty-box { text-align:center; padding:60px 20px; color:#8B7E72; }
     .empty-box p { font-size:16px; font-style:italic; margin-top:12px; }
@@ -379,10 +379,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* TOP NAVIGATION BAR */}
       <nav className="topnav">
         <Link href="/admin" className="topnav-brand">
-          <div className="topnav-brand-icon">🇸🇪</div>
+          <div className="topnav-brand-icon">🇸🇪🇬🇧</div>
           <div className="topnav-brand-text">
-            <span className="topnav-brand-main">Svenska</span>
-            <span className="topnav-brand-sub">ERP Admin</span>
+            <span className="topnav-brand-main">Heather & Lingon</span>
+            <span className="topnav-brand-sub">Admin</span>
           </div>
         </Link>
 
@@ -399,7 +399,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         <div className="topnav-spacer" />
 
-        <a href="https://svenska-delikatessen.vercel.app" target="_blank" rel="noopener" className="topnav-link" title="Voir le site">
+        <a href="https://heather-lingon.vercel.app" target="_blank" rel="noopener" className="topnav-link" title="Voir le site">
           🌐 <span>Voir le site</span>
         </a>
         <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" className="topnav-link" title="Supabase">

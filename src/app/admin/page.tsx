@@ -8,8 +8,8 @@ const APPS = [
     icon: '🛍️',
     label: 'Boutique',
     desc: 'Produits · Stock · Commandes',
-    color: '#3E5238',
-    bg: 'linear-gradient(135deg, #3E5238 0%, #587050 100%)',
+    color: '#7B4F7B',
+    bg: 'linear-gradient(135deg, #7B4F7B 0%, #9E6E9E 100%)',
   },
   {
     href: '/admin/achats',
@@ -49,7 +49,7 @@ const APPS = [
     label: 'Contenu',
     desc: 'Home CMS · Médiathèque',
     color: '#8B5E3C',
-    bg: 'linear-gradient(135deg, #8B5E3C 0%, #BC7455 100%)',
+    bg: 'linear-gradient(135deg, #8B5E3C 0%, #AA4455 100%)',
   },
   {
     href: '/admin/stock',
@@ -114,12 +114,12 @@ export default function AdminHome() {
     <div className="launcher">
       {/* Welcome */}
       <div className="launcher-welcome">
-        <div className="launcher-flag">🇸🇪</div>
+        <div className="launcher-flag">🇸🇪🇬🇧</div>
         <h1 className="launcher-title">
           {greeting}, <em>{firstName}</em>
         </h1>
         <p className="launcher-sub">
-          Svenska Delikatessen · Admin &nbsp;·&nbsp;
+          Heather & Lingon · Admin &nbsp;·&nbsp;
           {stats ? `${stats.products} produits · ${stats.categories} catégories` : '···'}
         </p>
       </div>
@@ -161,7 +161,7 @@ export default function AdminHome() {
 
       {/* Footer links */}
       <div className="launcher-footer">
-        <a href="https://svenska-delikatessen.vercel.app" target="_blank" rel="noopener" className="launcher-footer-link">
+        <a href="https://heather-lingon.vercel.app" target="_blank" rel="noopener" className="launcher-footer-link">
           🌐 Voir le site
         </a>
         <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
@@ -174,7 +174,7 @@ export default function AdminHome() {
         </a>
         <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>
-          Svenska Delikatessen © 2026
+          Heather & Lingon © 2026
         </span>
       </div>
     </div>
