@@ -91,6 +91,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const [email, setEmail] = useState('');
+  const [siteName, setSiteName] = useState('Heather & Lingon');
   const [mobOpen, setMob] = useState(false);
 
   const isHome = pathname === '/admin';
@@ -106,6 +107,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setEmail(mail || 'Admin');
     fetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!r.ok) { localStorage.clear(); router.replace('/login'); } });
+    fetch('/api/white-label')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.config?.site_name) setSiteName(data.config.site_name); })
+      .catch(() => {});
   }, []);
 
   function logout() { localStorage.clear(); router.replace('/login'); }
@@ -381,7 +386,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <Link href="/admin" className="topnav-brand">
           <div className="topnav-brand-icon">🇸🇪🇬🇧</div>
           <div className="topnav-brand-text">
-            <span className="topnav-brand-main">Heather & Lingon</span>
+            <span className="topnav-brand-main">{siteName}</span>
             <span className="topnav-brand-sub">Admin</span>
           </div>
         </Link>
