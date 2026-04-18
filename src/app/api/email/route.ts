@@ -204,10 +204,10 @@ export async function POST(req: NextRequest) {
       } else if (campaign.target_segment === 'new_customers') {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: orders } = await supabaseAdmin.from('orders').select('customer_email').gte('created_at', thirtyDaysAgo);
-        emails = [...new Set((orders || []).map((o: any) => o.customer_email).filter(Boolean))];
+        emails = Array.from(new Set((orders || []).map((o: any) => o.customer_email).filter(Boolean)));
       } else if (campaign.target_segment === 'abandoned_cart') {
         const { data: carts } = await supabaseAdmin.from('abandoned_carts').select('customer_email').eq('recovered', false);
-        emails = [...new Set((carts || []).map((c: any) => c.customer_email).filter(Boolean))];
+        emails = Array.from(new Set((carts || []).map((c: any) => c.customer_email).filter(Boolean)));
       }
 
       if (emails.length === 0) return NextResponse.json({ error: 'Aucun destinataire trouvé' }, { status: 400 });
