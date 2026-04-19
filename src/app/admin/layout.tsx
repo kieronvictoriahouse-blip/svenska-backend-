@@ -9,12 +9,13 @@ const APPS = [
     label: 'Boutique',
     icon: '🛍️',
     color: '#7B4F7B',
-    paths: ['/admin/produits', '/admin/categories', '/admin/stock', '/admin/commandes'],
+    paths: ['/admin/produits', '/admin/categories', '/admin/stock', '/admin/commandes', '/admin/import'],
     nav: [
       { href: '/admin/produits',  icon: '📦', label: 'Produits' },
       { href: '/admin/categories',icon: '🗂️', label: 'Catégories' },
       { href: '/admin/stock',     icon: '🔢', label: 'Stocks' },
       { href: '/admin/commandes', icon: '🛒', label: 'Commandes' },
+      { href: '/admin/import',    icon: '📥', label: 'Import URL' },
     ],
   },
   {
