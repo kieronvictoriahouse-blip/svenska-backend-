@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   // Extract image URLs from raw HTML before cleaning
   const imgMatches = html.match(/https?:\/\/[^"'\s]+\.(jpg|jpeg|png|webp)[^"'\s]*/gi) || [];
-  const imageUrls = [...new Set(imgMatches)].slice(0, 8);
+  const imageUrls = Array.from(new Set(imgMatches)).slice(0, 8);
 
   // Call Claude to extract + translate
   let product: any;
