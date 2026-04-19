@@ -3,6 +3,12 @@ import { useState, useRef } from 'react';
 
 type Variant = { label: string; price: string };
 
+type Nutrition = {
+  energie: string; graisses: string; dont_satures: string;
+  glucides: string; dont_sucres: string; fibres: string;
+  proteines: string; sel: string; portion: string;
+};
+
 type ProductFormData = {
   category_id: string;
   name_sv: string; name_fr: string; name_en: string;
@@ -23,6 +29,7 @@ type ProductFormData = {
   ingredients_sv: string; ingredients_fr: string; ingredients_en: string;
   allergens_sv: string; allergens_fr: string; allergens_en: string;
   storage_sv: string; storage_fr: string; storage_en: string;
+  nutrition: Nutrition;
   variants: Variant[];
 };
 
@@ -39,6 +46,7 @@ const EMPTY: ProductFormData = {
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
   allergens_sv: '', allergens_fr: '', allergens_en: '',
   storage_sv: '', storage_fr: '', storage_en: '',
+  nutrition: { energie: '', graisses: '', dont_satures: '', glucides: '', dont_sucres: '', fibres: '', proteines: '', sel: '', portion: '' },
   variants: [{ label: '', price: '' }],
 };
 
@@ -264,6 +272,39 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                 />
                 <p className="form-hint">Séparer par des virgules. Ces tags servent aux filtres de la boutique.</p>
               </div>
+            </div>
+          </div>
+
+          {/* Nutrition */}
+          <div className="card">
+            <div className="card-header"><span className="card-title">📊 Valeurs nutritionnelles</span></div>
+            <div className="card-body">
+              <p className="form-hint" style={{ marginBottom: 16 }}>Pour 100g — laisser vide si non applicable. Rempli automatiquement par l&apos;import URL.</p>
+              <div className="form-group">
+                <label className="form-label">Taille de la portion</label>
+                <input className="form-control" placeholder="Ex : 30g, 1 sachet (25g)…"
+                  value={form.nutrition.portion}
+                  onChange={e => set('nutrition', { ...form.nutrition, portion: e.target.value })} />
+              </div>
+              {([
+                ['energie',      'Énergie (kcal/kJ)',     'Ex : 452 kcal / 1891 kJ'],
+                ['graisses',     'Matières grasses (g)',  'Ex : 18g'],
+                ['dont_satures', '— dont acides gras saturés (g)', 'Ex : 2.5g'],
+                ['glucides',     'Glucides (g)',          'Ex : 62g'],
+                ['dont_sucres',  '— dont sucres (g)',     'Ex : 4g'],
+                ['fibres',       'Fibres (g)',            'Ex : 3g'],
+                ['proteines',    'Protéines (g)',         'Ex : 8g'],
+                ['sel',          'Sel (g)',               'Ex : 1.2g'],
+              ] as [keyof Nutrition, string, string][]).map(([key, label, ph]) => (
+                <div key={key} className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                  <label className="form-label" style={{ margin: 0, fontSize: 13, color: key.startsWith('dont') ? 'var(--dust)' : undefined, paddingLeft: key.startsWith('dont') ? 12 : 0 }}>
+                    {label}
+                  </label>
+                  <input className="form-control" placeholder={ph}
+                    value={(form.nutrition as any)[key] || ''}
+                    onChange={e => set('nutrition', { ...form.nutrition, [key]: e.target.value })} />
+                </div>
+              ))}
             </div>
           </div>
         </div>
