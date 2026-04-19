@@ -46,7 +46,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     'ingredients_sv', 'ingredients_fr', 'ingredients_en',
     'storage_sv', 'storage_fr', 'storage_en',
     'allergens_sv', 'allergens_fr', 'allergens_en',
-    'nutrition',
+    'nutrition', 'extra_images',
   ];
   fields.forEach(f => { if (body[f] !== undefined) updateData[f] = body[f]; });
 

@@ -21,6 +21,7 @@ type ProductFormData = {
   tags: string;
   usage_sv: string; usage_fr: string; usage_en: string;
   ingredients_sv: string; ingredients_fr: string; ingredients_en: string;
+  allergens_sv: string; allergens_fr: string; allergens_en: string;
   storage_sv: string; storage_fr: string; storage_en: string;
   variants: Variant[];
 };
@@ -36,6 +37,7 @@ const EMPTY: ProductFormData = {
   rating: '4.5', reviews_count: '0', tags: '',
   usage_sv: '', usage_fr: '', usage_en: '',
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
+  allergens_sv: '', allergens_fr: '', allergens_en: '',
   storage_sv: '', storage_fr: '', storage_en: '',
   variants: [{ label: '', price: '' }],
 };
@@ -209,6 +211,14 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                   placeholder="Liste des ingrédients…"
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label">⚠️ Allergènes</label>
+                <input className="form-control"
+                  value={form[`allergens_${lang}`]}
+                  onChange={e => set(`allergens_${lang}`, e.target.value)}
+                  placeholder="Ex : Contient : gluten, lait, moutarde"
+                />
+              </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">🏠 Conservation</label>
                 <input className="form-control"
@@ -309,7 +319,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
               {form.image_url ? (
                 <div style={{ marginBottom: 12 }}>
                   <img src={form.image_url} alt="Preview"
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--linen)' }} />
+                    style={{ width: '100%', aspectRatio: '1', objectFit: 'contain', padding: 8, background: 'var(--cream)', borderRadius: 'var(--radius)', border: '1px solid var(--linen)' }} />
                   <button type="button" className="btn btn-danger btn-sm"
                     style={{ width: '100%', marginTop: 8, justifyContent: 'center' }}
                     onClick={() => set('image_url', '')}>

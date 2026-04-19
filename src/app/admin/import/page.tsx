@@ -65,6 +65,7 @@ export default function ImportPage() {
         weight: product.weight || null,
         origin_sv: product.origin_sv || '', origin_fr: product.origin_fr || '', origin_en: product.origin_en || '',
         image_url: selectedImg || null,
+        extra_images: (product.image_urls || []).filter((u: string) => u !== selectedImg),
         is_bestseller: product.is_bestseller || false,
         is_new: product.is_new !== false,
         is_active: true,
