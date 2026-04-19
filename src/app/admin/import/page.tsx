@@ -15,6 +15,7 @@ export default function ImportPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryId, setCategoryId] = useState('');
   const [selectedImg, setSelectedImg] = useState('');
+  const [extraImgs, setExtraImgs] = useState<Set<string>>(new Set());
   const [lang, setLang] = useState<'fr' | 'sv' | 'en'>('fr');
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
@@ -38,6 +39,7 @@ export default function ImportPage() {
       setProduct(data.product);
       setCategories(data.categories || []);
       setSelectedImg(data.product.image_urls?.[0] || '');
+      setExtraImgs(new Set());
       const match = data.categories?.find((c: Category) =>
         c.name_fr.toLowerCase().includes((data.product.category || '').toLowerCase())
       );
@@ -65,7 +67,7 @@ export default function ImportPage() {
         weight: product.weight || null,
         origin_sv: product.origin_sv || '', origin_fr: product.origin_fr || '', origin_en: product.origin_en || '',
         image_url: selectedImg || null,
-        extra_images: (product.image_urls || []).filter((u: string) => u !== selectedImg),
+        extra_images: Array.from(extraImgs).filter(u => u !== selectedImg),
         is_bestseller: product.is_bestseller || false,
         is_new: product.is_new !== false,
         is_active: true,
@@ -291,32 +293,59 @@ export default function ImportPage() {
             {/* RIGHT — image + actions */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="card">
-                <div className="card-header"><span className="card-title">🖼️ Image</span></div>
-                <div style={{ padding: '16px 20px' }}>
-                  <div style={{ marginBottom: 14, background: '#F8F5F0', borderRadius: 8, padding: 12, textAlign: 'center', minHeight: 160, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {selectedImg
-                      ? <img src={selectedImg} alt="" style={{ maxHeight: 160, maxWidth: '100%', objectFit: 'contain', borderRadius: 6 }} />
-                      : <span style={{ color: '#A09688', fontSize: 13 }}>Aucune image</span>}
+                <div className="card-header"><span className="card-title">🖼️ Images</span></div>
+                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* Image principale */}
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#5A5248', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Image principale</p>
+                    <div style={{ marginBottom: 10, background: '#F8F5F0', borderRadius: 8, padding: 12, textAlign: 'center', minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {selectedImg
+                        ? <img src={selectedImg} alt="" style={{ maxHeight: 140, maxWidth: '100%', objectFit: 'contain', borderRadius: 6 }} />
+                        : <span style={{ color: '#A09688', fontSize: 13 }}>Aucune image sélectionnée</span>}
+                    </div>
+                    <input className="form-control" placeholder="https://..." value={selectedImg} onChange={e => setSelectedImg(e.target.value)} style={{ fontSize: 12 }} />
                   </div>
-                  <div className="form-group" style={{ margin: '0 0 12px' }}>
-                    <label className="form-label">URL image</label>
-                    <input className="form-control" placeholder="https://..." value={selectedImg} onChange={e => setSelectedImg(e.target.value)} />
-                  </div>
+
+                  {/* Sélecteur depuis images trouvées */}
                   {p.image_urls?.length > 0 && (
-                    <>
-                      <p style={{ fontSize: 11, color: '#8B7E72', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
-                        Trouvées ({p.image_urls.length})
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: '#5A5248', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                        Images trouvées — cliquer pour définir comme principale
                       </p>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {p.image_urls.slice(0, 8).map((u: string, i: number) => (
-                          <div key={i} onClick={() => setSelectedImg(u)}
-                            style={{ width: 66, height: 66, border: `2px solid ${selectedImg === u ? '#7B4F7B' : '#E8E4DE'}`, borderRadius: 6, overflow: 'hidden', cursor: 'pointer', background: '#F8F5F0' }}>
-                            <img src={u} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        {p.image_urls.slice(0, 10).map((u: string, i: number) => (
+                          <div key={i}
+                            style={{ position: 'relative', width: 64, height: 64, border: `2px solid ${selectedImg === u ? '#7B4F7B' : '#E8E4DE'}`, borderRadius: 6, overflow: 'visible', background: '#F8F5F0', flexShrink: 0 }}>
+                            <img src={u} alt="" onClick={() => setSelectedImg(u)}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', borderRadius: 4 }}
+                              onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }} />
+                            {selectedImg !== u && (
+                              <div style={{ position: 'absolute', top: -6, right: -6 }}>
+                                <input type="checkbox"
+                                  checked={extraImgs.has(u)}
+                                  onChange={() => {
+                                    setExtraImgs(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(u)) next.delete(u); else next.add(u);
+                                      return next;
+                                    });
+                                  }}
+                                  title="Ajouter à la galerie"
+                                  style={{ width: 16, height: 16, accentColor: '#7B4F7B', cursor: 'pointer' }}
+                                />
+                              </div>
+                            )}
+                            {selectedImg === u && (
+                              <div style={{ position: 'absolute', top: -6, right: -6, background: '#7B4F7B', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff' }}>★</div>
+                            )}
                           </div>
                         ))}
                       </div>
-                    </>
+                      <p style={{ fontSize: 11, color: '#A09688', marginTop: 6 }}>
+                        ★ = principale · ☑ = galerie ({extraImgs.size} sélectionnée{extraImgs.size > 1 ? 's' : ''})
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>

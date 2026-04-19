@@ -30,6 +30,7 @@ type ProductFormData = {
   allergens_sv: string; allergens_fr: string; allergens_en: string;
   storage_sv: string; storage_fr: string; storage_en: string;
   nutrition: Nutrition;
+  extra_images: string[];
   variants: Variant[];
 };
 
@@ -47,6 +48,7 @@ const EMPTY: ProductFormData = {
   allergens_sv: '', allergens_fr: '', allergens_en: '',
   storage_sv: '', storage_fr: '', storage_en: '',
   nutrition: { energie: '', graisses: '', dont_satures: '', glucides: '', dont_sucres: '', fibres: '', proteines: '', sel: '', portion: '' },
+  extra_images: [],
   variants: [{ label: '', price: '' }],
 };
 
@@ -59,10 +61,11 @@ type Props = {
 };
 
 export default function ProductForm({ initialData, categories, onSave, saving, toast }: Props) {
-  const [form, setForm]       = useState<ProductFormData>({ ...EMPTY, ...initialData });
+  const [form, setForm]       = useState<ProductFormData>({ ...EMPTY, ...initialData, extra_images: (initialData as any)?.extra_images || [] });
   const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver]   = useState(false);
+  const [newExtraUrl, setNewExtraUrl] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   function set(field: keyof ProductFormData, value: any) {
@@ -394,6 +397,49 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                   onChange={e => set('image_url', e.target.value)}
                   placeholder="https://images.unsplash.com/…"
                 />
+              </div>
+
+              {/* Galerie complémentaire */}
+              <div style={{ marginTop: 20, borderTop: '1px solid var(--linen)', paddingTop: 16 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--dust)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                  Images galerie ({form.extra_images.length})
+                </p>
+                {form.extra_images.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    {form.extra_images.map((u, i) => (
+                      <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--linen)', background: 'var(--cream)', flexShrink: 0 }}>
+                        <img src={u} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} onError={e => { (e.target as HTMLImageElement).parentElement!.style.opacity = '0.3'; }} />
+                        <button type="button"
+                          onClick={() => set('extra_images', form.extra_images.filter((_, idx) => idx !== i) as any)}
+                          style={{ position: 'absolute', top: 1, right: 1, background: 'rgba(198,40,40,0.85)', border: 'none', color: '#fff', width: 16, height: 16, borderRadius: '50%', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input className="form-control" type="url" placeholder="https://... URL image galerie"
+                    value={newExtraUrl} onChange={e => setNewExtraUrl(e.target.value)}
+                    style={{ fontSize: 12 }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newExtraUrl.trim()) {
+                        e.preventDefault();
+                        set('extra_images', [...form.extra_images, newExtraUrl.trim()] as any);
+                        setNewExtraUrl('');
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn btn-secondary btn-sm"
+                    style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                    onClick={() => {
+                      if (!newExtraUrl.trim()) return;
+                      set('extra_images', [...form.extra_images, newExtraUrl.trim()] as any);
+                      setNewExtraUrl('');
+                    }}>
+                    + Ajouter
+                  </button>
+                </div>
               </div>
             </div>
           </div>
