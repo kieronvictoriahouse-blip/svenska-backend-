@@ -51,19 +51,16 @@ export default function ImportPage() {
     setSaving(true);
     try {
       const token = localStorage.getItem('sd_admin_token');
-      const buildIngr = (l: string) => {
-        const ingr = product[`ingredients_${l}`] || '';
-        const alrg = product[`allergens_${l}`] || '';
-        return alrg ? `${ingr}\n\n${alrg}` : ingr;
-      };
       const body = {
         category_id: categoryId || null,
         name_sv: product.name_sv || '', name_fr: product.name_fr || '', name_en: product.name_en || '',
         subtitle_sv: product.subtitle_sv || '', subtitle_fr: product.subtitle_fr || '', subtitle_en: product.subtitle_en || '',
         desc_sv: product.desc_sv || '', desc_fr: product.desc_fr || '', desc_en: product.desc_en || '',
-        ingredients_sv: buildIngr('sv'), ingredients_fr: buildIngr('fr'), ingredients_en: buildIngr('en'),
+        ingredients_sv: product.ingredients_sv || '', ingredients_fr: product.ingredients_fr || '', ingredients_en: product.ingredients_en || '',
+        allergens_sv: product.allergens_sv || '', allergens_fr: product.allergens_fr || '', allergens_en: product.allergens_en || '',
         storage_sv: product.storage_sv || '', storage_fr: product.storage_fr || '', storage_en: product.storage_en || '',
         usage_sv: product.usage_sv || '', usage_fr: product.usage_fr || '', usage_en: product.usage_en || '',
+        nutrition: product.nutrition || {},
         price: product.price || 0,
         weight: product.weight || null,
         origin_sv: product.origin_sv || '', origin_fr: product.origin_fr || '', origin_en: product.origin_en || '',

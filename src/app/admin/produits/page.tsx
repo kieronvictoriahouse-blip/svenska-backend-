@@ -10,6 +10,8 @@ export default function ProduitsPage() {
   const [filterCat, setFilterCat] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [toast, setToast] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -37,6 +39,40 @@ export default function ProduitsPage() {
     showToast(!current ? '✅ Produit activé' : '🙈 Produit masqué');
   }
 
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map(p => p.id)));
+    }
+  }
+
+  async function deleteSelected() {
+    if (selected.size === 0) return;
+    const confirmed = window.confirm(`Supprimer définitivement ${selected.size} produit(s) ? Cette action est irréversible.`);
+    if (!confirmed) return;
+    setDeleting(true);
+    const token = localStorage.getItem('sd_admin_token');
+    await Promise.all(Array.from(selected).map(id =>
+      fetch(`/api/products/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ));
+    setProducts(ps => ps.filter(p => !selected.has(p.id)));
+    setSelected(new Set());
+    setDeleting(false);
+    showToast(`🗑️ ${selected.size} produit(s) supprimé(s)`);
+  }
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(''), 2800);
@@ -54,6 +90,12 @@ export default function ProduitsPage() {
       <div className="topbar">
         <div className="topbar-title">Produits <span style={{ fontWeight: 400, color: 'var(--dust)', fontSize: 14 }}>({filtered.length})</span></div>
         <div className="topbar-actions">
+          {selected.size > 0 && (
+            <button className="btn btn-sm" onClick={deleteSelected} disabled={deleting}
+              style={{ background: '#C62828', color: '#fff', border: 'none' }}>
+              {deleting ? '⏳' : '🗑️'} Supprimer ({selected.size})
+            </button>
+          )}
           <Link href="/admin/produits/nouveau" className="btn btn-primary btn-sm">+ Nouveau produit</Link>
         </div>
       </div>
@@ -88,6 +130,13 @@ export default function ProduitsPage() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th style={{ width: 36 }}>
+                      <input type="checkbox"
+                        checked={filtered.length > 0 && selected.size === filtered.length}
+                        onChange={toggleSelectAll}
+                        title="Tout sélectionner"
+                      />
+                    </th>
                     <th>Image</th>
                     <th>Produit</th>
                     <th>Catégorie</th>
@@ -100,10 +149,16 @@ export default function ProduitsPage() {
                 </thead>
                 <tbody>
                   {filtered.map(p => (
-                    <tr key={p.id}>
+                    <tr key={p.id} style={{ background: selected.has(p.id) ? 'rgba(123,79,123,0.06)' : undefined }}>
+                      <td>
+                        <input type="checkbox"
+                          checked={selected.has(p.id)}
+                          onChange={() => toggleSelect(p.id)}
+                        />
+                      </td>
                       <td>
                         {p.image_url
-                          ? <img src={p.image_url} alt={p.name_fr} className="td-img" />
+                          ? <img src={p.image_url} alt={p.name_fr} className="td-img" style={{ objectFit: 'contain', background: 'var(--cream)', padding: 4 }} />
                           : <div className="td-img" style={{ display:'flex',alignItems:'center',justifyContent:'center',background:'var(--cream)',fontSize:22,borderRadius:4 }}>📦</div>
                         }
                       </td>
