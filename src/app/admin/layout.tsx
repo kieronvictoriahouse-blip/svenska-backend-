@@ -114,6 +114,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       .catch(() => {});
   }, []);
 
+  // Fermer la sidebar au changement de page
+  useEffect(() => { setMob(false); }, [pathname]);
+
   function logout() { localStorage.clear(); router.replace('/login'); }
 
   const initials = email.split('@')[0]?.slice(0, 2).toUpperCase() || 'AD';
@@ -360,21 +363,50 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     .empty-box { text-align:center; padding:60px 20px; color:#8B7E72; }
     .empty-box p { font-size:16px; font-style:italic; margin-top:12px; }
 
+    /* HAMBURGER */
+    .nav-ham {
+      display: none; align-items: center; justify-content: center;
+      width: 48px; height: 52px; background: none; border: none;
+      color: rgba(255,255,255,0.7); font-size: 20px; cursor: pointer;
+      border-right: 1px solid rgba(255,255,255,0.07); flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .nav-ham:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+    /* OVERLAY */
+    .sidebar-overlay {
+      position: fixed; inset: 0; z-index: 99;
+      background: rgba(0,0,0,0.45); backdrop-filter: blur(2px);
+    }
+
     @media(max-width: 900px) {
+      .nav-ham { display: flex; }
       .launcher-grid { grid-template-columns:repeat(2,1fr); }
       .stats-grid { grid-template-columns:1fr 1fr; }
       .form-two { grid-template-columns:1fr; }
-      .module-sidebar { display:none; }
+      .module-sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.25s cubic-bezier(.4,0,.2,1);
+        box-shadow: none;
+      }
+      .module-sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+      }
       .admin-main { margin-left:0 !important; padding:16px; }
+      .topbar { padding: 0 16px; flex-wrap: wrap; gap: 8px; height: auto; min-height: 52px; padding-top: 8px; padding-bottom: 8px; }
     }
     @media(max-width: 500px) {
       .launcher-grid { grid-template-columns:1fr 1fr; gap:10px; }
-      .launcher { padding:40px 20px; }
+      .launcher { padding:40px 16px; }
       .launcher-title { font-size:28px; }
       .app-tile { padding:20px 12px; }
       .app-tile-icon { width:48px; height:48px; font-size:22px; }
       .topnav-brand { min-width:unset; }
+      .topnav-brand-text { display:none; }
       .topnav-user-name { display:none; }
+      .topnav-link { display:none; }
+      .admin-main { padding: 12px; }
     }
   `;
 
@@ -391,6 +423,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <span className="topnav-brand-sub">Admin</span>
           </div>
         </Link>
+
+        {!isHome && currentApp && (
+          <button className="nav-ham" onClick={() => setMob(o => !o)} title="Menu" aria-label="Menu">
+            {mobOpen ? '✕' : '☰'}
+          </button>
+        )}
 
         <Link href="/admin" className={`topnav-home ${isHome ? 'active' : ''}`} title="Accueil">
           ⊞
@@ -420,9 +458,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </nav>
 
       <div className="admin-shell">
+        {/* OVERLAY mobile */}
+        {mobOpen && <div className="sidebar-overlay" onClick={() => setMob(false)} />}
+
         {/* MODULE SIDEBAR — visible uniquement hors home */}
         {!isHome && currentApp && (
-          <aside className="module-sidebar">
+          <aside className={`module-sidebar${mobOpen ? ' open' : ''}`}>
             <div className="module-sidebar-header" style={{ color: currentApp.color }}>
               {currentApp.icon} {currentApp.label}
             </div>
