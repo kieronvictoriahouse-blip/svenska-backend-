@@ -6,6 +6,7 @@ import { useState } from 'react';
 type Category = { id: string; name_fr: string; slug: string };
 
 const LANG_FLAGS: Record<string, string> = { sv: '🇸🇪', fr: '🇫🇷', en: '🇬🇧' };
+const isWebpUrl = (u: string) => /\.webp(\?|$)/i.test(u);
 
 export default function ImportPage() {
   const [url, setUrl] = useState('');
@@ -23,6 +24,14 @@ export default function ImportPage() {
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
   function get(key: string): string { return product?.[`${key}_${lang}`] || ''; }
   function set(key: string, val: string) { setProduct((p: any) => ({ ...p, [`${key}_${lang}`]: val })); }
+
+  function handleMainImgError() {
+    if (!product?.image_urls) return;
+    const urls: string[] = product.image_urls;
+    const currentIdx = urls.indexOf(selectedImg);
+    const next = urls.slice(currentIdx + 1).find((u: string) => u !== selectedImg);
+    if (next) setSelectedImg(next);
+  }
 
   async function analyse() {
     if (!url.trim()) return;
@@ -301,10 +310,13 @@ export default function ImportPage() {
                     <p style={{ fontSize: 11, fontWeight: 700, color: '#5A5248', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Image principale</p>
                     <div style={{ marginBottom: 10, background: '#F8F5F0', borderRadius: 8, padding: 12, textAlign: 'center', minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {selectedImg
-                        ? <img src={selectedImg} alt="" style={{ maxHeight: 140, maxWidth: '100%', objectFit: 'contain', borderRadius: 6 }} />
+                        ? <img src={selectedImg} alt="" onError={handleMainImgError} style={{ maxHeight: 140, maxWidth: '100%', objectFit: 'contain', borderRadius: 6 }} />
                         : <span style={{ color: '#A09688', fontSize: 13 }}>Aucune image sélectionnée</span>}
                     </div>
-                    <input className="form-control" placeholder="https://..." value={selectedImg} onChange={e => setSelectedImg(e.target.value)} style={{ fontSize: 12 }} />
+                    <input className="form-control" placeholder="https://..." value={selectedImg} onChange={e => setSelectedImg(e.target.value)} style={{ fontSize: 12, borderColor: isWebpUrl(selectedImg) ? '#E65100' : undefined }} />
+                    {isWebpUrl(selectedImg) && (
+                      <p style={{ fontSize: 11, color: '#E65100', marginTop: 4 }}>⚠️ Image WebP — peut être recadrée en carré par le CDN. Cliquez sur une autre vignette si disponible.</p>
+                    )}
                   </div>
 
                   {/* Sélecteur depuis images trouvées */}
@@ -314,12 +326,15 @@ export default function ImportPage() {
                         Images trouvées — cliquer pour définir comme principale
                       </p>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {p.image_urls.slice(0, 10).map((u: string, i: number) => (
+                        {p.image_urls.slice(0, 12).map((u: string, i: number) => (
                           <div key={i}
                             style={{ position: 'relative', width: 64, height: 64, border: `2px solid ${selectedImg === u ? '#7B4F7B' : '#E8E4DE'}`, borderRadius: 6, overflow: 'visible', background: '#F8F5F0', flexShrink: 0 }}>
                             <img src={u} alt="" onClick={() => setSelectedImg(u)}
                               style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', borderRadius: 4 }}
                               onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }} />
+                            {isWebpUrl(u) && (
+                              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(180,80,0,0.75)', fontSize: 7, color: '#fff', textAlign: 'center', borderBottomLeftRadius: 4, borderBottomRightRadius: 4, pointerEvents: 'none' }}>WebP</div>
+                            )}
                             {selectedImg !== u && (
                               <div style={{ position: 'absolute', top: -6, right: -6 }}>
                                 <input type="checkbox"

@@ -39,16 +39,26 @@ export async function POST(req: NextRequest) {
   const imgMatches = html.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
   const isWebp = (u: string) => /\.webp(\?|$)/i.test(u);
   const isNoise = (u: string) => u.includes('icon') || u.includes('logo') || u.includes('sprite');
-  const nonWebp = imgMatches.filter(u => !isNoise(u) && !isWebp(u));
-  const webpOnly = imgMatches.filter(u => !isNoise(u) && isWebp(u));
-  const imageUrls = Array.from(new Set([
-    ...(ogImage && !isWebp(ogImage) ? [ogImage] : []),
-    ...(twitterImage && !isWebp(twitterImage) ? [twitterImage] : []),
-    ...nonWebp,
-    ...(ogImage && isWebp(ogImage) ? [ogImage] : []),
-    ...(twitterImage && isWebp(twitterImage) ? [twitterImage] : []),
-    ...webpOnly,
-  ])).slice(0, 10);
+  // For WebP URLs: generate a .jpg candidate by replacing extension (CDNs often serve both)
+  const jpgVariant = (u: string) => u.replace(/\.webp(\?|$)/i, (_: string, s: string) => '.jpg' + (s || ''));
+
+  const candidates = [
+    ...(ogImage ? [ogImage] : []),
+    ...(twitterImage ? [twitterImage] : []),
+    ...imgMatches.filter(u => !isNoise(u)),
+  ];
+
+  // Expand: for each WebP URL insert a .jpg attempt before it so it gets priority
+  const expanded: string[] = [];
+  for (const u of candidates) {
+    if (isWebp(u)) {
+      expanded.push(jpgVariant(u));
+      expanded.push(u);
+    } else {
+      expanded.push(u);
+    }
+  }
+  const imageUrls = Array.from(new Set(expanded)).slice(0, 12);
 
   // Clean HTML — remove noise but keep text content
   const cleaned = html
