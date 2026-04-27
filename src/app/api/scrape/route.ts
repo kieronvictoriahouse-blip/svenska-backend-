@@ -43,8 +43,10 @@ export async function POST(req: NextRequest) {
   // Absolute URLs
   const absoluteMatches = html.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
   // Relative URLs from src/data-src attributes
-  const relativeMatches = [...html.matchAll(/(?:src|data-src)=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)/gi)]
-    .map(m => toAbsolute(m[1]));
+  const relativeMatches: string[] = [];
+  const relRe = /(?:src|data-src)=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)/gi;
+  let relM: RegExpExecArray | null;
+  while ((relM = relRe.exec(html)) !== null) relativeMatches.push(toAbsolute(relM[1]));
 
   const isWebp = (u: string) => /\.webp(\?|$)/i.test(u);
   const isNoise = (u: string) => u.includes('icon') || u.includes('logo') || u.includes('sprite') || u.includes('paulig') || u.includes('kundo');
