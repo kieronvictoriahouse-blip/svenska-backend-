@@ -35,20 +35,29 @@ export async function POST(req: NextRequest) {
   const ogImage = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/i)?.[1] || '';
   const twitterImage = html.match(/<meta[^>]*name="twitter:image"[^>]*content="([^"]+)"/i)?.[1] || '';
 
-  // All image URLs from HTML — prefer non-WebP (WebP from CDNs often pre-cropped to 1:1 square)
-  const imgMatches = html.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
+  // Extract image URLs — absolute AND relative (Santa Maria and many sites use relative paths)
+  const baseOrigin = new URL(url).origin;
+  const toAbsolute = (u: string) =>
+    u.startsWith('http') ? u : `${baseOrigin}${u.startsWith('/') ? '' : '/'}${u}`;
+
+  // Absolute URLs
+  const absoluteMatches = html.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
+  // Relative URLs from src/data-src attributes
+  const relativeMatches = [...html.matchAll(/(?:src|data-src)=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)/gi)]
+    .map(m => toAbsolute(m[1]));
+
   const isWebp = (u: string) => /\.webp(\?|$)/i.test(u);
-  const isNoise = (u: string) => u.includes('icon') || u.includes('logo') || u.includes('sprite');
-  // For WebP URLs: generate a .jpg candidate by replacing extension (CDNs often serve both)
+  const isNoise = (u: string) => u.includes('icon') || u.includes('logo') || u.includes('sprite') || u.includes('paulig') || u.includes('kundo');
   const jpgVariant = (u: string) => u.replace(/\.webp(\?|$)/i, (_: string, s: string) => '.jpg' + (s || ''));
 
   const candidates = [
-    ...(ogImage ? [ogImage] : []),
-    ...(twitterImage ? [twitterImage] : []),
-    ...imgMatches.filter(u => !isNoise(u)),
+    ...(ogImage ? [toAbsolute(ogImage)] : []),
+    ...(twitterImage ? [toAbsolute(twitterImage)] : []),
+    ...relativeMatches.filter(u => !isNoise(u)),
+    ...absoluteMatches.map(toAbsolute).filter(u => !isNoise(u)),
   ];
 
-  // Expand: for each WebP URL insert a .jpg attempt before it so it gets priority
+  // For each WebP URL insert a .jpg attempt before it
   const expanded: string[] = [];
   for (const u of candidates) {
     if (isWebp(u)) {
