@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 type CmsItem = {
   key: string; label: string; type: string;
@@ -12,6 +12,9 @@ export default function HomeCmsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetKey = useRef<string>('');
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
 
@@ -41,6 +44,33 @@ export default function HomeCmsPage() {
 
   function update(key: string, field: string, val: string) {
     setEditing(e => ({ ...e, [key]: { ...e[key], [field]: val } }));
+  }
+
+  function openUpload(key: string) {
+    uploadTargetKey.current = key;
+    if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); }
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const key = uploadTargetKey.current;
+    setUploadingKey(key);
+    const token = localStorage.getItem('sd_admin_token');
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('folder', 'homepage');
+    const res = await fetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+    const data = await res.json();
+    setUploadingKey(null);
+    if (res.ok && data.url) {
+      update(key, 'value_fr', data.url);
+      update(key, 'value_sv', data.url);
+      update(key, 'value_en', data.url);
+      showToast('✅ Image uploadée !');
+    } else {
+      showToast('❌ Erreur upload : ' + (data.error || 'inconnue'));
+    }
   }
 
   if (loading) return <div style={{ padding: 40, color: '#6A7280' }}>Chargement…</div>;
@@ -122,17 +152,28 @@ export default function HomeCmsPage() {
             <div key={item.key} className="cms-item">
               <div className="cms-label">{item.label}</div>
               <div style={{ marginBottom: 10 }}>
-                <div className="cms-lang-label" style={{ marginBottom: 6 }}>URL de l'image (même pour toutes les langues)</div>
-                <input
-                  className="cms-input"
-                  placeholder="https://..."
-                  value={editing[item.key]?.value_fr || ''}
-                  onChange={e => {
-                    update(item.key, 'value_fr', e.target.value);
-                    update(item.key, 'value_sv', e.target.value);
-                    update(item.key, 'value_en', e.target.value);
-                  }}
-                />
+                <div className="cms-lang-label" style={{ marginBottom: 6 }}>URL de l'image</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    className="cms-input"
+                    placeholder="https://..."
+                    value={editing[item.key]?.value_fr || ''}
+                    onChange={e => {
+                      update(item.key, 'value_fr', e.target.value);
+                      update(item.key, 'value_sv', e.target.value);
+                      update(item.key, 'value_en', e.target.value);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                    disabled={uploadingKey === item.key}
+                    onClick={() => openUpload(item.key)}
+                  >
+                    {uploadingKey === item.key ? '⏳ Upload…' : '📁 Uploader'}
+                  </button>
+                </div>
               </div>
               {editing[item.key]?.value_fr && (
                 <div className="cms-preview">
@@ -142,6 +183,7 @@ export default function HomeCmsPage() {
             </div>
           ))}
         </div>
+        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFileChange} />
 
         <div style={{ fontSize: 12, color: '#6A7280', marginTop: 8 }}>
           💡 Après sauvegarde, les changements apparaissent sur le site dans les secondes qui suivent.
