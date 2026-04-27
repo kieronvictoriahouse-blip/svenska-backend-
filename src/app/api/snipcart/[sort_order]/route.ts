@@ -8,17 +8,13 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { sort_order: string } }
 ) {
-  const sortOrder = parseInt(params.sort_order);
-  if (isNaN(sortOrder)) {
-    return new NextResponse('Invalid id', { status: 400 });
-  }
+  const raw = params.sort_order;
+  const sortOrder = parseInt(raw);
 
-  const { data: product, error } = await supabaseAdmin
-    .from('products')
-    .select('*, product_variants(*)')
-    .eq('sort_order', sortOrder)
-    .eq('is_active', true)
-    .single();
+  let query = supabaseAdmin.from('products').select('*, product_variants(*)').eq('is_active', true);
+  query = isNaN(sortOrder) ? query.eq('id', raw) : query.eq('sort_order', sortOrder);
+
+  const { data: product, error } = await query.single();
 
   if (error || !product) {
     return new NextResponse('Product not found', { status: 404 });
