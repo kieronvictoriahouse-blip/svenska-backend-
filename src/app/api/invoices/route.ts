@@ -28,8 +28,10 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseAdmin.from('invoices').insert(body).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   // Incrémenter le compteur de factures
+  const { data: setting } = await supabaseAdmin
+    .from('company_settings').select('value').eq('key', 'invoice_next').single();
+  const nextNum = (parseInt(setting?.value || '1', 10) + 1).toString();
   await supabaseAdmin.from('company_settings')
-    .update({ value: String((parseInt((await supabaseAdmin.from('company_settings').select('value').eq('key','invoice_next').single()).data?.value || '1') + 1)) })
-    .eq('key', 'invoice_next');
+    .update({ value: nextNum }).eq('key', 'invoice_next');
   return NextResponse.json({ invoice: data }, { status: 201 });
 }

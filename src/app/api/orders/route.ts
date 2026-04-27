@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const count = await supabaseAdmin.from('orders').select('id', { count: 'exact' });
-  const num = String((count.count || 0) + 1).padStart(4, '0');
+  const { count: orderCount } = await supabaseAdmin.from('orders').select('id', { count: 'exact', head: true });
+  const num = String((orderCount || 0) + 1).padStart(4, '0');
   const { data, error } = await supabaseAdmin.from('orders').insert({
     ...body,
     order_number: `SD-${num}`,

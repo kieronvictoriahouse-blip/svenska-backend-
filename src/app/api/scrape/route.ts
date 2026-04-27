@@ -35,12 +35,19 @@ export async function POST(req: NextRequest) {
   const ogImage = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/i)?.[1] || '';
   const twitterImage = html.match(/<meta[^>]*name="twitter:image"[^>]*content="([^"]+)"/i)?.[1] || '';
 
-  // All image URLs from HTML
+  // All image URLs from HTML — prefer non-WebP (WebP from CDNs often pre-cropped to 1:1 square)
   const imgMatches = html.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
+  const isWebp = (u: string) => /\.webp(\?|$)/i.test(u);
+  const isNoise = (u: string) => u.includes('icon') || u.includes('logo') || u.includes('sprite');
+  const nonWebp = imgMatches.filter(u => !isNoise(u) && !isWebp(u));
+  const webpOnly = imgMatches.filter(u => !isNoise(u) && isWebp(u));
   const imageUrls = Array.from(new Set([
-    ...(ogImage ? [ogImage] : []),
-    ...(twitterImage ? [twitterImage] : []),
-    ...imgMatches.filter(u => !u.includes('icon') && !u.includes('logo') && !u.includes('sprite')),
+    ...(ogImage && !isWebp(ogImage) ? [ogImage] : []),
+    ...(twitterImage && !isWebp(twitterImage) ? [twitterImage] : []),
+    ...nonWebp,
+    ...(ogImage && isWebp(ogImage) ? [ogImage] : []),
+    ...(twitterImage && isWebp(twitterImage) ? [twitterImage] : []),
+    ...webpOnly,
   ])).slice(0, 10);
 
   // Clean HTML — remove noise but keep text content
