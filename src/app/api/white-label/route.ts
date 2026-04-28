@@ -3,23 +3,36 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 
 export async function GET() {
-  const { data, error } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ config: data || {} });
+  try {
+    const { data, error } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
+    if (error) {
+      console.error('[white-label] GET:', error.message);
+      return NextResponse.json({ config: {} });
+    }
+    return NextResponse.json({ config: data || {} });
+  } catch (e: any) {
+    console.error('[white-label] GET exception:', e.message);
+    return NextResponse.json({ config: {} });
+  }
 }
 
 export async function PUT(req: NextRequest) {
-  const body = await req.json();
-  const { data: existing } = await supabaseAdmin.from('white_label_config').select('id').limit(1).single();
-  let result;
-  if (existing) {
-    result = await supabaseAdmin.from('white_label_config')
-      .update({ ...body, updated_at: new Date().toISOString() }).eq('id', existing.id).select().single();
-  } else {
-    result = await supabaseAdmin.from('white_label_config').insert(body).select().single();
+  try {
+    const body = await req.json();
+    const { data: existing } = await supabaseAdmin.from('white_label_config').select('id').limit(1).maybeSingle();
+    let result;
+    if (existing) {
+      result = await supabaseAdmin.from('white_label_config')
+        .update({ ...body, updated_at: new Date().toISOString() }).eq('id', existing.id).select().maybeSingle();
+    } else {
+      result = await supabaseAdmin.from('white_label_config').insert(body).select().maybeSingle();
+    }
+    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+    return NextResponse.json({ config: result.data });
+  } catch (e: any) {
+    console.error('[white-label] PUT exception:', e.message);
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-  if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
-  return NextResponse.json({ config: result.data });
 }
 
 export async function POST(req: NextRequest) {
