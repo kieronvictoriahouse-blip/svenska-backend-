@@ -26,10 +26,32 @@ export async function POST(req: NextRequest) {
 
   // ── Extract structured data before cleaning ──────────────────────
   // JSON-LD (most reliable source for product data)
-  const jsonLdMatches = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
-  const jsonLdBlocks = jsonLdMatches.map(m => {
-    try { return JSON.stringify(JSON.parse(m.replace(/<[^>]+>/g, ''))); } catch { return ''; }
-  }).filter(Boolean).join('\n');
+  const jsonLdRaw = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  const jsonLdParsed: any[] = jsonLdRaw.map(m => {
+    try { return JSON.parse(m.replace(/<[^>]+>/g, '')); } catch { return null; }
+  }).filter(Boolean);
+  const jsonLdBlocks = jsonLdParsed.map(o => JSON.stringify(o)).join('\n');
+
+  // Extract image URLs from JSON-LD schema (most reliable for product images)
+  const jsonLdImages: string[] = [];
+  const extractLdImages = (obj: any) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj['@type'] === 'ImageObject' && obj.url) jsonLdImages.push(obj.url);
+    if (obj.image) {
+      const imgs = Array.isArray(obj.image) ? obj.image : [obj.image];
+      for (const img of imgs) {
+        if (typeof img === 'string') jsonLdImages.push(img);
+        else if (img?.url) jsonLdImages.push(img.url);
+      }
+    }
+    for (const v of Object.values(obj)) {
+      if (v && typeof v === 'object') extractLdImages(v);
+    }
+  };
+  for (const block of jsonLdParsed) {
+    if (Array.isArray(block)) block.forEach(extractLdImages);
+    else extractLdImages(block);
+  }
 
   // og:image and other meta images
   const ogImage = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/i)?.[1] || '';
@@ -37,26 +59,47 @@ export async function POST(req: NextRequest) {
 
   // Extract image URLs — absolute AND relative (Santa Maria and many sites use relative paths)
   const baseOrigin = new URL(url).origin;
-  const toAbsolute = (u: string) =>
-    u.startsWith('http') ? u : `${baseOrigin}${u.startsWith('/') ? '' : '/'}${u}`;
+  const toAbsolute = (u: string) => {
+    if (u.startsWith('http')) return u;
+    if (u.startsWith('//')) return 'https:' + u;
+    return `${baseOrigin}${u.startsWith('/') ? '' : '/'}${u}`;
+  };
 
-  // Absolute URLs
-  const absoluteMatches = html.match(/https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
-  // Relative URLs from src/data-src attributes
+  // Absolute URLs (including protocol-relative)
+  const absoluteMatches = html.match(/(?:https?:)?\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/gi) || [];
+  // Relative/absolute URLs from src/data-src/data-lazy-src/data-original attributes
   const relativeMatches: string[] = [];
-  const relRe = /(?:src|data-src)=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)/gi;
+  const relRe = /(?:src|data-src|data-lazy-src|data-original|data-full-url)=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)/gi;
   let relM: RegExpExecArray | null;
   while ((relM = relRe.exec(html)) !== null) relativeMatches.push(toAbsolute(relM[1]));
+
+  // srcset / data-srcset — pick the largest (first after splitting, before the width descriptor)
+  const srcsetMatches: string[] = [];
+  const srcsetRe = /(?:srcset|data-srcset)=["']([^"']+)/gi;
+  let ssM: RegExpExecArray | null;
+  while ((ssM = srcsetRe.exec(html)) !== null) {
+    const entries = ssM[1].split(',').map(e => e.trim());
+    for (const entry of entries) {
+      const rawUrl = entry.split(/\s+/)[0];
+      if (rawUrl && /\.(?:jpg|jpeg|png|webp)/i.test(rawUrl)) {
+        srcsetMatches.push(toAbsolute(rawUrl));
+      }
+    }
+  }
 
   const isWebp = (u: string) => /\.webp(\?|$)/i.test(u);
   const isNoise = (u: string) => u.includes('icon') || u.includes('logo') || u.includes('sprite') || u.includes('paulig') || u.includes('kundo');
   const jpgVariant = (u: string) => u.replace(/\.webp(\?|$)/i, (_: string, s: string) => '.jpg' + (s || ''));
+  // Prefer larger images — filter out obvious thumbnails (e.g. -9x12, -50x50)
+  const isThumbnail = (u: string) => /-\d{1,3}x\d{1,3}\.(?:jpg|jpeg|png|webp)/i.test(u);
 
   const candidates = [
+    ...jsonLdImages.map(toAbsolute).filter(u => !isNoise(u)),
     ...(ogImage ? [toAbsolute(ogImage)] : []),
     ...(twitterImage ? [toAbsolute(twitterImage)] : []),
-    ...relativeMatches.filter(u => !isNoise(u)),
-    ...absoluteMatches.map(toAbsolute).filter(u => !isNoise(u)),
+    ...relativeMatches.filter(u => !isNoise(u) && !isThumbnail(u)),
+    ...srcsetMatches.filter(u => !isNoise(u) && !isThumbnail(u)),
+    ...absoluteMatches.map(toAbsolute).filter(u => !isNoise(u) && !isThumbnail(u)),
   ];
 
   // For each WebP URL insert a .jpg attempt before it
