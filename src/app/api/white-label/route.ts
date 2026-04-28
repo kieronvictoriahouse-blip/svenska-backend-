@@ -3,7 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 
 export async function GET() {
-  const { data } = await supabaseAdmin.from('white_label_config').select('*').limit(1).single();
+  const { data, error } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ config: data || {} });
 }
 
