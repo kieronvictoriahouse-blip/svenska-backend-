@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 
 type CmsItem = {
   key: string; label: string; type: string;
@@ -13,8 +13,6 @@ export default function HomeCmsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadTargetKey = useRef<string>('');
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
 
@@ -46,15 +44,10 @@ export default function HomeCmsPage() {
     setEditing(e => ({ ...e, [key]: { ...e[key], [field]: val } }));
   }
 
-  function openUpload(key: string) {
-    uploadTargetKey.current = key;
-    if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); }
-  }
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>, key: string) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const key = uploadTargetKey.current;
+    e.target.value = '';
     setUploadingKey(key);
     const token = localStorage.getItem('sd_admin_token');
     const fd = new FormData();
@@ -165,14 +158,23 @@ export default function HomeCmsPage() {
                     }}
                     style={{ flex: 1 }}
                   />
-                  <button
+                  <label
                     className="btn btn-primary"
-                    style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-                    disabled={uploadingKey === item.key}
-                    onClick={() => openUpload(item.key)}
+                    style={{
+                      whiteSpace: 'nowrap', flexShrink: 0,
+                      cursor: uploadingKey ? 'not-allowed' : 'pointer',
+                      opacity: uploadingKey === item.key ? 0.6 : 1,
+                    }}
                   >
                     {uploadingKey === item.key ? '⏳ Upload…' : '📁 Uploader'}
-                  </button>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/*"
+                      style={{ display: 'none' }}
+                      disabled={!!uploadingKey}
+                      onChange={e => handleFileChange(e, item.key)}
+                    />
+                  </label>
                 </div>
               </div>
               {editing[item.key]?.value_fr && (
@@ -183,7 +185,6 @@ export default function HomeCmsPage() {
             </div>
           ))}
         </div>
-        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFileChange} />
 
         <div style={{ fontSize: 12, color: '#6A7280', marginTop: 8 }}>
           💡 Après sauvegarde, les changements apparaissent sur le site dans les secondes qui suivent.
