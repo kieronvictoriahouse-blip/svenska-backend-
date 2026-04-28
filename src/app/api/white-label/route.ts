@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
+// Colonnes acceptées — évite une 500 si la page envoie un champ inconnu
+const ALLOWED = new Set([
+  'site_name','site_slogan','site_description','logo_url','favicon_url',
+  'color_primary','color_secondary','color_bg','color_text',
+  'font_display','font_body','font_ui',
+  'email','phone','address','siret','tva',
+  'instagram','facebook','pinterest','currency','tva_rate','free_shipping_threshold',
+  'smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from',
+  'stripe_public_key','stripe_secret_key',
+  'announcement_fr','announcement_sv','announcement_en',
+  'footer_desc_fr','footer_desc_sv','footer_desc_en',
+  'footer_tagline_fr','footer_tagline_sv','footer_tagline_en',
+]);
+
 
 export async function GET() {
   try {
@@ -18,7 +32,9 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json();
+    const raw = await req.json();
+    // Strip unknown columns before sending to Supabase
+    const body = Object.fromEntries(Object.entries(raw).filter(([k]) => ALLOWED.has(k)));
     const { data: existing } = await supabaseAdmin.from('white_label_config').select('id').limit(1).maybeSingle();
     let result;
     if (existing) {
