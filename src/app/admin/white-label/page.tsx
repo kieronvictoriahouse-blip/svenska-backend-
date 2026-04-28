@@ -7,8 +7,12 @@ type Config = {
   color_primary: string; color_secondary: string; color_bg: string; color_text: string;
   font_display: string; font_body: string; font_ui: string;
   email: string; phone: string; address: string; siret: string; tva: string;
-  instagram: string; facebook: string; currency: string; tva_rate: number;
-  free_shipping_threshold: number; smtp_host: string; smtp_user: string; smtp_from: string;
+  instagram: string; facebook: string; pinterest: string;
+  currency: string; tva_rate: number; free_shipping_threshold: number;
+  smtp_host: string; smtp_user: string; smtp_from: string;
+  announcement_fr: string; announcement_sv: string; announcement_en: string;
+  footer_desc_fr: string; footer_desc_sv: string; footer_desc_en: string;
+  footer_tagline_fr: string; footer_tagline_sv: string; footer_tagline_en: string;
 };
 
 const FONTS_DISPLAY = ['Cormorant Garamond', 'Playfair Display', 'Libre Baskerville', 'Merriweather', 'Lora'];
@@ -19,8 +23,14 @@ const DEFAULT_CONFIG: Config = {
   color_primary: '#3E5238', color_secondary: '#9E5A3C', color_bg: '#F6F1E9', color_text: '#1C2028',
   font_display: 'Cormorant Garamond', font_body: 'Crimson Pro', font_ui: 'Jost',
   email: '', phone: '', address: '', siret: '', tva: '',
-  instagram: '', facebook: '', currency: 'EUR', tva_rate: 20, free_shipping_threshold: 50,
+  instagram: '', facebook: '', pinterest: '',
+  currency: 'EUR', tva_rate: 20, free_shipping_threshold: 50,
   smtp_host: '', smtp_user: '', smtp_from: '',
+  announcement_fr: 'Livraison gratuite dès 50€ · Produits authentiques · Paiement sécurisé',
+  announcement_sv: 'Fri frakt från 50€ · Autentiska produkter · Säker betalning',
+  announcement_en: 'Free delivery from €50 · Authentic products · Secure payment',
+  footer_desc_fr: '', footer_desc_sv: '', footer_desc_en: '',
+  footer_tagline_fr: '', footer_tagline_sv: '', footer_tagline_en: '',
 };
 
 function WhiteLabelInner() {
@@ -151,7 +161,7 @@ function WhiteLabelInner() {
         </div>
 
         <div className="wl-tabs">
-          {[['identity', '🏷️ Identité'], ['colors', '🎨 Couleurs'], ['fonts', '✍️ Typographie'], ['ecommerce', '🛒 E-commerce'], ['smtp', '📧 Email'], ['import', '📥 Import données']].map(([k, l]) => (
+          {[['identity', '🏷️ Identité'], ['content', '📝 Contenu'], ['colors', '🎨 Couleurs'], ['fonts', '✍️ Typographie'], ['ecommerce', '🛒 E-commerce'], ['smtp', '📧 Email'], ['import', '📥 Import données']].map(([k, l]) => (
             <button key={k} className={`wl-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
           ))}
         </div>
@@ -180,10 +190,41 @@ function WhiteLabelInner() {
             </div>
             <div className="wl-section">
               <div className="wl-section-title">📱 Réseaux sociaux</div>
-              <div className="grid-2">
-                <div className="form-group"><label className="form-label">Instagram</label><input className="form-control" value={config.instagram} onChange={e => update('instagram', e.target.value)} placeholder="@moncompte" /></div>
-                <div className="form-group"><label className="form-label">Facebook</label><input className="form-control" value={config.facebook} onChange={e => update('facebook', e.target.value)} placeholder="fb.com/mapage" /></div>
+              <div className="grid-3">
+                <div className="form-group"><label className="form-label">Instagram (URL)</label><input className="form-control" value={config.instagram} onChange={e => update('instagram', e.target.value)} placeholder="https://instagram.com/..." /></div>
+                <div className="form-group"><label className="form-label">Facebook (URL)</label><input className="form-control" value={config.facebook} onChange={e => update('facebook', e.target.value)} placeholder="https://facebook.com/..." /></div>
+                <div className="form-group"><label className="form-label">Pinterest (URL)</label><input className="form-control" value={config.pinterest} onChange={e => update('pinterest', e.target.value)} placeholder="https://pinterest.com/..." /></div>
               </div>
+            </div>
+          </>
+        )}
+
+        {/* CONTENU */}
+        {tab === 'content' && (
+          <>
+            <div className="wl-section">
+              <div className="wl-section-title">📣 Barre d'annonce</div>
+              <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 14 }}>Texte affiché sous la navigation</div>
+              <div className="form-group"><label className="form-label">🇫🇷 Français</label><input className="form-control" value={config.announcement_fr} onChange={e => update('announcement_fr', e.target.value)} /></div>
+              <div className="form-group"><label className="form-label">🇸🇪 Svenska</label><input className="form-control" value={config.announcement_sv} onChange={e => update('announcement_sv', e.target.value)} /></div>
+              <div className="form-group"><label className="form-label">🇬🇧 English</label><input className="form-control" value={config.announcement_en} onChange={e => update('announcement_en', e.target.value)} /></div>
+            </div>
+            <div className="wl-section">
+              <div className="wl-section-title">📝 Description footer</div>
+              <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 14 }}>Texte sous le logo dans le pied de page</div>
+              {(['fr', 'sv', 'en'] as const).map(lang => (
+                <div key={lang} className="form-group">
+                  <label className="form-label">{lang === 'fr' ? '🇫🇷 Français' : lang === 'sv' ? '🇸🇪 Svenska' : '🇬🇧 English'}</label>
+                  <textarea className="form-control" rows={3} value={config[`footer_desc_${lang}` as keyof Config] as string} onChange={e => update(`footer_desc_${lang}` as keyof Config, e.target.value)} />
+                </div>
+              ))}
+            </div>
+            <div className="wl-section">
+              <div className="wl-section-title">✨ Signature footer</div>
+              <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 14 }}>Petite phrase en bas du footer (ex: "Fait avec soin depuis Paris")</div>
+              <div className="form-group"><label className="form-label">🇫🇷 Français</label><input className="form-control" value={config.footer_tagline_fr} onChange={e => update('footer_tagline_fr', e.target.value)} /></div>
+              <div className="form-group"><label className="form-label">🇸🇪 Svenska</label><input className="form-control" value={config.footer_tagline_sv} onChange={e => update('footer_tagline_sv', e.target.value)} /></div>
+              <div className="form-group"><label className="form-label">🇬🇧 English</label><input className="form-control" value={config.footer_tagline_en} onChange={e => update('footer_tagline_en', e.target.value)} /></div>
             </div>
           </>
         )}
