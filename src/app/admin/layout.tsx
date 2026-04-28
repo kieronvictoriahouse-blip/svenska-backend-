@@ -443,7 +443,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         <div className="topnav-spacer" />
 
-        <a href="https://heather-lingon.vercel.app" target="_blank" rel="noopener" className="topnav-link" title="Voir le site">
+        <a href="https://swedishcravings.fr" target="_blank" rel="noopener" className="topnav-link" title="Voir le site">
           🌐 <span>Voir le site</span>
         </a>
         <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" className="topnav-link" title="Supabase">
