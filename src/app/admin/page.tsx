@@ -79,6 +79,8 @@ type Stats = {
 export default function AdminHome() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [greeting, setGreeting] = useState('Bonjour');
+  const [siteName, setSiteName] = useState('');
+  const [frontUrl, setFrontUrl] = useState(process.env.NEXT_PUBLIC_FRONT_URL || '');
 
   useEffect(() => {
     const h = new Date().getHours();
@@ -89,7 +91,8 @@ export default function AdminHome() {
     Promise.all([
       fetch('/api/products?limit=200').then(r => r.json()).catch(() => ({})),
       fetch('/api/categories').then(r => r.json()).catch(() => ({})),
-    ]).then(([p, c]) => {
+      fetch('/api/white-label').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([p, c, wl]) => {
       const ps = p.products || [];
       setStats({
         products: ps.length,
@@ -97,6 +100,8 @@ export default function AdminHome() {
         categories: (c.categories || []).length,
         bestsellers: ps.filter((x: any) => x.is_bestseller).length,
       });
+      if (wl?.config?.site_name) setSiteName(wl.config.site_name);
+      if (wl?.config?.front_url) setFrontUrl(wl.config.front_url);
     });
   }, []);
 
@@ -114,12 +119,12 @@ export default function AdminHome() {
     <div className="launcher">
       {/* Welcome */}
       <div className="launcher-welcome">
-        <div className="launcher-flag">🇸🇪🇬🇧</div>
+        <div className="launcher-flag">⚙️</div>
         <h1 className="launcher-title">
           {greeting}, <em>{firstName}</em>
         </h1>
         <p className="launcher-sub">
-          Heather & Lingon · Admin &nbsp;·&nbsp;
+          {siteName ? `${siteName} · ` : ''}Admin &nbsp;·&nbsp;
           {stats ? `${stats.products} produits · ${stats.categories} catégories` : '···'}
         </p>
       </div>
@@ -161,10 +166,14 @@ export default function AdminHome() {
 
       {/* Footer links */}
       <div className="launcher-footer">
-        <a href="https://heather-lingon.vercel.app" target="_blank" rel="noopener" className="launcher-footer-link">
-          🌐 Voir le site
-        </a>
-        <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
+        {frontUrl && (
+          <>
+            <a href={frontUrl} target="_blank" rel="noopener" className="launcher-footer-link">
+              🌐 Voir le site
+            </a>
+            <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
+          </>
+        )}
         <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" className="launcher-footer-link">
           🗄️ Supabase
         </a>
@@ -172,10 +181,14 @@ export default function AdminHome() {
         <a href="https://vercel.com/dashboard" target="_blank" rel="noopener" className="launcher-footer-link">
           ▲ Vercel
         </a>
-        <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>
-          Heather & Lingon © 2026
-        </span>
+        {siteName && (
+          <>
+            <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>
+              {siteName} © {new Date().getFullYear()}
+            </span>
+          </>
+        )}
       </div>
     </div>
   );

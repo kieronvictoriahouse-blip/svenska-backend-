@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Svenska Delikatessen — Admin',
-  description: 'Dashboard d\'administration Svenska Delikatessen',
+  title: 'Admin',
+  description: 'Tableau de bord administration',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

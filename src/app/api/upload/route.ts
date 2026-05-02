@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'svenska-media';
-const MAX_SIZE_MB = 5;
+const MAX_SIZE_MB = 4; // Vercel serverless hard limit is ~4.5 MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
 // ─── POST /api/upload ─────────────────────────────────────────────

@@ -14,7 +14,7 @@ export default function HomeCmsPage() {
   const [toast, setToast] = useState('');
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
+  const showToast = (msg: string, duration = 2800) => { setToast(msg); setTimeout(() => setToast(''), duration); };
 
   useEffect(() => { loadCms(); }, []);
 
@@ -30,14 +30,28 @@ export default function HomeCmsPage() {
 
   async function saveAll() {
     setSaving(true);
-    const updates = Object.values(editing);
-    await fetch('/api/cms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ updates }),
-    });
-    setSaving(false);
-    showToast('✅ Page d\'accueil sauvegardée !');
+    try {
+      const token = localStorage.getItem('sd_admin_token');
+      const updates = Object.values(editing);
+      const res = await fetch('/api/cms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ updates }),
+      });
+      if (res.ok) {
+        showToast('✅ Page d\'accueil sauvegardée !');
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast('❌ Erreur sauvegarde : ' + (d.error || res.status), 6000);
+      }
+    } catch (err: any) {
+      showToast('❌ Erreur réseau : ' + (err?.message || 'inconnue'), 6000);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function update(key: string, field: string, val: string) {
@@ -49,20 +63,31 @@ export default function HomeCmsPage() {
     if (!file) return;
     e.target.value = '';
     setUploadingKey(key);
-    const token = localStorage.getItem('sd_admin_token');
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('folder', 'homepage');
-    const res = await fetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
-    const data = await res.json();
-    setUploadingKey(null);
-    if (res.ok && data.url) {
-      update(key, 'value_fr', data.url);
-      update(key, 'value_sv', data.url);
-      update(key, 'value_en', data.url);
-      showToast('✅ Image uploadée !');
-    } else {
-      showToast('❌ Erreur upload : ' + (data.error || 'inconnue'));
+    try {
+      const token = localStorage.getItem('sd_admin_token');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'homepage');
+      const res = await fetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      let data: any = {};
+      try { data = await res.json(); } catch { /* réponse non-JSON */ }
+      if (res.ok && data.url) {
+        update(key, 'value_fr', data.url);
+        update(key, 'value_sv', data.url);
+        update(key, 'value_en', data.url);
+        showToast('✅ Image uploadée !');
+      } else {
+        const msg = res.status === 413
+          ? 'Image trop lourde — compresse-la sous 4 MB avant d\'uploader'
+          : (data.error || `Erreur serveur ${res.status}`);
+        showToast('❌ ' + msg, 8000);
+        console.error('[upload]', res.status, data);
+      }
+    } catch (err: any) {
+      showToast('❌ Erreur réseau : ' + (err?.message || 'inconnue'), 6000);
+      console.error('[upload] network error', err);
+    } finally {
+      setUploadingKey(null);
     }
   }
 
