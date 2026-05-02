@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 type Config = {
-  site_name: string; site_slogan: string; logo_url: string; favicon_url: string;
+  site_name: string; site_slogan: string; logo_url: string; favicon_url: string; front_url: string;
   color_primary: string; color_secondary: string; color_bg: string; color_text: string;
   font_display: string; font_body: string; font_ui: string;
   email: string; phone: string; address: string; siret: string; tva: string;
@@ -19,7 +19,7 @@ const FONTS_DISPLAY = ['Cormorant Garamond', 'Playfair Display', 'Libre Baskervi
 const FONTS_UI = ['Jost', 'Inter', 'DM Sans', 'Plus Jakarta Sans', 'Outfit'];
 
 const DEFAULT_CONFIG: Config = {
-  site_name: 'Mon Épicerie', site_slogan: 'Saveurs authentiques', logo_url: '', favicon_url: '',
+  site_name: 'Mon Épicerie', site_slogan: 'Saveurs authentiques', logo_url: '', favicon_url: '', front_url: '',
   color_primary: '#3E5238', color_secondary: '#9E5A3C', color_bg: '#F6F1E9', color_text: '#1C2028',
   font_display: 'Cormorant Garamond', font_body: 'Crimson Pro', font_ui: 'Jost',
   email: '', phone: '', address: '', siret: '', tva: '',
@@ -176,6 +176,7 @@ function WhiteLabelInner() {
                 <div className="form-group"><label className="form-label">Slogan</label><input className="form-control" value={config.site_slogan} onChange={e => update('site_slogan', e.target.value)} /></div>
                 <div className="form-group"><label className="form-label">URL Logo</label><input className="form-control" value={config.logo_url} onChange={e => update('logo_url', e.target.value)} placeholder="https://..." /></div>
                 <div className="form-group"><label className="form-label">URL Favicon</label><input className="form-control" value={config.favicon_url} onChange={e => update('favicon_url', e.target.value)} placeholder="https://..." /></div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">URL du site vitrine (front-end)</label><input className="form-control" value={config.front_url} onChange={e => update('front_url', e.target.value)} placeholder="https://votredomaine.fr" /></div>
               </div>
             </div>
             <div className="wl-section">
