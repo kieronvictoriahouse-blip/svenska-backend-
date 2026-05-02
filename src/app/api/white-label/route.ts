@@ -7,7 +7,7 @@ const ALLOWED = new Set([
   'color_primary','color_secondary','color_bg','color_text',
   'font_display','font_body','font_ui',
   'email','phone','address','siret','tva',
-  'instagram','facebook','pinterest','currency','tva_rate','free_shipping_threshold',
+  'front_url','instagram','facebook','pinterest','currency','tva_rate','free_shipping_threshold',
   'smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from',
   'stripe_public_key','stripe_secret_key',
   'announcement_fr','announcement_sv','announcement_en',
