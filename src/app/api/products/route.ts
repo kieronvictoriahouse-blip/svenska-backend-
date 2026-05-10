@@ -9,11 +9,12 @@ export async function GET(req: NextRequest) {
   const search     = searchParams.get('search');
   const sortOrder  = searchParams.get('sort_order');
 
+  const isAdmin = !!req.headers.get('authorization');
   let query = supabaseAdmin
     .from('products')
     .select('*, product_variants(*), categories(name_fr, name_sv, name_en, slug)')
-    .eq('is_active', true)
     .order('sort_order', { ascending: true });
+  if (!isAdmin) query = query.eq('is_active', true);
 
   if (sortOrder) query = query.eq('sort_order', parseInt(sortOrder));
   if (cat)        query = query.eq('categories.slug', cat);

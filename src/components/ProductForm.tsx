@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 type Variant = { label: string; price: string };
 
@@ -58,18 +58,54 @@ type Props = {
   onSave: (data: any) => Promise<void>;
   saving: boolean;
   toast: string;
+  autoSave?: boolean;
 };
 
-export default function ProductForm({ initialData, categories, onSave, saving, toast }: Props) {
+type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
+
+export default function ProductForm({ initialData, categories, onSave, saving, toast, autoSave = false }: Props) {
   const [form, setForm]       = useState<ProductFormData>({ ...EMPTY, ...initialData, extra_images: (initialData as any)?.extra_images || [] });
   const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver]   = useState(false);
   const [newExtraUrl, setNewExtraUrl] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [asStatus, setAsStatus] = useState<AutoSaveStatus>('idle');
+  const fileRef    = useRef<HTMLInputElement>(null);
+  const asTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialized = useRef(false);
+
+  useEffect(() => { initialized.current = true; }, []);
+
+  function serialize(f: ProductFormData) {
+    return {
+      ...f,
+      price:         parseFloat(f.price) || 0,
+      rating:        parseFloat(f.rating) || 4.5,
+      reviews_count: parseInt(f.reviews_count) || 0,
+      tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
+      badge:         f.badge || null,
+      category_id:   f.category_id || null,
+      variants: f.variants
+        .filter(v => v.label && v.price)
+        .map(v => ({ label: v.label, price: parseFloat(v.price) })),
+    };
+  }
 
   function set(field: keyof ProductFormData, value: any) {
-    setForm(f => ({ ...f, [field]: value }));
+    setForm(f => {
+      const next = { ...f, [field]: value };
+      if (autoSave && initialized.current) {
+        if (asTimer.current) clearTimeout(asTimer.current);
+        setAsStatus('pending');
+        asTimer.current = setTimeout(async () => {
+          setAsStatus('saving');
+          await onSave(serialize(next));
+          setAsStatus('saved');
+          setTimeout(() => setAsStatus('idle'), 2200);
+        }, 1500);
+      }
+      return next;
+    });
   }
 
   function setVariant(i: number, field: keyof Variant, value: string) {
@@ -120,19 +156,8 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
   // ── Submit ─────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const payload = {
-      ...form,
-      price:         parseFloat(form.price) || 0,
-      rating:        parseFloat(form.rating) || 4.5,
-      reviews_count: parseInt(form.reviews_count) || 0,
-      tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
-      badge:         form.badge || null,
-      category_id:   form.category_id || null,
-      variants: form.variants
-        .filter(v => v.label && v.price)
-        .map(v => ({ label: v.label, price: parseFloat(v.price) })),
-    };
-    await onSave(payload);
+    if (asTimer.current) clearTimeout(asTimer.current);
+    await onSave(serialize(form));
   }
 
   const LANGS = [
@@ -317,7 +342,14 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
 
           {/* Actions */}
           <div className="card">
-            <div className="card-header"><span className="card-title">⚙️ Publication</span></div>
+            <div className="card-header">
+              <span className="card-title">⚙️ Publication</span>
+              {autoSave && (
+                <span style={{ fontSize: 11, color: asStatus === 'saved' ? '#10B981' : asStatus === 'saving' || asStatus === 'pending' ? '#F59E0B' : 'var(--dust)', transition: 'color 0.3s' }}>
+                  {asStatus === 'pending' ? '◌ En attente…' : asStatus === 'saving' ? '⏳ Sauvegarde…' : asStatus === 'saved' ? '✓ Sauvegardé' : ''}
+                </span>
+              )}
+            </div>
             <div className="card-body">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
                 <label className="toggle">
@@ -349,9 +381,9 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
               </div>
 
               <button type="submit" disabled={saving}
-                className="btn btn-primary"
+                className={autoSave ? 'btn btn-secondary' : 'btn btn-primary'}
                 style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: 14 }}>
-                {saving ? '⏳ Enregistrement…' : '💾 Sauvegarder le produit'}
+                {saving ? '⏳ Enregistrement…' : autoSave ? '💾 Forcer la sauvegarde' : '💾 Sauvegarder le produit'}
               </button>
             </div>
           </div>
