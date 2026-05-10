@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 // Colonnes acceptées — évite une 500 si la page envoie un champ inconnu
 const ALLOWED = new Set([
@@ -31,6 +32,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   try {
     const raw = await req.json();
     // Strip unknown columns before sending to Supabase
@@ -52,6 +54,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const type = searchParams.get('type'); // products, contacts, suppliers, stock
   const body = await req.json();

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const { data, error } = await supabaseAdmin.from('contacts').select('*').eq('id', params.id).single();
@@ -13,6 +14,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const { data, error } = await supabaseAdmin.from('contacts')
     .update({ ...body, updated_at: new Date().toISOString() })
@@ -21,7 +23,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ contact: data });
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   await supabaseAdmin.from('contacts').update({ is_active: false }).eq('id', params.id);
   return NextResponse.json({ success: true });
 }
