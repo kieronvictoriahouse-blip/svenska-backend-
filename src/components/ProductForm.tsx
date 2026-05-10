@@ -53,7 +53,7 @@ const EMPTY: ProductFormData = {
 };
 
 type Props = {
-  initialData?: Partial<ProductFormData & { id: string }>;
+  initialData?: Partial<ProductFormData & { id: string; cost_price?: number; stock?: number }>;
   categories: any[];
   onSave: (data: any) => Promise<void>;
   saving: boolean;
@@ -64,6 +64,8 @@ type Props = {
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
 
 export default function ProductForm({ initialData, categories, onSave, saving, toast, autoSave = false }: Props) {
+  const costPrice = initialData?.cost_price ?? null;
+  const stockQty  = initialData?.stock ?? null;
   const [form, setForm]       = useState<ProductFormData>({ ...EMPTY, ...initialData, extra_images: (initialData as any)?.extra_images || [] });
   const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
   const [uploading, setUploading] = useState(false);
@@ -486,6 +488,52 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                   value={form.price} onChange={e => set('price', e.target.value)}
                   placeholder="6.90" />
               </div>
+
+              {/* PMP + marge */}
+              {costPrice !== null && costPrice > 0 && (() => {
+                const pv = parseFloat(form.price) || 0;
+                const margeEur = pv - costPrice;
+                const margePct = pv > 0 ? (margeEur / pv) * 100 : 0;
+                const color = margePct >= 50 ? '#10B981' : margePct >= 30 ? '#F59E0B' : '#EF4444';
+                return (
+                  <div style={{ background: 'var(--cream)', borderRadius: 'var(--radius)', border: '1px solid var(--linen)', padding: '12px 14px', marginBottom: 16 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--dust)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                      Coût &amp; Marge
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>
+                          {costPrice.toFixed(2)} €
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color }}>
+                          {margeEur > 0 ? '+' : ''}{margeEur.toFixed(2)} €
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--dust)' }}>Marge brute</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color }}>
+                          {margePct.toFixed(0)} %
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--dust)' }}>Taux</div>
+                      </div>
+                    </div>
+                    {stockQty !== null && (
+                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: 'var(--dust)' }}>Stock actuel</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: stockQty <= 0 ? '#EF4444' : stockQty <= 5 ? '#F59E0B' : 'var(--ink)' }}>
+                          {stockQty} unités {stockQty <= 0 ? '⚠️ Rupture' : stockQty <= 5 ? '⚠️ Faible' : ''}
+                        </span>
+                      </div>
+                    )}
+                    <p style={{ fontSize: 10, color: 'var(--dust)', marginTop: 8, marginBottom: 0 }}>
+                      PMP mis à jour automatiquement à chaque réception
+                    </p>
+                  </div>
+                );
+              })()}
               <div className="form-group">
                 <label className="form-label">Conditionnement / Poids</label>
                 <input className="form-control"

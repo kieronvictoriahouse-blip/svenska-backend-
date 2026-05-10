@@ -53,6 +53,7 @@ export default function GestionPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [products, setProducts] = useState<MarginProduct[]>([]);
+  const [realProds, setRealProds] = useState<MarginProduct[]>([]);
   const [params, setParams] = useState<Params>({
     company: 'Svenska Delikatessen', legal: 'Auto-entrepreneur',
     siret: '', tva: '', address: '', email: 'hej@svenska-delikatessen.com',
@@ -98,11 +99,13 @@ export default function GestionPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [{ data: inv }, { data: pur }, { data: prd }, { data: prm }] = await Promise.all([
+    const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
+    const [{ data: inv }, { data: pur }, { data: prd }, { data: prm }, realRes] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }),
       supabase.from('purchases').select('*').order('created_at', { ascending: false }),
       supabase.from('margin_products').select('*').order('created_at', { ascending: false }),
       supabase.from('company_settings').select('*'),
+      fetch('/api/products?limit=500', { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
     ]);
     if (inv) setInvoices(inv);
     if (pur) setPurchases(pur);
@@ -112,6 +115,21 @@ export default function GestionPage() {
       prm.forEach((r: any) => { p[r.key] = isNaN(r.value) ? r.value : Number(r.value) || r.value; });
       setParams(prev => ({ ...prev, ...p }));
     }
+    const realData = await realRes.json();
+    const mapped: MarginProduct[] = (realData.products || [])
+      .filter((p: any) => p.cost_price > 0 && parseFloat(p.price) > 0)
+      .map((p: any) => ({
+        id: p.id,
+        name: p.name_fr,
+        cat: p.categories?.name_fr || '',
+        buy: parseFloat(p.cost_price) || 0,
+        trans: 0,
+        other: 0,
+        revient: parseFloat(p.cost_price) || 0,
+        sell: parseFloat(p.price) || 0,
+        stock: p.stock ?? null,
+      }));
+    setRealProds(mapped);
     setLoading(false);
   }
 
@@ -290,7 +308,10 @@ export default function GestionPage() {
   // ── DASHBOARD STATS ────────────────────────────────────
   const totalCA = invoices.filter(i => i.status !== 'draft').reduce((s, i) => s + i.total_ht, 0);
   const pending = invoices.filter(i => i.status === 'sent' || i.status === 'late').reduce((s, i) => s + i.total_ttc, 0);
-  const avgMargin = products.length > 0 ? products.reduce((s, p) => s + (p.sell - p.revient) / p.sell * 100, 0) / products.length : 0;
+  const marginsSource = realProds.length > 0 ? realProds : products;
+  const avgMargin = marginsSource.length > 0
+    ? marginsSource.filter(p => p.sell > 0).reduce((s, p) => s + (p.sell - p.revient) / p.sell * 100, 0) / marginsSource.filter(p => p.sell > 0).length
+    : 0;
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'Jost, sans-serif', color: '#6A7280' }}>
@@ -411,8 +432,8 @@ export default function GestionPage() {
             <span className="g-topbar-title">{PAGE_TITLES[page]}</span>
             <div style={{ display: 'flex', gap: 8 }}>
               {page === 'factures' && <button className="btn btn-primary btn-sm" onClick={openNewInvoice}>+ Nouvelle facture</button>}
-              {page === 'achats' && <button className="btn btn-primary btn-sm" onClick={() => setShowPurchaseModal(true)}>+ Saisir un achat</button>}
-              {page === 'marges' && <button className="btn btn-primary btn-sm" onClick={openNewProduct}>+ Ajouter un produit</button>}
+              {page === 'achats' && <a href="/admin/achats" className="btn btn-primary btn-sm">→ Module Achats</a>}
+              {page === 'marges' && <button className="btn btn-secondary btn-sm" onClick={openNewProduct}>+ Simulation manuelle</button>}
               {page === 'params' && <button className="btn btn-primary btn-sm" onClick={saveParamsToDb}>💾 Sauvegarder</button>}
             </div>
           </div>
@@ -444,17 +465,17 @@ export default function GestionPage() {
                   </div>
                   <div className="g-card">
                     <div className="g-card-header"><span className="g-card-title">🏆 Top marges</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('marges')}>Voir tout →</button></div>
-                    {[...products].sort((a, b) => (b.sell - b.revient) / b.sell - (a.sell - a.revient) / a.sell).slice(0, 5).map(p => {
+                    {[...marginsSource].sort((a, b) => (b.sell - b.revient) / b.sell - (a.sell - a.revient) / a.sell).slice(0, 5).map(p => {
                       const pct = (p.sell - p.revient) / p.sell * 100;
                       return (
                         <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--linen)' }}>
-                          <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>{fmt(p.revient)} revient</div></div>
+                          <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP {fmt(p.revient)}</div></div>
                           <div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div>
                           <span style={{ fontSize: 12, fontWeight: 700, color: marginColor(pct), width: 48, textAlign: 'right' }}>{fmtPct(pct)}</span>
                         </div>
                       );
                     })}
-                    {!products.length && <div className="empty">Ajoutez des produits dans "Calcul des marges"</div>}
+                    {!marginsSource.length && <div className="empty">Aucune donnée — réceptionnez des produits pour calculer le PMP</div>}
                   </div>
                 </div>
               </>
@@ -496,70 +517,155 @@ export default function GestionPage() {
 
             {/* ── ACHATS ── */}
             {page === 'achats' && (
-              <div className="g-card">
-                <table className="g-table">
-                  <thead><tr><th>Date</th><th>Fournisseur</th><th>Réf.</th><th>Produits</th><th style={{ textAlign: 'right' }}>Montant</th><th style={{ textAlign: 'right' }}>Transport</th><th style={{ textAlign: 'right' }}>Total</th><th>Statut</th><th></th></tr></thead>
-                  <tbody>
-                    {purchases.map(p => (
-                      <tr key={p.id}>
-                        <td>{fmtDate(p.date)}</td>
-                        <td><strong>{p.supplier}</strong></td>
-                        <td className="mono">{p.ref || '—'}</td>
-                        <td style={{ fontSize: 12, color: 'var(--dust)', maxWidth: 140 }}>{p.products || '—'}</td>
-                        <td className="price">{fmt(p.amount)}</td>
-                        <td className="price">{p.transport > 0 ? fmt(p.transport) : '—'}</td>
-                        <td className="price" style={{ fontWeight: 700 }}>{fmt(p.total)}</td>
-                        <td><span className={`badge ${STATUS_BADGE[p.status] || ''}`}>{STATUS_LABEL[p.status] || p.status}</span></td>
-                        <td><button className="btn btn-danger btn-sm" onClick={() => deletePurchase(p.id)}>🗑</button></td>
-                      </tr>
-                    ))}
-                    {!purchases.length && <tr><td colSpan={9}><div className="empty">Aucun achat — cliquez sur "+ Saisir un achat"</div></td></tr>}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                <div className="g-card" style={{ padding: '40px 32px', textAlign: 'center', marginBottom: 24 }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
+                  <div style={{ fontFamily: 'var(--font-d)', fontSize: 24, fontWeight: 600, marginBottom: 10 }}>Module Achats fournisseurs</div>
+                  <p style={{ color: 'var(--dust)', marginBottom: 24, maxWidth: 480, margin: '0 auto 24px' }}>
+                    Les commandes fournisseurs, réceptions et calcul automatique du PMP sont gérés dans le module Achats dédié.
+                    Chaque réception met à jour le stock et le Prix Moyen Pondéré en temps réel.
+                  </p>
+                  <a href="/admin/achats" className="btn btn-primary" style={{ fontSize: 14, padding: '10px 24px' }}>
+                    → Accéder aux Achats fournisseurs
+                  </a>
+                </div>
+                {purchases.length > 0 && (
+                  <div className="g-card">
+                    <div className="g-card-header">
+                      <span className="g-card-title">Archives — Anciennes saisies manuelles ({purchases.length})</span>
+                    </div>
+                    <table className="g-table">
+                      <thead><tr><th>Date</th><th>Fournisseur</th><th>Réf.</th><th>Produits</th><th style={{ textAlign: 'right' }}>Montant</th><th style={{ textAlign: 'right' }}>Transport</th><th style={{ textAlign: 'right' }}>Total</th><th>Statut</th><th></th></tr></thead>
+                      <tbody>
+                        {purchases.map(p => (
+                          <tr key={p.id}>
+                            <td>{fmtDate(p.date)}</td>
+                            <td><strong>{p.supplier}</strong></td>
+                            <td className="mono">{p.ref || '—'}</td>
+                            <td style={{ fontSize: 12, color: 'var(--dust)', maxWidth: 140 }}>{p.products || '—'}</td>
+                            <td className="price">{fmt(p.amount)}</td>
+                            <td className="price">{p.transport > 0 ? fmt(p.transport) : '—'}</td>
+                            <td className="price" style={{ fontWeight: 700 }}>{fmt(p.total)}</td>
+                            <td><span className={`badge ${STATUS_BADGE[p.status] || ''}`}>{STATUS_LABEL[p.status] || p.status}</span></td>
+                            <td><button className="btn btn-danger btn-sm" onClick={() => deletePurchase(p.id)}>🗑</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
 
             {/* ── MARGES ── */}
             {page === 'marges' && (
               <>
                 <div className="g-card" style={{ marginBottom: 16, padding: '12px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, flexWrap: 'wrap' }}>
                     <span>🎯 Objectif marge minimum :</span>
                     <input type="number" className="form-control mono" style={{ width: 70 }} value={marginTarget} onChange={e => setMarginTarget(parseFloat(e.target.value) || 40)} />
                     <span style={{ color: 'var(--dust)' }}>% — Alerte en dessous de ce seuil</span>
+                    {realProds.length > 0 && (
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--moss)', fontWeight: 600, background: 'var(--moss-pale)', padding: '3px 10px', borderRadius: 20 }}>
+                        ✅ {realProds.length} produits · données réelles (PMP)
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="g-card">
-                  <table className="g-table">
-                    <thead><tr><th>Produit</th><th>Catégorie</th><th style={{ textAlign: 'right' }}>Achat</th><th style={{ textAlign: 'right' }}>Transport</th><th style={{ textAlign: 'right' }}>Autres</th><th style={{ textAlign: 'right' }}>Revient</th><th style={{ textAlign: 'right' }}>Vente</th><th style={{ textAlign: 'right' }}>Marge €</th><th style={{ textAlign: 'right' }}>Marge %</th><th></th><th></th></tr></thead>
-                    <tbody>
-                      {products.map(p => {
-                        const pct = (p.sell - p.revient) / p.sell * 100;
-                        return (
-                          <tr key={p.id}>
-                            <td><strong>{p.name}</strong></td>
-                            <td style={{ fontSize: 12, color: 'var(--dust)' }}>{p.cat || '—'}</td>
-                            <td className="price">{fmt(p.buy)}</td>
-                            <td className="price">{p.trans > 0 ? fmt(p.trans) : '—'}</td>
-                            <td className="price">{p.other > 0 ? fmt(p.other) : '—'}</td>
-                            <td className="price" style={{ fontWeight: 600 }}>{fmt(p.revient)}</td>
-                            <td className="price">{fmt(p.sell)}</td>
-                            <td className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
-                            <td><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
-                            <td>
-                              <div style={{ display: 'flex', gap: 4 }}>
-                                <button className="btn btn-secondary btn-sm" onClick={() => openEditProduct(p)}>✏️</button>
-                                <button className="btn btn-danger btn-sm" onClick={() => deleteProduct(p.id)}>🗑</button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {!products.length && <tr><td colSpan={11}><div className="empty">Aucun produit — cliquez sur "+ Ajouter un produit"</div></td></tr>}
-                    </tbody>
-                  </table>
-                </div>
+
+                {realProds.length > 0 ? (
+                  <div className="g-card">
+                    <table className="g-table">
+                      <thead>
+                        <tr>
+                          <th>Produit</th>
+                          <th>Catégorie</th>
+                          <th style={{ textAlign: 'right' }}>PMP (coût)</th>
+                          <th style={{ textAlign: 'right' }}>Prix vente</th>
+                          <th style={{ textAlign: 'right' }}>Stock</th>
+                          <th style={{ textAlign: 'right' }}>Marge €</th>
+                          <th style={{ textAlign: 'right' }}>Marge %</th>
+                          <th></th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...realProds].sort((a, b) => (b.sell - b.revient) / b.sell - (a.sell - a.revient) / a.sell).map(p => {
+                          const pct = p.sell > 0 ? (p.sell - p.revient) / p.sell * 100 : 0;
+                          return (
+                            <tr key={p.id}>
+                              <td><strong>{p.name}</strong></td>
+                              <td style={{ fontSize: 12, color: 'var(--dust)' }}>{p.cat || '—'}</td>
+                              <td className="price">{fmt(p.revient)}</td>
+                              <td className="price">{fmt(p.sell)}</td>
+                              <td style={{ textAlign: 'right', fontSize: 12 }}>
+                                {(p as any).stock != null ? (
+                                  <span style={{ color: (p as any).stock === 0 ? '#EF4444' : (p as any).stock <= 3 ? '#D97706' : '#10B981', fontWeight: 600 }}>
+                                    {(p as any).stock}
+                                  </span>
+                                ) : '—'}
+                              </td>
+                              <td className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
+                              <td><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
+                              <td>
+                                <a href={`/admin/produits/${p.id}`} className="btn btn-secondary btn-sm" title="Éditer le produit">✏️</a>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="g-card">
+                    <div className="empty" style={{ padding: 48 }}>
+                      Aucun produit avec PMP calculé.<br />
+                      <span style={{ fontSize: 12 }}>Réceptionnez des commandes fournisseurs pour calculer le coût d'achat réel.</span>
+                      {products.length > 0 && (
+                        <div style={{ marginTop: 16, fontSize: 12, color: 'var(--dust)' }}>
+                          Données manuelles disponibles : {products.length} entrée(s) — utilisez "+ Ajouter" pour simuler.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {products.length > 0 && (
+                  <div className="g-card" style={{ marginTop: 16 }}>
+                    <div className="g-card-header">
+                      <span className="g-card-title" style={{ fontSize: 12, color: 'var(--dust)' }}>Simulations manuelles ({products.length})</span>
+                    </div>
+                    <table className="g-table">
+                      <thead><tr><th>Produit</th><th>Catégorie</th><th style={{ textAlign: 'right' }}>Achat</th><th style={{ textAlign: 'right' }}>Transport</th><th style={{ textAlign: 'right' }}>Autres</th><th style={{ textAlign: 'right' }}>Revient</th><th style={{ textAlign: 'right' }}>Vente</th><th style={{ textAlign: 'right' }}>Marge €</th><th style={{ textAlign: 'right' }}>Marge %</th><th></th><th></th></tr></thead>
+                      <tbody>
+                        {products.map(p => {
+                          const pct = (p.sell - p.revient) / p.sell * 100;
+                          return (
+                            <tr key={p.id}>
+                              <td><strong>{p.name}</strong></td>
+                              <td style={{ fontSize: 12, color: 'var(--dust)' }}>{p.cat || '—'}</td>
+                              <td className="price">{fmt(p.buy)}</td>
+                              <td className="price">{p.trans > 0 ? fmt(p.trans) : '—'}</td>
+                              <td className="price">{p.other > 0 ? fmt(p.other) : '—'}</td>
+                              <td className="price" style={{ fontWeight: 600 }}>{fmt(p.revient)}</td>
+                              <td className="price">{fmt(p.sell)}</td>
+                              <td className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
+                              <td><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
+                              <td>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  <button className="btn btn-secondary btn-sm" onClick={() => openEditProduct(p)}>✏️</button>
+                                  <button className="btn btn-danger btn-sm" onClick={() => deleteProduct(p.id)}>🗑</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </>
             )}
 

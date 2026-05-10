@@ -5,23 +5,40 @@ type StockProduct = {
   id: string; name_fr: string; sort_order: number;
   stock: number; stock_alert: number; track_stock: boolean;
 };
+type Movement = {
+  id: string; product_id: string; quantity: number;
+  type: 'in' | 'out'; reason: string; created_at: string;
+  products: { name_fr: string } | null;
+};
 
 export default function StockPage() {
+  const [view, setView]         = useState<'stock' | 'history'>('stock');
   const [products, setProducts] = useState<StockProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [toast, setToast] = useState('');
-  const [filter, setFilter] = useState<'all' | 'low' | 'out'>('all');
+  const [movements, setMovements] = useState<Movement[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [histLoading, setHistLoading] = useState(false);
+  const [saving, setSaving]     = useState<string | null>(null);
+  const [toast, setToast]       = useState('');
+  const [filter, setFilter]     = useState<'all' | 'low' | 'out'>('all');
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { loadStock(); }, []);
+  useEffect(() => { if (view === 'history' && movements.length === 0) loadHistory(); }, [view]);
 
-  async function load() {
+  async function loadStock() {
     const res = await fetch('/api/stock', { cache: 'no-store' });
     const data = await res.json();
     setProducts(data.products || []);
     setLoading(false);
+  }
+
+  async function loadHistory() {
+    setHistLoading(true);
+    const res = await fetch('/api/stock?history=1', { cache: 'no-store' });
+    const data = await res.json();
+    setMovements(data.movements || []);
+    setHistLoading(false);
   }
 
   async function updateStock(p: StockProduct, newStock: number, reason?: string) {
@@ -34,6 +51,7 @@ export default function StockPage() {
     setProducts(prods => prods.map(x => x.id === p.id ? { ...x, stock: newStock } : x));
     setSaving(null);
     showToast('✅ Stock mis à jour');
+    setMovements([]);
   }
 
   async function toggleTrack(p: StockProduct) {
@@ -44,7 +62,6 @@ export default function StockPage() {
       body: JSON.stringify({ id: p.id, stock: p.stock, stock_alert: p.stock_alert ?? 0, track_stock: !p.track_stock }),
     });
     const result = await res.json();
-    console.log('[toggleTrack] updated:', result.updated, '| verify:', result.verify);
     if (res.ok && result.updated) {
       setProducts(prods => prods.map(x => x.id === result.updated.id ? { ...x, track_stock: result.updated.track_stock } : x));
       showToast(result.updated.track_stock ? '✅ Suivi activé' : '✅ Suivi désactivé');
@@ -60,15 +77,18 @@ export default function StockPage() {
     return true;
   });
 
-  const lowStock = products.filter(p => p.track_stock && p.stock <= p.stock_alert && p.stock > 0).length;
+  const lowStock   = products.filter(p => p.track_stock && p.stock <= p.stock_alert && p.stock > 0).length;
   const outOfStock = products.filter(p => p.track_stock && p.stock === 0).length;
-  const tracked = products.filter(p => p.track_stock).length;
+  const tracked    = products.filter(p => p.track_stock).length;
 
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
     .s-wrap { font-family:'Jost',sans-serif; }
     .s-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
     .s-title { font-family:'Cormorant Garamond',serif; font-size:30px; font-weight:600; color:#1C2028; }
+    .s-tabs { display:flex; gap:0; margin-bottom:20px; border:1px solid #D8CEBC; border-radius:6px; overflow:hidden; width:fit-content; }
+    .s-tab { padding:8px 20px; font-family:'Jost',sans-serif; font-size:13px; font-weight:600; border:none; cursor:pointer; transition:all 0.15s; background:#fff; color:#6A7280; }
+    .s-tab.active { background:#3E5238; color:#fff; }
     .s-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
     .s-stat { background:#fff; border:1px solid #D8CEBC; border-radius:6px; padding:16px 18px; }
     .s-stat-num { font-family:'DM Mono',monospace; font-size:22px; font-weight:500; }
@@ -92,6 +112,8 @@ export default function StockPage() {
     .s-toggle.off { background:#D8CEBC; } .s-toggle.off::after { left:2px; }
     .toast { position:fixed; bottom:24px; right:24px; background:#1C2028; color:#fff; padding:10px 18px; border-radius:6px; font-size:13px; z-index:999; }
     .empty { padding:60px; text-align:center; color:#6A7280; font-style:italic; }
+    .mv-in  { color:#10B981; font-weight:700; }
+    .mv-out { color:#EF4444; font-weight:700; }
   `;
 
   return (
@@ -112,90 +134,142 @@ export default function StockPage() {
           <div className="s-stat"><div className="s-stat-num">{products.length}</div><div className="s-stat-label">Total produits</div></div>
         </div>
 
-        <div className="s-filters">
-          {([['all', 'Tous'], ['low', `⚠️ Stock faible (${lowStock})`], ['out', `🔴 Rupture (${outOfStock})`]] as const).map(([val, label]) => (
-            <button key={val} className={`s-filter ${filter === val ? 'active' : ''}`} onClick={() => setFilter(val)}>{label}</button>
-          ))}
+        <div className="s-tabs">
+          <button className={`s-tab ${view === 'stock' ? 'active' : ''}`} onClick={() => setView('stock')}>📦 Stock actuel</button>
+          <button className={`s-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>📋 Historique des mouvements</button>
         </div>
 
-        <table className="s-table">
-          <thead>
-            <tr>
-              <th>Produit</th>
-              <th>Suivi actif</th>
-              <th>Stock actuel</th>
-              <th>Seuil alerte</th>
-              <th>État</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={5}><div className="empty">Chargement…</div></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={5}><div className="empty">Aucun produit</div></td></tr>
-            ) : filtered.map(p => {
-              const isLow = p.track_stock && p.stock <= p.stock_alert && p.stock > 0;
-              const isOut = p.track_stock && p.stock === 0;
-              return (
-                <tr key={p.id}>
-                  <td><strong>{p.name_fr}</strong></td>
-                  <td>
-                    <button
-                      className={`s-toggle ${p.track_stock ? 'on' : 'off'}`}
-                      onClick={() => toggleTrack(p)}
-                      disabled={saving === p.id}
-                      title={p.track_stock ? 'Désactiver le suivi' : 'Activer le suivi'}
-                    />
-                  </td>
-                  <td>
-                    {p.track_stock ? (
-                      <div className="s-qty">
-                        <button className="s-qty-btn" onClick={() => updateStock(p, Math.max(0, p.stock - 1))}>−</button>
-                        <input
-                          className="s-qty-input"
-                          type="number"
-                          value={p.stock}
-                          min={0}
-                          onChange={e => setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: parseInt(e.target.value) || 0 } : x))}
-                          onBlur={e => updateStock(p, parseInt(e.target.value) || 0, 'Ajustement manuel')}
-                        />
-                        <button className="s-qty-btn" onClick={() => updateStock(p, p.stock + 1)}>+</button>
-                      </div>
-                    ) : (
-                      <span style={{ color: '#D8CEBC', fontSize: 12 }}>— Non suivi</span>
-                    )}
-                  </td>
-                  <td>
-                    {p.track_stock ? (
-                      <input
-                        className="s-qty-input"
-                        type="number"
-                        value={p.stock_alert}
-                        min={0}
-                        style={{ width: 60 }}
-                        onChange={e => setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock_alert: parseInt(e.target.value) || 0 } : x))}
-                        onBlur={e => {
-                          fetch('/api/stock', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, stock: p.stock, stock_alert: parseInt(e.target.value) || 0, track_stock: p.track_stock }) });
-                        }}
-                      />
-                    ) : <span style={{ color: '#D8CEBC', fontSize: 12 }}>—</span>}
-                  </td>
-                  <td>
-                    {!p.track_stock ? (
-                      <span className="s-badge" style={{ background: '#F6F1E9', color: '#6A7280' }}>Non suivi</span>
-                    ) : isOut ? (
-                      <span className="s-badge" style={{ background: '#FEE2E2', color: '#EF4444' }}>🔴 Rupture</span>
-                    ) : isLow ? (
-                      <span className="s-badge" style={{ background: '#FEF3C7', color: '#F59E0B' }}>⚠️ Stock faible</span>
-                    ) : (
-                      <span className="s-badge" style={{ background: '#D1FAE5', color: '#10B981' }}>✅ OK</span>
-                    )}
-                  </td>
+        {view === 'stock' && (
+          <>
+            <div className="s-filters">
+              {([['all', 'Tous'], ['low', `⚠️ Stock faible (${lowStock})`], ['out', `🔴 Rupture (${outOfStock})`]] as const).map(([val, label]) => (
+                <button key={val} className={`s-filter ${filter === val ? 'active' : ''}`} onClick={() => setFilter(val)}>{label}</button>
+              ))}
+            </div>
+            <table className="s-table">
+              <thead>
+                <tr>
+                  <th>Produit</th>
+                  <th>Suivi actif</th>
+                  <th>Stock actuel</th>
+                  <th>Seuil alerte</th>
+                  <th>État</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={5}><div className="empty">Chargement…</div></td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={5}><div className="empty">Aucun produit</div></td></tr>
+                ) : filtered.map(p => {
+                  const isLow = p.track_stock && p.stock <= p.stock_alert && p.stock > 0;
+                  const isOut = p.track_stock && p.stock === 0;
+                  return (
+                    <tr key={p.id}>
+                      <td><strong>{p.name_fr}</strong></td>
+                      <td>
+                        <button
+                          className={`s-toggle ${p.track_stock ? 'on' : 'off'}`}
+                          onClick={() => toggleTrack(p)}
+                          disabled={saving === p.id}
+                          title={p.track_stock ? 'Désactiver le suivi' : 'Activer le suivi'}
+                        />
+                      </td>
+                      <td>
+                        {p.track_stock ? (
+                          <div className="s-qty">
+                            <button className="s-qty-btn" onClick={() => updateStock(p, Math.max(0, p.stock - 1))}>−</button>
+                            <input
+                              className="s-qty-input"
+                              type="number"
+                              value={p.stock}
+                              min={0}
+                              onChange={e => setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: parseInt(e.target.value) || 0 } : x))}
+                              onBlur={e => updateStock(p, parseInt(e.target.value) || 0, 'Ajustement manuel')}
+                            />
+                            <button className="s-qty-btn" onClick={() => updateStock(p, p.stock + 1)}>+</button>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#D8CEBC', fontSize: 12 }}>— Non suivi</span>
+                        )}
+                      </td>
+                      <td>
+                        {p.track_stock ? (
+                          <input
+                            className="s-qty-input"
+                            type="number"
+                            value={p.stock_alert}
+                            min={0}
+                            style={{ width: 60 }}
+                            onChange={e => setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock_alert: parseInt(e.target.value) || 0 } : x))}
+                            onBlur={e => {
+                              fetch('/api/stock', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, stock: p.stock, stock_alert: parseInt(e.target.value) || 0, track_stock: p.track_stock }) });
+                            }}
+                          />
+                        ) : <span style={{ color: '#D8CEBC', fontSize: 12 }}>—</span>}
+                      </td>
+                      <td>
+                        {!p.track_stock ? (
+                          <span className="s-badge" style={{ background: '#F6F1E9', color: '#6A7280' }}>Non suivi</span>
+                        ) : isOut ? (
+                          <span className="s-badge" style={{ background: '#FEE2E2', color: '#EF4444' }}>🔴 Rupture</span>
+                        ) : isLow ? (
+                          <span className="s-badge" style={{ background: '#FEF3C7', color: '#F59E0B' }}>⚠️ Stock faible</span>
+                        ) : (
+                          <span className="s-badge" style={{ background: '#D1FAE5', color: '#10B981' }}>✅ OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {view === 'history' && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button className="s-filter" onClick={() => { setMovements([]); loadHistory(); }}>↺ Rafraîchir</button>
+            </div>
+            <table className="s-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Produit</th>
+                  <th style={{ textAlign: 'center' }}>Mouvement</th>
+                  <th>Type</th>
+                  <th>Raison</th>
+                </tr>
+              </thead>
+              <tbody>
+                {histLoading ? (
+                  <tr><td colSpan={5}><div className="empty">Chargement…</div></td></tr>
+                ) : movements.length === 0 ? (
+                  <tr><td colSpan={5}><div className="empty">Aucun mouvement enregistré</div></td></tr>
+                ) : movements.map(m => (
+                  <tr key={m.id}>
+                    <td style={{ fontSize: 12, color: '#6A7280', whiteSpace: 'nowrap' }}>
+                      {new Date(m.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td><strong>{m.products?.name_fr || '—'}</strong></td>
+                    <td style={{ textAlign: 'center', fontFamily: 'DM Mono, monospace', fontSize: 14 }}>
+                      <span className={m.type === 'in' ? 'mv-in' : 'mv-out'}>
+                        {m.type === 'in' ? '+' : ''}{m.quantity}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="s-badge" style={{ background: m.type === 'in' ? '#D1FAE5' : '#FEE2E2', color: m.type === 'in' ? '#10B981' : '#EF4444' }}>
+                        {m.type === 'in' ? '↑ Entrée' : '↓ Sortie'}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12, color: '#6A7280' }}>{m.reason || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>

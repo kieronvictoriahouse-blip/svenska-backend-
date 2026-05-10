@@ -17,8 +17,9 @@ export default function ProduitsPage() {
 
   async function load() {
     setLoading(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
     const [pRes, cRes] = await Promise.all([
-      fetch('/api/products?limit=200'),
+      fetch('/api/products?limit=200', { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
       fetch('/api/categories'),
     ]);
     const pData = await pRes.json();
@@ -81,7 +82,11 @@ export default function ProduitsPage() {
   const filtered = products.filter(p => {
     const matchSearch = !search || p.name_fr?.toLowerCase().includes(search.toLowerCase()) || p.name_sv?.toLowerCase().includes(search.toLowerCase());
     const matchCat = !filterCat || p.category_id === filterCat;
-    const matchStatus = !filterStatus || (filterStatus === 'active' ? p.is_active : !p.is_active);
+    const matchStatus = !filterStatus
+      || (filterStatus === 'active'   && p.is_active)
+      || (filterStatus === 'inactive' && !p.is_active)
+      || (filterStatus === 'low'      && p.track_stock && p.stock <= (p.stock_alert ?? 3) && p.stock > 0)
+      || (filterStatus === 'out'      && p.track_stock && p.stock === 0);
     return matchSearch && matchCat && matchStatus;
   });
 
@@ -118,6 +123,8 @@ export default function ProduitsPage() {
             <option value="">Tous statuts</option>
             <option value="active">Actifs</option>
             <option value="inactive">Masqués</option>
+            <option value="low">⚠️ Stock faible</option>
+            <option value="out">🔴 Rupture</option>
           </select>
           <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterCat(''); setFilterStatus(''); }}>↺ Réinitialiser</button>
         </div>
@@ -141,6 +148,7 @@ export default function ProduitsPage() {
                     <th>Produit</th>
                     <th>Catégorie</th>
                     <th>Prix</th>
+                    <th>Stock</th>
                     <th>Note</th>
                     <th>Flags</th>
                     <th>Statut</th>
@@ -168,6 +176,17 @@ export default function ProduitsPage() {
                       </td>
                       <td><span style={{ fontSize: 12, color: 'var(--dust)' }}>{p.categories?.emoji} {p.categories?.name_fr || '—'}</span></td>
                       <td><span className="td-price">€{parseFloat(p.price).toFixed(2)}</span></td>
+                      <td>
+                        {!p.track_stock ? (
+                          <span style={{ color: 'var(--dust)', fontSize: 11 }}>—</span>
+                        ) : p.stock === 0 ? (
+                          <span style={{ background: '#FEE2E2', color: '#EF4444', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>🔴 Rupture</span>
+                        ) : p.stock <= (p.stock_alert ?? 3) ? (
+                          <span style={{ background: '#FEF3C7', color: '#D97706', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>⚠️ {p.stock}</span>
+                        ) : (
+                          <span style={{ background: '#D1FAE5', color: '#10B981', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>✅ {p.stock}</span>
+                        )}
+                      </td>
                       <td>
                         <span style={{ color: '#D97706', fontSize: 12 }}>★ {p.rating}</span>
                         <span style={{ color: 'var(--dust)', fontSize: 11 }}> ({p.reviews_count})</span>

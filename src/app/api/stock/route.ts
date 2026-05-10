@@ -3,7 +3,19 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+
+  if (searchParams.get('history') === '1') {
+    const { data, error } = await supabaseAdmin
+      .from('stock_movements')
+      .select('id, product_id, quantity, type, reason, created_at, products(name_fr)')
+      .order('created_at', { ascending: false })
+      .limit(300);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ movements: data || [] });
+  }
+
   const { data, error } = await supabaseAdmin
     .from('products')
     .select('id, name_fr, stock, stock_alert, track_stock, sort_order')
