@@ -8,6 +8,11 @@ type Reception = {
   contacts?: { company?: string; first_name?: string; last_name?: string };
 };
 
+type LandedCost = {
+  id: string; description: string; amount: number;
+  allocation_method: string; status: string; lines: any[]; created_at: string;
+};
+
 const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
@@ -15,6 +20,14 @@ export default function ReceptionsPage() {
   const [receptions, setReceptions] = useState<Reception[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Reception | null>(null);
+  const [replaying, setReplaying] = useState(false);
+  const [toast, setToast] = useState('');
+  const [landedCosts, setLandedCosts] = useState<LandedCost[]>([]);
+  const [lcForm, setLcForm] = useState({ description: '', amount: '', allocation_method: 'equal' });
+  const [lcSaving, setLcSaving] = useState(false);
+  const [lcResult, setLcResult] = useState<any[] | null>(null);
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
   useEffect(() => { load(); }, []);
 
@@ -26,12 +39,48 @@ export default function ReceptionsPage() {
     setLoading(false);
   }
 
+  async function selectReception(r: Reception) {
+    setSelected(r);
+    setLcResult(null);
+    setLcForm({ description: '', amount: '', allocation_method: 'equal' });
+    const res = await fetch(`/api/landed-costs?reception_id=${r.id}`);
+    const data = await res.json();
+    setLandedCosts(data.landed_costs || []);
+  }
+
+  async function saveLandedCost() {
+    if (!selected || !lcForm.description || !lcForm.amount) return;
+    setLcSaving(true);
+    const res = await fetch('/api/landed-costs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reception_id: selected.id,
+        description: lcForm.description,
+        amount: parseFloat(lcForm.amount),
+        allocation_method: lcForm.allocation_method,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast('✅ Coûts logistiques imputés — PMP mis à jour');
+      setLcResult(data.lines);
+      setLcForm({ description: '', amount: '', allocation_method: 'equal' });
+      const res2 = await fetch(`/api/landed-costs?reception_id=${selected.id}`);
+      const data2 = await res2.json();
+      setLandedCosts(data2.landed_costs || []);
+    } else {
+      showToast('❌ ' + (data.error || 'Erreur'));
+    }
+    setLcSaving(false);
+  }
+
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
     * { box-sizing: border-box; }
-    .r-wrap { font-family: 'Jost', sans-serif; display: flex; gap: 20px; }
-    .r-list { flex: 1; }
-    .r-detail { width: 360px; flex-shrink: 0; background: #fff; border: 1px solid #D8CEBC; border-radius: 8px; padding: 20px; }
+    .r-wrap { font-family: 'Jost', sans-serif; display: flex; gap: 20px; align-items: flex-start; }
+    .r-list { flex: 1; min-width: 0; }
+    .r-detail { width: 400px; flex-shrink: 0; background: #fff; border: 1px solid #D8CEBC; border-radius: 8px; padding: 20px; max-height: calc(100vh - 80px); overflow-y: auto; }
     .r-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
     .r-title { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 600; color: #1C2028; }
     .r-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid #D8CEBC; border-radius: 6px; overflow: hidden; }
@@ -44,12 +93,25 @@ export default function ReceptionsPage() {
     .detail-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
     .detail-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; border-bottom: 1px solid #F0EBE1; }
     .detail-row:last-child { border-bottom: none; }
-    .lines-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 14px; }
-    .lines-table th { padding: 6px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #6A7280; border-bottom: 1px solid #D8CEBC; }
-    .lines-table td { padding: 7px 8px; border-bottom: 1px solid #F0EBE1; }
+    .lines-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .lines-table th { padding: 5px 6px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #6A7280; border-bottom: 1px solid #D8CEBC; }
+    .lines-table td { padding: 6px 6px; border-bottom: 1px solid #F0EBE1; }
     .mono { font-family: 'DM Mono', monospace; }
     .empty { padding: 40px; text-align: center; color: #6A7280; font-style: italic; }
     .stock-badge { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: #D1FAE5; color: #065F46; }
+    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #6A7280; margin: 16px 0 8px; }
+    .lc-box { background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 6px; padding: 14px; margin-top: 16px; }
+    .lc-form-row { display: grid; grid-template-columns: 1fr 90px; gap: 8px; margin-bottom: 8px; }
+    .lc-input { width: 100%; padding: 7px 10px; border: 1px solid #BAE6FD; border-radius: 5px; font-family: 'Jost', sans-serif; font-size: 12px; outline: none; background: #fff; }
+    .lc-select { width: 100%; padding: 7px 10px; border: 1px solid #BAE6FD; border-radius: 5px; font-family: 'Jost', sans-serif; font-size: 12px; outline: none; background: #fff; }
+    .lc-btn { width: 100%; padding: 8px; background: #0369A1; color: #fff; border: none; border-radius: 5px; font-family: 'Jost', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+    .lc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .lc-history { margin-top: 10px; }
+    .lc-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #E0F2FE; font-size: 12px; }
+    .pmp-arrow { color: #0369A1; font-size: 10px; }
+    .btn-replay { margin-top: 10px; width: 100%; padding: 8px 12px; background: #FEF3C7; border: 1px solid #FDE68A; border-radius: 6px; font-size: 12px; font-weight: 600; color: #92400E; cursor: pointer; }
+    .btn-replay:disabled { opacity: 0.5; cursor: not-allowed; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1C2028; color: #fff; padding: 10px 18px; border-radius: 6px; font-size: 13px; z-index: 999; }
   `;
 
   return (
@@ -60,20 +122,19 @@ export default function ReceptionsPage() {
           <div className="r-header">
             <div>
               <div className="r-title">📬 Réceptions</div>
-              <div style={{ fontSize: 13, color: '#6A7280', marginTop: 4 }}>{receptions.length} réceptions — stock mis à jour automatiquement</div>
+              <div style={{ fontSize: 13, color: '#6A7280', marginTop: 4 }}>{receptions.length} réceptions</div>
             </div>
           </div>
-
           <table className="r-table">
             <thead><tr><th>N° Réception</th><th>Fournisseur</th><th>Commande achat</th><th>Date réception</th><th>Lignes</th><th>Statut</th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={6}><div className="empty">Chargement…</div></td></tr>
-              : receptions.length === 0 ? <tr><td colSpan={6}><div className="empty">Aucune réception — créez une commande achat et réceptionnez-la</div></td></tr>
+              : receptions.length === 0 ? <tr><td colSpan={6}><div className="empty">Aucune réception</div></td></tr>
               : receptions.map(r => {
                 const lines = typeof r.lines === 'string' ? JSON.parse(r.lines) : r.lines || [];
                 const name = r.contacts?.company || `${r.contacts?.first_name || ''} ${r.contacts?.last_name || ''}`.trim() || r.supplier_name || '—';
                 return (
-                  <tr key={r.id} className={selected?.id === r.id ? 'selected' : ''} onClick={() => setSelected(r)}>
+                  <tr key={r.id} className={selected?.id === r.id ? 'selected' : ''} onClick={() => selectReception(r)}>
                     <td className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{r.number}</td>
                     <td><strong>{name}</strong></td>
                     <td className="mono" style={{ fontSize: 12, color: '#6A7280' }}>{r.purchase_orders?.number || '—'}</td>
@@ -93,29 +154,92 @@ export default function ReceptionsPage() {
             <div className="detail-row"><span style={{ color: '#6A7280' }}>Fournisseur</span><span>{selected.supplier_name || '—'}</span></div>
             <div className="detail-row"><span style={{ color: '#6A7280' }}>Date</span><span>{fmtDate(selected.received_at)}</span></div>
             <div className="detail-row"><span style={{ color: '#6A7280' }}>Commande achat</span><span className="mono">{selected.purchase_orders?.number || '—'}</span></div>
-            {selected.notes && <div className="detail-row"><span style={{ color: '#6A7280' }}>Notes</span><span style={{ maxWidth: 200, textAlign: 'right', fontSize: 12 }}>{selected.notes}</span></div>}
 
-            <div style={{ marginTop: 16, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: '#6A7280', marginBottom: 8 }}>Produits réceptionnés</div>
+            <div className="section-label">Produits réceptionnés</div>
             <table className="lines-table">
-              <thead><tr><th>Produit</th><th>Commandé</th><th>Reçu</th><th>Stock ↑</th></tr></thead>
+              <thead><tr><th>Produit</th><th>Reçu</th><th>PU achat</th></tr></thead>
               <tbody>
                 {(typeof selected.lines === 'string' ? JSON.parse(selected.lines) : selected.lines || []).map((l: any, i: number) => (
                   <tr key={i}>
                     <td style={{ fontWeight: 500 }}>{l.name || '—'}</td>
-                    <td className="mono">{l.qty}</td>
-                    <td className="mono" style={{ fontWeight: 700, color: '#10B981' }}>{l.received_qty}</td>
-                    <td><span className="stock-badge">+{l.received_qty}</span></td>
+                    <td className="mono"><span className="stock-badge">+{l.received_qty}</span></td>
+                    <td className="mono" style={{ color: '#6A7280' }}>{l.unit_cost ? fmt(l.unit_cost) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            <div style={{ marginTop: 16, padding: '10px 12px', background: '#D1FAE5', borderRadius: 6, fontSize: 12, color: '#065F46', fontWeight: 500 }}>
-              ✅ Le stock a été mis à jour automatiquement lors de la validation de cette réception.
+            {/* Section coûts logistiques */}
+            <div className="lc-box">
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: '#0369A1', marginBottom: 10 }}>
+                🚚 Coûts logistiques (Landed Costs)
+              </div>
+
+              {/* Historique */}
+              {landedCosts.length > 0 && (
+                <div className="lc-history">
+                  {landedCosts.map(lc => (
+                    <div key={lc.id} className="lc-item">
+                      <span style={{ fontWeight: 500 }}>{lc.description}</span>
+                      <span className="mono" style={{ color: '#0369A1', fontWeight: 600 }}>{fmt(lc.amount)}</span>
+                      <span style={{ color: '#6A7280', fontSize: 11 }}>{lc.allocation_method === 'prorata' ? 'Prorata' : 'Égal'}</span>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, color: '#0369A1', marginTop: 6, fontWeight: 600 }}>
+                    Total logistique : {fmt(landedCosts.reduce((s, lc) => s + lc.amount, 0))}
+                  </div>
+                </div>
+              )}
+
+              {/* Résultat dernier calcul */}
+              {lcResult && (
+                <div style={{ marginTop: 10, background: '#E0F2FE', borderRadius: 4, padding: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#0369A1', marginBottom: 6 }}>PMP mis à jour</div>
+                  {lcResult.map((r: any, i: number) => (
+                    <div key={i} style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                      <span style={{ fontWeight: 500 }}>{r.name}</span>
+                      <span className="mono pmp-arrow">{fmt(r.pmp_before)} → <strong>{fmt(r.pmp_after)}</strong></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Formulaire nouveau coût */}
+              <div style={{ marginTop: landedCosts.length > 0 ? 12 : 0, borderTop: landedCosts.length > 0 ? '1px solid #BAE6FD' : 'none', paddingTop: landedCosts.length > 0 ? 12 : 0 }}>
+                <div className="lc-form-row">
+                  <input className="lc-input" placeholder="Description (ex: FedEx #INV-2026-045)" value={lcForm.description}
+                    onChange={e => setLcForm(f => ({ ...f, description: e.target.value }))} />
+                  <input className="lc-input" type="number" placeholder="Montant €" step="0.01" value={lcForm.amount}
+                    onChange={e => setLcForm(f => ({ ...f, amount: e.target.value }))} />
+                </div>
+                <select className="lc-select" value={lcForm.allocation_method}
+                  onChange={e => setLcForm(f => ({ ...f, allocation_method: e.target.value }))}>
+                  <option value="equal">Répartition égale (par unité)</option>
+                  <option value="prorata">Prorata valeur HT</option>
+                </select>
+                <button className="lc-btn" disabled={lcSaving || !lcForm.description || !lcForm.amount} onClick={saveLandedCost}>
+                  {lcSaving ? '⏳ Calcul en cours…' : '➕ Imputer ce coût logistique'}
+                </button>
+              </div>
             </div>
+
+            <div style={{ marginTop: 12, padding: '8px 12px', background: '#D1FAE5', borderRadius: 6, fontSize: 12, color: '#065F46', fontWeight: 500 }}>
+              ✅ Stock mis à jour à la validation de cette réception.
+            </div>
+            <button className="btn-replay" disabled={replaying} onClick={async () => {
+              setReplaying(true);
+              const res = await fetch(`/api/receptions/${selected!.id}`, { method: 'POST' });
+              const data = await res.json();
+              if (res.ok) showToast(`✅ Stock et PMP recalculés pour ${data.replayed} produit(s)`);
+              else showToast('❌ ' + (data.error || 'Erreur'));
+              setReplaying(false);
+            }}>
+              {replaying ? '⏳ Recalcul en cours…' : '🔄 Rejouer le stock + PMP'}
+            </button>
           </div>
         )}
       </div>
+      {toast && <div className="toast">{toast}</div>}
     </>
   );
 }

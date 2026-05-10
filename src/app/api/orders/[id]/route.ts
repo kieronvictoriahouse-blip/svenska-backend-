@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS });
+}
+
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const { data, error } = await supabaseAdmin.from('orders').select('*').eq('id', params.id).single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ order: data });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
+  return NextResponse.json({ order: data }, { headers: CORS });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {

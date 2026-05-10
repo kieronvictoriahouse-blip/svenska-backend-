@@ -14,6 +14,7 @@ const TYPE_COLORS: Record<string, string> = { client: '#2563EB', supplier: '#7C3
 const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('fr-FR');
 
+const COUNTRIES = ['France','Belgique','Suisse','Luxembourg','Allemagne','Espagne','Italie','Pays-Bas','Portugal','Royaume-Uni','Suède','Norvège','Danemark','Finlande','Autriche','Pologne','République tchèque','États-Unis','Canada','Australie','Autre'];
 const EMPTY: Partial<Contact> = { type: 'client', country: 'France', tags: [] };
 
 function ContactsInner() {
@@ -281,7 +282,7 @@ function ContactsInner() {
               <div className="grid-3">
                 <div className="form-group"><label className="form-label">Ville</label><input className="form-control" value={form.city || ''} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">Code postal</label><input className="form-control" value={form.zip || ''} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Pays</label><input className="form-control" value={form.country || 'France'} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Pays</label><select className="form-control" value={form.country || 'France'} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}>{COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
               </div>
               <div className="form-group"><label className="form-label">Notes</label><textarea className="form-control" value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
             </div>

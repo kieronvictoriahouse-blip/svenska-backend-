@@ -12,11 +12,15 @@
     "@anthropic-ai/sdk": "^0.90.0",
     "@supabase/ssr": "^0.3.0",
     "@supabase/supabase-js": "^2.43.4",
+    "@types/nodemailer": "^8.0.0",
     "next": "14.2.3",
+    "nodemailer": "^8.0.7",
     "react": "^18",
     "react-dom": "^18",
+    "react-email-editor": "^1.8.0",
     "resend": "^4.0.0",
-    "sharp": "^0.33.4"
+    "sharp": "^0.33.4",
+    "stripe": "^22.1.0"
   },
   "devDependencies": {
     "@types/node": "^20",

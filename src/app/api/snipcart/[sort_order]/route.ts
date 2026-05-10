@@ -21,7 +21,7 @@ export async function GET(
   }
 
   const variantParam = req.nextUrl.searchParams.get('variant');
-  const baseUrl = `${req.nextUrl.origin}/api/snipcart/${sortOrder}`;
+  const baseUrl = `${req.nextUrl.origin}/api/snipcart/${raw}`;
 
   type Item = { id: string; price: number; label: string };
   let items: Item[] = [];
@@ -32,19 +32,19 @@ export async function GET(
     if (variantParam) {
       const v = rawVariants.find((x) => x.label === variantParam);
       if (v) {
-        items.push({ id: `${sortOrder}_${v.label}`, price: v.price, label: v.label });
+        items.push({ id: `${raw}_${v.label}`, price: v.price, label: v.label });
       } else {
-        items.push({ id: `${sortOrder}`, price: product.price, label: '' });
+        items.push({ id: `${raw}`, price: product.price, label: '' });
       }
     } else {
       items = rawVariants.map((v) => ({
-        id: `${sortOrder}_${v.label}`,
+        id: `${raw}_${v.label}`,
         price: v.price,
         label: v.label,
       }));
     }
   } else {
-    items.push({ id: `${sortOrder}`, price: product.price, label: '' });
+    items.push({ id: `${raw}`, price: product.price, label: '' });
   }
 
   const desc = (product.desc_fr || '').replace(/"/g, '&quot;').substring(0, 250);
@@ -67,7 +67,7 @@ export async function GET(
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
-<head><meta charset="UTF-8"><title>${product.name_fr} — Svenska Delikatessen</title></head>
+<head><meta charset="UTF-8"><title>${product.name_fr}</title></head>
 <body style="display:none">
 ${buttons}
 </body>

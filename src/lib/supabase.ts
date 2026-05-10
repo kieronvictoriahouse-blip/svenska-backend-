@@ -8,8 +8,13 @@ const supabaseService = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 export const supabase = createClient(supabaseUrl, supabaseAnon);
 
 // Client admin — utilisé dans les API routes écriture (jamais exposé au front)
+// global.fetch override pour contourner le cache Next.js App Router
 export const supabaseAdmin = createClient(supabaseUrl, supabaseService, {
   auth: { autoRefreshToken: false, persistSession: false },
+  global: {
+    fetch: (url: RequestInfo | URL, options: RequestInit = {}) =>
+      fetch(url, { ...options, cache: 'no-store' }),
+  },
 });
 
 // Types TypeScript

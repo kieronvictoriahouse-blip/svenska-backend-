@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   const { data: orders, error } = await supabaseAdmin
     .from('orders')
-    .select('id,order_number,status,customer_name,customer_email,lines,subtotal,shipping,total,created_at,updated_at,snipcart_invoice')
+    .select('id,order_number,status,customer_name,customer_email,lines,subtotal,shipping,total,shipping_address,created_at,updated_at,snipcart_invoice,tracking_number')
     .ilike('customer_email', email)
     .order('created_at', { ascending: false });
 
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   const { data: orders, error } = await supabaseAdmin
     .from('orders')
-    .select('id,order_number,status,customer_name,customer_email,lines,subtotal,shipping,total,created_at,updated_at,snipcart_invoice')
+    .select('id,order_number,status,customer_name,customer_email,lines,subtotal,shipping,total,shipping_address,created_at,updated_at,snipcart_invoice,tracking_number')
     .ilike('customer_email', email)
     .order('created_at', { ascending: false });
 

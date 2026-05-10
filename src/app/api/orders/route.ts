@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -34,5 +35,9 @@ export async function POST(req: NextRequest) {
       }
     }
   }
-  return NextResponse.json({ order: data });
+
+  // Créer la facture automatiquement
+  const invoice = await createInvoiceFromOrder({ ...data, lines: body.lines });
+
+  return NextResponse.json({ order: data, invoice_number: invoice?.number || null });
 }

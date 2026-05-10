@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { getAdminLang, setAdminLang, subscribeAdminLang, AdminLang } from '@/lib/admin-i18n';
 
 const APPS = [
   {
@@ -11,11 +12,12 @@ const APPS = [
     color: '#7B4F7B',
     paths: ['/admin/produits', '/admin/categories', '/admin/stock', '/admin/commandes', '/admin/import'],
     nav: [
-      { href: '/admin/produits',  icon: '📦', label: 'Produits' },
-      { href: '/admin/categories',icon: '🗂️', label: 'Catégories' },
-      { href: '/admin/stock',     icon: '🔢', label: 'Stocks' },
-      { href: '/admin/commandes', icon: '🛒', label: 'Commandes' },
-      { href: '/admin/import',    icon: '📥', label: 'Import URL' },
+      { href: '/admin/produits',             icon: '📦', label: 'Produits' },
+      { href: '/admin/categories',           icon: '🗂️', label: 'Catégories' },
+      { href: '/admin/stock',                icon: '🔢', label: 'Stocks' },
+      { href: '/admin/commandes',            icon: '🛒', label: 'Commandes' },
+      { href: '/admin/import',               icon: '📥', label: 'Import URL' },
+      { href: '/admin/produits/suggestions', icon: '💡', label: 'Suggestions' },
     ],
   },
   {
@@ -34,11 +36,12 @@ const APPS = [
     label: 'Finance',
     icon: '💰',
     color: '#1C4E80',
-    paths: ['/admin/gestion'],
+    paths: ['/admin/gestion', '/admin/comptabilite'],
     nav: [
       { href: '/admin/gestion',            icon: '🧾', label: 'Factures vente' },
       { href: '/admin/gestion?tab=achat',  icon: '📄', label: 'Factures achat' },
       { href: '/admin/gestion?tab=marges', icon: '📈', label: 'Marges' },
+      { href: '/admin/comptabilite',       icon: '📊', label: 'Comptabilité' },
     ],
   },
   {
@@ -48,9 +51,11 @@ const APPS = [
     color: '#7B2D8B',
     paths: ['/admin/marketing'],
     nav: [
-      { href: '/admin/marketing',             icon: '📧', label: 'Campagnes' },
-      { href: '/admin/marketing?tab=promo',   icon: '🎟️', label: 'Codes promo' },
-      { href: '/admin/marketing?tab=cart',    icon: '🛒', label: 'Abandon panier' },
+      { href: '/admin/marketing',                  icon: '📧', label: 'Campagnes' },
+      { href: '/admin/marketing/editor',           icon: '✏️', label: 'Éditeur email' },
+      { href: '/admin/marketing/automations',      icon: '🤖', label: 'Automations' },
+      { href: '/admin/marketing?tab=promo',        icon: '🎟️', label: 'Codes promo' },
+      { href: '/admin/marketing?tab=cart',         icon: '🛒', label: 'Abandon panier' },
     ],
   },
   {
@@ -98,6 +103,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [colorPrimary, setColorPrimary] = useState('#3E5238');
   const [frontUrl, setFrontUrl] = useState(process.env.NEXT_PUBLIC_FRONT_URL || '#');
   const [mobOpen, setMob] = useState(false);
+  const [lang, setLang] = useState<AdminLang>('fr');
 
   const isHome = pathname === '/admin';
 
@@ -110,6 +116,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const mail = localStorage.getItem('sd_admin_email');
     if (!token) { router.replace('/login'); return; }
     setEmail(mail || 'Admin');
+    setLang(getAdminLang());
     fetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => { if (!r.ok) { localStorage.clear(); router.replace('/login'); } });
     fetch('/api/white-label')
@@ -123,6 +130,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         }
       })
       .catch(() => {});
+    return subscribeAdminLang(setLang);
   }, []);
 
   // Fermer la sidebar au changement de page
@@ -190,6 +198,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       text-decoration: none; transition: all 0.15s;
     }
     .topnav-link:hover { color: #fff; background: rgba(255,255,255,0.06); }
+
+    .lang-switcher {
+      display: flex; align-items: center; gap: 2px;
+      padding: 0 10px; border-left: 1px solid rgba(255,255,255,0.07);
+    }
+    .lang-btn {
+      background: none; border: none; color: rgba(255,255,255,0.35);
+      cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+      padding: 4px 7px; border-radius: 4px; transition: all 0.15s;
+      text-transform: uppercase;
+    }
+    .lang-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    .lang-btn.active { color: #fff; background: rgba(255,255,255,0.15); }
 
     .topnav-user {
       display: flex; align-items: center; gap: 10px;
@@ -467,6 +488,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           🗄️
         </a>
 
+        <div className="lang-switcher">
+          {(['fr', 'en', 'sv'] as AdminLang[]).map(l => (
+            <button key={l} className={`lang-btn${lang === l ? ' active' : ''}`}
+              onClick={() => { setAdminLang(l); setLang(l); }}>{l}</button>
+          ))}
+        </div>
+
         <div className="topnav-user">
           <div className="topnav-avatar" style={{ background: appColor }}>{initials}</div>
           <span className="topnav-user-name">{email.split('@')[0]}</span>
@@ -501,9 +529,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         <main className="admin-main" style={{
           marginLeft: !isHome && currentApp ? '200px' : '0',
-          padding: isHome ? '0' : '28px',
+          padding: isHome || pathname.startsWith('/admin/marketing/editor') ? '0' : '28px',
         }}>
           {children}
+          {!pathname.startsWith('/admin/marketing/editor') && (
+            <div style={{
+              textAlign: 'right',
+              padding: isHome ? '16px 40px' : '20px 0 4px',
+              fontSize: 10,
+              color: 'rgba(0,0,0,0.18)',
+              letterSpacing: '0.04em',
+              userSelect: 'none',
+            }}>
+              Powered by <a href="https://valkode.fr" target="_blank" rel="noopener" style={{ color: 'inherit', textDecoration: 'none', fontWeight: 600 }}>SHOPFLOW</a>
+              {' · '}Designed by <a href="https://valkode.fr" target="_blank" rel="noopener" style={{ color: 'inherit', textDecoration: 'none', fontWeight: 600 }}>VALKODE</a>
+            </div>
+          )}
         </main>
       </div>
     </>

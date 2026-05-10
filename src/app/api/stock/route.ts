@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('products')
@@ -8,7 +10,9 @@ export async function GET() {
     .eq('is_active', true)
     .order('sort_order');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ products: data || [] });
+  return NextResponse.json({ products: data || [] }, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
 }
 
 export async function PUT(req: NextRequest) {
@@ -20,11 +24,19 @@ export async function PUT(req: NextRequest) {
   const diff = stock - (current?.stock || 0);
   
   // Update product stock
-  const { error } = await supabaseAdmin.from('products')
+  const { data: updated, error } = await supabaseAdmin.from('products')
     .update({ stock, stock_alert, track_stock })
-    .eq('id', id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  
+    .eq('id', id)
+    .select('id, stock, stock_alert, track_stock')
+    .single();
+  if (error) return NextResponse.json({ error: error.message, details: (error as any).details }, { status: 500 });
+
+  // Vérification post-update — détecte les triggers qui resetteraient la valeur
+  const { data: verify } = await supabaseAdmin.from('products')
+    .select('id, stock, track_stock')
+    .eq('id', id)
+    .single();
+
   // Log movement
   if (diff !== 0) {
     await supabaseAdmin.from('stock_movements').insert({
@@ -34,6 +46,6 @@ export async function PUT(req: NextRequest) {
       reason: reason || 'Ajustement manuel',
     });
   }
-  
-  return NextResponse.json({ success: true });
+
+  return NextResponse.json({ success: true, updated, verify });
 }

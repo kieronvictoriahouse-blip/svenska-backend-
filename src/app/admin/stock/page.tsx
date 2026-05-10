@@ -18,7 +18,7 @@ export default function StockPage() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const res = await fetch('/api/stock');
+    const res = await fetch('/api/stock', { cache: 'no-store' });
     const data = await res.json();
     setProducts(data.products || []);
     setLoading(false);
@@ -38,12 +38,19 @@ export default function StockPage() {
 
   async function toggleTrack(p: StockProduct) {
     setSaving(p.id);
-    await fetch('/api/stock', {
+    const res = await fetch('/api/stock', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: p.id, stock: p.stock, stock_alert: p.stock_alert, track_stock: !p.track_stock }),
+      body: JSON.stringify({ id: p.id, stock: p.stock, stock_alert: p.stock_alert ?? 0, track_stock: !p.track_stock }),
     });
-    setProducts(prods => prods.map(x => x.id === p.id ? { ...x, track_stock: !x.track_stock } : x));
+    const result = await res.json();
+    console.log('[toggleTrack] updated:', result.updated, '| verify:', result.verify);
+    if (res.ok && result.updated) {
+      setProducts(prods => prods.map(x => x.id === result.updated.id ? { ...x, track_stock: result.updated.track_stock } : x));
+      showToast(result.updated.track_stock ? '✅ Suivi activé' : '✅ Suivi désactivé');
+    } else if (!res.ok) {
+      showToast('❌ ' + (result?.error || 'Erreur serveur'));
+    }
     setSaving(null);
   }
 

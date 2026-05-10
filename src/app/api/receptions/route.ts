@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { applyStockAndPmp } from '@/lib/reception-utils';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -21,38 +22,22 @@ export async function POST(req: NextRequest) {
   // Créer la réception
   const { data: reception, error } = await supabaseAdmin.from('receptions').insert({
     number: `REC-${num}`,
-    purchase_order_id: body.purchase_order_id,
-    supplier_id: body.supplier_id,
+    purchase_order_id: body.purchase_order_id || null,
+    supplier_id: body.supplier_id || null,
     supplier_name: body.supplier_name,
     status: 'done',
     received_at: new Date().toISOString(),
     notes: body.notes,
     lines: JSON.stringify(lines),
-    invoice_id: body.invoice_id,
+    invoice_id: body.invoice_id || null,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: error.message, details: (error as any).details, hint: (error as any).hint, code: (error as any).code }, { status: 500 });
 
-  // Mettre à jour le stock pour chaque ligne reçue
+  // Mettre à jour le stock + PMP pour chaque ligne reçue
   for (const line of lines) {
     if (!line.product_id || !line.received_qty) continue;
-    
-    // Récupérer stock actuel
-    const { data: product } = await supabaseAdmin.from('products')
-      .select('stock, track_stock').eq('id', line.product_id).single();
-    
-    if (product?.track_stock) {
-      const newStock = (product.stock || 0) + parseInt(line.received_qty);
-      await supabaseAdmin.from('products').update({ stock: newStock }).eq('id', line.product_id);
-      
-      // Log mouvement
-      await supabaseAdmin.from('stock_movements').insert({
-        product_id: line.product_id,
-        quantity: parseInt(line.received_qty),
-        type: 'in',
-        reason: `Réception ${num} — ${body.supplier_name || ''}`,
-      });
-    }
+    await applyStockAndPmp(line, `Réception ${num} — ${body.supplier_name || ''}`);
   }
 
   // Mettre à jour statut commande d'achat si toutes les lignes reçues

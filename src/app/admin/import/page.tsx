@@ -1,7 +1,6 @@
 'use client';
 import { useState } from 'react';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 type Category = { id: string; name_fr: string; slug: string };
 

@@ -1,0 +1,156 @@
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { supabaseAdmin } from '@/lib/supabase';
+import { sendEmail, orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
+
+export async function POST(req: NextRequest) {
+  const stripeKey     = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!stripeKey) return NextResponse.json({ error: 'no key' }, { status: 500 });
+
+  const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
+  const body = await req.text();
+  const sig  = req.headers.get('stripe-signature') || '';
+
+  let event: Stripe.Event;
+  try {
+    event = webhookSecret
+      ? stripe.webhooks.constructEvent(body, sig, webhookSecret)
+      : JSON.parse(body);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'invalid';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as any;
+
+    const shipping        = session.shipping_details as { name?: string; address?: { line1?: string; line2?: string; postal_code?: string; city?: string; country?: string } } | null;
+    const shippingAddress = shipping?.address
+      ? [shipping.address.line1, shipping.address.line2, `${shipping.address.postal_code} ${shipping.address.city}`, shipping.address.country]
+          .filter(Boolean).join(', ')
+      : '';
+
+    const customerName  = shipping?.name || session.customer_details?.name || '';
+    const customerEmail = session.customer_details?.email || '';
+    const total         = (session.amount_total || 0) / 100;
+    const shippingCost  = session.shipping_cost?.amount_total ? session.shipping_cost.amount_total / 100 : 0;
+
+    const orderId = session.metadata?.order_id;
+
+    if (orderId) {
+      // Commande draft créée au checkout → mettre à jour
+      const { data: existing } = await supabaseAdmin
+        .from('orders').select('*').eq('id', orderId).single();
+
+      const orderLines = existing?.lines
+        ? (typeof existing.lines === 'string' ? JSON.parse(existing.lines) : existing.lines)
+        : [];
+
+      const subtotal = total - shippingCost;
+
+      await supabaseAdmin.from('orders').update({
+        customer_name:    customerName,
+        customer_email:   customerEmail,
+        shipping_address: shippingAddress,
+        subtotal:         subtotal > 0 ? subtotal : total,
+        shipping:         shippingCost,
+        total,
+        status:           'paid',
+        stripe_session_id: session.id,
+        updated_at:       new Date().toISOString(),
+      }).eq('id', orderId);
+
+      // Décrémenter le stock
+      for (const line of orderLines) {
+        if (line.product_id) {
+          try { await supabaseAdmin.rpc('decrement_stock', { p_id: line.product_id, qty: line.qty }); } catch { /* non bloquant */ }
+        }
+      }
+
+      // Facture automatique
+      try {
+        const { data: setting } = await supabaseAdmin
+          .from('company_settings').select('value').eq('key', 'invoice_next').single();
+        const invoiceNum = parseInt(setting?.value || '1', 10);
+        const invoiceNumber = `F-${String(invoiceNum).padStart(4, '0')}`;
+
+        await supabaseAdmin.from('invoices').insert({
+          invoice_number:  invoiceNumber,
+          type:            'vente',
+          order_id:        orderId,
+          customer_name:   customerName,
+          customer_email:  customerEmail,
+          date:            new Date().toISOString().split('T')[0],
+          due_date:        new Date().toISOString().split('T')[0],
+          status:          'paid',
+          subtotal:        subtotal > 0 ? subtotal : total,
+          shipping:        shippingCost,
+          total,
+          lines:           JSON.stringify(orderLines),
+        });
+
+        await supabaseAdmin.from('company_settings')
+          .update({ value: String(invoiceNum + 1) }).eq('key', 'invoice_next');
+
+        await supabaseAdmin.from('orders')
+          .update({ invoice_number: invoiceNumber }).eq('id', orderId);
+      } catch (invErr) {
+        console.error('[webhook] invoice error:', invErr);
+      }
+
+      // Email de confirmation
+      try {
+        const cfg = await getWlConfig();
+        const siteName  = cfg.site_name || '';
+        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || (siteName ? `${siteName} <noreply@swedishcravings.fr>` : 'noreply@swedishcravings.fr');
+
+        const orderForEmail = {
+          ...(existing || {}),
+          customer_name:    customerName,
+          customer_email:   customerEmail,
+          shipping_address: shippingAddress,
+          subtotal:         subtotal > 0 ? subtotal : total,
+          shipping:         shippingCost,
+          total,
+          lines:            orderLines,
+        };
+
+        await sendEmail({
+          from:    fromEmail,
+          to:      customerEmail,
+          subject: `✅ Commande ${existing?.order_number || ''} confirmée${siteName ? ` — ${siteName}` : ''}`,
+          html:    orderConfirmationHtml(orderForEmail, cfg),
+        });
+      } catch (emailErr) {
+        console.error('[webhook] email error:', emailErr);
+      }
+
+    } else {
+      // Fallback : ancienne logique sans draft order
+      const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 100 });
+      const lines = lineItems.data.map((li) => ({
+        name:  li.description,
+        qty:   li.quantity,
+        price: (li.amount_total || 0) / 100 / (li.quantity || 1),
+      }));
+
+      const { count: orderCount } = await supabaseAdmin
+        .from('orders').select('id', { count: 'exact', head: true });
+      const num = String((orderCount || 0) + 1).padStart(4, '0');
+
+      await supabaseAdmin.from('orders').insert({
+        order_number:     `SD-${num}`,
+        customer_name:    customerName,
+        customer_email:   customerEmail,
+        shipping_address: shippingAddress,
+        total,
+        status:           'paid',
+        lines:            JSON.stringify(lines),
+        stripe_session_id: session.id,
+      });
+    }
+  }
+
+  return NextResponse.json({ received: true });
+}

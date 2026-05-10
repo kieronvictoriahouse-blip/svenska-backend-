@@ -28,6 +28,14 @@ const APPS = [
     bg: 'linear-gradient(135deg, #1C4E80 0%, #2E6FAD 100%)',
   },
   {
+    href: '/admin/comptabilite',
+    icon: '📊',
+    label: 'Comptabilité',
+    desc: 'CA · Recettes · Achats · Micro',
+    color: '#0F5132',
+    bg: 'linear-gradient(135deg, #0F5132 0%, #198754 100%)',
+  },
+  {
     href: '/admin/contacts',
     icon: '👥',
     label: 'Contacts',

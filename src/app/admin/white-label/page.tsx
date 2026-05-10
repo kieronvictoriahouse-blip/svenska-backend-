@@ -9,7 +9,7 @@ type Config = {
   email: string; phone: string; address: string; siret: string; tva: string;
   instagram: string; facebook: string; pinterest: string;
   currency: string; tva_rate: number; free_shipping_threshold: number;
-  smtp_host: string; smtp_user: string; smtp_from: string;
+  smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string;
   announcement_fr: string; announcement_sv: string; announcement_en: string;
   footer_desc_fr: string; footer_desc_sv: string; footer_desc_en: string;
   footer_tagline_fr: string; footer_tagline_sv: string; footer_tagline_en: string;
@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: Config = {
   email: '', phone: '', address: '', siret: '', tva: '',
   instagram: '', facebook: '', pinterest: '',
   currency: 'EUR', tva_rate: 20, free_shipping_threshold: 50,
-  smtp_host: '', smtp_user: '', smtp_from: '',
+  smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
   announcement_fr: 'Livraison gratuite dès 50€ · Produits authentiques · Paiement sécurisé',
   announcement_sv: 'Fri frakt från 50€ · Autentiska produkter · Säker betalning',
   announcement_en: 'Free delivery from €50 · Authentic products · Secure payment',
@@ -336,17 +336,7 @@ function WhiteLabelInner() {
 
         {/* SMTP */}
         {tab === 'smtp' && (
-          <div className="wl-section">
-            <div className="wl-section-title">📧 Configuration email (SMTP)</div>
-            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#1E40AF' }}>
-              💡 Utilisé pour l'envoi des emails de confirmation commande, relances panier abandonné et newsletters.
-            </div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Serveur SMTP</label><input className="form-control mono" value={config.smtp_host} onChange={e => update('smtp_host', e.target.value)} placeholder="smtp.gmail.com" /></div>
-              <div className="form-group"><label className="form-label">Utilisateur</label><input className="form-control" value={config.smtp_user} onChange={e => update('smtp_user', e.target.value)} placeholder="contact@monsite.fr" /></div>
-              <div className="form-group"><label className="form-label">Email expéditeur</label><input className="form-control" value={config.smtp_from} onChange={e => update('smtp_from', e.target.value)} placeholder="Svenska Delikatessen <noreply@..." /></div>
-            </div>
-          </div>
+          <SmtpSection config={config} update={update} />
         )}
 
         {/* IMPORT */}
@@ -394,3 +384,115 @@ function WhiteLabelInner() {
   );
 }
 export default function WhiteLabelPage() { return <Suspense><WhiteLabelInner /></Suspense>; }
+
+function SmtpSection({ config, update }: { config: any; update: (k: keyof Config, v: any) => void }) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState('');
+
+  async function testEmail() {
+    setTesting(true);
+    setTestResult('');
+    try {
+      const res = await fetch('/api/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'test', to: config.email || config.smtp_from }),
+      });
+      const data = await res.json();
+      if (res.ok) setTestResult(`✅ Email envoyé via ${data.method === 'smtp' ? 'SMTP' : 'Resend'} !`);
+      else setTestResult(`❌ Erreur : ${data.error}`);
+    } catch (e: any) {
+      setTestResult(`❌ ${e.message}`);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const PROVIDERS = [
+    { label: 'Gmail', host: 'smtp.gmail.com', port: '587', note: 'Nécessite un mot de passe d\'application Google' },
+    { label: 'OVH', host: 'ssl0.ovh.net', port: '587', note: 'Votre hébergeur OVH' },
+    { label: 'Brevo (ex-Sendinblue)', host: 'smtp-relay.brevo.com', port: '587', note: 'Gratuit jusqu\'à 300 emails/jour' },
+    { label: 'Resend', host: 'smtp.resend.com', port: '587', note: 'Configurer RESEND_API_KEY dans Vercel env vars' },
+    { label: 'Ionos / 1&1', host: 'smtp.ionos.fr', port: '587', note: '' },
+  ];
+
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#1E40AF' }}>
+        💡 Configurez votre serveur email ici. Le système utilisera SMTP si configuré, sinon Resend (via variable d'environnement <code>RESEND_API_KEY</code>).
+      </div>
+
+      {/* Presets fournisseurs */}
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Choisir un fournisseur</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {PROVIDERS.map(p => (
+            <button
+              key={p.label}
+              onClick={() => { update('smtp_host', p.host); update('smtp_port', p.port); }}
+              style={{
+                padding: '6px 14px', borderRadius: 20, border: '1px solid #d1d5db',
+                cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                background: config.smtp_host === p.host ? '#1e293b' : '#fff',
+                color: config.smtp_host === p.host ? '#fff' : '#374151',
+              }}
+              title={p.note}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="wl-section" style={{ marginBottom: 16 }}>
+        <div className="wl-section-title">⚙️ Paramètres SMTP</div>
+        <div className="grid-2">
+          <div className="form-group">
+            <label className="form-label">Serveur SMTP (Host)</label>
+            <input className="form-control mono" value={config.smtp_host || ''} onChange={e => update('smtp_host', e.target.value)} placeholder="smtp.gmail.com" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Port</label>
+            <input className="form-control mono" value={config.smtp_port || '587'} onChange={e => update('smtp_port', e.target.value)} placeholder="587" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Utilisateur (email de connexion)</label>
+            <input className="form-control" value={config.smtp_user || ''} onChange={e => update('smtp_user', e.target.value)} placeholder="contact@monsite.fr" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Mot de passe SMTP</label>
+            <input className="form-control" type="password" value={config.smtp_pass || ''} onChange={e => update('smtp_pass', e.target.value)} placeholder="••••••••••••" />
+          </div>
+          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+            <label className="form-label">Email expéditeur affiché</label>
+            <input className="form-control" value={config.smtp_from || ''} onChange={e => update('smtp_from', e.target.value)} placeholder={`Svenska Delikatessen <noreply@votre-domaine.fr>`} />
+            <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Format recommandé : Nom Boutique {'<'}adresse@domaine.fr{'>'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Test */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <button
+          onClick={testEmail}
+          disabled={testing}
+          style={{
+            padding: '9px 20px', borderRadius: 6, border: 'none', cursor: 'pointer',
+            background: testing ? '#94a3b8' : '#10b981', color: '#fff', fontSize: 14, fontWeight: 600,
+          }}
+        >
+          {testing ? '⏳ Envoi…' : '📤 Envoyer un email de test'}
+        </button>
+        {testResult && (
+          <span style={{ fontSize: 13, fontWeight: 500, color: testResult.startsWith('✅') ? '#065f46' : '#991b1b' }}>
+            {testResult}
+          </span>
+        )}
+      </div>
+      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+        L'email de test sera envoyé à : <strong>{config.email || config.smtp_from || '(email non configuré)'}</strong>
+        {' '}— Pensez à sauvegarder avant de tester.
+      </p>
+    </div>
+  );
+}
