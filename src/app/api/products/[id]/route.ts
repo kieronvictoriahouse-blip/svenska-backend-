@@ -12,7 +12,7 @@ async function requireAuth(req: NextRequest) {
 
 // ─── GET /api/products/[id] ───────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('products')
     .select(`
       *,
