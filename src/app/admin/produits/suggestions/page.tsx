@@ -41,9 +41,10 @@ export default function SuggestionsPage() {
   useEffect(() => { load(); }, []);
 
   async function setStatus(id: string, status: string) {
+    const token = localStorage.getItem('sd_admin_token') || '';
     await fetch('/api/product-suggestions', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ id, status }),
     });
     setSuggestions(s => s.map(x => x.id === id ? { ...x, status: status as Suggestion['status'] } : x));
@@ -52,7 +53,8 @@ export default function SuggestionsPage() {
 
   async function deleteSuggestion(id: string) {
     if (!confirm('Supprimer cette suggestion ?')) return;
-    await fetch(`/api/product-suggestions?id=${id}`, { method: 'DELETE' });
+    const token = localStorage.getItem('sd_admin_token') || '';
+    await fetch(`/api/product-suggestions?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     setSuggestions(s => s.filter(x => x.id !== id));
     showToast('🗑️ Suggestion supprimée');
   }

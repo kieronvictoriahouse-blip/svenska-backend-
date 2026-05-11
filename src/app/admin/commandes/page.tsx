@@ -83,17 +83,21 @@ export default function CommandesPage() {
 
   async function load() {
     setLoading(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
     const params = new URLSearchParams();
     if (filter) params.set('status', filter);
     if (search) params.set('search', search);
-    const res = await fetch('/api/orders?' + params.toString());
+    const res = await fetch('/api/orders?' + params.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const data = await res.json();
     setOrders(data.orders || []);
     setLoading(false);
   }
 
   async function updateStatus(id: string, status: string) {
-    await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    const token = localStorage.getItem('sd_admin_token') || '';
+    await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
     showToast('✅ ' + tc('status'));
     load();
     if (selected?.id === id) setSelected(o => o ? { ...o, status } : null);
@@ -101,10 +105,11 @@ export default function CommandesPage() {
 
   async function saveTracking() {
     if (!selected) return;
+    const token = localStorage.getItem('sd_admin_token') || '';
     setSavingTracking(true);
     await fetch(`/api/orders/${selected.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ tracking_number: trackingInput || null }),
     });
     setSelected(o => o ? { ...o, tracking_number: trackingInput || undefined } : null);
