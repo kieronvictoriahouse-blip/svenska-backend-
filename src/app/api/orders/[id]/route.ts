@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -18,6 +19,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS });
   const body = await req.json();
   const { data, error } = await supabaseAdmin.from('orders')
     .update({ ...body, updated_at: new Date().toISOString() })
@@ -26,7 +28,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ order: data });
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS });
   await supabaseAdmin.from('orders').update({ status: 'cancelled' }).eq('id', params.id);
   return NextResponse.json({ success: true });
 }
