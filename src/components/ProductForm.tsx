@@ -489,37 +489,44 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                   placeholder="6.90" />
               </div>
 
-              {/* PMP + marge */}
-              {costPrice !== null && costPrice > 0 && (() => {
+              {/* PMP + marge — toujours visible sur une fiche existante */}
+              {initialData?.id && (() => {
                 const pv = parseFloat(form.price) || 0;
-                const margeEur = pv - costPrice;
-                const margePct = pv > 0 ? (margeEur / pv) * 100 : 0;
-                const color = margePct >= 50 ? '#10B981' : margePct >= 30 ? '#F59E0B' : '#EF4444';
+                const hasCost = costPrice !== null && costPrice > 0;
+                const margeEur = hasCost ? pv - costPrice! : null;
+                const margePct = hasCost && pv > 0 ? (margeEur! / pv) * 100 : null;
+                const color = margePct === null ? 'var(--dust)' : margePct >= 50 ? '#10B981' : margePct >= 30 ? '#F59E0B' : '#EF4444';
                 return (
                   <div style={{ background: 'var(--cream)', borderRadius: 'var(--radius)', border: '1px solid var(--linen)', padding: '12px 14px', marginBottom: 16 }}>
                     <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--dust)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
                       Coût &amp; Marge
                     </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>
-                          {costPrice.toFixed(2)} €
+                    {!hasCost ? (
+                      <p style={{ fontSize: 12, color: 'var(--dust)', fontStyle: 'italic', margin: 0 }}>
+                        Aucun PMP — validez une réception pour mettre à jour le coût.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>
+                            {costPrice!.toFixed(2)} €
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP</div>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP</div>
-                      </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color }}>
-                          {margeEur > 0 ? '+' : ''}{margeEur.toFixed(2)} €
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color }}>
+                            {margeEur! > 0 ? '+' : ''}{margeEur!.toFixed(2)} €
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--dust)' }}>Marge brute</div>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--dust)' }}>Marge brute</div>
-                      </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color }}>
-                          {margePct.toFixed(0)} %
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color }}>
+                            {margePct!.toFixed(0)} %
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--dust)' }}>Taux</div>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--dust)' }}>Taux</div>
                       </div>
-                    </div>
+                    )}
                     {stockQty !== null && (
                       <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 12, color: 'var(--dust)' }}>Stock actuel</span>
