@@ -126,7 +126,8 @@ export async function POST(req: NextRequest) {
         status:           'pending',
         customer_email:   customer_email || null,
         customer_name:    customerName || null,
-        customer_address: customerAddress || null,
+        // For pickup, Stripe won't collect address — store profile address now
+        ...(isPickup && customerAddress ? { shipping_address: customerAddress } : {}),
         subtotal,
         shipping:         shippingCost,
         total:            subtotal + shippingCost,
