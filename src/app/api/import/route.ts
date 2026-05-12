@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
         desc_fr:       p.desc?.fr,
         desc_en:       p.desc?.en,
         price:         parseFloat(p.price) || 0,
+        weight:        p.weight ? p.weight.replace(/^\d+\s*[xX×]\s*/,'').trim() || null : null,
         origin_sv:     p.origin?.sv || 'Suède',
         origin_fr:     p.origin?.fr || 'Suède',
         origin_en:     p.origin?.en || 'Sweden',

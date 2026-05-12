@@ -521,7 +521,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                         </div>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ fontSize: 16, fontWeight: 700, color }}>
-                            {margePct!.toFixed(0)} %
+                            {margePct !== null ? `${margePct.toFixed(0)} %` : '—'}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--dust)' }}>Taux</div>
                         </div>

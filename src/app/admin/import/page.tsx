@@ -72,6 +72,7 @@ export default function ImportPage() {
         usage_sv: product.usage_sv || '', usage_fr: product.usage_fr || '', usage_en: product.usage_en || '',
         nutrition: product.nutrition || {},
         price: product.price || 0,
+        weight: product.weight ? product.weight.replace(/^\d+\s*[xX×]\s*/,'').trim() || null : null,
         origin_sv: product.origin_sv || '', origin_fr: product.origin_fr || '', origin_en: product.origin_en || '',
         image_url: selectedImg || null,
         extra_images: Array.from(extraImgs).filter(u => u !== selectedImg),
