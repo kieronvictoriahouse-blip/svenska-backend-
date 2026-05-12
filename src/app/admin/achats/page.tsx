@@ -169,12 +169,13 @@ export default function AchatsPage() {
   async function saveOrder() {
     if (!form.supplier_id) { showToast('⚠️ ' + t('supplier')); return; }
     if (currency !== 'EUR' && !exchangeRate) { showToast('⚠️ Taux de change non chargé — sélectionnez la devise à nouveau'); return; }
+    const token = localStorage.getItem('sd_admin_token') || '';
     const supplier = suppliers.find(s => s.id === form.supplier_id);
     const url = editingOrder ? `/api/purchase-orders/${editingOrder.id}` : '/api/purchase-orders';
     const method = editingOrder ? 'PUT' : 'POST';
     const res = await fetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         ...form,
         supplier_name: supplier?.company || `${supplier?.first_name} ${supplier?.last_name}`,
@@ -233,9 +234,10 @@ export default function AchatsPage() {
 
   async function saveReception() {
     if (!selected) return;
+    const token = localStorage.getItem('sd_admin_token') || '';
     const res = await fetch('/api/receptions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ ...recForm, purchase_order_id: selected.id, supplier_id: selected.supplier_id, supplier_name: selected.supplier_name }),
     });
     if (!res.ok) { const e = await res.json(); showToast('❌ ' + (e?.error || 'Erreur serveur')); return; }
