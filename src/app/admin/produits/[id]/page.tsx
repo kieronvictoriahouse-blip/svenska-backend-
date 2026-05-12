@@ -67,11 +67,11 @@ export default function EditProduitPage() {
   }
 
   async function handleDelete() {
-    if (!confirm(`Désactiver "${product?.name_fr}" ? Réversible depuis le dashboard.`)) return;
+    if (!confirm(`Supprimer définitivement "${product?.name_fr}" ? Cette action est irréversible.`)) return;
     setDeleting(true);
     const t = localStorage.getItem('sd_admin_token') || '';
     await fetch(`/api/products/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${t}` } });
-    showToast('🙈 Produit désactivé');
+    showToast('🗑️ Produit supprimé');
     setTimeout(() => router.push('/admin/produits'), 1200);
     setDeleting(false);
   }
@@ -127,7 +127,7 @@ export default function EditProduitPage() {
             →
           </button>
           <button className="btn btn-danger btn-sm" onClick={handleDelete} disabled={deleting}>
-            {deleting ? '⏳…' : '🗑 Désactiver'}
+            {deleting ? '⏳…' : '🗑 Supprimer'}
           </button>
           <a href="/admin/produits" className="btn btn-secondary btn-sm">← Liste</a>
         </div>

@@ -82,12 +82,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const user = await requireAuth(req);
   if (!user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  // Soft delete (désactivation) plutôt que suppression définitive
-  const { error } = await supabaseAdmin
-    .from('products')
-    .update({ is_active: false })
-    .eq('id', params.id);
+  // Supprimer les tables liées avant le produit (FK constraints)
+  await supabaseAdmin.from('product_variants').delete().eq('product_id', params.id);
+  await supabaseAdmin.from('stock_movements').delete().eq('product_id', params.id);
 
+  const { error } = await supabaseAdmin.from('products').delete().eq('id', params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ message: 'Produit désactivé' });
+  return NextResponse.json({ message: 'Produit supprimé' });
 }
