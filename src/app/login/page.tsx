@@ -38,6 +38,7 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Erreur de connexion'); return; }
       localStorage.setItem('sd_admin_token', data.access_token);
+      localStorage.setItem('sd_admin_refresh_token', data.refresh_token || '');
       localStorage.setItem('sd_admin_email', data.user.email);
       router.push('/admin');
     } catch {

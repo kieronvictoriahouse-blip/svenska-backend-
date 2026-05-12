@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import ProductForm from '@/components/ProductForm';
+import { adminFetch } from '@/lib/auth-client';
 
 type NavProduct = { id: string; name_fr: string };
 
@@ -55,22 +56,24 @@ export default function EditProduitPage() {
   async function handleSave(data: any) {
     setSaving(true);
     try {
-      const t = localStorage.getItem('sd_admin_token') || '';
-      const res = await fetch(`/api/products/${id}`, {
+      const res = await adminFetch(`/api/products/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      const json = await res.json();
-      if (!res.ok) { showToast('❌ Erreur : ' + (json.error || 'inconnue')); return; }
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        showToast('❌ Erreur : ' + (json.error || 'inconnue'));
+        return;
+      }
+      showToast('✅ Sauvegardé');
     } catch { showToast('❌ Erreur réseau'); } finally { setSaving(false); }
   }
 
   async function handleDelete() {
     if (!confirm(`Supprimer définitivement "${product?.name_fr}" ? Cette action est irréversible.`)) return;
     setDeleting(true);
-    const t = localStorage.getItem('sd_admin_token') || '';
-    await fetch(`/api/products/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${t}` } });
+    await adminFetch(`/api/products/${id}`, { method: 'DELETE' });
     showToast('🗑️ Produit supprimé');
     setTimeout(() => router.push('/admin/produits'), 1200);
     setDeleting(false);

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { getAdminLang, setAdminLang, subscribeAdminLang, AdminLang } from '@/lib/admin-i18n';
+import { getValidToken } from '@/lib/auth-client';
 
 const APPS = [
   {
@@ -112,13 +113,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   ) || null;
 
   useEffect(() => {
-    const token = localStorage.getItem('sd_admin_token');
     const mail = localStorage.getItem('sd_admin_email');
-    if (!token) { router.replace('/login'); return; }
     setEmail(mail || 'Admin');
     setLang(getAdminLang());
-    fetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => { if (!r.ok) { localStorage.clear(); router.replace('/login'); } });
+    getValidToken().then(token => {
+      if (!token) { router.replace('/login'); return; }
+      // Token valid (refreshed if needed) — verify with server
+      fetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => { if (!r.ok) { localStorage.removeItem('sd_admin_token'); localStorage.removeItem('sd_admin_refresh_token'); router.replace('/login'); } });
+    });
     fetch('/api/white-label')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
