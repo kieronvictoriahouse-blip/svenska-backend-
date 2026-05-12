@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 type Reception = {
   id: string; number: string; status: string; supplier_name?: string;
   received_at: string; notes?: string; lines: any[];
+  purchase_order_id?: string;
   purchase_orders?: { number: string };
   contacts?: { company?: string; first_name?: string; last_name?: string };
 };
@@ -21,6 +22,7 @@ export default function ReceptionsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Reception | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [toast, setToast] = useState('');
   const [landedCosts, setLandedCosts] = useState<LandedCost[]>([]);
   const [lcForm, setLcForm] = useState({ description: '', amount: '', allocation_method: 'equal' });
@@ -140,7 +142,11 @@ export default function ReceptionsPage() {
                     <td className="mono" style={{ fontSize: 12, color: '#6A7280' }}>{r.purchase_orders?.number || '—'}</td>
                     <td style={{ fontSize: 12, color: '#6A7280' }}>{fmtDate(r.received_at)}</td>
                     <td>{lines.length} produit(s)</td>
-                    <td><span className="badge">✅ Reçue</span></td>
+                    <td>
+              <span className="badge" style={{ background: r.status === 'cancelled' ? '#FEE2E2' : undefined, color: r.status === 'cancelled' ? '#991B1B' : undefined }}>
+                {r.status === 'cancelled' ? '❌ Annulée' : '✅ Reçue'}
+              </span>
+            </td>
                   </tr>
                 );
               })}
@@ -228,7 +234,8 @@ export default function ReceptionsPage() {
             </div>
             <button className="btn-replay" disabled={replaying} onClick={async () => {
               setReplaying(true);
-              const res = await fetch(`/api/receptions/${selected!.id}`, { method: 'POST' });
+              const token = localStorage.getItem('sd_admin_token') || '';
+              const res = await fetch(`/api/receptions/${selected!.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
               const data = await res.json();
               if (res.ok) showToast(`✅ Stock et PMP recalculés pour ${data.replayed} produit(s)`);
               else showToast('❌ ' + (data.error || 'Erreur'));
@@ -236,6 +243,29 @@ export default function ReceptionsPage() {
             }}>
               {replaying ? '⏳ Recalcul en cours…' : '🔄 Rejouer le stock + PMP'}
             </button>
+
+            {selected.status !== 'cancelled' && (
+              <button
+                style={{ marginTop: 8, width: '100%', padding: '8px 12px', background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 6, fontSize: 12, fontWeight: 600, color: '#991B1B', cursor: 'pointer' }}
+                disabled={cancelling}
+                onClick={async () => {
+                  if (!confirm(`Annuler la réception ${selected!.number} ? Le stock sera décrémenté.`)) return;
+                  setCancelling(true);
+                  const token = localStorage.getItem('sd_admin_token') || '';
+                  const res = await fetch(`/api/receptions/${selected!.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+                  const data = await res.json();
+                  if (res.ok) {
+                    showToast(`✅ Réception annulée — stock corrigé pour ${data.reversed} produit(s)`);
+                    setSelected(null);
+                    load();
+                  } else {
+                    showToast('❌ ' + (data.error || 'Erreur'));
+                  }
+                  setCancelling(false);
+                }}>
+                {cancelling ? '⏳ Annulation…' : '🗑️ Annuler cette réception'}
+              </button>
+            )}
           </div>
         )}
       </div>

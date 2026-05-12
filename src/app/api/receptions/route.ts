@@ -16,6 +16,24 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
+
+  // Empêcher la double réception d'une même commande d'achat
+  if (body.purchase_order_id) {
+    const { data: existing } = await supabaseAdmin
+      .from('receptions')
+      .select('id, number')
+      .eq('purchase_order_id', body.purchase_order_id)
+      .neq('status', 'cancelled')
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      return NextResponse.json(
+        { error: `Cette commande a déjà été réceptionnée (${existing.number}). Annulez la réception existante avant d'en créer une nouvelle.` },
+        { status: 409 }
+      );
+    }
+  }
+
   const { count } = await supabaseAdmin.from('receptions').select('id', { count: 'exact', head: true });
   const num = String((count || 0) + 1).padStart(4, '0');
 
