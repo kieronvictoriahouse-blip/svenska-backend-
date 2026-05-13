@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
 
     const body = await req.json();
-    const { items, customer_token, delivery_mode } = body;
+    const { items, customer_token, delivery_mode, promo_code } = body;
     let { customer_email } = body;
     const isPickup = delivery_mode === 'pickup';
 
@@ -107,9 +107,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Subtotal invalide (prix produit à 0 ou manquant en base)', subtotal }, { status: 400, headers: CORS });
     }
 
-    const freeShipping = subtotal >= 50;
+    // Promo code validation
+    let discountAmount = 0;
+    let stripeCouponId: string | null = null;
+    let promoCodeId: string | null = null;
+    let isFreeShippingPromo = false;
+
+    if (promo_code && typeof promo_code === 'string') {
+      try {
+        const { data: promo } = await supabaseAdmin
+          .from('promo_codes')
+          .select('*')
+          .eq('code', promo_code.toUpperCase().trim())
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (promo) {
+          const now = new Date();
+          const isDateValid =
+            (!promo.valid_from || now >= new Date(promo.valid_from)) &&
+            (!promo.valid_until || now <= new Date(promo.valid_until));
+          const isUsageOk = !promo.max_uses || (promo.used_count || 0) < promo.max_uses;
+          const isMinOrderOk = subtotal >= (promo.min_order || 0);
+
+          if (isDateValid && isUsageOk && isMinOrderOk) {
+            promoCodeId = promo.id;
+            if (promo.type === 'percent') {
+              const coupon = await stripe.coupons.create({ percent_off: promo.value, duration: 'once' });
+              stripeCouponId = coupon.id;
+              discountAmount = (subtotal * promo.value) / 100;
+            } else if (promo.type === 'fixed') {
+              const discAmt = Math.min(subtotal, promo.value);
+              const coupon = await stripe.coupons.create({ amount_off: Math.round(discAmt * 100), currency: 'eur', duration: 'once' });
+              stripeCouponId = coupon.id;
+              discountAmount = discAmt;
+            } else if (promo.type === 'free_shipping') {
+              isFreeShippingPromo = true;
+            }
+          }
+        }
+      } catch (promoErr) {
+        console.warn('[checkout] promo code error (non-fatal):', promoErr);
+      }
+    }
+
+    const freeShipping = subtotal >= 50 || isFreeShippingPromo;
     const shippingCost = isPickup ? 0 : (freeShipping ? 0 : 4.90);
-    const grandTotal = subtotal + shippingCost;
+    const grandTotal = Math.max(0, subtotal - discountAmount) + shippingCost;
     if (grandTotal < 0.50) {
       return NextResponse.json({ error: `Total minimum de commande non atteint (${grandTotal.toFixed(2)} € < 0.50 €)` }, { status: 400, headers: CORS });
     }
@@ -130,7 +174,7 @@ export async function POST(req: NextRequest) {
         ...(isPickup && customerAddress ? { shipping_address: customerAddress } : {}),
         subtotal,
         shipping:         shippingCost,
-        total:            subtotal + shippingCost,
+        total:            grandTotal,
         lines:            JSON.stringify(orderLines),
         delivery_mode:    isPickup ? 'pickup' : 'delivery',
       })
@@ -147,6 +191,7 @@ export async function POST(req: NextRequest) {
       mode: 'payment',
       line_items: lineItems,
       customer_email: customer_email || undefined,
+      ...(stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
       ...(isPickup ? {} : {
         shipping_address_collection: { allowed_countries: ['FR', 'BE', 'CH', 'LU', 'MC', 'DE', 'ES', 'IT', 'NL', 'PT', 'SE', 'GB'] },
       }),
@@ -180,6 +225,14 @@ export async function POST(req: NextRequest) {
       cancel_url:  cancelUrl,
       locale: 'fr',
     });
+
+    // Increment promo code usage counter
+    if (promoCodeId) {
+      try {
+        const { data: p } = await supabaseAdmin.from('promo_codes').select('used_count').eq('id', promoCodeId).single();
+        await supabaseAdmin.from('promo_codes').update({ used_count: (p?.used_count || 0) + 1 }).eq('id', promoCodeId);
+      } catch {}
+    }
 
     return NextResponse.json({ url: session.url }, { headers: CORS });
   } catch (e: unknown) {
