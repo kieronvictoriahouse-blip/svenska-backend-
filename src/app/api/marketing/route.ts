@@ -72,3 +72,19 @@ export async function PUT(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ campaign: data });
 }
+
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  const tab = searchParams.get('tab');
+
+  if (!id) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
+
+  if (tab === 'promo') {
+    const { error } = await supabaseAdmin.from('promo_codes').delete().eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  return NextResponse.json({ error: 'Tab inconnu' }, { status: 400 });
+}

@@ -34,6 +34,7 @@ function MarketingInner() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showCodeModal, setShowCodeModal] = useState(false);
+  const [editingCode, setEditingCode] = useState<PromoCode | null>(null);
   const [toast, setToast] = useState('');
   const [campForm, setCampForm] = useState({ name: '', type: 'email', status: 'draft', subject: '', content: '', target_segment: 'all', budget: '' });
   const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false });
@@ -66,12 +67,48 @@ function MarketingInner() {
     loadData();
   }
 
+  const BLANK_CODE = { code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false };
+
+  function openNewCode() {
+    setEditingCode(null);
+    setCodeForm(BLANK_CODE);
+    setShowCodeModal(true);
+  }
+
+  function openEditCode(c: PromoCode) {
+    setEditingCode(c);
+    setCodeForm({
+      code: c.code,
+      type: c.type,
+      value: String(c.value),
+      min_order: String(c.min_order || 0),
+      max_uses: c.max_uses ? String(c.max_uses) : '',
+      valid_from: c.valid_from ? c.valid_from.slice(0, 10) : '',
+      valid_until: c.valid_until ? c.valid_until.slice(0, 10) : '',
+      is_active: c.is_active,
+      single_use_per_customer: c.single_use_per_customer,
+    });
+    setShowCodeModal(true);
+  }
+
   async function saveCode() {
     if (!codeForm.code || !codeForm.value) { showToast('⚠️ Code et valeur requis'); return; }
-    const res = await fetch('/api/marketing?tab=promo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null, valid_from: codeForm.valid_from || null, valid_until: codeForm.valid_until || null, single_use_per_customer: codeForm.single_use_per_customer }) });
+    const payload = { ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null, valid_from: codeForm.valid_from || null, valid_until: codeForm.valid_until || null, single_use_per_customer: codeForm.single_use_per_customer };
+    const url = editingCode ? `/api/marketing?tab=promo&id=${editingCode.id}` : '/api/marketing?tab=promo';
+    const method = editingCode ? 'PUT' : 'POST';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (!res.ok) { showToast('❌ Erreur'); return; }
-    showToast('✅ Code promo créé !');
+    showToast(editingCode ? '✅ Code mis à jour !' : '✅ Code promo créé !');
     setShowCodeModal(false);
+    setEditingCode(null);
+    loadData();
+  }
+
+  async function deleteCode(c: PromoCode) {
+    if (!confirm(`Supprimer le code "${c.code}" ? Cette action est irréversible.`)) return;
+    const res = await fetch(`/api/marketing?tab=promo&id=${c.id}`, { method: 'DELETE' });
+    if (!res.ok) { showToast('❌ Erreur lors de la suppression'); return; }
+    showToast(`🗑 Code "${c.code}" supprimé`);
     loadData();
   }
 
@@ -149,7 +186,7 @@ function MarketingInner() {
           <div className="m-title">📣 Marketing</div>
           <div>
             {tab === 'campaigns' && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Nouvelle campagne</button>}
-            {tab === 'promo' && <button className="btn btn-primary" onClick={() => setShowCodeModal(true)}>+ Nouveau code promo</button>}
+            {tab === 'promo' && <button className="btn btn-primary" onClick={openNewCode}>+ Nouveau code promo</button>}
           </div>
         </div>
 
@@ -207,10 +244,10 @@ function MarketingInner() {
               <div className="m-stat"><div className="m-stat-num">—</div><div className="m-stat-label">CA via codes</div></div>
             </div>
             <table className="m-table">
-              <thead><tr><th>Code</th><th>Type</th><th>Valeur</th><th>Utilisations</th><th>Validité</th><th>1x/client</th><th>Actif</th></tr></thead>
+              <thead><tr><th>Code</th><th>Type</th><th>Valeur</th><th>Utilisations</th><th>Validité</th><th>1x/client</th><th>Actif</th><th></th></tr></thead>
               <tbody>
-                {loading ? <tr><td colSpan={7}><div className="empty">Chargement…</div></td></tr>
-                : codes.length === 0 ? <tr><td colSpan={7}><div className="empty">Aucun code promo</div></td></tr>
+                {loading ? <tr><td colSpan={8}><div className="empty">Chargement…</div></td></tr>
+                : codes.length === 0 ? <tr><td colSpan={8}><div className="empty">Aucun code promo</div></td></tr>
                 : codes.map(c => (
                   <tr key={c.id}>
                     <td><strong className="mono">{c.code}</strong></td>
@@ -224,6 +261,10 @@ function MarketingInner() {
                         <input type="checkbox" checked={c.is_active} onChange={() => toggleCode(c)} />
                         <span className="toggle-slider" />
                       </label>
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => openEditCode(c)} style={{ marginRight: 4 }} title="Modifier">✏️</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => deleteCode(c)} style={{ color: '#991B1B' }} title="Supprimer">🗑</button>
                     </td>
                   </tr>
                 ))}
@@ -304,9 +345,9 @@ function MarketingInner() {
 
         {/* Modal code promo */}
         {showCodeModal && (
-          <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowCodeModal(false)}>
+          <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowCodeModal(false); setEditingCode(null); } }}>
             <div className="modal">
-              <div className="modal-header"><span className="modal-title">Nouveau code promo</span><button className="btn btn-secondary btn-sm" onClick={() => setShowCodeModal(false)}>✕</button></div>
+              <div className="modal-header"><span className="modal-title">{editingCode ? `Modifier "${editingCode.code}"` : 'Nouveau code promo'}</span><button className="btn btn-secondary btn-sm" onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>✕</button></div>
               <div className="modal-body">
                 <div className="grid-2">
                   <div className="form-group"><label className="form-label">Code *</label><input className="form-control mono" value={codeForm.code} style={{ textTransform: 'uppercase' }} onChange={e => setCodeForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="EX: NOEL10" /></div>
@@ -336,8 +377,8 @@ function MarketingInner() {
                 </div>
               </div>
               <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowCodeModal(false)}>Annuler</button>
-                <button className="btn btn-primary" onClick={saveCode}>💾 Créer le code</button>
+                <button className="btn btn-secondary" onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>Annuler</button>
+                <button className="btn btn-primary" onClick={saveCode}>{editingCode ? '💾 Mettre à jour' : '💾 Créer le code'}</button>
               </div>
             </div>
           </div>
