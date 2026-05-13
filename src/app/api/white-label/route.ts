@@ -69,7 +69,6 @@ export async function POST(req: NextRequest) {
           name_sv: row.name_sv || row.nom,
           name_en: row.name_en || row.nom,
           price: parseFloat(row.prix || row.price || 0),
-          weight: row.poids || row.weight,
           is_active: true,
           sort_order: results.imported + 1,
         });
