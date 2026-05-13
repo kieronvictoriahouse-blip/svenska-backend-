@@ -43,10 +43,14 @@ function campaignTemplate(campaign: any, cfg: Record<string, any>) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { type } = body;
-  const cfg = await getWhiteLabelConfig();
+  const { type, smtp_override } = body;
+  const dbCfg = await getWhiteLabelConfig();
+  // Merge: form values passed by admin UI take priority over saved DB values (enables testing before saving)
+  const cfg = smtp_override
+    ? { ...dbCfg, ...Object.fromEntries(Object.entries(smtp_override).filter(([, v]) => v)) }
+    : dbCfg;
   const siteName = cfg.site_name || '';
-  const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || (siteName ? `${siteName} <noreply@example.com>` : 'noreply@example.com');
+  const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || (siteName ? `${siteName} <noreply@swedishcravings.fr>` : 'noreply@swedishcravings.fr');
 
   try {
     // 1. Confirmation de commande

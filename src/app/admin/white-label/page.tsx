@@ -396,7 +396,17 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
       const res = await fetch('/api/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'test', to: config.email || config.smtp_from }),
+        body: JSON.stringify({
+          type: 'test',
+          to: config.email || config.smtp_from,
+          smtp_override: {
+            smtp_host: config.smtp_host,
+            smtp_port: config.smtp_port,
+            smtp_user: config.smtp_user,
+            smtp_pass: config.smtp_pass,
+            smtp_from: config.smtp_from,
+          },
+        }),
       });
       const data = await res.json();
       if (res.ok) setTestResult(`✅ Email envoyé via ${data.method === 'smtp' ? 'SMTP' : 'Resend'} !`);
