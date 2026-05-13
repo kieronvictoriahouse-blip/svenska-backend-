@@ -100,14 +100,15 @@ export default function GestionPage() {
   async function loadAll() {
     setLoading(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
-    const [{ data: inv }, { data: pur }, { data: prd }, { data: prm }, realRes] = await Promise.all([
-      supabase.from('invoices').select('*').order('created_at', { ascending: false }),
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+    const [invRes, { data: pur }, { data: prd }, { data: prm }, realRes] = await Promise.all([
+      fetch('/api/invoices', { headers: authHeaders }),
       supabase.from('purchases').select('*').order('created_at', { ascending: false }),
       supabase.from('margin_products').select('*').order('created_at', { ascending: false }),
       supabase.from('company_settings').select('*'),
-      fetch('/api/products?limit=500', { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
+      fetch('/api/products?limit=500', { headers: authHeaders }),
     ]);
-    if (inv) setInvoices(inv);
+    if (invRes.ok) { const d = await invRes.json(); setInvoices(d.invoices || []); }
     if (pur) setPurchases(pur);
     if (prd) setProducts(prd);
     if (prm && prm.length > 0) {
@@ -157,18 +158,26 @@ export default function GestionPage() {
   async function saveInvoice() {
     if (!invForm.client_name.trim()) { showToast('⚠️ Nom du client requis'); return; }
     const { ht, tva, ttc } = calcInvoiceTotals(invoiceLines);
-    const inv: Invoice = {
-      id: editingInvoice?.id || uid(),
+    const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const payload = {
       number: invForm.number, date: invForm.date, status: invForm.status,
       client_name: invForm.client_name, client_address: invForm.client_address,
       client_email: invForm.client_email, note: invForm.note,
-      lines: invoiceLines, total_ht: ht, total_tva: tva, total_ttc: ttc,
+      lines: JSON.stringify(invoiceLines), total_ht: ht, total_tva: tva, total_ttc: ttc,
     };
-    const { error } = await supabase.from('invoices').upsert({ ...inv, lines: JSON.stringify(inv.lines) });
-    if (error) { showToast('❌ Erreur : ' + error.message); return; }
-    if (!editingInvoice) {
-      await supabase.from('company_settings').upsert({ key: 'inv_next', value: String((params.inv_next || 1) + 1) });
-      setParams(p => ({ ...p, inv_next: (p.inv_next || 1) + 1 }));
+
+    let res: Response;
+    if (editingInvoice) {
+      res = await fetch(`/api/invoices/${editingInvoice.id}`, { method: 'PUT', headers, body: JSON.stringify({ status: invForm.status, note: invForm.note, date: invForm.date }) });
+    } else {
+      res = await fetch('/api/invoices', { method: 'POST', headers, body: JSON.stringify(payload) });
+    }
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      showToast('❌ Erreur : ' + (e?.error || res.status)); return;
     }
     setShowInvoiceModal(false);
     showToast('✅ Facture sauvegardée !');
