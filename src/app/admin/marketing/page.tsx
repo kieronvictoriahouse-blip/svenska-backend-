@@ -68,7 +68,7 @@ function MarketingInner() {
 
   async function saveCode() {
     if (!codeForm.code || !codeForm.value) { showToast('⚠️ Code et valeur requis'); return; }
-    const res = await fetch('/api/marketing?tab=promo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null, single_use_per_customer: codeForm.single_use_per_customer }) });
+    const res = await fetch('/api/marketing?tab=promo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null, valid_from: codeForm.valid_from || null, valid_until: codeForm.valid_until || null, single_use_per_customer: codeForm.single_use_per_customer }) });
     if (!res.ok) { showToast('❌ Erreur'); return; }
     showToast('✅ Code promo créé !');
     setShowCodeModal(false);
