@@ -38,6 +38,8 @@ const T = {
   addLine:       { fr: '+ Ligne', en: '+ Line', sv: '+ Rad' },
   details:       { fr: 'Détails', en: 'Details', sv: 'Detaljer' },
   source:        { fr: 'Source', en: 'Source', sv: 'Källa' },
+  refund:        { fr: 'Rembourser', en: 'Refund', sv: 'Återbetala' },
+  refundConfirm: { fr: '⚠️ Confirmer le remboursement ?', en: '⚠️ Confirm refund?', sv: '⚠️ Bekräfta återbetalning?' },
 };
 
 const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
@@ -62,6 +64,8 @@ export default function CommandesPage() {
   const [toast, setToast] = useState('');
   const [trackingInput, setTrackingInput] = useState('');
   const [savingTracking, setSavingTracking] = useState(false);
+  const [refunding, setRefunding] = useState(false);
+  const [refundConfirm, setRefundConfirm] = useState(false);
   const [newOrder, setNewOrder] = useState({
     customer_name: '', customer_email: '', customer_address: '', customer_country: 'France',
     notes: '', shipping: '0', lines: [{ desc: '', qty: 1, price: 0 }]
@@ -130,6 +134,33 @@ export default function CommandesPage() {
     setShowNewModal(false);
     showToast('✅ ' + t('newOrder'));
     load();
+  }
+
+  async function handleRefund() {
+    if (!selected) return;
+    if (!refundConfirm) { setRefundConfirm(true); return; }
+    setRefunding(true);
+    setRefundConfirm(false);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch(`/api/orders/${selected.id}/refund`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('✅ Remboursement effectué — client notifié par email');
+        setSelected(o => o ? { ...o, status: 'refunded' } : null);
+        load();
+        setShowModal(false);
+      } else {
+        showToast(`❌ ${data.error || 'Erreur remboursement'}`);
+      }
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+    } finally {
+      setRefunding(false);
+    }
   }
 
   function printDeliveryNote(order: Order) {
@@ -320,11 +351,11 @@ export default function CommandesPage() {
 
         {/* Detail Modal */}
         {showModal && selected && (
-          <div className="o-modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="o-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setRefundConfirm(false); } }}>
             <div className="o-modal">
               <div className="o-modal-header">
                 <span className="o-modal-title">{selected.order_number}</span>
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>✕</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setShowModal(false); setRefundConfirm(false); }}>✕</button>
               </div>
               <div className="o-modal-body">
                 <div className="grid-2" style={{ marginBottom: 16 }}>
@@ -414,6 +445,20 @@ export default function CommandesPage() {
                 </div>
               </div>
               <div className="o-modal-footer">
+                {['paid', 'confirmed', 'shipped'].includes(selected.status) && (
+                  <button
+                    className="btn btn-sm"
+                    style={{
+                      background: refundConfirm ? '#EF4444' : '#FEE2E2',
+                      color: refundConfirm ? '#fff' : '#991B1B',
+                      border: '1px solid #FECACA',
+                    }}
+                    onClick={handleRefund}
+                    disabled={refunding}
+                  >
+                    {refunding ? '⏳ Remboursement…' : refundConfirm ? t('refundConfirm') : `🔄 ${t('refund')}`}
+                  </button>
+                )}
                 <a
                   href={`/admin/factures/${selected.id}`}
                   target="_blank"
@@ -424,7 +469,7 @@ export default function CommandesPage() {
                   🧾 Facture
                 </a>
                 <button className="btn btn-secondary" onClick={() => printDeliveryNote(selected)}>📄 {t('deliveryNote')}</button>
-                <button className="btn btn-secondary" onClick={() => setShowModal(false)}>{tc('cancel')}</button>
+                <button className="btn btn-secondary" onClick={() => { setShowModal(false); setRefundConfirm(false); }}>{tc('cancel')}</button>
               </div>
             </div>
           </div>
