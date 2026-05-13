@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Identifiants incorrects' }, { status: 401 });
   }
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     user: {
       id:    data.user.id,
       email: data.user.email,
@@ -24,6 +24,19 @@ export async function POST(req: NextRequest) {
     refresh_token: data.session?.refresh_token,
     expires_at:    data.session?.expires_at,
   });
+
+  // Cookie httpOnly pour que middleware + API routes puissent vérifier la session
+  if (data.session?.access_token) {
+    response.cookies.set('sd_admin_token', data.session.access_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7 jours
+      path: '/',
+    });
+  }
+
+  return response;
 }
 
 // ─── GET /api/auth/login ──────────────────────────────────────────
