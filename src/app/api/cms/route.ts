@@ -81,20 +81,50 @@ const DEFAULT_ROWS = [
   { key: 'season_image',       label: 'Section saison – Photo de fond',         type: 'image', value_fr: '', value_sv: '', value_en: '' },
 ];
 
+// Bump this string whenever DEFAULT_ROWS texts change — triggers an auto-reseed on next load.
+const SEED_VERSION = 'v4';
+
 export async function GET() {
   const { data, error } = await supabaseAdmin.from('cms_home').select('*').order('key');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const existing = data || [];
-  const existingKeys = new Set(existing.map((r: any) => r.key));
-  const missing = DEFAULT_ROWS.filter(r => !existingKeys.has(r.key));
+  const existingMap = new Map(existing.map((r: any) => [r.key, r]));
+
+  const seedRow = existingMap.get('_seed_version');
+  const needsReseed = !seedRow || seedRow.value_fr !== SEED_VERSION;
+
+  if (needsReseed) {
+    // Update all existing text-type rows to latest DEFAULT_ROWS values
+    const textDefaults = DEFAULT_ROWS.filter(r => r.type === 'text');
+    for (const row of textDefaults) {
+      if (existingMap.has(row.key)) {
+        await supabaseAdmin.from('cms_home')
+          .update({ value_fr: row.value_fr, value_sv: row.value_sv, value_en: row.value_en, updated_at: new Date().toISOString() })
+          .eq('key', row.key);
+      }
+    }
+    // Insert any missing rows (text + image)
+    const missing = DEFAULT_ROWS.filter(r => !existingMap.has(r.key));
+    if (missing.length > 0) await supabaseAdmin.from('cms_home').insert(missing);
+    // Stamp the version
+    await supabaseAdmin.from('cms_home').upsert(
+      { key: '_seed_version', label: 'Internal – seed version', type: 'meta', value_fr: SEED_VERSION, value_sv: SEED_VERSION, value_en: SEED_VERSION },
+      { onConflict: 'key' }
+    );
+    const { data: refreshed } = await supabaseAdmin.from('cms_home').select('*').order('key');
+    return NextResponse.json({ cms: (refreshed || []).filter((r: any) => r.key !== '_seed_version') });
+  }
+
+  // Normal path: only insert rows that don't exist yet
+  const missing = DEFAULT_ROWS.filter(r => !existingMap.has(r.key));
   if (missing.length > 0) {
     await supabaseAdmin.from('cms_home').insert(missing);
     const { data: refreshed } = await supabaseAdmin.from('cms_home').select('*').order('key');
-    return NextResponse.json({ cms: refreshed || [] });
+    return NextResponse.json({ cms: (refreshed || []).filter((r: any) => r.key !== '_seed_version') });
   }
 
-  return NextResponse.json({ cms: existing });
+  return NextResponse.json({ cms: existing.filter((r: any) => r.key !== '_seed_version') });
 }
 
 export async function PUT(req: NextRequest) {
