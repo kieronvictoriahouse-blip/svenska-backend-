@@ -21,6 +21,18 @@ const DEFAULT_ROWS = [
   { key: 'about_body1',      label: 'Section histoire – Texte 1',          type: 'text',  value_fr: 'Une boutique fondée par amour des saveurs — l\'épicerie qu\'on cherchait sans la trouver.', value_sv: 'En butik grundad av kärlek till smaker — affären man sökte utan att hitta.', value_en: 'A shop founded out of a love of flavours — the grocery store we were looking for but could never find.' },
   { key: 'about_quote',      label: 'Section histoire – Citation',         type: 'text',  value_fr: '"Une passion devenue boutique."', value_sv: '"En passion som blev en butik."', value_en: '"A passion turned into a shop."' },
   { key: 'about_body2',      label: 'Section histoire – Texte 2',          type: 'text',  value_fr: 'Chaque produit est sélectionné directement auprès de producteurs soigneusement choisis pour garantir authenticité et qualité.', value_sv: 'Varje produkt väljs direkt från noggrant utvalda producenter för att garantera äkthet och kvalitet.', value_en: 'Every product is selected directly from carefully chosen producers to guarantee authenticity and quality.' },
+  { key: 'season_eyebrow',     label: 'Section saison – Eyebrow',              type: 'text',  value_fr: 'Sélection de saison', value_sv: 'Säsongsurval', value_en: 'Seasonal selection' },
+  { key: 'season_title',       label: 'Section saison – Titre (HTML ok)',       type: 'text',  value_fr: 'Les saveurs du <em>printemps nordique</em>', value_sv: 'Smakerna från <em>det nordiska våret</em>', value_en: 'The flavours of <em>Nordic spring</em>' },
+  { key: 'season_body',        label: 'Section saison – Texte',                 type: 'text',  value_fr: 'Herbes fraîches, épices douces et produits de saison — la Scandinavie célèbre le retour du soleil. Une sélection pour cuisiner avec l\'esprit du Midsommar.', value_sv: 'Färska örter, milda kryddor och säsongens smaker — Skandinavien firar solens återkomst. Ett urval för att laga mat med Midsommars anda.', value_en: 'Fresh herbs, gentle spices and seasonal produce — Scandinavia celebrates the return of the sun. A selection to cook with the spirit of Midsommar.' },
+  { key: 'season_cta_label',   label: 'Section saison – Texte du bouton',       type: 'text',  value_fr: 'Explorer la sélection →', value_sv: 'Utforska urvalet →', value_en: 'Explore the selection →' },
+  { key: 'season_cta_url',     label: 'Section saison – Lien du bouton',        type: 'text',  value_fr: 'boutique.html', value_sv: 'boutique.html', value_en: 'boutique.html' },
+  { key: 'season_stat1_num',   label: 'Section saison – Stat 1 (chiffre)',      type: 'text',  value_fr: '20+', value_sv: '20+', value_en: '20+' },
+  { key: 'season_stat1_label', label: 'Section saison – Stat 1 (libellé)',      type: 'text',  value_fr: 'références de saison', value_sv: 'säsongsprodukter', value_en: 'seasonal products' },
+  { key: 'season_stat2_num',   label: 'Section saison – Stat 2 (chiffre)',      type: 'text',  value_fr: '100%', value_sv: '100%', value_en: '100%' },
+  { key: 'season_stat2_label', label: 'Section saison – Stat 2 (libellé)',      type: 'text',  value_fr: 'origine certifiée', value_sv: 'certifierat ursprung', value_en: 'certified origin' },
+  { key: 'season_stat3_num',   label: 'Section saison – Stat 3 (chiffre)',      type: 'text',  value_fr: 'France', value_sv: 'Frankrike', value_en: 'France' },
+  { key: 'season_stat3_label', label: 'Section saison – Stat 3 (libellé)',      type: 'text',  value_fr: 'livraison disponible', value_sv: 'leverans tillgänglig', value_en: 'delivery available' },
+  { key: 'season_image',       label: 'Section saison – Photo de fond',         type: 'image', value_fr: '', value_sv: '', value_en: '' },
 ];
 
 export async function GET() {
