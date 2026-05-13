@@ -1,19 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(_req: NextRequest) {
   const created: string[] = [];
   const skipped: string[] = [];
+  const invoicesCreated: string[] = [];
 
-  // ── Sync orders → recettes ──────────────────────────────────────────────
+  // ── Sync orders → recettes + factures manquantes ────────────────────────
   const { data: orders } = await supabaseAdmin
     .from('orders')
-    .select('id, order_number, total, created_at, status, customer_name, source')
+    .select('*')
     .in('status', ['paid', 'confirmed', 'shipped', 'delivered']);
 
   for (const order of orders || []) {
+    // Créer la facture si manquante
+    const { data: existingInv } = await supabaseAdmin
+      .from('invoices').select('id').eq('order_id', order.id).maybeSingle();
+    if (!existingInv && order.customer_email) {
+      try {
+        const inv = await createInvoiceFromOrder(order);
+        if (inv) invoicesCreated.push(order.order_number);
+      } catch { /* non bloquant */ }
+    }
+
+    // Entrée comptable
     const { data: existing } = await supabaseAdmin
       .from('accounting_entries')
       .select('id')
