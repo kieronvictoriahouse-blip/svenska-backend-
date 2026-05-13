@@ -100,7 +100,7 @@ export default function GestionPage() {
   async function loadAll() {
     setLoading(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
-    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+    const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const [invRes, { data: pur }, { data: prd }, { data: prm }, realRes] = await Promise.all([
       fetch('/api/invoices', { headers: authHeaders }),
       supabase.from('purchases').select('*').order('created_at', { ascending: false }),
