@@ -54,7 +54,7 @@ const EMPTY: ProductFormData = {
 };
 
 type Props = {
-  initialData?: Partial<ProductFormData & { id: string; cost_price?: number; stock?: number }>;
+  initialData?: Partial<ProductFormData> & { id?: string; stock?: number };
   categories: any[];
   onSave: (data: any) => Promise<void>;
   saving: boolean;
@@ -65,7 +65,6 @@ type Props = {
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
 
 export default function ProductForm({ initialData, categories, onSave, saving, toast, autoSave = false }: Props) {
-  const costPrice = initialData?.cost_price ?? null;
   const stockQty  = initialData?.stock ?? null;
   const [form, setForm]       = useState<ProductFormData>({
     ...EMPTY,
@@ -508,8 +507,9 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
               {/* PMP + marge — toujours visible sur une fiche existante */}
               {initialData?.id && (() => {
                 const pv = parseFloat(form.price) || 0;
-                const hasCost = costPrice !== null && costPrice > 0;
-                const margeEur = hasCost ? pv - costPrice! : null;
+                const costPrice = parseFloat(form.cost_price) || 0;
+                const hasCost = costPrice > 0;
+                const margeEur = hasCost ? pv - costPrice : null;
                 const margePct = hasCost && pv > 0 ? (margeEur! / pv) * 100 : null;
                 const color = margePct === null ? 'var(--dust)' : margePct >= 50 ? '#10B981' : margePct >= 30 ? '#F59E0B' : '#EF4444';
                 return (
@@ -525,7 +525,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>
-                            {costPrice!.toFixed(2)} €
+                            {costPrice.toFixed(2)} €
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP</div>
                         </div>
