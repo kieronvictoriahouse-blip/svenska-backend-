@@ -62,6 +62,15 @@ export async function POST(req: NextRequest) {
         updated_at:       new Date().toISOString(),
       }).eq('id', orderId);
 
+      // Annuler les brouillons en attente du même client (doublons de checkout)
+      if (customerEmail) {
+        await supabaseAdmin.from('orders')
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('customer_email', customerEmail)
+          .eq('status', 'pending')
+          .neq('id', orderId);
+      }
+
       // Décrémenter le stock
       for (const line of orderLines) {
         if (line.product_id) {
