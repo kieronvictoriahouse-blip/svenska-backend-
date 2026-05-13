@@ -11,6 +11,8 @@ type Order = {
   tracking_number?: string; delivery_mode?: string;
 };
 
+type ProductCost = { id: string; cost_price: number };
+
 const T = {
   title:         { fr: 'Commandes', en: 'Orders', sv: 'Beställningar' },
   newOrder:      { fr: '+ Nouvelle commande', en: '+ New order', sv: '+ Ny beställning' },
@@ -66,6 +68,7 @@ export default function CommandesPage() {
   const [savingTracking, setSavingTracking] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [refundConfirm, setRefundConfirm] = useState(false);
+  const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [newOrder, setNewOrder] = useState({
     customer_name: '', customer_email: '', customer_address: '', customer_country: 'France',
     notes: '', shipping: '0', lines: [{ desc: '', qty: 1, price: 0 }]
@@ -81,9 +84,21 @@ export default function CommandesPage() {
     return subscribeAdminLang(setLang);
   }, []);
 
-  useEffect(() => { load(); }, [filter, search]);
+  useEffect(() => { load(); loadCosts(); }, [filter, search]);
+  useEffect(() => { loadCosts(); }, []);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
+
+  async function loadCosts() {
+    const token = localStorage.getItem('sd_admin_token') || '';
+    const res = await fetch('/api/products?limit=500&fields=id,cost_price', { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    const map: Record<string, number> = {};
+    for (const p of (data.products || [])) {
+      if (p.cost_price > 0) map[p.id] = p.cost_price;
+    }
+    setCostMap(map);
+  }
 
   async function load() {
     setLoading(true);
@@ -225,6 +240,21 @@ export default function CommandesPage() {
     if (w) { w.document.write(html); w.document.close(); }
   }
 
+  function calcMargin(order: Order): { margin: number | null; pct: number | null } {
+    const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
+    const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
+    if (!hasAny) return { margin: null, pct: null };
+    let cost = 0;
+    for (const l of lines) {
+      const cp = l.product_id ? (costMap[l.product_id] || 0) : 0;
+      cost += cp * (l.qty || 1);
+    }
+    const revenue = order.subtotal || order.total || 0;
+    const margin = revenue - cost;
+    const pct = revenue > 0 ? (margin / revenue) * 100 : 0;
+    return { margin, pct };
+  }
+
   const totalRevenue = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
   const pendingCount = orders.filter(o => o.status === 'pending').length;
 
@@ -314,7 +344,7 @@ export default function CommandesPage() {
         <table className="o-table">
           <thead><tr>
             <th>{t('colOrder')}</th><th>{t('colClient')}</th><th>{t('colDate')}</th>
-            <th>{t('colTotal')}</th><th>{tc('status')}</th><th>{tc('actions')}</th>
+            <th>{t('colTotal')}</th><th>Marge</th><th>{tc('status')}</th><th>{tc('actions')}</th>
           </tr></thead>
           <tbody>
             {loading ? (
@@ -334,6 +364,12 @@ export default function CommandesPage() {
                 </td>
                 <td style={{ color: '#6A7280' }}>{fmtDate(o.created_at)}</td>
                 <td className="mono" style={{ fontWeight: 600 }}>{fmt(o.total)}</td>
+                <td>{(() => {
+                  const { margin, pct } = calcMargin(o);
+                  if (margin === null) return <span style={{ color: '#9CA3AF', fontSize: 11 }}>—</span>;
+                  const color = pct! >= 50 ? '#10B981' : pct! >= 30 ? '#F59E0B' : '#EF4444';
+                  return <span className="mono" style={{ color, fontWeight: 600, fontSize: 12 }}>{fmt(margin)}<br/><span style={{ fontSize: 10, opacity: 0.8 }}>{pct!.toFixed(0)}%</span></span>;
+                })()}</td>
                 <td>
                   <span className="o-badge" style={{ background: (STATUS_COLORS[o.status] || '#6A7280') + '20', color: STATUS_COLORS[o.status] || '#6A7280' }}>
                     {ts(o.status)}
@@ -397,6 +433,17 @@ export default function CommandesPage() {
                     <div className="detail-row" style={{ fontWeight: 700, fontSize: 15, borderTop: '2px solid #1C2028', marginTop: 4, paddingTop: 8 }}>
                       <span>{tc('total')}</span><span className="mono">{fmt(selected.total)}</span>
                     </div>
+                    {(() => {
+                      const { margin, pct } = calcMargin(selected);
+                      if (margin === null) return null;
+                      const color = pct! >= 50 ? '#10B981' : pct! >= 30 ? '#F59E0B' : '#EF4444';
+                      return (
+                        <div style={{ marginTop: 8, background: color + '15', border: `1px solid ${color}40`, borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color }}>Marge brute</span>
+                          <span className="mono" style={{ fontSize: 14, fontWeight: 700, color }}>{fmt(margin)} ({pct!.toFixed(1)}%)</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 

@@ -15,6 +15,7 @@ type ProductFormData = {
   subtitle_sv: string; subtitle_fr: string; subtitle_en: string;
   desc_sv: string; desc_fr: string; desc_en: string;
   price: string;
+  cost_price: string;
   weight: string;
   origin_sv: string; origin_fr: string; origin_en: string;
   image_url: string;
@@ -38,7 +39,7 @@ const EMPTY: ProductFormData = {
   category_id: '', name_sv: '', name_fr: '', name_en: '',
   subtitle_sv: '', subtitle_fr: '', subtitle_en: '',
   desc_sv: '', desc_fr: '', desc_en: '',
-  price: '', weight: '',
+  price: '', cost_price: '', weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
   badge: '', is_bestseller: false, is_new: false, is_active: true,
@@ -66,7 +67,13 @@ type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
 export default function ProductForm({ initialData, categories, onSave, saving, toast, autoSave = false }: Props) {
   const costPrice = initialData?.cost_price ?? null;
   const stockQty  = initialData?.stock ?? null;
-  const [form, setForm]       = useState<ProductFormData>({ ...EMPTY, ...initialData, extra_images: (initialData as any)?.extra_images || [] });
+  const [form, setForm]       = useState<ProductFormData>({
+    ...EMPTY,
+    ...initialData,
+    price: String(initialData?.price ?? ''),
+    cost_price: initialData?.cost_price != null ? String(initialData.cost_price) : '',
+    extra_images: (initialData as any)?.extra_images || [],
+  });
   const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver]   = useState(false);
@@ -82,6 +89,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
     return {
       ...f,
       price:         parseFloat(f.price) || 0,
+      cost_price:    parseFloat(f.cost_price) || 0,
       rating:        parseFloat(f.rating) || 4.5,
       reviews_count: parseInt(f.reviews_count) || 0,
       tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
@@ -482,11 +490,19 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
           <div className="card">
             <div className="card-header"><span className="card-title">💶 Prix & Détails</span></div>
             <div className="card-body">
-              <div className="form-group">
-                <label className="form-label">Prix de base <span className="req">*</span></label>
-                <input className="form-control" required type="number" step="0.01" min="0"
-                  value={form.price} onChange={e => set('price', e.target.value)}
-                  placeholder="6.90" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Prix de vente <span className="req">*</span></label>
+                  <input className="form-control" required type="number" step="0.01" min="0"
+                    value={form.price} onChange={e => set('price', e.target.value)}
+                    placeholder="6.90" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Prix d'achat (coût)</label>
+                  <input className="form-control" type="number" step="0.01" min="0"
+                    value={form.cost_price} onChange={e => set('cost_price', e.target.value)}
+                    placeholder="3.50" />
+                </div>
               </div>
 
               {/* PMP + marge — toujours visible sur une fiche existante */}
