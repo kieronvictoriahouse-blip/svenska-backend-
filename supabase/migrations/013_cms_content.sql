@@ -1,6 +1,14 @@
 -- Migration 013 : textes CMS homepage alignés sur l'histoire Swedish Cravings
 
 INSERT INTO cms_home (key, label, type, value_fr, value_sv, value_en) VALUES
+  ('hero_cta1',            'Hero – Bouton principal',              'text', 'Explorer la boutique',            'Utforska butiken',                'Explore the shop'),
+  ('hero_cta2',            'Hero – Bouton secondaire',             'text', 'Notre histoire',                  'Vår historia',                    'Our story'),
+  ('cats_eyebrow',         'Catégories – Eyebrow',                 'text', 'Notre gamme',                     'Våra kategorier',                 'Our range'),
+  ('cats_title',           'Catégories – Titre (HTML ok)',          'text', 'Épicerie <em>suédoise</em>',       'Nordisk <em>delikatessen</em>',    'Swedish <em>pantry</em>'),
+  ('bs_eyebrow',           'Best-sellers – Eyebrow',               'text', 'Les préférés de nos clients',      'Kundernas favoriter',             'Customer favourites'),
+  ('bs_title',             'Best-sellers – Titre (HTML ok)',        'text', 'Nos <em>best-sellers</em>',        'Våra <em>bästsäljare</em>',        'Our <em>best-sellers</em>'),
+  ('na_eyebrow',           'Nouvelles arrivées – Eyebrow',         'text', 'Tout juste arrivé',               'Just anlänt',                     'Just arrived'),
+  ('na_title',             'Nouvelles arrivées – Titre (HTML ok)', 'text', 'Nouvelles <em>arrivées</em>',      'Nya <em>produkter</em>',          'New <em>arrivals</em>'),
   ('editorial_eyebrow',     'Section éditoriale – Eyebrow',        'text', 'Notre sélection',                                                                                            'Vårt urval',                                                                                         'Our selection'),
   ('editorial_title',       'Section éditoriale – Titre (HTML ok)', 'text', 'L''épicerie suédoise<br>que vous <em>cherchiez</em>',                                                         'Den svenska delikatessen<br>du alltid <em>sökte</em>',                                               'The Swedish pantry<br>you were <em>looking for</em>'),
   ('editorial_cta',         'Section éditoriale – Texte CTA',       'text', 'Lire notre histoire →',                                                                                      'Läs vår historia →',                                                                                 'Read our story →'),
