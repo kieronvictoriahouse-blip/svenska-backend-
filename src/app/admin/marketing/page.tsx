@@ -10,7 +10,8 @@ type Campaign = {
 };
 type PromoCode = {
   id: string; code: string; type: string; value: number; min_order: number;
-  max_uses?: number; used_count: number; valid_from?: string; valid_until?: string; is_active: boolean;
+  max_uses?: number; used_count: number; valid_from?: string; valid_until?: string;
+  is_active: boolean; single_use_per_customer: boolean;
 };
 type AbandonedCart = {
   id: string; customer_email: string; customer_name?: string; cart_total: number;
@@ -35,7 +36,7 @@ function MarketingInner() {
   const [showCodeModal, setShowCodeModal] = useState(false);
   const [toast, setToast] = useState('');
   const [campForm, setCampForm] = useState({ name: '', type: 'email', status: 'draft', subject: '', content: '', target_segment: 'all', budget: '' });
-  const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true });
+  const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false });
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -67,7 +68,7 @@ function MarketingInner() {
 
   async function saveCode() {
     if (!codeForm.code || !codeForm.value) { showToast('⚠️ Code et valeur requis'); return; }
-    const res = await fetch('/api/marketing?tab=promo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null }) });
+    const res = await fetch('/api/marketing?tab=promo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null, single_use_per_customer: codeForm.single_use_per_customer }) });
     if (!res.ok) { showToast('❌ Erreur'); return; }
     showToast('✅ Code promo créé !');
     setShowCodeModal(false);
@@ -206,10 +207,10 @@ function MarketingInner() {
               <div className="m-stat"><div className="m-stat-num">—</div><div className="m-stat-label">CA via codes</div></div>
             </div>
             <table className="m-table">
-              <thead><tr><th>Code</th><th>Type</th><th>Valeur</th><th>Utilisations</th><th>Validité</th><th>Actif</th></tr></thead>
+              <thead><tr><th>Code</th><th>Type</th><th>Valeur</th><th>Utilisations</th><th>Validité</th><th>1x/client</th><th>Actif</th></tr></thead>
               <tbody>
-                {loading ? <tr><td colSpan={6}><div className="empty">Chargement…</div></td></tr>
-                : codes.length === 0 ? <tr><td colSpan={6}><div className="empty">Aucun code promo</div></td></tr>
+                {loading ? <tr><td colSpan={7}><div className="empty">Chargement…</div></td></tr>
+                : codes.length === 0 ? <tr><td colSpan={7}><div className="empty">Aucun code promo</div></td></tr>
                 : codes.map(c => (
                   <tr key={c.id}>
                     <td><strong className="mono">{c.code}</strong></td>
@@ -217,6 +218,7 @@ function MarketingInner() {
                     <td className="mono" style={{ fontWeight: 600, color: '#9E5A3C' }}>{c.type === 'percent' ? `${c.value}%` : c.type === 'fixed' ? fmt(c.value) : 'Offerte'}</td>
                     <td>{c.used_count}{c.max_uses ? ` / ${c.max_uses}` : ''}</td>
                     <td style={{ fontSize: 12, color: '#6A7280' }}>{fmtDate(c.valid_from)} → {fmtDate(c.valid_until)}</td>
+                    <td style={{ textAlign: 'center' }}>{c.single_use_per_customer ? <span title="1 utilisation max par client" style={{ fontSize: 16 }}>🔒</span> : <span style={{ color: '#D8CEBC', fontSize: 14 }}>—</span>}</td>
                     <td>
                       <label className="toggle">
                         <input type="checkbox" checked={c.is_active} onChange={() => toggleCode(c)} />
@@ -321,6 +323,16 @@ function MarketingInner() {
                   <div className="form-group"><label className="form-label">Nb utilisations max</label><input type="number" className="form-control mono" value={codeForm.max_uses} onChange={e => setCodeForm(f => ({ ...f, max_uses: e.target.value }))} placeholder="Illimité" /></div>
                   <div className="form-group"><label className="form-label">Valide du</label><input type="date" className="form-control" value={codeForm.valid_from} onChange={e => setCodeForm(f => ({ ...f, valid_from: e.target.value }))} /></div>
                   <div className="form-group"><label className="form-label">Valide jusqu'au</label><input type="date" className="form-control" value={codeForm.valid_until} onChange={e => setCodeForm(f => ({ ...f, valid_until: e.target.value }))} /></div>
+                </div>
+                <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                  <label className="toggle">
+                    <input type="checkbox" checked={codeForm.single_use_per_customer} onChange={e => setCodeForm(f => ({ ...f, single_use_per_customer: e.target.checked }))} />
+                    <span className="toggle-slider" />
+                  </label>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>🔒 Usage unique par client</div>
+                    <div style={{ fontSize: 11, color: '#6A7280' }}>Un client ne peut utiliser ce code qu'une seule fois (vérifié par email)</div>
+                  </div>
                 </div>
               </div>
               <div className="modal-footer">

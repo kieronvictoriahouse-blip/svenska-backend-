@@ -130,7 +130,19 @@ export async function POST(req: NextRequest) {
           const isUsageOk = !promo.max_uses || (promo.used_count || 0) < promo.max_uses;
           const isMinOrderOk = subtotal >= (promo.min_order || 0);
 
-          if (isDateValid && isUsageOk && isMinOrderOk) {
+          // Check per-customer usage limit
+          let isPerUserOk = true;
+          if (isDateValid && isUsageOk && isMinOrderOk && promo.single_use_per_customer && customer_email) {
+            const { data: existingUsage } = await supabaseAdmin
+              .from('promo_code_usages')
+              .select('id')
+              .eq('promo_code_id', promo.id)
+              .eq('customer_email', customer_email.toLowerCase())
+              .maybeSingle();
+            if (existingUsage) isPerUserOk = false;
+          }
+
+          if (isDateValid && isUsageOk && isMinOrderOk && isPerUserOk) {
             promoCodeId = promo.id;
             if (promo.type === 'percent') {
               const coupon = await stripe.coupons.create({ percent_off: promo.value, duration: 'once' });
@@ -226,11 +238,17 @@ export async function POST(req: NextRequest) {
       locale: 'fr',
     });
 
-    // Increment promo code usage counter
+    // Increment promo usage counter + track per-user usage
     if (promoCodeId) {
       try {
-        const { data: p } = await supabaseAdmin.from('promo_codes').select('used_count').eq('id', promoCodeId).single();
+        const { data: p } = await supabaseAdmin.from('promo_codes').select('used_count, single_use_per_customer').eq('id', promoCodeId).single();
         await supabaseAdmin.from('promo_codes').update({ used_count: (p?.used_count || 0) + 1 }).eq('id', promoCodeId);
+        if (p?.single_use_per_customer && customer_email) {
+          await supabaseAdmin.from('promo_code_usages').upsert(
+            { promo_code_id: promoCodeId, customer_email: customer_email.toLowerCase() },
+            { onConflict: 'promo_code_id,customer_email', ignoreDuplicates: true }
+          );
+        }
       } catch {}
     }
 
