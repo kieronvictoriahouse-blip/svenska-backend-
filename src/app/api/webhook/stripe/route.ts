@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendEmail, orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
+import { orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
+import { sendEmail } from '@/lib/email-send';
 
 export async function POST(req: NextRequest) {
   const stripeKey     = process.env.STRIPE_SECRET_KEY;
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
           to:      customerEmail,
           subject: `✅ Commande ${existing?.order_number || ''} confirmée${siteName ? ` — ${siteName}` : ''}`,
           html:    orderConfirmationHtml(orderForEmail, cfg),
-        });
+        }, cfg);
       } catch (emailErr) {
         console.error('[webhook] email error:', emailErr);
       }
