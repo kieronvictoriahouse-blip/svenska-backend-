@@ -9,6 +9,7 @@ type Order = {
   lines: any[]; subtotal: number; shipping: number; total: number;
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
+  is_test?: boolean;
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -42,6 +43,9 @@ const T = {
   source:        { fr: 'Source', en: 'Source', sv: 'Källa' },
   refund:        { fr: 'Rembourser', en: 'Refund', sv: 'Återbetala' },
   refundConfirm: { fr: '⚠️ Confirmer le remboursement ?', en: '⚠️ Confirm refund?', sv: '⚠️ Bekräfta återbetalning?' },
+  markTest:      { fr: 'Marquer comme test', en: 'Mark as test', sv: 'Markera som test' },
+  markTestConfirm: { fr: '⚠️ Confirmer ? Supprime la comptabilité associée', en: '⚠️ Confirm? Removes accounting entry', sv: '⚠️ Bekräfta? Tar bort bokföringen' },
+  showTest:      { fr: 'Afficher les commandes test', en: 'Show test orders', sv: 'Visa testbeställningar' },
 };
 
 const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
@@ -68,6 +72,9 @@ export default function CommandesPage() {
   const [savingTracking, setSavingTracking] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [refundConfirm, setRefundConfirm] = useState(false);
+  const [markingTest, setMarkingTest] = useState(false);
+  const [testConfirm, setTestConfirm] = useState(false);
+  const [showTestOrders, setShowTestOrders] = useState(false);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [newOrder, setNewOrder] = useState({
     customer_name: '', customer_email: '', customer_address: '', customer_country: 'France',
@@ -149,6 +156,32 @@ export default function CommandesPage() {
     setShowNewModal(false);
     showToast('✅ ' + t('newOrder'));
     load();
+  }
+
+  async function handleMarkTest() {
+    if (!selected) return;
+    if (!testConfirm) { setTestConfirm(true); return; }
+    setMarkingTest(true);
+    setTestConfirm(false);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch(`/api/orders/${selected.id}/mark-test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        showToast('✅ Commande marquée comme test — compta et facture nettoyées');
+        setShowModal(false);
+        load();
+      } else {
+        const d = await res.json();
+        showToast(`❌ ${d.error || 'Erreur'}`);
+      }
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+    } finally {
+      setMarkingTest(false);
+    }
   }
 
   async function handleRefund() {
@@ -255,8 +288,11 @@ export default function CommandesPage() {
     return { margin, pct };
   }
 
-  const totalRevenue = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
-  const pendingCount = orders.filter(o => o.status === 'pending').length;
+  const realOrders = orders.filter(o => !o.is_test);
+  const visibleOrders = showTestOrders ? orders : realOrders;
+  const totalRevenue = realOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
+  const pendingCount = realOrders.filter(o => o.status === 'pending').length;
+  const testCount = orders.filter(o => o.is_test).length;
 
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
@@ -302,6 +338,9 @@ export default function CommandesPage() {
     .lang-toggle { display:flex; gap:4px; }
     .lang-btn { padding:4px 10px; font-size:11px; border:1px solid #D8CEBC; border-radius:4px; cursor:pointer; background:#fff; font-family:'Jost',sans-serif; }
     .lang-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
+    .test-badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:4px; font-size:9px; font-weight:700; letter-spacing:1px; background:#FEF9C3; color:#854D0E; border:1px solid #FDE68A; margin-left:6px; }
+    .btn-warning { background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
+    .btn-warning:hover { background:#FDE68A; }
   `;
 
   return (
@@ -327,10 +366,10 @@ export default function CommandesPage() {
         </div>
 
         <div className="o-stats">
-          <div className="o-stat"><div className="o-stat-num mono">{orders.length}</div><div className="o-stat-label">{t('totalOrders')}</div></div>
+          <div className="o-stat"><div className="o-stat-num mono">{realOrders.length}</div><div className="o-stat-label">{t('totalOrders')}</div></div>
           <div className="o-stat"><div className="o-stat-num mono" style={{ color: '#F59E0B' }}>{pendingCount}</div><div className="o-stat-label">{t('pending')}</div></div>
           <div className="o-stat"><div className="o-stat-num mono">{fmt(totalRevenue)}</div><div className="o-stat-label">{t('revenue')}</div></div>
-          <div className="o-stat"><div className="o-stat-num mono">{orders.length > 0 ? fmt(totalRevenue / (orders.filter(o => o.status !== 'cancelled').length || 1)) : '0,00 €'}</div><div className="o-stat-label">{t('avgCart')}</div></div>
+          <div className="o-stat"><div className="o-stat-num mono">{realOrders.length > 0 ? fmt(totalRevenue / (realOrders.filter(o => o.status !== 'cancelled').length || 1)) : '0,00 €'}</div><div className="o-stat-label">{t('avgCart')}</div></div>
         </div>
 
         <div className="o-toolbar">
@@ -339,6 +378,14 @@ export default function CommandesPage() {
             <option value="">{t('allStatuses')}</option>
             {Object.keys(T_ORDER_STATUS).map(k => <option key={k} value={k}>{ts(k)}</option>)}
           </select>
+          {testCount > 0 && (
+            <button
+              className={`btn btn-sm ${showTestOrders ? 'btn-warning' : 'btn-secondary'}`}
+              onClick={() => setShowTestOrders(v => !v)}
+            >
+              🧪 {showTestOrders ? `Masquer tests (${testCount})` : `Tests (${testCount})`}
+            </button>
+          )}
         </div>
 
         <table className="o-table">
@@ -349,12 +396,16 @@ export default function CommandesPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={6}><div className="empty">{tc('loading')}</div></td></tr>
-            ) : orders.length === 0 ? (
+            ) : visibleOrders.length === 0 ? (
               <tr><td colSpan={6}><div className="empty">{tc('noData')}</div></td></tr>
-            ) : orders.map(o => (
-              <tr key={o.id} onClick={() => { setSelected(o); setTrackingInput(o.tracking_number || ''); setShowModal(true); }}>
+            ) : visibleOrders.map(o => (
+              <tr key={o.id} onClick={() => { setSelected(o); setTrackingInput(o.tracking_number || ''); setShowModal(true); setTestConfirm(false); setRefundConfirm(false); }}
+                style={o.is_test ? { opacity: 0.6 } : {}}>
                 <td>
-                  <div className="mono" style={{ fontSize: 12 }}>{o.order_number}</div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span className="mono" style={{ fontSize: 12 }}>{o.order_number}</span>
+                    {o.is_test && <span className="test-badge">TEST</span>}
+                  </div>
                   {o.delivery_mode === 'pickup' && <div style={{ fontSize: 10, color: '#7C3AED', marginTop: 2, fontWeight: 600 }}>🏪 {t('clickCollect')}</div>}
                   {o.tracking_number && <div style={{ fontSize: 10, color: '#0EA5E9', marginTop: 2 }}>📦 {o.tracking_number}</div>}
                 </td>
@@ -492,7 +543,17 @@ export default function CommandesPage() {
                 </div>
               </div>
               <div className="o-modal-footer">
-                {['paid', 'confirmed', 'shipped'].includes(selected.status) && (
+                {!selected.is_test && (
+                  <button
+                    className="btn btn-sm btn-warning"
+                    onClick={handleMarkTest}
+                    disabled={markingTest}
+                    title="Exclut la commande des stats et de la comptabilité"
+                  >
+                    {markingTest ? '⏳…' : testConfirm ? t('markTestConfirm') : `🧪 ${t('markTest')}`}
+                  </button>
+                )}
+                {['paid', 'confirmed', 'shipped'].includes(selected.status) && !selected.is_test && (
                   <button
                     className="btn btn-sm"
                     style={{

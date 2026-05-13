@@ -1,0 +1,2 @@
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_orders_is_test ON orders (is_test) WHERE is_test = TRUE;

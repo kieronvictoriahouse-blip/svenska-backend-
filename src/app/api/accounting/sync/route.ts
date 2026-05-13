@@ -13,7 +13,8 @@ export async function POST(_req: NextRequest) {
   const { data: orders } = await supabaseAdmin
     .from('orders')
     .select('*')
-    .in('status', ['paid', 'confirmed', 'shipped', 'delivered']);
+    .in('status', ['paid', 'confirmed', 'shipped', 'delivered'])
+    .or('is_test.is.null,is_test.eq.false');
 
   for (const order of orders || []) {
     // Créer la facture si manquante
