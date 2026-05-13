@@ -46,9 +46,12 @@ export async function POST(req: NextRequest) {
   const { type, smtp_override } = body;
   const dbCfg = await getWhiteLabelConfig();
   // Merge: form values passed by admin UI take priority over saved DB values (enables testing before saving)
-  const cfg = smtp_override
-    ? { ...dbCfg, ...Object.fromEntries(Object.entries(smtp_override).filter(([, v]) => v)) }
-    : dbCfg;
+  const cfg: Record<string, string> = { ...dbCfg };
+  if (smtp_override) {
+    for (const [k, v] of Object.entries(smtp_override as Record<string, string>)) {
+      if (v) cfg[k] = v;
+    }
+  }
   const siteName = cfg.site_name || '';
   const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || (siteName ? `${siteName} <noreply@swedishcravings.fr>` : 'noreply@swedishcravings.fr');
 
