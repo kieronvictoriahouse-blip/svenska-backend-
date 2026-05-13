@@ -58,16 +58,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     if (!existingEntry) {
       const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
-      await supabaseAdmin.from('accounting_entries').insert({
-        date:             (order.created_at || new Date().toISOString()).split('T')[0],
-        type:             'income',
-        category,
-        description:      `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
-        amount:           order.total || 0,
-        reference_type:   'order',
-        reference_id:     params.id,
-        reference_number: order.order_number,
-      }).catch(() => {/* non bloquant */});
+      try {
+        await supabaseAdmin.from('accounting_entries').insert({
+          date:             (order.created_at || new Date().toISOString()).split('T')[0],
+          type:             'income',
+          category,
+          description:      `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
+          amount:           order.total || 0,
+          reference_type:   'order',
+          reference_id:     params.id,
+          reference_number: order.order_number,
+        });
+      } catch { /* non bloquant */ }
     }
 
     // 3. Envoyer la facture par email si statut = shipped ou delivered
