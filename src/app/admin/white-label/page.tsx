@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { adminFetch } from '@/lib/auth-client';
 
 type Config = {
   site_name: string; site_slogan: string; logo_url: string; favicon_url: string; front_url: string;
@@ -56,7 +57,7 @@ function WhiteLabelInner() {
 
   async function save() {
     setSaving(true);
-    const res = await fetch('/api/white-label', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+    const res = await adminFetch('/api/white-label', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
     setSaving(false);
     if (res.ok) showToast('✅ Configuration sauvegardée !');
     else showToast('❌ Erreur lors de la sauvegarde');
