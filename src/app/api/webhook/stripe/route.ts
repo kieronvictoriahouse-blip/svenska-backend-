@@ -78,35 +78,48 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Facture automatique
+      // Facture automatique via invoice-utils (format correct)
       try {
-        const { data: setting } = await supabaseAdmin
-          .from('company_settings').select('value').eq('key', 'invoice_next').single();
-        const invoiceNum = parseInt(setting?.value || '1', 10);
-        const invoiceNumber = `F-${String(invoiceNum).padStart(4, '0')}`;
+        const { data: existingInv } = await supabaseAdmin
+          .from('invoices').select('id').eq('order_id', orderId).maybeSingle();
 
-        await supabaseAdmin.from('invoices').insert({
-          invoice_number:  invoiceNumber,
-          type:            'vente',
-          order_id:        orderId,
-          customer_name:   customerName,
-          customer_email:  customerEmail,
-          date:            new Date().toISOString().split('T')[0],
-          due_date:        new Date().toISOString().split('T')[0],
-          status:          'paid',
-          subtotal:        subtotal > 0 ? subtotal : total,
-          shipping:        shippingCost,
-          total,
-          lines:           JSON.stringify(orderLines),
-        });
+        if (!existingInv) {
+          const { createInvoiceFromOrder } = await import('@/lib/invoice-utils');
+          const invoice = await createInvoiceFromOrder({
+            ...existing,
+            customer_name:    customerName,
+            customer_email:   customerEmail,
+            shipping_address: shippingAddress,
+            subtotal:         subtotal > 0 ? subtotal : total,
+            shipping:         shippingCost,
+            total,
+            lines:            orderLines,
+            status:           'paid',
+          });
 
-        await supabaseAdmin.from('company_settings')
-          .update({ value: String(invoiceNum + 1) }).eq('key', 'invoice_next');
+          if (invoice?.number) {
+            await supabaseAdmin.from('orders')
+              .update({ invoice_number: invoice.number }).eq('id', orderId);
+          }
+        }
 
-        await supabaseAdmin.from('orders')
-          .update({ invoice_number: invoiceNumber }).eq('id', orderId);
+        // Entrée comptable automatique
+        const { data: existingEntry } = await supabaseAdmin
+          .from('accounting_entries').select('id').eq('reference_type', 'order').eq('reference_id', orderId).maybeSingle();
+        if (!existingEntry) {
+          await supabaseAdmin.from('accounting_entries').insert({
+            date:             new Date().toISOString().split('T')[0],
+            type:             'income',
+            category:         'vente_en_ligne',
+            description:      `Commande ${existing?.order_number || ''}${customerName ? ' — ' + customerName : ''}`,
+            amount:           total,
+            reference_type:   'order',
+            reference_id:     orderId,
+            reference_number: existing?.order_number || '',
+          });
+        }
       } catch (invErr) {
-        console.error('[webhook] invoice error:', invErr);
+        console.error('[webhook] invoice/accounting error:', invErr);
       }
 
       // Email de confirmation

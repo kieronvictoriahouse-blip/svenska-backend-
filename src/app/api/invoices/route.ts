@@ -1,14 +1,8 @@
 // ─── /api/invoices/route.ts ───────────────────────────────────────
 // Coller dans : src/app/api/invoices/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, supabaseAdmin } from '@/lib/supabase';
-
-async function requireAuth(req: NextRequest) {
-  const h = req.headers.get('Authorization');
-  if (!h?.startsWith('Bearer ')) return null;
-  const { data: { user } } = await supabaseAdmin.auth.getUser(h.slice(7));
-  return user;
-}
+import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req);
