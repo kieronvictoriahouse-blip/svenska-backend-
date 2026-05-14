@@ -279,6 +279,7 @@ export default function CommandesPage() {
   }
 
   function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number; urssaf: number } {
+    if (['cancelled', 'refunded'].includes(order.status)) return { margin: null, pct: null, stripeFee: 0, urssaf: 0 };
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
     const total = order.total || 0;
