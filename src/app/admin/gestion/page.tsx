@@ -42,10 +42,12 @@ const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700',
   paid: 'bg-green-100 text-green-700', late: 'bg-red-100 text-red-700',
   received: 'bg-blue-100 text-blue-700', pending: 'bg-yellow-100 text-yellow-700',
+  avoir: 'bg-purple-100 text-purple-700', refunded: 'bg-gray-100 text-gray-500',
 };
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Brouillon', sent: 'Envoyée', paid: 'Payée', late: 'En retard',
   received: 'Reçue', pending: 'En attente',
+  avoir: 'Avoir', refunded: 'Remboursée',
 };
 
 export default function GestionPage() {

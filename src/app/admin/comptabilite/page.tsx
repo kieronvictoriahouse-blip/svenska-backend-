@@ -63,6 +63,7 @@ const REF_LABELS: Record<string, string> = {
   order:       '🛒 Commande',
   reception:   '📦 Réception',
   landed_cost: '🚚 Coût logistique',
+  refund:      '↩️ Remboursement',
   manual:      '✏️ Manuel',
 };
 

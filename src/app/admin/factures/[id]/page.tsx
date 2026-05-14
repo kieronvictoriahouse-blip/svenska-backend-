@@ -34,6 +34,7 @@ const fmtDate = (d?: string) =>
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'BROUILLON', sent: 'ÉMISE', paid: 'PAYÉE', late: 'EN RETARD',
+  avoir: 'AVOIR', refunded: 'REMBOURSÉE',
 };
 
 export default function FacturePage() {

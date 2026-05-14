@@ -52,6 +52,91 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
+  // ── Avoir + contre-passation comptable ───────────────────────────
+  try {
+    const year = new Date().getFullYear();
+    const today = new Date().toISOString().split('T')[0];
+
+    // Récupérer la facture originale
+    const { data: originalInv } = await supabaseAdmin
+      .from('invoices').select('*').eq('order_id', params.id).neq('status', 'avoir').maybeSingle();
+
+    // Numéro d'avoir séquentiel
+    const counterKey = `avoir_next_${year}`;
+    const { data: setting } = await supabaseAdmin
+      .from('company_settings').select('value').eq('key', counterKey).maybeSingle();
+    const nextNum = parseInt(setting?.value || '1', 10);
+    const avoirNumber = `AV-${year}-${String(nextNum).padStart(4, '0')}`;
+
+    // Créer l'avoir (montants négatifs)
+    await supabaseAdmin.from('invoices').insert({
+      number:         avoirNumber,
+      date:           today,
+      status:         'avoir',
+      client_name:    originalInv?.client_name    || order.customer_name  || '',
+      client_address: originalInv?.client_address || '',
+      client_email:   originalInv?.client_email   || order.customer_email || '',
+      lines:          originalInv?.lines          || '[]',
+      total_ht:       -(originalInv?.total_ht     || order.total || 0),
+      total_tva:      -(originalInv?.total_tva    || 0),
+      total_ttc:      -(order.total               || 0),
+      note:           `Avoir sur ${originalInv?.number || order.order_number}`,
+      order_id:       order.id,
+      legal_mention:  originalInv?.legal_mention  || '',
+      seller_name:    originalInv?.seller_name    || '',
+      seller_siret:   originalInv?.seller_siret   || '',
+      seller_address: originalInv?.seller_address || '',
+      seller_email:   originalInv?.seller_email   || '',
+      seller_phone:   originalInv?.seller_phone   || '',
+    });
+
+    await supabaseAdmin.from('company_settings')
+      .upsert({ key: counterKey, value: (nextNum + 1).toString() }, { onConflict: 'key' });
+
+    // Marquer la facture originale comme remboursée
+    if (originalInv) {
+      await supabaseAdmin.from('invoices').update({ status: 'refunded' }).eq('id', originalInv.id);
+    }
+
+    // Contre-passation de la recette
+    const { data: incomeEntry } = await supabaseAdmin
+      .from('accounting_entries').select('*')
+      .eq('reference_type', 'order').eq('reference_id', params.id).eq('type', 'income')
+      .maybeSingle();
+    if (incomeEntry) {
+      await supabaseAdmin.from('accounting_entries').insert({
+        date:             today,
+        type:             'income',
+        category:         incomeEntry.category,
+        description:      `Remboursement — ${order.order_number}`,
+        amount:           -(order.total || 0),
+        reference_type:   'refund',
+        reference_id:     params.id,
+        reference_number: order.order_number,
+      });
+    }
+
+    // Contre-passation des frais Stripe (Stripe rembourse les frais sur remboursement intégral)
+    const { data: stripeEntry } = await supabaseAdmin
+      .from('accounting_entries').select('*')
+      .eq('reference_type', 'order').eq('reference_id', params.id).eq('category', 'frais_stripe')
+      .maybeSingle();
+    if (stripeEntry) {
+      await supabaseAdmin.from('accounting_entries').insert({
+        date:             today,
+        type:             'expense',
+        category:         'frais_stripe',
+        description:      `Remboursement frais Stripe — ${order.order_number}`,
+        amount:           -stripeEntry.amount,
+        reference_type:   'refund',
+        reference_id:     params.id,
+        reference_number: order.order_number,
+      });
+    }
+  } catch (e) {
+    console.error('[refund] avoir/accounting error:', e);
+  }
+
   // ── Email client ──────────────────────────────────────────────────
   try {
     const cfg = await getWhiteLabelConfig();
