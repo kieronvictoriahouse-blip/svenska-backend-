@@ -29,18 +29,24 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
 }
 
+const ADMIN_TEST_EMAILS = (process.env.ADMIN_TEST_EMAILS || '')
+  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
 export async function POST(req: NextRequest) {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeKey) return NextResponse.json({ error: 'Stripe non configuré' }, { status: 500, headers: CORS });
-
-    const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
-
     const body = await req.json();
     const { items, customer_token, delivery_mode, promo_code, relay_point_id, relay_point_name, relay_point_address, relay_point_pays } = body;
     let { customer_email } = body;
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
+
+    const isTestMode = !!customer_email && ADMIN_TEST_EMAILS.includes(customer_email.toLowerCase());
+    const stripeKey = isTestMode
+      ? (process.env.STRIPE_SECRET_KEY_TEST || process.env.STRIPE_SECRET_KEY)
+      : process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) return NextResponse.json({ error: 'Stripe non configuré' }, { status: 500, headers: CORS });
+
+    const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
 
     // Verify customer token and load profile for name + address
     let customerName = '';
@@ -191,6 +197,7 @@ export async function POST(req: NextRequest) {
         total:            grandTotal,
         lines:            JSON.stringify(orderLines),
         delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
+        ...(isTestMode ? { is_test: true } : {}),
         ...(isMondialRelay && relay_point_id ? {
           relay_point_id,
           relay_point_name: relay_point_name || null,

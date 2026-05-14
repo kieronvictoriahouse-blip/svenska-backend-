@@ -5,23 +5,44 @@ import { orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
 import { sendEmail } from '@/lib/email-send';
 
 export async function POST(req: NextRequest) {
-  const stripeKey     = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripeKey        = process.env.STRIPE_SECRET_KEY;
+  const stripeKeyTest    = process.env.STRIPE_SECRET_KEY_TEST;
+  const webhookSecret    = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecretTest = process.env.STRIPE_WEBHOOK_SECRET_TEST;
   if (!stripeKey) return NextResponse.json({ error: 'no key' }, { status: 500 });
 
-  const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
   const body = await req.text();
   const sig  = req.headers.get('stripe-signature') || '';
 
   let event: Stripe.Event;
+  let isTestEvent = false;
   try {
-    event = webhookSecret
-      ? stripe.webhooks.constructEvent(body, sig, webhookSecret)
-      : JSON.parse(body);
+    // Try live secret first, then test secret
+    if (webhookSecret) {
+      try {
+        const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
+        event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+      } catch {
+        if (webhookSecretTest && stripeKeyTest) {
+          const stripeTest = new Stripe(stripeKeyTest, { apiVersion: '2026-04-22.dahlia' });
+          event = stripeTest.webhooks.constructEvent(body, sig, webhookSecretTest);
+          isTestEvent = true;
+        } else {
+          throw new Error('Invalid webhook signature');
+        }
+      }
+    } else {
+      event = JSON.parse(body);
+    }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'invalid';
     return NextResponse.json({ error: msg }, { status: 400 });
   }
+
+  // Use the correct Stripe instance for this event
+  const activeKey = isTestEvent && stripeKeyTest ? stripeKeyTest : stripeKey;
+  const stripe = new Stripe(activeKey, { apiVersion: '2026-04-22.dahlia' });
+  if (!isTestEvent) isTestEvent = !(event as any).livemode;
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
@@ -78,6 +99,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Facture + compta : skip pour les commandes test
+      if (isTestEvent || existing?.is_test) { /* skip */ } else
       // Facture automatique via invoice-utils (format correct)
       try {
         const { data: existingInv } = await supabaseAdmin
