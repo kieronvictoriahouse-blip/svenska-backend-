@@ -186,9 +186,12 @@ export async function POST(req: NextRequest) {
         ...(isPickup && customerAddress ? { shipping_address: customerAddress } : {}),
         subtotal,
         shipping:         shippingCost,
+        discount:         discountAmount > 0 ? Math.round(discountAmount * 100) / 100 : 0,
         total:            grandTotal,
         lines:            JSON.stringify(orderLines),
         delivery_mode:    isPickup ? 'pickup' : 'delivery',
+        ...(promo_code && discountAmount > 0 ? { promo_code: promo_code.toUpperCase().trim() } : {}),
+        ...(promo_code && isFreeShippingPromo ? { promo_code: promo_code.toUpperCase().trim() } : {}),
       })
       .select()
       .single();

@@ -9,7 +9,7 @@ type Order = {
   lines: any[]; subtotal: number; shipping: number; total: number;
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
-  is_test?: boolean;
+  is_test?: boolean; promo_code?: string; discount?: number;
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -418,7 +418,10 @@ export default function CommandesPage() {
                   <div style={{ fontSize: 11, color: '#6A7280' }}>{o.customer_email}</div>
                 </td>
                 <td style={{ color: '#6A7280' }}>{fmtDate(o.created_at)}</td>
-                <td className="mono" style={{ fontWeight: 600 }}>{fmt(o.total)}</td>
+                <td>
+                  <span className="mono" style={{ fontWeight: 600 }}>{fmt(o.total)}</span>
+                  {o.promo_code && <div style={{ fontSize: 10, color: '#16A34A', fontWeight: 600, marginTop: 2 }}>🎟️ {o.promo_code}</div>}
+                </td>
                 <td>{(() => {
                   const { margin, pct } = calcMargin(o);
                   if (margin === null) return <span style={{ color: '#9CA3AF', fontSize: 11 }}>—</span>;
@@ -491,6 +494,12 @@ export default function CommandesPage() {
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <div style={{ minWidth: 220 }}>
                     <div className="detail-row"><span>{tc('subtotal')}</span><span className="mono">{fmt(selected.subtotal)}</span></div>
+                    {selected.promo_code && (
+                      <div className="detail-row" style={{ color: '#16A34A' }}>
+                        <span>🎟️ {selected.promo_code}</span>
+                        <span className="mono">−{fmt(selected.discount || 0)}</span>
+                      </div>
+                    )}
                     <div className="detail-row"><span>{tc('shipping')}</span><span className="mono">{selected.shipping > 0 ? fmt(selected.shipping) : tc('free')}</span></div>
                     <div className="detail-row" style={{ fontWeight: 700, fontSize: 15, borderTop: '2px solid #1C2028', marginTop: 4, paddingTop: 8 }}>
                       <span>{tc('total')}</span><span className="mono">{fmt(selected.total)}</span>
