@@ -1,4 +1,89 @@
 import { supabaseAdmin } from './supabase';
+import PDFDocument from 'pdfkit';
+
+export async function generateInvoicePdf(invoice: any): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const lines = typeof invoice.lines === 'string' ? JSON.parse(invoice.lines) : (invoice.lines || []);
+    const colorPrimary = '#1C2028';
+    const colorGray = '#6A7280';
+    const colorLight = '#D8CEBC';
+    const pageW = doc.page.width - 100;
+
+    // Header
+    doc.rect(0, 0, doc.page.width, 90).fill(colorPrimary);
+    doc.fillColor('#fff').fontSize(18).font('Helvetica-Bold')
+      .text(invoice.seller_name || 'FACTURE', 50, 30);
+    doc.fillColor('rgba(255,255,255,0.6)').fontSize(9).font('Helvetica')
+      .text('FACTURE', 50, 54);
+    doc.fillColor('#fff').fontSize(11).font('Helvetica-Bold')
+      .text(invoice.number, doc.page.width - 180, 30, { width: 130, align: 'right' });
+    doc.fillColor('rgba(255,255,255,0.7)').fontSize(9).font('Helvetica')
+      .text(new Date(invoice.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }), doc.page.width - 180, 50, { width: 130, align: 'right' });
+
+    // Seller / Client blocks
+    doc.moveDown(3);
+    const y1 = 120;
+    doc.fillColor(colorGray).fontSize(8).font('Helvetica-Bold')
+      .text('VENDEUR', 50, y1).text('CLIENT', 300, y1);
+    doc.fillColor(colorPrimary).fontSize(10).font('Helvetica-Bold')
+      .text(invoice.seller_name || '', 50, y1 + 14)
+      .text(invoice.client_name || '', 300, y1 + 14);
+    doc.fillColor(colorGray).fontSize(9).font('Helvetica');
+    if (invoice.seller_address) doc.text(invoice.seller_address, 50, y1 + 28, { width: 220 });
+    if (invoice.seller_email)   doc.text(invoice.seller_email,   50, doc.y + 2);
+    if (invoice.seller_siret)   doc.text('SIRET : ' + invoice.seller_siret, 50, doc.y + 2);
+    doc.fillColor(colorGray).fontSize(9).font('Helvetica');
+    if (invoice.client_address) doc.text(invoice.client_address, 300, y1 + 28, { width: 220 });
+    if (invoice.client_email)   doc.text(invoice.client_email,   300, doc.y + 2);
+
+    // Lines table
+    const tableY = Math.max(doc.y, y1 + 90) + 20;
+    doc.rect(50, tableY, pageW, 20).fill('#F6F1E9');
+    doc.fillColor(colorGray).fontSize(8).font('Helvetica-Bold')
+      .text('DÉSIGNATION', 56, tableY + 6)
+      .text('QTÉ', 350, tableY + 6, { width: 40, align: 'right' })
+      .text('P.U.', 400, tableY + 6, { width: 55, align: 'right' })
+      .text('TOTAL', 460, tableY + 6, { width: 65, align: 'right' });
+
+    let rowY = tableY + 24;
+    for (const l of lines) {
+      const lineTotal = ((l.qty || 1) * (l.price || 0)).toFixed(2);
+      doc.fillColor(colorPrimary).fontSize(9).font('Helvetica')
+        .text(l.desc || l.name || '', 56, rowY, { width: 285 })
+        .text(String(l.qty || 1), 350, rowY, { width: 40, align: 'right' })
+        .text((l.price || 0).toFixed(2) + ' €', 400, rowY, { width: 55, align: 'right' })
+        .text(lineTotal + ' €', 460, rowY, { width: 65, align: 'right' });
+      rowY += 18;
+      doc.moveTo(50, rowY - 2).lineTo(50 + pageW, rowY - 2).strokeColor(colorLight).lineWidth(0.5).stroke();
+    }
+
+    // Totals
+    const totalY = rowY + 12;
+    doc.moveTo(350, totalY).lineTo(50 + pageW, totalY).strokeColor(colorLight).lineWidth(1).stroke();
+    doc.fillColor(colorGray).fontSize(9).font('Helvetica')
+      .text('Sous-total HT', 350, totalY + 6, { width: 105, align: 'right' })
+      .text((invoice.total_ht || 0).toFixed(2) + ' €', 460, totalY + 6, { width: 65, align: 'right' });
+    doc.text('TVA (0%)', 350, totalY + 22, { width: 105, align: 'right' })
+      .text('0,00 €', 460, totalY + 22, { width: 65, align: 'right' });
+    doc.rect(350, totalY + 38, pageW - 300, 22).fill(colorPrimary);
+    doc.fillColor('#fff').fontSize(10).font('Helvetica-Bold')
+      .text('TOTAL TTC', 356, totalY + 43, { width: 99, align: 'right' })
+      .text((invoice.total_ttc || 0).toFixed(2) + ' €', 460, totalY + 43, { width: 65, align: 'right' });
+
+    // Legal mention
+    const legalY = totalY + 80;
+    doc.fillColor(colorGray).fontSize(8).font('Helvetica')
+      .text(invoice.legal_mention || 'TVA non applicable, art. 293 B du CGI', 50, legalY);
+
+    doc.end();
+  });
+}
 
 export async function createInvoiceFromOrder(order: any): Promise<any> {
   const year = new Date().getFullYear();

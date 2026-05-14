@@ -2,7 +2,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-export type SendOpts = { to: string; subject: string; html: string; from: string };
+export type Attachment = { filename: string; content: Buffer | string };
+export type SendOpts = { to: string; subject: string; html: string; from: string; attachments?: Attachment[] };
 
 export async function getWhiteLabelConfig(): Promise<Record<string, string>> {
   try {
@@ -23,14 +24,19 @@ export async function sendEmailSmtp(opts: SendOpts, cfg: Record<string, string>)
     auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
     tls: { rejectUnauthorized: false },
   });
-  await transporter.sendMail({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html });
+  const attachments = opts.attachments?.map(a => ({ filename: a.filename, content: a.content }));
+  await transporter.sendMail({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, attachments });
 }
 
 export async function sendEmailResend(opts: SendOpts) {
+  const attachments = opts.attachments?.map(a => ({
+    filename: a.filename,
+    content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : Buffer.from(a.content).toString('base64'),
+  }));
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html }),
+    body: JSON.stringify({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, ...(attachments?.length ? { attachments } : {}) }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Resend error');
