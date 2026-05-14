@@ -29,8 +29,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Configurez le code relais de dépôt (mr_col_rel) dans les paramètres' }, { status: 400 });
   }
 
-  const enseigne = process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI';
-  const privateKey = process.env.MONDIAL_RELAY_KEY!;
+  const isTest = !!order.is_test;
+  const enseigne = isTest
+    ? (process.env.MONDIAL_RELAY_ENSEIGNE_TEST || 'TTMRSDBX')
+    : (process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI');
+  const privateKey = isTest
+    ? process.env.MONDIAL_RELAY_KEY_TEST!
+    : process.env.MONDIAL_RELAY_KEY!;
 
   const modeCol = get('mr_mode_col') || 'REL';
 
