@@ -141,7 +141,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const cfg = await getWhiteLabelConfig();
     const siteName  = cfg.site_name || '';
-    const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || `${siteName} <noreply@swedishcravings.fr>`;
+    const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || "hej@swedishcravings.fr";
     const content = `
       <h1 class="title">Remboursement confirmé</h1>
       <p class="text">Bonjour ${order.customer_name},</p>

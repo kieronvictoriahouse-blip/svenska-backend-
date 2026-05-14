@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
       try {
         const cfg = await getWlConfig();
         const siteName  = cfg.site_name || '';
-        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || (siteName ? `${siteName} <noreply@swedishcravings.fr>` : 'noreply@swedishcravings.fr');
+        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || 'hej@swedishcravings.fr';
 
         const orderForEmail = {
           ...(existing || {}),

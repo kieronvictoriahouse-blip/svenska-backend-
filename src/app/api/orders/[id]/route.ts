@@ -77,7 +77,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       try {
         const cfg = await getWhiteLabelConfig();
         const siteName  = cfg.site_name || 'Swedish Cravings';
-        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || `${siteName} <noreply@swedishcravings.fr>`;
+        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || "hej@swedishcravings.fr";
 
         const lines: any[] = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
         const linesHtml = lines.map((l: any) =>
