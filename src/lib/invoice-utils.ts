@@ -25,6 +25,7 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     qty: parseInt(l.qty) || 1,
     price: parseFloat(l.price || l.unit_price || l.total_price || 0),
     tva: 0, // micro-entreprise franchise TVA — Art. 293 B CGI
+    ...(l.image_url ? { image_url: l.image_url } : {}),
   }));
 
   // Frais de livraison comme ligne séparée

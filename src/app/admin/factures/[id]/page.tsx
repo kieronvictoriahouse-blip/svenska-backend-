@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
-type InvoiceLine = { desc: string; qty: number; price: number; tva: number };
+type InvoiceLine = { desc: string; qty: number; price: number; tva: number; image_url?: string };
 
 type Invoice = {
   id: string;
@@ -232,16 +232,25 @@ export default function FacturePage() {
             ) : (
               lines.map((line, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '14px 16px', fontSize: 14, color: '#0f172a', fontWeight: 500 }}>
-                    {line.desc}
+                  <td style={{ padding: '10px 16px', fontSize: 14, color: '#0f172a', fontWeight: 500 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      {line.image_url && (
+                        <img
+                          src={line.image_url}
+                          alt={line.desc}
+                          style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #e2e8f0', flexShrink: 0 }}
+                        />
+                      )}
+                      <span>{line.desc}</span>
+                    </div>
                   </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: 14, color: '#475569' }}>
+                  <td style={{ padding: '10px 16px', textAlign: 'center', fontSize: 14, color: '#475569' }}>
                     {line.qty}
                   </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'right', fontSize: 14, color: '#475569' }}>
+                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 14, color: '#475569' }}>
                     {fmt(line.price)}
                   </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
                     {fmt(line.qty * line.price)}
                   </td>
                 </tr>

@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     }
 
     const lineItems: any[] = [];
-    const orderLines: Array<{ product_id: string; name: string; name_en?: string; name_sv?: string; qty: number; price: number }> = [];
+    const orderLines: Array<{ product_id: string; name: string; name_en?: string; name_sv?: string; qty: number; price: number; image_url?: string }> = [];
     let subtotal = 0;
 
     for (const item of items) {
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
 
       subtotal += price * item.quantity;
 
-      orderLines.push({ product_id: product.id, name, name_en, name_sv, qty: item.quantity, price });
+      orderLines.push({ product_id: product.id, name, name_en, name_sv, qty: item.quantity, price, ...(product.image_url ? { image_url: product.image_url } : {}) });
 
       lineItems.push({
         price_data: {
