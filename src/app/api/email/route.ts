@@ -113,9 +113,10 @@ export async function POST(req: NextRequest) {
       }
 
       let sent = 0;
+      const campaignTags = [{ name: 'campaign_id', value: campaign_id }];
       for (const email of emails) {
         try {
-          await sendEmail({ from: fromEmail, to: email, subject: campaign.subject || campaign.name, html: contentHtml }, cfg);
+          await sendEmail({ from: fromEmail, to: email, subject: campaign.subject || campaign.name, html: contentHtml, tags: campaignTags }, cfg);
           sent++;
           await new Promise(r => setTimeout(r, 150));
         } catch { /* skip */ }

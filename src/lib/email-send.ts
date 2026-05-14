@@ -3,7 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase';
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 export type Attachment = { filename: string; content: Buffer | string };
-export type SendOpts = { to: string; subject: string; html: string; from: string; attachments?: Attachment[] };
+export type SendOpts = {
+  to: string; subject: string; html: string; from: string;
+  attachments?: Attachment[];
+  tags?: { name: string; value: string }[];
+};
 
 export async function getWhiteLabelConfig(): Promise<Record<string, string>> {
   try {
@@ -36,11 +40,15 @@ export async function sendEmailResend(opts: SendOpts) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, ...(attachments?.length ? { attachments } : {}) }),
+    body: JSON.stringify({
+      from: opts.from, to: opts.to, subject: opts.subject, html: opts.html,
+      ...(attachments?.length ? { attachments } : {}),
+      ...(opts.tags?.length ? { tags: opts.tags } : {}),
+    }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Resend error');
-  return data;
+  return data; // { id: 'resend_email_id' }
 }
 
 export async function sendEmail(opts: SendOpts, cfg: Record<string, string>) {

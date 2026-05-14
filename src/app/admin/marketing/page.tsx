@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation';
 type Campaign = {
   id: string; name: string; type: string; status: string; subject?: string;
   content?: string; target_segment: string; budget?: number; spent?: number;
-  sent_count: number; open_count: number; click_count: number; conversion_count: number;
+  sent_count: number; delivered_count: number; open_count: number;
+  click_count: number; bounced_count: number; conversion_count: number;
   revenue_generated: number; scheduled_at?: string; created_at: string;
 };
 type PromoCode = {
@@ -206,25 +207,46 @@ function MarketingInner() {
               <div className="m-stat"><div className="m-stat-num">{roas}x</div><div className="m-stat-label">ROAS moyen</div></div>
             </div>
             <table className="m-table">
-              <thead><tr><th>Campagne</th><th>Type</th><th>Segment</th><th>Envois</th><th>Ouvertures</th><th>Conversions</th><th>CA généré</th><th>Statut</th></tr></thead>
+              <thead><tr><th>Campagne</th><th>Type</th><th>Segment</th><th>Envoyés</th><th>✅ Délivrés</th><th>👁 Ouverts</th><th>🖱 Clics</th><th>⛔ Rebonds</th><th>Statut</th></tr></thead>
               <tbody>
-                {loading ? <tr><td colSpan={8}><div className="empty">Chargement…</div></td></tr>
-                : campaigns.length === 0 ? <tr><td colSpan={8}><div className="empty">Aucune campagne</div></td></tr>
+                {loading ? <tr><td colSpan={9}><div className="empty">Chargement…</div></td></tr>
+                : campaigns.length === 0 ? <tr><td colSpan={9}><div className="empty">Aucune campagne</div></td></tr>
                 : campaigns.map(c => {
                   const st = STATUS_C[c.status] || { label: c.status, color: '#6A7280' };
-                  const openRate = c.sent_count > 0 ? (c.open_count / c.sent_count * 100) : 0;
+                  const base = c.sent_count || 0;
+                  const delivRate = base > 0 ? (c.delivered_count / base * 100) : 0;
+                  const openRate  = base > 0 ? (c.open_count / base * 100) : 0;
+                  const clickRate = base > 0 ? (c.click_count / base * 100) : 0;
+                  const bouncePct = base > 0 ? (c.bounced_count / base * 100) : 0;
+                  const hasStats  = base > 0;
                   return (
                     <tr key={c.id}>
                       <td><strong>{c.name}</strong>{c.subject && <div style={{ fontSize: 11, color: '#6A7280' }}>{c.subject}</div>}</td>
                       <td>{CAMP_TYPES[c.type] || c.type}</td>
                       <td style={{ fontSize: 12, color: '#6A7280' }}>{SEGMENTS[c.target_segment] || c.target_segment}</td>
-                      <td className="mono">{c.sent_count.toLocaleString()}</td>
+                      <td className="mono">{base.toLocaleString()}</td>
                       <td>
-                        <div className="mono">{fmtPct(openRate)}</div>
-                        <div className="progress"><div className="progress-fill" style={{ width: `${Math.min(openRate, 100)}%` }} /></div>
+                        {hasStats ? <>
+                          <div className="mono" style={{ color: '#10B981' }}>{c.delivered_count} <span style={{ fontSize: 10, color: '#6A7280' }}>({fmtPct(delivRate)})</span></div>
+                          <div className="progress"><div className="progress-fill" style={{ width: `${Math.min(delivRate, 100)}%`, background: '#10B981' }} /></div>
+                        </> : <span style={{ color: '#D8CEBC' }}>—</span>}
                       </td>
-                      <td className="mono">{c.conversion_count}</td>
-                      <td className="mono" style={{ fontWeight: 600, color: '#10B981' }}>{fmt(c.revenue_generated)}</td>
+                      <td>
+                        {hasStats ? <>
+                          <div className="mono">{c.open_count} <span style={{ fontSize: 10, color: '#6A7280' }}>({fmtPct(openRate)})</span></div>
+                          <div className="progress"><div className="progress-fill" style={{ width: `${Math.min(openRate, 100)}%` }} /></div>
+                        </> : <span style={{ color: '#D8CEBC' }}>—</span>}
+                      </td>
+                      <td>
+                        {hasStats ? <div className="mono">{c.click_count} <span style={{ fontSize: 10, color: '#6A7280' }}>({fmtPct(clickRate)})</span></div>
+                          : <span style={{ color: '#D8CEBC' }}>—</span>}
+                      </td>
+                      <td>
+                        {hasStats && c.bounced_count > 0
+                          ? <div className="mono" style={{ color: '#DC2626' }}>{c.bounced_count} <span style={{ fontSize: 10 }}>({fmtPct(bouncePct)})</span></div>
+                          : hasStats ? <div className="mono" style={{ color: '#10B981' }}>0</div>
+                          : <span style={{ color: '#D8CEBC' }}>—</span>}
+                      </td>
                       <td><span className="badge" style={{ background: st.color + '20', color: st.color }}>{st.label}</span></td>
                     </tr>
                   );
