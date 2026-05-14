@@ -305,7 +305,8 @@ export default function CommandesPage() {
   const pendingCount = realOrders.filter(o => o.status === 'pending').length;
   const testCount = orders.filter(o => o.is_test).length;
 
-  const activeOrders = realOrders.filter(o => !['cancelled', 'refunded'].includes(o.status));
+  const paidStatuses = ['paid', 'confirmed', 'shipped', 'delivered'];
+  const activeOrders = realOrders.filter(o => paidStatuses.includes(o.status));
   const marginsWithData = activeOrders.map(o => calcMargin(o)).filter(m => m.margin !== null);
   const totalMargin = marginsWithData.reduce((s, m) => s + m.margin!, 0);
   const avgMarginPct = marginsWithData.length > 0
