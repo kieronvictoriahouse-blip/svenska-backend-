@@ -51,7 +51,8 @@ export default function EmailEditorPage() {
   const [promoSubject, setPromoSubject] = useState('');
   const [promoIntro, setPromoIntro] = useState('Découvrez notre sélection du moment :');
   const [generatingPromo, setGeneratingPromo] = useState(false);
-  const [promoMode, setPromoMode] = useState<'editor' | 'promo'>('editor');
+  const [promoMode, setPromoMode] = useState<'editor' | 'html' | 'promo'>('editor');
+  const [htmlContent, setHtmlContent] = useState('');
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -82,13 +83,21 @@ export default function EmailEditorPage() {
   const loadCampaignIntoEditor = useCallback((campaign: Campaign) => {
     setSubject(campaign.subject || '');
     setSegment(campaign.target_segment || 'all');
-    if (!editorReady) return;
     const raw = campaign.content || '';
     try {
       const parsed = JSON.parse(raw);
-      if (parsed.design) { editorRef.current?.editor?.loadDesign(parsed.design); return; }
+      if (parsed.design) {
+        setPromoMode('editor');
+        if (editorReady) editorRef.current?.editor?.loadDesign(parsed.design);
+        return;
+      }
+      if (parsed.html) {
+        setHtmlContent(parsed.html);
+        setPromoMode('html');
+        return;
+      }
     } catch { /* not JSON */ }
-    if (raw) editorRef.current?.editor?.loadDesign({ body: { rows: [] } });
+    if (raw) { setHtmlContent(raw); setPromoMode('html'); }
   }, [editorReady]);
 
   useEffect(() => {
@@ -96,6 +105,47 @@ export default function EmailEditorPage() {
     const camp = campaigns.find(c => c.id === selectedId);
     if (camp) loadCampaignIntoEditor(camp);
   }, [selectedId, editorReady, campaigns, loadCampaignIntoEditor]);
+
+  async function saveHtml() {
+    if (!htmlContent) { showToast('⚠️ Contenu vide'); return; }
+    const content = JSON.stringify({ html: htmlContent, design: null });
+    setSaving(true);
+    try {
+      if (mode === 'new' || !selectedId) {
+        const name = campName || subject || `Campagne ${new Date().toLocaleDateString('fr-FR')}`;
+        const res = await fetch('/api/marketing', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, type: 'email', status: 'draft', subject, target_segment: segment, content }),
+        });
+        const d = await res.json();
+        setSelectedId(d.campaign?.id); setMode('select');
+        const d2 = await (await fetch('/api/marketing')).json();
+        setCampaigns((d2.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
+      } else {
+        await fetch(`/api/marketing?id=${selectedId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject, target_segment: segment, content }),
+        });
+      }
+      showToast('✅ Sauvegardé !');
+    } finally { setSaving(false); }
+  }
+
+  async function sendHtml() {
+    if (!htmlContent) { showToast('⚠️ Contenu vide'); return; }
+    if (!selectedId) { showToast('⚠️ Sauvegardez d\'abord'); return; }
+    if (!confirm(`Envoyer cette campagne à "${SEGMENTS[segment]}" ?`)) return;
+    setSending(true); setSendResult('');
+    try {
+      const res = await fetch('/api/email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'campaign', campaign_id: selectedId, custom_html: htmlContent }),
+      });
+      const result = await res.json();
+      if (res.ok) { setSendResult(`✅ Envoyé à ${result.sent} / ${result.total} destinataires`); showToast(`✅ ${result.sent} emails envoyés !`); }
+      else { setSendResult(`❌ ${result.error}`); showToast(`❌ ${result.error}`); }
+    } finally { setSending(false); }
+  }
 
   function exportAndSave() {
     if (!editorRef.current?.editor) { showToast('⚠️ Éditeur non prêt'); return; }
@@ -236,6 +286,12 @@ export default function EmailEditorPage() {
         >
           🛍️ Générateur Promo Produits
         </button>
+        <button
+          onClick={() => setPromoMode('html')}
+          style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', background: promoMode === 'html' ? '#fff' : 'transparent', borderBottom: promoMode === 'html' ? '2px solid #f59e0b' : '2px solid transparent', marginBottom: -2, fontSize: 13, fontWeight: 600, color: promoMode === 'html' ? '#92400e' : '#64748b' }}
+        >
+          &lt;&gt; Code HTML
+        </button>
       </div>
 
       {/* CONTROL BAR */}
@@ -270,6 +326,17 @@ export default function EmailEditorPage() {
               {saving ? '⏳…' : '💾 Sauvegarder'}
             </button>
             <button onClick={exportAndSend} disabled={sending || !selectedId} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sending ? '#94a3b8' : (!selectedId ? '#e2e8f0' : '#10b981'), color: !selectedId ? '#94a3b8' : '#fff', fontSize: 13, fontWeight: 600 }}>
+              {sending ? '⏳…' : '🚀 Envoyer'}
+            </button>
+          </div>
+        )}
+
+        {promoMode === 'html' && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={saveHtml} disabled={saving} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: saving ? '#94a3b8' : '#f59e0b', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+              {saving ? '⏳…' : '💾 Sauvegarder'}
+            </button>
+            <button onClick={sendHtml} disabled={sending || !selectedId} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sending ? '#94a3b8' : (!selectedId ? '#e2e8f0' : '#10b981'), color: !selectedId ? '#94a3b8' : '#fff', fontSize: 13, fontWeight: 600 }}>
               {sending ? '⏳…' : '🚀 Envoyer'}
             </button>
           </div>
@@ -327,6 +394,35 @@ export default function EmailEditorPage() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* HTML CODE EDITOR */}
+      {promoMode === 'html' && (
+        <div style={{ display: 'flex', flexDirection: 'column', height: editorHeight, background: '#1e293b' }}>
+          <div style={{ padding: '8px 16px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>HTML</span>
+            <span style={{ fontSize: 11, color: '#64748b' }}>Éditez le code HTML directement. Les balises style inline sont recommandées pour la compatibilité email.</span>
+          </div>
+          <textarea
+            value={htmlContent}
+            onChange={e => setHtmlContent(e.target.value)}
+            spellCheck={false}
+            style={{
+              flex: 1,
+              resize: 'none',
+              border: 'none',
+              outline: 'none',
+              padding: '16px',
+              fontFamily: '"Fira Code", "Cascadia Code", Consolas, monospace',
+              fontSize: 13,
+              lineHeight: 1.6,
+              background: '#1e293b',
+              color: '#e2e8f0',
+              tabSize: 2,
+            }}
+            placeholder="<!-- Collez ou écrivez votre HTML email ici -->"
+          />
         </div>
       )}
 
