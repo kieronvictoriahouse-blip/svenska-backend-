@@ -282,6 +282,7 @@ export default function CommandesPage() {
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
     const total = order.total || 0;
+    const revenue = order.subtotal || order.total || 0; // livraison exclue de la marge
     const stripeFee = order.source !== 'manual' && order.stripe_session_id
       ? Math.round((total * 0.015 + 0.25) * 100) / 100
       : 0;
@@ -291,8 +292,8 @@ export default function CommandesPage() {
       const cp = l.product_id ? (costMap[l.product_id] || 0) : 0;
       cost += cp * (l.qty || 1);
     }
-    const margin = total - stripeFee - cost;
-    const pct = total > 0 ? (margin / total) * 100 : 0;
+    const margin = revenue - stripeFee - cost;
+    const pct = revenue > 0 ? (margin / revenue) * 100 : 0;
     return { margin, pct, stripeFee };
   }
 
