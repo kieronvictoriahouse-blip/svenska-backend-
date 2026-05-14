@@ -1,16 +1,24 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang } from '@/lib/admin-i18n';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 type Order = {
   id: string; order_number: string; status: string;
-  customer_name: string; customer_email: string;
+  customer_name: string; customer_email: string; customer_phone?: string;
   shipping_address?: string; customer_address?: string;
   lines: any[]; subtotal: number; shipping: number; total: number;
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
   is_test?: boolean; promo_code?: string; discount?: number;
   stripe_session_id?: string; exclude_from_stats?: boolean;
+  relay_point_id?: string; relay_point_name?: string; relay_point_address?: string; relay_point_pays?: string;
+  mondial_relay_tracking?: string; mondial_relay_label_url?: string;
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -78,6 +86,11 @@ export default function CommandesPage() {
   const [togglingStats, setTogglingStats] = useState(false);
   const [showTestOrders, setShowTestOrders] = useState(false);
   const [avoirId, setAvoirId] = useState<string | null>(null);
+  const [mrLivRel, setMrLivRel] = useState('');
+  const [mrColRel, setMrColRel] = useState('');
+  const [mrWeight, setMrWeight] = useState('500');
+  const [mrLoading, setMrLoading] = useState(false);
+  const [mrResult, setMrResult] = useState<{ tracking: string; labelUrl: string } | null>(null);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [newOrder, setNewOrder] = useState({
@@ -105,6 +118,16 @@ export default function CommandesPage() {
       .then(d => setAvoirId(d.invoices?.[0]?.id || null))
       .catch(() => setAvoirId(null));
   }, [selected?.id, selected?.status]);
+
+  useEffect(() => {
+    if (!selected) { setMrResult(null); return; }
+    setMrLivRel(selected.relay_point_id || '');
+    setMrResult(selected.mondial_relay_tracking
+      ? { tracking: selected.mondial_relay_tracking, labelUrl: selected.mondial_relay_label_url || '' }
+      : null);
+    supabase.from('company_settings').select('value').eq('key', 'mr_col_rel').maybeSingle()
+      .then(({ data }) => { if (data?.value) setMrColRel(data.value); });
+  }, [selected?.id]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
 
@@ -247,6 +270,32 @@ export default function CommandesPage() {
       showToast(`❌ ${e.message}`);
     } finally {
       setRefunding(false);
+    }
+  }
+
+  async function createMrLabel() {
+    if (!selected) return;
+    setMrLoading(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch('/api/mondial-relay/label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          order_id: selected.id,
+          weight_grams: parseInt(mrWeight) || 500,
+          col_rel: mrColRel,
+          liv_rel: mrLivRel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast('❌ ' + (data.error || 'Erreur MR')); return; }
+      setMrResult({ tracking: data.tracking, labelUrl: data.labelUrl });
+      setSelected(s => s ? { ...s, mondial_relay_tracking: data.tracking, mondial_relay_label_url: data.labelUrl, tracking_number: data.tracking, status: 'shipped' } : s);
+      showToast('✅ Étiquette Mondial Relay créée !');
+      load();
+    } finally {
+      setMrLoading(false);
     }
   }
 
@@ -636,6 +685,55 @@ export default function CommandesPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Mondial Relay */}
+                {!['refunded', 'cancelled'].includes(selected.status) && (
+                  <div className="tracking-box" style={{ background: '#F0F9FF', borderColor: '#BAE6FD', marginTop: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1', marginBottom: 10 }}>
+                      🚚 Expédition Mondial Relay
+                    </div>
+                    {mrResult && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#065F46' }}>✅ {mrResult.tracking}</span>
+                        {mrResult.labelUrl && (
+                          <a href={mrResult.labelUrl} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#0369A1', fontWeight: 600, textDecoration: 'none' }}>⬇️ Étiquette PDF</a>
+                        )}
+                      </div>
+                    )}
+                    {selected.relay_point_name && (
+                      <div style={{ fontSize: 12, color: '#0C4A6E', marginBottom: 8, fontWeight: 600 }}>
+                        📍 {selected.relay_point_name} — {selected.relay_point_address}
+                      </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 90px', gap: 8 }}>
+                      <div>
+                        <div className="form-label">Point relais livraison</div>
+                        <input className="form-control" style={{ fontSize: 12 }} value={mrLivRel} onChange={e => setMrLivRel(e.target.value)} placeholder="Code relais (ex: 022546)" />
+                      </div>
+                      <div>
+                        <div className="form-label">Relais de dépôt</div>
+                        <input className="form-control" style={{ fontSize: 12 }} value={mrColRel} onChange={e => setMrColRel(e.target.value)} placeholder="Votre relais dépôt" />
+                      </div>
+                      <div>
+                        <div className="form-label">Poids (g)</div>
+                        <input type="number" className="form-control mono" style={{ fontSize: 12 }} value={mrWeight} min={1} onChange={e => setMrWeight(e.target.value)} />
+                      </div>
+                    </div>
+                    <button
+                      onClick={createMrLabel}
+                      disabled={mrLoading || !mrLivRel || !mrColRel}
+                      style={{
+                        marginTop: 10,
+                        background: mrLoading || !mrLivRel || !mrColRel ? '#93C5FD' : '#0369A1',
+                        color: '#fff', border: 'none', borderRadius: 6,
+                        padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                        cursor: mrLoading || !mrLivRel || !mrColRel ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {mrLoading ? '⏳ Création…' : '📦 Créer l\'étiquette'}
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="o-modal-footer">
                 {!selected.is_test && (
