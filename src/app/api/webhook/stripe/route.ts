@@ -190,14 +190,18 @@ export async function POST(req: NextRequest) {
           html:    orderConfirmationHtml(orderForEmail, cfg),
         }, cfg);
 
-        // Second email facture en fire-and-forget (invocation séparée)
+        // Second email facture
         if (!isTestEvent && !existing?.is_test) {
-          const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr';
-          fetch(`${baseUrl}/api/send-invoice-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId, secret: process.env.INTERNAL_SECRET || 'svenska-internal-2024' }),
-          }).catch(() => {});
+          try {
+            const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr';
+            await fetch(`${baseUrl}/api/send-invoice-email`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ order_id: orderId, secret: process.env.INTERNAL_SECRET || 'svenska-internal-2024' }),
+            });
+          } catch (invMailErr) {
+            console.error('[webhook] invoice email error:', invMailErr);
+          }
         }
       } catch (emailErr) {
         console.error('[webhook] email error:', emailErr);
