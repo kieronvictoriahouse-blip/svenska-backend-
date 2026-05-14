@@ -10,6 +10,7 @@ type Order = {
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
   is_test?: boolean; promo_code?: string; discount?: number;
+  stripe_session_id?: string;
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -277,19 +278,22 @@ export default function CommandesPage() {
     if (w) { w.document.write(html); w.document.close(); }
   }
 
-  function calcMargin(order: Order): { margin: number | null; pct: number | null } {
+  function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number } {
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
-    if (!hasAny) return { margin: null, pct: null };
+    const total = order.total || 0;
+    const stripeFee = order.source !== 'manual' && order.stripe_session_id
+      ? Math.round((total * 0.015 + 0.25) * 100) / 100
+      : 0;
+    if (!hasAny) return { margin: null, pct: null, stripeFee };
     let cost = 0;
     for (const l of lines) {
       const cp = l.product_id ? (costMap[l.product_id] || 0) : 0;
       cost += cp * (l.qty || 1);
     }
-    const revenue = order.subtotal || order.total || 0;
-    const margin = revenue - cost;
-    const pct = revenue > 0 ? (margin / revenue) * 100 : 0;
-    return { margin, pct };
+    const margin = total - stripeFee - cost;
+    const pct = total > 0 ? (margin / total) * 100 : 0;
+    return { margin, pct, stripeFee };
   }
 
   const realOrders = orders.filter(o => !o.is_test);
@@ -395,7 +399,7 @@ export default function CommandesPage() {
         <table className="o-table">
           <thead><tr>
             <th>{t('colOrder')}</th><th>{t('colClient')}</th><th>{t('colDate')}</th>
-            <th>{t('colTotal')}</th><th>Marge</th><th>{tc('status')}</th><th>{tc('actions')}</th>
+            <th>{t('colTotal')}</th><th>Marge réelle</th><th>{tc('status')}</th><th>{tc('actions')}</th>
           </tr></thead>
           <tbody>
             {loading ? (
@@ -426,7 +430,7 @@ export default function CommandesPage() {
                   const { margin, pct } = calcMargin(o);
                   if (margin === null) return <span style={{ color: '#9CA3AF', fontSize: 11 }}>—</span>;
                   const color = pct! >= 50 ? '#10B981' : pct! >= 30 ? '#F59E0B' : '#EF4444';
-                  return <span className="mono" style={{ color, fontWeight: 600, fontSize: 12 }}>{fmt(margin)}<br/><span style={{ fontSize: 10, opacity: 0.8 }}>{pct!.toFixed(0)}%</span></span>;
+                  return <span className="mono" style={{ color, fontWeight: 600, fontSize: 12 }}>{fmt(margin)}<br/><span style={{ fontSize: 10, opacity: 0.8 }}>{pct!.toFixed(0)}% réel</span></span>;
                 })()}</td>
                 <td>
                   <span className="o-badge" style={{ background: (STATUS_COLORS[o.status] || '#6A7280') + '20', color: STATUS_COLORS[o.status] || '#6A7280' }}>
@@ -505,13 +509,20 @@ export default function CommandesPage() {
                       <span>{tc('total')}</span><span className="mono">{fmt(selected.total)}</span>
                     </div>
                     {(() => {
-                      const { margin, pct } = calcMargin(selected);
+                      const { margin, pct, stripeFee } = calcMargin(selected);
                       if (margin === null) return null;
                       const color = pct! >= 50 ? '#10B981' : pct! >= 30 ? '#F59E0B' : '#EF4444';
                       return (
-                        <div style={{ marginTop: 8, background: color + '15', border: `1px solid ${color}40`, borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color }}>Marge brute</span>
-                          <span className="mono" style={{ fontSize: 14, fontWeight: 700, color }}>{fmt(margin)} ({pct!.toFixed(1)}%)</span>
+                        <div style={{ marginTop: 8, background: color + '15', border: `1px solid ${color}40`, borderRadius: 6, padding: '8px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color }}>Marge réelle</span>
+                            <span className="mono" style={{ fontSize: 14, fontWeight: 700, color }}>{fmt(margin)} ({pct!.toFixed(1)}%)</span>
+                          </div>
+                          {stripeFee > 0 && (
+                            <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>
+                              Stripe déduit : −{fmt(stripeFee)} (~1,5% + 0,25€)
+                            </div>
+                          )}
                         </div>
                       );
                     })()}

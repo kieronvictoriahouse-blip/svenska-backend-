@@ -42,7 +42,9 @@ const EXPENSE_CATEGORIES: Record<string, string> = {
   achat_marchandise: 'Achat marchandise',
   frais_port:        'Frais de port',
   frais_logistique:  'Frais logistiques (Landed costs)',
+  frais_stripe:      'Frais Stripe',
   cotisations:       'Cotisations sociales',
+  emballages:        'Emballages',
   autre:             'Autre',
 };
 
@@ -74,6 +76,7 @@ export default function ComptabilitePage() {
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState('');
   const [showComplianceInfo, setShowComplianceInfo] = useState(false);
+  const [showUrssaf, setShowUrssaf] = useState(false);
 
   // Form state
   const [showForm, setShowForm] = useState(false);
@@ -160,6 +163,17 @@ export default function ComptabilitePage() {
 
   const years = Array.from({ length: 4 }, (_, i) => year - 1 + i - 1);
 
+  // Client-side derived metrics
+  const tresorerieNette = summary
+    ? summary.totalIncome - summary.totalExpense - summary.cotisationsEstimees
+    : 0;
+
+  const now = new Date();
+  const currentMonthKey = String(now.getMonth() + 1).padStart(2, '0');
+  const prevMonthKey = now.getMonth() > 0 ? String(now.getMonth()).padStart(2, '0') : null;
+  const currentMonthData = summary?.months[currentMonthKey] || { income: 0, expense: 0 };
+  const prevMonthData = prevMonthKey ? (summary?.months[prevMonthKey] || { income: 0, expense: 0 }) : null;
+
   return (
     <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
 
@@ -210,6 +224,29 @@ export default function ComptabilitePage() {
           >
             📁 Export FEC
           </a>
+          <a
+            href={`/api/accounting/export-excel?year=${selectedYear}`}
+            download
+            style={{
+              padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: '#10b981', color: '#fff', fontSize: 14, fontWeight: 600,
+              textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}
+            title="Export Excel (CSV)"
+          >
+            📊 Excel
+          </a>
+          <button
+            onClick={() => setShowUrssaf(v => !v)}
+            style={{
+              padding: '7px 14px', borderRadius: 6, border: '1px solid #ddd6fe',
+              cursor: 'pointer', background: showUrssaf ? '#f5f3ff' : '#fff',
+              fontSize: 13, color: '#7c3aed', fontWeight: 600,
+            }}
+            title="Calculer votre déclaration URSSAF"
+          >
+            📋 URSSAF
+          </button>
           <button
             onClick={() => setShowComplianceInfo(v => !v)}
             style={{
@@ -267,17 +304,68 @@ export default function ComptabilitePage() {
         </div>
       )}
 
+      {/* URSSAF Declaration Panel */}
+      {showUrssaf && summary && (
+        <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10, padding: 20, marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#5b21b6' }}>
+              📋 Déclaration URSSAF — {selectedYear}
+            </h3>
+            <button onClick={() => setShowUrssaf(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+            {([
+              ['T1 — Jan·Fév·Mar', ['01','02','03']],
+              ['T2 — Avr·Mai·Jun', ['04','05','06']],
+              ['T3 — Jul·Aoû·Sep', ['07','08','09']],
+              ['T4 — Oct·Nov·Déc', ['10','11','12']],
+            ] as [string, string[]][]).map(([label, mths]) => {
+              const ca = mths.reduce((s, k) => s + (summary.months[k]?.income || 0), 0);
+              const cotis = Math.round(ca * 0.123 * 100) / 100;
+              const vfl = Math.round(ca * 0.01 * 100) / 100;
+              return (
+                <div key={label} style={{ background: '#fff', border: '1px solid #ede9fe', borderRadius: 8, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#5b21b6', marginBottom: 8 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: '#334155', marginBottom: 4 }}>CA : <strong>{fmt(ca)}</strong></div>
+                  <div style={{ fontSize: 13, color: '#ef4444', marginBottom: 4 }}>
+                    Cotisations 12,3% : <strong>{fmt(cotis)}</strong>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    + VFL optionnel 1% : {fmt(vfl)}
+                  </div>
+                  {ca === 0 && <div style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Rien à déclarer</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ background: '#ede9fe', borderRadius: 8, padding: '12px 16px', fontSize: 13, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <span><strong style={{ color: '#5b21b6' }}>CA annuel :</strong> {fmt(summary.totalIncome)}</span>
+            <span><strong style={{ color: '#ef4444' }}>Cotisations totales :</strong> {fmt(summary.cotisationsEstimees)}</span>
+            <span><strong style={{ color: '#7c3aed' }}>VFL optionnel :</strong> {fmt(Math.round(summary.totalIncome * 0.01 * 100) / 100)}</span>
+          </div>
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: '#7c3aed', fontStyle: 'italic' }}>
+            Déclarer sur autoentrepreneur.urssaf.fr · BIC marchandises achat-revente · Abattement 71% pour l'IR
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <p style={{ color: '#64748b' }}>Chargement…</p>
       ) : (
         <>
           {/* Summary cards */}
           {summary && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 24 }}>
               <Card label="Chiffre d'affaires" value={fmt(summary.totalIncome)} color="#10b981" sub={`${income.length} recette(s)`} />
               <Card label="Achats & dépenses" value={fmt(summary.totalExpense)} color="#ef4444" sub={`${expense.length} entrée(s)`} />
               <Card label="Résultat brut" value={fmt(summary.resultatBrut)} color={summary.resultatBrut >= 0 ? '#3b82f6' : '#ef4444'} sub="CA − Dépenses" />
               <Card label="Résultat imposable" value={fmt(summary.resultatImposable)} color="#8b5cf6" sub="Abattement 71% appliqué" />
+              <Card
+                label="Trésorerie nette"
+                value={fmt(tresorerieNette)}
+                color={tresorerieNette >= 0 ? '#0ea5e9' : '#ef4444'}
+                sub="CA − dépenses − cotis. est."
+              />
             </div>
           )}
 
@@ -306,10 +394,10 @@ export default function ComptabilitePage() {
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <MiniStat label="Cotisations estimées" value={fmt(summary.cotisationsEstimees)} note="12,3% du CA" />
-                  <MiniStat label="Bénéfice net estimé" value={fmt(summary.resultatImposable - summary.cotisationsEstimees)} note="Résultat − cotisations" />
+                  <MiniStat label="Cotisations URSSAF" value={fmt(summary.cotisationsEstimees)} note="12,3% du CA — à déclarer" />
+                  <MiniStat label="Bénéfice net estimé" value={fmt(summary.resultatImposable - summary.cotisationsEstimees)} note="Imposable − cotisations" />
                   <MiniStat label="Abattement forfaitaire" value={fmt(summary.totalIncome * summary.abattement)} note="71% du CA" />
-                  <MiniStat label="Reste à déclarer" value={fmt(summary.totalIncome - summary.totalExpense - summary.cotisationsEstimees)} note="Trésorerie estimée" />
+                  <MiniStat label="Frais Stripe" value={fmt(summary.expensesByCategory?.frais_stripe || 0)} note="Commission ~1,5% + 0,25€/cmd" />
                 </div>
               </div>
 
@@ -337,9 +425,42 @@ export default function ComptabilitePage() {
                 </div>
                 <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
                   <span style={{ fontSize: 11, color: '#10b981' }}>■ Recettes</span>
-                  <span style={{ fontSize: 11, color: '#ef4444' }}>■ Achats</span>
+                  <span style={{ fontSize: 11, color: '#ef4444' }}>■ Dépenses</span>
                 </div>
               </div>
+
+              {/* Month-over-month comparison */}
+              {prevMonthData && (
+                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {([
+                    { label: 'Recettes', cur: currentMonthData.income, prev: prevMonthData.income, color: '#10b981' },
+                    { label: 'Dépenses', cur: currentMonthData.expense, prev: prevMonthData.expense, color: '#ef4444' },
+                  ]).map(({ label, cur, prev, color }) => {
+                    const delta = prev > 0 ? ((cur - prev) / prev) * 100 : 0;
+                    const isUp = cur >= prev;
+                    return (
+                      <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>
+                            {label} — {MONTHS[parseInt(currentMonthKey, 10) - 1]}
+                          </p>
+                          <p style={{ margin: '4px 0 0', fontSize: 15, fontWeight: 700, color }}>{fmt(cur)}</p>
+                          <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                            {MONTHS[parseInt(prevMonthKey!, 10) - 1]} : {fmt(prev)}
+                          </p>
+                        </div>
+                        <div style={{
+                          padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                          background: isUp ? '#dcfce7' : '#fee2e2',
+                          color: isUp ? '#166534' : '#991b1b',
+                        }}>
+                          {isUp ? '↑' : '↓'} {Math.abs(delta).toFixed(0)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -367,6 +488,38 @@ export default function ComptabilitePage() {
           {/* Table */}
           {(tab === 'recettes' || tab === 'achats') && (
             <>
+              {tab === 'achats' && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Frais récurrents :
+                  </span>
+                  {([
+                    { label: 'Vercel Pro', amount: '20', cat: 'autre' },
+                    { label: 'OVH domaine', amount: '15', cat: 'autre' },
+                    { label: 'Emballages', amount: '', cat: 'emballages' },
+                    { label: 'Frais postaux', amount: '', cat: 'frais_port' },
+                    { label: 'Cotisations URSSAF', amount: '', cat: 'cotisations' },
+                  ]).map(({ label, amount, cat }) => (
+                    <button
+                      key={label}
+                      onClick={() => {
+                        setFormType('expense');
+                        setFCat(cat);
+                        setFDesc(label);
+                        if (amount) setFAmount(amount);
+                        setShowForm(true);
+                      }}
+                      style={{
+                        padding: '4px 10px', borderRadius: 20, border: '1px solid #e2e8f0',
+                        cursor: 'pointer', background: '#fff', fontSize: 12, color: '#475569',
+                      }}
+                    >
+                      + {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <button
                   onClick={() => {

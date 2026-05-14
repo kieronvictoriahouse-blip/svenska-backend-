@@ -27,28 +27,53 @@ export async function POST(_req: NextRequest) {
       } catch { /* non bloquant */ }
     }
 
-    // Entrée comptable
+    // Entrée comptable (income uniquement — les frais_stripe sont séparés)
     const { data: existing } = await supabaseAdmin
       .from('accounting_entries')
       .select('id')
       .eq('reference_type', 'order')
       .eq('reference_id', order.id)
+      .eq('type', 'income')
       .maybeSingle();
 
-    if (existing) { skipped.push(order.order_number); continue; }
+    if (existing) {
+      skipped.push(order.order_number);
+    } else {
+      const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
+      await supabaseAdmin.from('accounting_entries').insert({
+        date: order.created_at.split('T')[0],
+        type: 'income',
+        category,
+        description: `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
+        amount: order.total || 0,
+        reference_type: 'order',
+        reference_id: order.id,
+        reference_number: order.order_number,
+      });
+      created.push(order.order_number);
+    }
 
-    const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
-    await supabaseAdmin.from('accounting_entries').insert({
-      date: order.created_at.split('T')[0],
-      type: 'income',
-      category,
-      description: `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
-      amount: order.total || 0,
-      reference_type: 'order',
-      reference_id: order.id,
-      reference_number: order.order_number,
-    });
-    created.push(order.order_number);
+    // Frais Stripe automatiques — uniquement pour les commandes passées par Stripe
+    if (order.stripe_session_id && (order.total || 0) > 0) {
+      const { data: existingStripe } = await supabaseAdmin
+        .from('accounting_entries').select('id')
+        .eq('reference_type', 'order').eq('reference_id', order.id).eq('category', 'frais_stripe')
+        .maybeSingle();
+      if (!existingStripe) {
+        const stripeFee = Math.round(((order.total || 0) * 0.015 + 0.25) * 100) / 100;
+        await supabaseAdmin.from('accounting_entries').insert({
+          date: order.created_at.split('T')[0],
+          type: 'expense',
+          category: 'frais_stripe',
+          description: `Frais Stripe — ${order.order_number}`,
+          amount: stripeFee,
+          reference_type: 'order',
+          reference_id: order.id,
+          reference_number: order.order_number,
+        });
+        created.push(`STRIPE-${order.order_number}`);
+      }
+    }
   }
 
   // ── Sync receptions → achats ────────────────────────────────────────────

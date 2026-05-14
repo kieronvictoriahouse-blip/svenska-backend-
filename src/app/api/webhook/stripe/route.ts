@@ -105,7 +105,9 @@ export async function POST(req: NextRequest) {
 
         // Entrée comptable automatique
         const { data: existingEntry } = await supabaseAdmin
-          .from('accounting_entries').select('id').eq('reference_type', 'order').eq('reference_id', orderId).maybeSingle();
+          .from('accounting_entries').select('id')
+          .eq('reference_type', 'order').eq('reference_id', orderId).eq('type', 'income')
+          .maybeSingle();
         if (!existingEntry) {
           await supabaseAdmin.from('accounting_entries').insert({
             date:             new Date().toISOString().split('T')[0],
@@ -113,6 +115,25 @@ export async function POST(req: NextRequest) {
             category:         'vente_en_ligne',
             description:      `Commande ${existing?.order_number || ''}${customerName ? ' — ' + customerName : ''}`,
             amount:           total,
+            reference_type:   'order',
+            reference_id:     orderId,
+            reference_number: existing?.order_number || '',
+          });
+        }
+
+        // Frais Stripe automatiques (~1,5% + 0,25€ par transaction)
+        const { data: existingStripeEntry } = await supabaseAdmin
+          .from('accounting_entries').select('id')
+          .eq('reference_type', 'order').eq('reference_id', orderId).eq('category', 'frais_stripe')
+          .maybeSingle();
+        if (!existingStripeEntry && total > 0) {
+          const stripeFee = Math.round((total * 0.015 + 0.25) * 100) / 100;
+          await supabaseAdmin.from('accounting_entries').insert({
+            date:             new Date().toISOString().split('T')[0],
+            type:             'expense',
+            category:         'frais_stripe',
+            description:      `Frais Stripe — ${existing?.order_number || ''}`,
+            amount:           stripeFee,
             reference_type:   'order',
             reference_id:     orderId,
             reference_number: existing?.order_number || '',

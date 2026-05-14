@@ -13,6 +13,8 @@ const ACCOUNT_MAP: Record<string, { num: string; lib: string }> = {
   expense_frais_port:        { num: '624100', lib: 'Transports sur achats — port' },
   expense_frais_logistique:  { num: '624000', lib: 'Transports sur achats — logistique' },
   expense_cotisations:       { num: '645000', lib: 'Charges sociales' },
+  expense_frais_stripe:      { num: '627100', lib: 'Commissions bancaires — Stripe' },
+  expense_emballages:        { num: '606300', lib: 'Emballages' },
   expense_autre:             { num: '628000', lib: 'Autres charges externes' },
 };
 
