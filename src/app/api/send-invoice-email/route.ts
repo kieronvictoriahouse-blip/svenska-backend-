@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     const cfg = await getWlConfig();
     const siteName  = cfg.site_name || 'Swedish Cravings';
-    const fromEmail = cfg.smtp_from || `${siteName} <noreply@swedishcravings.fr>`;
+    const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || 'onboarding@resend.dev';
     const toEmail   = inv.client_email;
 
     if (!toEmail) return NextResponse.json({ error: 'Email client manquant' }, { status: 400 });
