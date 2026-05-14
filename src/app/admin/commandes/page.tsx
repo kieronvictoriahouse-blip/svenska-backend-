@@ -125,8 +125,11 @@ export default function CommandesPage() {
     setMrResult(selected.mondial_relay_tracking
       ? { tracking: selected.mondial_relay_tracking, labelUrl: selected.mondial_relay_label_url || '' }
       : null);
-    supabase.from('company_settings').select('value').eq('key', 'mr_col_rel').maybeSingle()
-      .then(({ data }) => { if (data?.value) setMrColRel(data.value); });
+    const token = localStorage.getItem('sd_admin_token') || '';
+    fetch('/api/mondial-relay/settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (d.mr_col_rel) setMrColRel(d.mr_col_rel); })
+      .catch(() => {});
   }, [selected?.id]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
