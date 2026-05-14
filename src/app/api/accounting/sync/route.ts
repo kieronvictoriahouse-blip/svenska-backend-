@@ -54,7 +54,8 @@ export async function POST(_req: NextRequest) {
   // ── Sync receptions → achats ────────────────────────────────────────────
   const { data: receptions } = await supabaseAdmin
     .from('receptions')
-    .select('id, number, supplier_name, lines, received_at');
+    .select('id, number, supplier_name, lines, received_at, status')
+    .neq('status', 'cancelled');
 
   for (const rec of receptions || []) {
     const { data: existing } = await supabaseAdmin
