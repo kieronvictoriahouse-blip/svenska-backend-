@@ -32,9 +32,11 @@ export async function POST(req: NextRequest) {
   const enseigne = process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI';
   const privateKey = process.env.MONDIAL_RELAY_KEY!;
 
+  const modeCol = get('mr_mode_col') || 'REL';
+
   const f: Record<string, string> = {
     Enseigne: enseigne,
-    ModeCol: 'REL',
+    ModeCol: modeCol,
     ModeLiv: '24R',
     Expe_Langage: 'FR',
     Expe_Ad1: trunc(get('company') || 'Svenska Cravings', 32),
