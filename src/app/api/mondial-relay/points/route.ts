@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   f.Security = mrHash(hashValues, privateKey);
 
   try {
-    const xml = await mrSoap('WSI3_SearchForParcelShopList', f);
+    const xml = await mrSoap('WSI3_PointRelais_Recherche', f);
     const stat = mrParseXml(xml, 'STAT');
 
     if (stat !== '0') {
