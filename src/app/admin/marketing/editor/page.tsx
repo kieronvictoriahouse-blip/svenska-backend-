@@ -53,6 +53,8 @@ export default function EmailEditorPage() {
   const [generatingPromo, setGeneratingPromo] = useState(false);
   const [promoMode, setPromoMode] = useState<'editor' | 'html' | 'promo'>('editor');
   const [htmlContent, setHtmlContent] = useState('');
+  const [testEmail, setTestEmail] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -129,6 +131,20 @@ export default function EmailEditorPage() {
       }
       showToast('✅ Sauvegardé !');
     } finally { setSaving(false); }
+  }
+
+  async function sendTestEmail(html: string) {
+    if (!testEmail) { showToast('⚠️ Saisissez votre email de test'); return; }
+    setSendingTest(true);
+    try {
+      const res = await fetch('/api/email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'test_campaign', to: testEmail, html, subject }),
+      });
+      const d = await res.json();
+      if (res.ok) showToast(`✅ Email de test envoyé à ${testEmail}`);
+      else showToast(`❌ ${d.error}`);
+    } finally { setSendingTest(false); }
   }
 
   async function sendHtml() {
@@ -344,6 +360,35 @@ export default function EmailEditorPage() {
 
         {sendResult && <span style={{ fontSize: 12, fontWeight: 600, color: sendResult.startsWith('✅') ? '#065f46' : '#991b1b' }}>{sendResult}</span>}
       </div>
+
+      {/* BARRE TEST EMAIL */}
+      {(promoMode === 'html' || promoMode === 'editor') && (
+        <div style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a', padding: '7px 20px', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#92400e', whiteSpace: 'nowrap' }}>🧪 Envoyer un test :</span>
+          <input
+            value={testEmail}
+            onChange={e => setTestEmail(e.target.value)}
+            placeholder="ton@email.com"
+            type="email"
+            style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fcd34d', fontSize: 13, minWidth: 200, background: '#fff' }}
+          />
+          <button
+            onClick={() => {
+              if (promoMode === 'html') {
+                sendTestEmail(htmlContent);
+              } else if (editorRef.current?.editor) {
+                editorRef.current.editor.exportHtml((data: any) => sendTestEmail(data.html));
+              }
+            }}
+            disabled={sendingTest}
+            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sendingTest ? '#94a3b8' : '#f59e0b', color: '#fff', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
+          >
+            {sendingTest ? '⏳…' : '📨 Envoyer à moi'}
+          </button>
+          <span style={{ fontSize: 11, color: '#92400e' }}>Seul cet email recevra le test — vos clients ne seront pas contactés.</span>
+        </div>
+      )}
+
       </div>{/* fin barsRef */}
 
       {/* PROMO PRODUCT GENERATOR */}

@@ -137,6 +137,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, method: (cfg.smtp_host && cfg.smtp_pass) ? 'smtp' : 'resend' });
     }
 
+    // 5. Test d'une campagne sur une adresse précise (sans envoyer aux clients)
+    if (type === 'test_campaign') {
+      const { to, html, subject: testSubject } = body;
+      if (!to) return NextResponse.json({ error: 'Email de test requis' }, { status: 400 });
+      if (!html) return NextResponse.json({ error: 'Contenu HTML requis' }, { status: 400 });
+      await sendEmail({
+        from: fromEmail,
+        to,
+        subject: `[TEST] ${testSubject || 'Aperçu campagne'}${siteName ? ` — ${siteName}` : ''}`,
+        html,
+      }, cfg);
+      return NextResponse.json({ success: true });
+    }
+
     return NextResponse.json({ error: 'Type inconnu' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
