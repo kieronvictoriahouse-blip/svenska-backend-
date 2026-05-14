@@ -76,6 +76,7 @@ export default function CommandesPage() {
   const [testConfirm, setTestConfirm] = useState(false);
   const [showTestOrders, setShowTestOrders] = useState(false);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
+  const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [newOrder, setNewOrder] = useState({
     customer_name: '', customer_email: '', customer_address: '', customer_country: 'France',
     notes: '', shipping: '0', lines: [{ desc: '', qty: 1, price: 0 }]
@@ -98,13 +99,16 @@ export default function CommandesPage() {
 
   async function loadCosts() {
     const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await fetch('/api/products?limit=500&fields=id,cost_price', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch('/api/products?limit=500', { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
-    const map: Record<string, number> = {};
+    const costs: Record<string, number> = {};
+    const images: Record<string, string> = {};
     for (const p of (data.products || [])) {
-      if (p.cost_price > 0) map[p.id] = p.cost_price;
+      if (p.cost_price > 0) costs[p.id] = p.cost_price;
+      if (p.image_url) images[p.id] = p.image_url;
     }
-    setCostMap(map);
+    setCostMap(costs);
+    setImageMap(images);
   }
 
   async function load() {
@@ -469,12 +473,19 @@ export default function CommandesPage() {
 
                 <div style={{ background: '#FDFAF5', border: '1px solid #D8CEBC', borderRadius: 6, marginBottom: 16 }}>
                   <div style={{ padding: '10px 14px', borderBottom: '1px solid #D8CEBC', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: '#6A7280' }}>{t('orderLines')}</div>
-                  {(typeof selected.lines === 'string' ? JSON.parse(selected.lines) : selected.lines || []).map((l: any, i: number) => (
-                    <div key={i} className="detail-row" style={{ padding: '8px 14px' }}>
-                      <span>{l.desc || l.name || '—'} × {l.qty}</span>
-                      <span className="mono">{fmt((l.qty || 1) * (l.price || 0))}</span>
-                    </div>
-                  ))}
+                  {(typeof selected.lines === 'string' ? JSON.parse(selected.lines) : selected.lines || []).map((l: any, i: number) => {
+                    const imgUrl = l.image_url || (l.product_id && imageMap[l.product_id]) || null;
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid #F0EBE1' }}>
+                        {imgUrl
+                          ? <img src={imgUrl} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid #D8CEBC', flexShrink: 0 }} />
+                          : <div style={{ width: 44, height: 44, borderRadius: 6, border: '1px solid #D8CEBC', background: '#F0EBE1', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>📦</div>
+                        }
+                        <span style={{ flex: 1, fontSize: 13 }}>{l.desc || l.name || l.name_fr || '—'} <strong>× {l.qty}</strong></span>
+                        <span className="mono" style={{ fontSize: 13 }}>{fmt((l.qty || 1) * (l.price || 0))}</span>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
