@@ -93,7 +93,12 @@ export function orderConfirmationHtml(order: Record<string, unknown>, cfg: Recor
     </div>
     <div class="box">
       <div class="box-title">📬 Livraison</div>
-      <p style="font-size:14px;color:#1C2028;margin:0">${order.shipping_address || order.customer_address || 'Adresse non renseignée'}</p>
+      ${order.delivery_mode === 'pickup'
+        ? `<p style="font-size:14px;color:#1C2028;margin:0">🏪 Retrait en magasin (Click &amp; Collect)</p>`
+        : order.delivery_mode === 'mondial_relay'
+        ? `<p style="font-size:14px;color:#1C2028;margin:0">📦 Point relais Mondial Relay<br><strong>${order.relay_point_name || ''}</strong>${order.relay_point_address ? '<br>' + order.relay_point_address : ''}</p>`
+        : `<p style="font-size:14px;color:#1C2028;margin:0">${order.shipping_address || order.customer_address || 'Adresse non renseignée'}</p>`
+      }
     </div>
     ${frontUrl ? `<div style="text-align:center"><a href="${frontUrl}/compte.html" class="btn">Suivre ma commande →</a></div>` : ''}
     ${contactEmail ? `<p class="text" style="font-size:13px">Des questions ? <a href="mailto:${contactEmail}" style="color:#3E4550">${contactEmail}</a></p>` : ''}`;
