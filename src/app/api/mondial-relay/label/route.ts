@@ -30,12 +30,22 @@ export async function POST(req: NextRequest) {
   }
 
   const isTest = !!order.is_test;
-  const enseigne = isTest
-    ? (process.env.MONDIAL_RELAY_ENSEIGNE_TEST || 'TTMRSDBX')
-    : (process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI');
-  const privateKey = isTest
-    ? process.env.MONDIAL_RELAY_KEY_TEST!
-    : process.env.MONDIAL_RELAY_KEY!;
+
+  // Mode test : pas d'appel MR réel, retourne des données fictives
+  if (isTest) {
+    const fakeTracking = 'TEST-' + Date.now().toString(36).toUpperCase();
+    const fakeLabelUrl = 'https://www.mondialrelay.fr';
+    await supabaseAdmin.from('orders').update({
+      tracking_number: fakeTracking,
+      mondial_relay_tracking: fakeTracking,
+      mondial_relay_label_url: fakeLabelUrl,
+      status: 'shipped',
+    }).eq('id', order_id);
+    return NextResponse.json({ tracking: fakeTracking, labelUrl: fakeLabelUrl });
+  }
+
+  const enseigne = process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI';
+  const privateKey = process.env.MONDIAL_RELAY_KEY!;
 
   const modeCol = get('mr_mode_col') || 'REL';
 
