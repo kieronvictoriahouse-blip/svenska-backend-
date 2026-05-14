@@ -37,9 +37,10 @@ export async function POST(req: NextRequest) {
     const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
 
     const body = await req.json();
-    const { items, customer_token, delivery_mode, promo_code } = body;
+    const { items, customer_token, delivery_mode, promo_code, relay_point_id, relay_point_name, relay_point_address, relay_point_pays } = body;
     let { customer_email } = body;
     const isPickup = delivery_mode === 'pickup';
+    const isMondialRelay = delivery_mode === 'mondial_relay';
 
     // Verify customer token and load profile for name + address
     let customerName = '';
@@ -189,7 +190,13 @@ export async function POST(req: NextRequest) {
         discount:         discountAmount > 0 ? Math.round(discountAmount * 100) / 100 : 0,
         total:            grandTotal,
         lines:            JSON.stringify(orderLines),
-        delivery_mode:    isPickup ? 'pickup' : 'delivery',
+        delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
+        ...(isMondialRelay && relay_point_id ? {
+          relay_point_id,
+          relay_point_name: relay_point_name || null,
+          relay_point_address: relay_point_address || null,
+          relay_point_pays: relay_point_pays || 'FR',
+        } : {}),
         ...(promo_code && discountAmount > 0 ? { promo_code: promo_code.toUpperCase().trim() } : {}),
         ...(promo_code && isFreeShippingPromo ? { promo_code: promo_code.toUpperCase().trim() } : {}),
       })
@@ -207,7 +214,7 @@ export async function POST(req: NextRequest) {
       line_items: lineItems,
       customer_email: customer_email || undefined,
       ...(stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
-      ...(isPickup ? {} : {
+      ...(isPickup || isMondialRelay ? {} : {
         shipping_address_collection: { allowed_countries: ['FR', 'BE', 'CH', 'LU', 'MC', 'DE', 'ES', 'IT', 'NL', 'PT', 'SE', 'GB'] },
       }),
       shipping_options: [
@@ -217,6 +224,14 @@ export async function POST(req: NextRequest) {
                 type: 'fixed_amount',
                 fixed_amount: { amount: 0, currency: 'eur' },
                 display_name: 'Retrait en magasin (Click & Collect)',
+              },
+            }
+          : isMondialRelay
+          ? {
+              shipping_rate_data: {
+                type: 'fixed_amount',
+                fixed_amount: { amount: freeShipping ? 0 : 490, currency: 'eur' },
+                display_name: freeShipping ? 'Livraison gratuite en point relais' : 'Livraison en point relais Mondial Relay',
               },
             }
           : freeShipping
