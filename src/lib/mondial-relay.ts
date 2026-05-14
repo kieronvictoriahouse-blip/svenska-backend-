@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 
-const MR_URL = 'https://api.mondialrelay.com/WebService.asmx';
+const MR_URL = 'https://api.mondialrelay.com/Web_Services.asmx';
 const MR_NS = 'http://www.mondialrelay.com/webservice/';
 
 export function mrHash(fields: string[], privateKey: string): string {
