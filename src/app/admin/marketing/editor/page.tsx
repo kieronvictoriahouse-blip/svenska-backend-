@@ -55,6 +55,8 @@ export default function EmailEditorPage() {
   const [htmlContent, setHtmlContent] = useState('');
   const [testEmail, setTestEmail] = useState('');
   const [sendingTest, setSendingTest] = useState(false);
+  const [claudeBlock, setClaudeBlock] = useState<{ html: string; prompt: string } | null>(null);
+  const [copiedWhat, setCopiedWhat] = useState<'html' | 'prompt' | null>(null);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -277,6 +279,39 @@ export default function EmailEditorPage() {
     setSelectedProducts(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   };
 
+  function copyToClipboard(text: string, what: 'html' | 'prompt') {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedWhat(what);
+      setTimeout(() => setCopiedWhat(null), 2000);
+    });
+  }
+
+  function generateForClaude() {
+    if (selectedProducts.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
+    const frontUrl = 'https://www.swedishcravings.fr';
+    const prods = products.filter(p => selectedProducts.includes(p.id));
+
+    const productsHtml = prods.map(p => {
+      const img = p.image_url || p.image || p.main_image || (Array.isArray(p.images) ? p.images[0] : '');
+      const name = p.name_fr || p.name || '';
+      const desc = p.description_fr || p.description || '';
+      const price = (p.price || 0).toFixed(2);
+      return `  <div class="product">
+    ${img ? `<img src="${img}" alt="${name}" />` : ''}
+    <h3>${name}</h3>
+    ${desc ? `<p>${desc}</p>` : ''}
+    <strong>${price} €</strong>
+    <a href="${frontUrl}/boutique">Voir le produit →</a>
+  </div>`;
+    }).join('\n\n');
+
+    const html = `<!-- Produits Swedish Cravings -->\n<div class="products-grid">\n${productsHtml}\n</div>`;
+
+    const prompt = `Crée un email marketing HTML complet pour ma boutique Swedish Cravings (épicerie suédoise en France). Style scandinave : fond beige clair #EDEAE4, texte #1C2028, accents dorés. Tout en CSS inline pour compatibilité email (pas de <style> global). Structure : header avec nom de la boutique, intro "${promoSubject || 'Nos sélections du moment'}", les produits ci-dessous en grille 2 colonnes, et un footer avec lien vers la boutique. Max 600px de large. Voici les produits :\n\n${html}`;
+
+    setClaudeBlock({ html, prompt });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif' }}>
       {toast && (
@@ -403,13 +438,22 @@ export default function EmailEditorPage() {
               <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>Introduction</label>
               <input value={promoIntro} onChange={e => setPromoIntro(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
             </div>
-            <button
-              onClick={generateAndSavePromo}
-              disabled={generatingPromo || selectedProducts.length === 0}
-              style={{ padding: '8px 18px', borderRadius: 7, border: 'none', cursor: 'pointer', background: generatingPromo || selectedProducts.length === 0 ? '#94a3b8' : '#10b981', color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}
-            >
-              {generatingPromo ? '⏳ Génération…' : `🚀 Générer l'email (${selectedProducts.length} produit${selectedProducts.length > 1 ? 's' : ''})`}
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button
+                onClick={generateForClaude}
+                disabled={selectedProducts.length === 0}
+                style={{ padding: '8px 18px', borderRadius: 7, border: 'none', cursor: 'pointer', background: selectedProducts.length === 0 ? '#94a3b8' : '#6366f1', color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}
+              >
+                {`🤖 Générer pour Claude (${selectedProducts.length} produit${selectedProducts.length > 1 ? 's' : ''})`}
+              </button>
+              <button
+                onClick={generateAndSavePromo}
+                disabled={generatingPromo || selectedProducts.length === 0}
+                style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid #d1d5db', cursor: 'pointer', background: '#fff', color: '#64748b', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
+              >
+                {generatingPromo ? '⏳…' : '⚡ Générer automatiquement'}
+              </button>
+            </div>
           </div>
 
           {products.length === 0 ? (
@@ -437,6 +481,58 @@ export default function EmailEditorPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Panneau résultat pour Claude */}
+          {claudeBlock && (
+            <div style={{ marginTop: 20, borderRadius: 10, overflow: 'hidden', border: '2px solid #6366f1' }}>
+              <div style={{ background: '#6366f1', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>🤖 Prêt pour Claude</span>
+                <button onClick={() => setClaudeBlock(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>✕</button>
+              </div>
+
+              {/* Prompt suggéré */}
+              <div style={{ background: '#eef2ff', padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#4338ca' }}>💬 Prompt à copier dans Claude</span>
+                  <button
+                    onClick={() => copyToClipboard(claudeBlock.prompt, 'prompt')}
+                    style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: copiedWhat === 'prompt' ? '#10b981' : '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700 }}
+                  >
+                    {copiedWhat === 'prompt' ? '✓ Copié !' : '📋 Copier le prompt'}
+                  </button>
+                </div>
+                <pre style={{ fontSize: 12, color: '#3730a3', background: '#e0e7ff', padding: 12, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 120, overflowY: 'auto', fontFamily: 'inherit', lineHeight: 1.5 }}>{claudeBlock.prompt}</pre>
+              </div>
+
+              {/* HTML généré */}
+              <div style={{ background: '#f8fafc', padding: 14, borderTop: '1px solid #e0e7ff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>📄 Données produits HTML</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => copyToClipboard(claudeBlock.html, 'html')}
+                      style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: copiedWhat === 'html' ? '#10b981' : '#64748b', color: '#fff', fontSize: 11, fontWeight: 700 }}
+                    >
+                      {copiedWhat === 'html' ? '✓ Copié !' : '📋 Copier le HTML'}
+                    </button>
+                    <button
+                      onClick={() => { setHtmlContent(claudeBlock.html); setPromoMode('html'); setClaudeBlock(null); showToast('✅ HTML ouvert dans l\'éditeur'); }}
+                      style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: '#f59e0b', color: '#fff', fontSize: 11, fontWeight: 700 }}
+                    >
+                      → Ouvrir dans l'éditeur HTML
+                    </button>
+                  </div>
+                </div>
+                <pre style={{ fontSize: 11, color: '#475569', background: '#1e293b', padding: 12, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 150, overflowY: 'auto', fontFamily: 'monospace', lineHeight: 1.5, color: '#94a3b8' }}>{claudeBlock.html}</pre>
+              </div>
+
+              <div style={{ background: '#f0fdf4', padding: '10px 16px', borderTop: '1px solid #bbf7d0' }}>
+                <p style={{ margin: 0, fontSize: 12, color: '#166534' }}>
+                  <strong>Workflow :</strong> Copie le prompt → colle dans Claude → Claude génère l'email stylisé → copie le HTML → reviens ici → onglet <strong>&lt;&gt; Code HTML</strong> → colle → Prévisualise → Envoie 🚀
+                </p>
+              </div>
             </div>
           )}
         </div>
