@@ -399,30 +399,45 @@ export default function EmailEditorPage() {
 
       {/* HTML CODE EDITOR */}
       {promoMode === 'html' && (
-        <div style={{ display: 'flex', flexDirection: 'column', height: editorHeight, background: '#1e293b' }}>
-          <div style={{ padding: '8px 16px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>HTML</span>
-            <span style={{ fontSize: 11, color: '#64748b' }}>Éditez le code HTML directement. Les balises style inline sont recommandées pour la compatibilité email.</span>
+        <div style={{ display: 'flex', height: editorHeight }}>
+          {/* Code pane */}
+          <div style={{ display: 'flex', flexDirection: 'column', width: '50%', background: '#1e293b', borderRight: '2px solid #0f172a' }}>
+            <div style={{ padding: '6px 14px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', fontWeight: 700 }}>HTML</span>
+              <span style={{ fontSize: 11, color: '#475569' }}>Éditez le code — la prévisualisation se met à jour en direct →</span>
+            </div>
+            <textarea
+              value={htmlContent}
+              onChange={e => setHtmlContent(e.target.value)}
+              spellCheck={false}
+              style={{
+                flex: 1,
+                resize: 'none',
+                border: 'none',
+                outline: 'none',
+                padding: '14px',
+                fontFamily: '"Fira Code", "Cascadia Code", Consolas, monospace',
+                fontSize: 12,
+                lineHeight: 1.6,
+                background: '#1e293b',
+                color: '#e2e8f0',
+                tabSize: 2,
+              }}
+              placeholder="<!-- Collez ou écrivez votre HTML email ici -->"
+            />
           </div>
-          <textarea
-            value={htmlContent}
-            onChange={e => setHtmlContent(e.target.value)}
-            spellCheck={false}
-            style={{
-              flex: 1,
-              resize: 'none',
-              border: 'none',
-              outline: 'none',
-              padding: '16px',
-              fontFamily: '"Fira Code", "Cascadia Code", Consolas, monospace',
-              fontSize: 13,
-              lineHeight: 1.6,
-              background: '#1e293b',
-              color: '#e2e8f0',
-              tabSize: 2,
-            }}
-            placeholder="<!-- Collez ou écrivez votre HTML email ici -->"
-          />
+          {/* Preview pane */}
+          <div style={{ display: 'flex', flexDirection: 'column', width: '50%', background: '#f1f5f9' }}>
+            <div style={{ padding: '6px 14px', background: '#e2e8f0', flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>👁 Prévisualisation</span>
+            </div>
+            <iframe
+              srcDoc={htmlContent || '<div style="font-family:sans-serif;color:#94a3b8;padding:40px;text-align:center">Aucun contenu HTML</div>'}
+              sandbox="allow-same-origin"
+              style={{ flex: 1, border: 'none', background: '#fff' }}
+              title="Email preview"
+            />
+          </div>
         </div>
       )}
 
