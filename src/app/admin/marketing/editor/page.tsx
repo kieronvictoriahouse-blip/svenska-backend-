@@ -178,20 +178,22 @@ export default function EmailEditorPage() {
       const content = JSON.stringify({ html, design: null });
 
       let campId = selectedId;
-      if (mode === 'new') {
+      if (mode === 'new' || !campId) {
+        const name = campName || campSubject || `Promo ${new Date().toLocaleDateString('fr-FR')}`;
         const r2 = await fetch('/api/marketing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: campName, type: 'email', status: 'draft', subject: campSubject, target_segment: segment, content }),
+          body: JSON.stringify({ name, type: 'email', status: 'draft', subject: campSubject, target_segment: segment, content }),
         });
         const d = await r2.json();
         campId = d.campaign?.id;
         setSelectedId(campId);
+        setCampName(name);
         setMode('select');
         const res2 = await fetch('/api/marketing');
         const d2 = await res2.json();
         setCampaigns((d2.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
-      } else if (campId) {
+      } else {
         await fetch(`/api/marketing?id=${campId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
