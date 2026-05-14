@@ -13,7 +13,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (byId.data) {
     invoice = byId.data;
   } else {
-    const byOrder = await supabaseAdmin.from('invoices').select('*').eq('order_id', id).maybeSingle();
+    // Plusieurs factures possibles (facture + avoir) → prendre la facture originale
+    const byOrder = await supabaseAdmin
+      .from('invoices').select('*').eq('order_id', id).neq('status', 'avoir')
+      .order('created_at', { ascending: true }).limit(1).maybeSingle();
     if (byOrder.data) invoice = byOrder.data;
   }
 
