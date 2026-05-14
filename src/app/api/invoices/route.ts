@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   let q = supabaseAdmin.from('invoices').select('*').order('date', { ascending: false });
   if (searchParams.get('status')) q = q.eq('status', searchParams.get('status')!);
+  if (searchParams.get('order_id')) q = q.eq('order_id', searchParams.get('order_id')!);
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ invoices: data });

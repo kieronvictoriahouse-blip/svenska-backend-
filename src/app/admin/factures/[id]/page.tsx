@@ -40,6 +40,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default function FacturePage() {
   const { id } = useParams<{ id: string }>();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [avoirId, setAvoirId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -48,8 +49,18 @@ export default function FacturePage() {
     fetch(`/api/invoices/${id}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
-        if (d.invoice) setInvoice(d.invoice);
-        else setError('Facture introuvable');
+        if (d.invoice) {
+          setInvoice(d.invoice);
+          if (d.invoice.status === 'refunded' && d.invoice.order_id) {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
+            fetch(`/api/invoices?order_id=${d.invoice.order_id}&status=avoir`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            })
+              .then(r => r.json())
+              .then(av => setAvoirId(av.invoices?.[0]?.id || null))
+              .catch(() => {});
+          }
+        } else setError('Facture introuvable');
       })
       .catch(() => setError('Erreur de chargement'))
       .finally(() => setLoading(false));
@@ -109,6 +120,18 @@ export default function FacturePage() {
           >
             ✅ Marquer payée
           </button>
+        )}
+        {avoirId && (
+          <a
+            href={`/admin/factures/${avoirId}`}
+            style={{
+              background: '#EDE9FE', border: '1px solid #DDD6FE', color: '#5B21B6',
+              padding: '7px 16px', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            ↩️ Voir l'avoir
+          </a>
         )}
         <button
           onClick={() => window.print()}

@@ -77,6 +77,7 @@ export default function CommandesPage() {
   const [testConfirm, setTestConfirm] = useState(false);
   const [togglingStats, setTogglingStats] = useState(false);
   const [showTestOrders, setShowTestOrders] = useState(false);
+  const [avoirId, setAvoirId] = useState<string | null>(null);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [newOrder, setNewOrder] = useState({
@@ -96,6 +97,14 @@ export default function CommandesPage() {
 
   useEffect(() => { load(); loadCosts(); }, [filter, search]);
   useEffect(() => { loadCosts(); }, []);
+  useEffect(() => {
+    if (!selected || selected.status !== 'refunded') { setAvoirId(null); return; }
+    const token = localStorage.getItem('sd_admin_token') || '';
+    fetch(`/api/invoices?order_id=${selected.id}&status=avoir`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setAvoirId(d.invoices?.[0]?.id || null))
+      .catch(() => setAvoirId(null));
+  }, [selected?.id, selected?.status]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
 
@@ -676,6 +685,17 @@ export default function CommandesPage() {
                 >
                   🧾 Facture
                 </a>
+                {avoirId && (
+                  <a
+                    href={`/admin/factures/${avoirId}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="btn btn-sm"
+                    style={{ textDecoration: 'none', background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' }}
+                  >
+                    ↩️ Avoir
+                  </a>
+                )}
                 <button className="btn btn-secondary" onClick={() => printDeliveryNote(selected)}>📄 {t('deliveryNote')}</button>
                 <button className="btn btn-secondary" onClick={() => { setShowModal(false); setRefundConfirm(false); }}>{tc('cancel')}</button>
               </div>
