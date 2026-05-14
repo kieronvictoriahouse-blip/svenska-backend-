@@ -3,7 +3,6 @@ import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
 import { sendEmail } from '@/lib/email-send';
-import { generateInvoicePdf } from '@/lib/invoice-utils';
 
 export async function POST(req: NextRequest) {
   const stripeKey        = process.env.STRIPE_SECRET_KEY;
@@ -184,31 +183,22 @@ export async function POST(req: NextRequest) {
           lines:            orderLines,
         };
 
-        // Génération PDF facture en pièce jointe (non bloquant si erreur)
-        let invoicePdf: Buffer | null = null;
-        let invoiceNumber = existing?.invoice_number || '';
-        try {
-          if (!isTestEvent && !existing?.is_test) {
-            const { data: inv } = await supabaseAdmin
-              .from('invoices').select('*').eq('order_id', orderId).neq('status', 'avoir')
-              .order('created_at', { ascending: true }).limit(1).maybeSingle();
-            if (inv) {
-              if (typeof inv.lines === 'string') inv.lines = JSON.parse(inv.lines);
-              invoicePdf = await generateInvoicePdf(inv);
-              invoiceNumber = inv.number;
-            }
-          }
-        } catch (pdfErr) {
-          console.error('[webhook] pdf error (non-bloquant):', pdfErr);
-        }
-
         await sendEmail({
-          from:        fromEmail,
-          to:          customerEmail,
-          subject:     `✅ Commande ${existing?.order_number || ''} confirmée${siteName ? ` — ${siteName}` : ''}`,
-          html:        orderConfirmationHtml(orderForEmail, cfg),
-          ...(invoicePdf ? { attachments: [{ filename: `facture-${invoiceNumber}.pdf`, content: invoicePdf }] } : {}),
+          from:    fromEmail,
+          to:      customerEmail,
+          subject: `✅ Commande ${existing?.order_number || ''} confirmée${siteName ? ` — ${siteName}` : ''}`,
+          html:    orderConfirmationHtml(orderForEmail, cfg),
         }, cfg);
+
+        // Second email facture en fire-and-forget (invocation séparée)
+        if (!isTestEvent && !existing?.is_test) {
+          const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr';
+          fetch(`${baseUrl}/api/send-invoice-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: orderId, secret: process.env.INTERNAL_SECRET || 'svenska-internal-2024' }),
+          }).catch(() => {});
+        }
       } catch (emailErr) {
         console.error('[webhook] email error:', emailErr);
       }
