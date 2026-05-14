@@ -10,7 +10,7 @@ type Order = {
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
   is_test?: boolean; promo_code?: string; discount?: number;
-  stripe_session_id?: string;
+  stripe_session_id?: string; exclude_from_stats?: boolean;
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -75,6 +75,7 @@ export default function CommandesPage() {
   const [refundConfirm, setRefundConfirm] = useState(false);
   const [markingTest, setMarkingTest] = useState(false);
   const [testConfirm, setTestConfirm] = useState(false);
+  const [togglingStats, setTogglingStats] = useState(false);
   const [showTestOrders, setShowTestOrders] = useState(false);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
@@ -186,6 +187,30 @@ export default function CommandesPage() {
       showToast(`❌ ${e.message}`);
     } finally {
       setMarkingTest(false);
+    }
+  }
+
+  async function toggleExcludeStats() {
+    if (!selected) return;
+    setTogglingStats(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch(`/api/orders/${selected.id}/exclude-stats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ exclude: !selected.exclude_from_stats }),
+      });
+      if (res.ok) {
+        const newVal = !selected.exclude_from_stats;
+        setSelected(o => o ? { ...o, exclude_from_stats: newVal } : null);
+        showToast(newVal ? '📊 Commande exclue des statistiques' : '📊 Commande réintégrée dans les statistiques');
+        load();
+      } else {
+        const d = await res.json();
+        showToast(`❌ ${d.error || 'Erreur'}`);
+      }
+    } finally {
+      setTogglingStats(false);
     }
   }
 
@@ -306,7 +331,7 @@ export default function CommandesPage() {
   const testCount = orders.filter(o => o.is_test).length;
 
   const paidStatuses = ['paid', 'confirmed', 'shipped', 'delivered'];
-  const activeOrders = realOrders.filter(o => paidStatuses.includes(o.status));
+  const activeOrders = realOrders.filter(o => paidStatuses.includes(o.status) && !o.exclude_from_stats);
   const marginsWithData = activeOrders.map(o => calcMargin(o)).filter(m => m.margin !== null);
   const totalMargin = marginsWithData.reduce((s, m) => s + m.margin!, 0);
   const avgMarginPct = marginsWithData.length > 0
@@ -432,9 +457,10 @@ export default function CommandesPage() {
               <tr key={o.id} onClick={() => { setSelected(o); setTrackingInput(o.tracking_number || ''); setShowModal(true); setTestConfirm(false); setRefundConfirm(false); }}
                 style={o.is_test ? { opacity: 0.6 } : {}}>
                 <td>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span className="mono" style={{ fontSize: 12 }}>{o.order_number}</span>
                     {o.is_test && <span className="test-badge">TEST</span>}
+                    {o.exclude_from_stats && !o.is_test && <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: 1, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' }}>HORS STATS</span>}
                   </div>
                   {o.delivery_mode === 'pickup' && <div style={{ fontSize: 10, color: '#7C3AED', marginTop: 2, fontWeight: 600 }}>🏪 {t('clickCollect')}</div>}
                   {o.tracking_number && <div style={{ fontSize: 10, color: '#0EA5E9', marginTop: 2 }}>📦 {o.tracking_number}</div>}
@@ -608,9 +634,23 @@ export default function CommandesPage() {
                     className="btn btn-sm btn-warning"
                     onClick={handleMarkTest}
                     disabled={markingTest}
-                    title="Exclut la commande des stats et de la comptabilité"
+                    title="Exclut la commande des stats ET de la comptabilité"
                   >
                     {markingTest ? '⏳…' : testConfirm ? t('markTestConfirm') : `🧪 ${t('markTest')}`}
+                  </button>
+                )}
+                {!selected.is_test && (
+                  <button
+                    className="btn btn-sm"
+                    onClick={toggleExcludeStats}
+                    disabled={togglingStats}
+                    title="Exclut des stats de marge uniquement — la compta reste intacte"
+                    style={{
+                      background: selected.exclude_from_stats ? '#EDE9FE' : '#F5F3FF',
+                      color: '#5B21B6', border: '1px solid #DDD6FE',
+                    }}
+                  >
+                    {togglingStats ? '⏳…' : selected.exclude_from_stats ? '📊 Réintégrer stats' : '📊 Hors stats'}
                   </button>
                 )}
                 {['paid', 'confirmed', 'shipped'].includes(selected.status) && !selected.is_test && (
