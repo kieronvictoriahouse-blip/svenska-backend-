@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
   }
 
   const enseigne = process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI';
-  const privateKey = process.env.MONDIAL_RELAY_KEY!;
+  const privateKey = process.env.MONDIAL_RELAY_KEY;
+  if (!privateKey) {
+    return NextResponse.json({ error: 'MONDIAL_RELAY_KEY non configuré dans les variables d\'environnement Vercel', points: [] }, { status: 500 });
+  }
 
   const f: Record<string, string> = {
     Enseigne: enseigne,

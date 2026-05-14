@@ -40,7 +40,10 @@ export async function mrSoap(method: string, fields: Record<string, string>): Pr
     },
     body: buildSoap(method, fields),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+  }
   return res.text();
 }
 
