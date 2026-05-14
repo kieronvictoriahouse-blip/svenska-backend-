@@ -305,12 +305,19 @@ export default function CommandesPage() {
   const pendingCount = realOrders.filter(o => o.status === 'pending').length;
   const testCount = orders.filter(o => o.is_test).length;
 
+  const activeOrders = realOrders.filter(o => !['cancelled', 'refunded'].includes(o.status));
+  const marginsWithData = activeOrders.map(o => calcMargin(o)).filter(m => m.margin !== null);
+  const totalMargin = marginsWithData.reduce((s, m) => s + m.margin!, 0);
+  const avgMarginPct = marginsWithData.length > 0
+    ? marginsWithData.reduce((s, m) => s + m.pct!, 0) / marginsWithData.length
+    : null;
+
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
     .o-wrap { font-family:'Jost',sans-serif; }
     .o-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
     .o-title { font-family:'Cormorant Garamond',serif; font-size:30px; font-weight:600; color:#1C2028; }
-    .o-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
+    .o-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:24px; }
     .o-stat { background:#fff; border:1px solid #D8CEBC; border-radius:6px; padding:16px 18px; }
     .o-stat-num { font-family:'DM Mono',monospace; font-size:22px; font-weight:500; color:#1C2028; }
     .o-stat-label { font-size:11px; color:#6A7280; margin-top:3px; letter-spacing:0.5px; text-transform:uppercase; }
@@ -381,6 +388,17 @@ export default function CommandesPage() {
           <div className="o-stat"><div className="o-stat-num mono" style={{ color: '#F59E0B' }}>{pendingCount}</div><div className="o-stat-label">{t('pending')}</div></div>
           <div className="o-stat"><div className="o-stat-num mono">{fmt(totalRevenue)}</div><div className="o-stat-label">{t('revenue')}</div></div>
           <div className="o-stat"><div className="o-stat-num mono">{realOrders.length > 0 ? fmt(totalRevenue / (realOrders.filter(o => o.status !== 'cancelled').length || 1)) : '0,00 €'}</div><div className="o-stat-label">{t('avgCart')}</div></div>
+          <div className="o-stat">
+            <div className="o-stat-num mono" style={{ color: avgMarginPct !== null ? (avgMarginPct >= 40 ? '#10B981' : avgMarginPct >= 20 ? '#F59E0B' : '#EF4444') : '#6A7280' }}>
+              {marginsWithData.length > 0 ? fmt(totalMargin) : '—'}
+            </div>
+            <div className="o-stat-label">Marge réelle totale</div>
+            {avgMarginPct !== null && (
+              <div style={{ fontSize: 11, color: avgMarginPct >= 40 ? '#10B981' : avgMarginPct >= 20 ? '#F59E0B' : '#EF4444', marginTop: 2, fontFamily: 'DM Mono,monospace' }}>
+                moy. {avgMarginPct.toFixed(1)}%
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="o-toolbar">
