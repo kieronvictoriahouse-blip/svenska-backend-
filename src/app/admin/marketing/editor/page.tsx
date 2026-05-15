@@ -525,7 +525,7 @@ export default function EmailEditorPage() {
                     </button>
                   </div>
                 </div>
-                <pre style={{ fontSize: 11, color: '#475569', background: '#1e293b', padding: 12, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 150, overflowY: 'auto', fontFamily: 'monospace', lineHeight: 1.5, color: '#94a3b8' }}>{claudeBlock.html}</pre>
+                <pre style={{ fontSize: 11, background: '#1e293b', padding: 12, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 150, overflowY: 'auto', fontFamily: 'monospace', lineHeight: 1.5, color: '#94a3b8' }}>{claudeBlock.html}</pre>
               </div>
 
               <div style={{ background: '#f0fdf4', padding: '10px 16px', borderTop: '1px solid #bbf7d0' }}>
