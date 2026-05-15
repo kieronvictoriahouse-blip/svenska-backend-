@@ -385,28 +385,31 @@ export default function CommandesPage() {
     if (w) { w.document.write(html); w.document.close(); }
   }
 
-  function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number; urssaf: number; transportReal: number; packagingCost: number } {
-    const empty = { margin: null, pct: null, stripeFee: 0, urssaf: 0, transportReal: 0, packagingCost: 0 };
+  function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number; urssaf: number; transportReal: number; packagingCost: number; shippingCollected: number } {
+    const empty = { margin: null, pct: null, stripeFee: 0, urssaf: 0, transportReal: 0, packagingCost: 0, shippingCollected: 0 };
     if (['cancelled', 'refunded'].includes(order.status)) return empty;
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
     const total = order.total || 0;
-    const revenue = order.subtotal || order.total || 0;
+    const shippingCollected = order.shipping || 0; // ce que le client a payé pour le port
     const stripeFee = order.source !== 'manual' && order.stripe_session_id
       ? Math.round((total * 0.015 + 0.25) * 100) / 100
       : 0;
     const urssaf = Math.round(total * 0.123 * 100) / 100;
     const transportReal = order.transport_cost_real || 0;
     const packagingCost = order.packaging_cost || 0;
-    if (!hasAny && transportReal === 0 && packagingCost === 0) return { ...empty, stripeFee, urssaf };
+    if (!hasAny && transportReal === 0 && packagingCost === 0) return { ...empty, stripeFee, urssaf, shippingCollected };
     let cost = 0;
     for (const l of lines) {
       const cp = l.product_id ? (costMap[l.product_id] || 0) : 0;
       cost += cp * (l.qty || 1);
     }
-    const margin = revenue - stripeFee - urssaf - cost - transportReal - packagingCost;
-    const pct = revenue > 0 ? (margin / revenue) * 100 : 0;
-    return { margin, pct, stripeFee, urssaf, transportReal, packagingCost };
+    // Revenu = total (inclut le port payé par le client)
+    // transport_cost_real est déduit en coût brut — le port perçu compense via le revenu total
+    // Ex: total=25€ (dont 5€ port), transport_réel=4,50€ → net transport = 4,50 - 5,00 = -0,50 (bénéfice)
+    const margin = total - stripeFee - urssaf - cost - transportReal - packagingCost;
+    const pct = total > 0 ? (margin / total) * 100 : 0;
+    return { margin, pct, stripeFee, urssaf, transportReal, packagingCost, shippingCollected };
   }
 
   const realOrders = orders.filter(o => !o.is_test);
@@ -679,9 +682,10 @@ export default function CommandesPage() {
                     </div>
 
                     {(() => {
-                      const { margin, pct, stripeFee, urssaf, transportReal, packagingCost } = calcMargin(selected);
+                      const { margin, pct, stripeFee, urssaf, transportReal, packagingCost, shippingCollected } = calcMargin(selected);
                       if (margin === null) return null;
                       const color = pct! >= 40 ? '#10B981' : pct! >= 20 ? '#F59E0B' : '#EF4444';
+                      const netTransport = transportReal - shippingCollected;
                       return (
                         <div style={{ marginTop: 8, background: color + '15', border: `1px solid ${color}40`, borderRadius: 6, padding: '10px 12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -700,10 +704,28 @@ export default function CommandesPage() {
                               <span className="mono">−{fmt(urssaf)}</span>
                             </div>
                             {transportReal > 0 && (
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
-                                <span>🚚 Transport réel</span>
-                                <span className="mono">−{fmt(transportReal)}</span>
-                              </div>
+                              <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
+                                  <span>🚚 Transport réel</span>
+                                  <span className="mono">−{fmt(transportReal)}</span>
+                                </div>
+                                {shippingCollected > 0 && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#10B981' }}>
+                                    <span>✅ Port perçu client</span>
+                                    <span className="mono">+{fmt(shippingCollected)}</span>
+                                  </div>
+                                )}
+                                {shippingCollected === 0 && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#F59E0B', fontStyle: 'italic' }}>
+                                    <span>Livraison offerte (+50€) — transport à 100% à charge</span>
+                                    <span />
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, color: netTransport <= 0 ? '#10B981' : '#6B7280', borderTop: '1px dashed #e5e7eb', paddingTop: 3, marginTop: 1 }}>
+                                  <span>= Net transport</span>
+                                  <span className="mono">{netTransport <= 0 ? '+' : '−'}{fmt(Math.abs(netTransport))}</span>
+                                </div>
+                              </>
                             )}
                             {packagingCost > 0 && (
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
