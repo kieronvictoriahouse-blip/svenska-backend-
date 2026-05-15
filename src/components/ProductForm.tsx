@@ -23,6 +23,8 @@ type ProductFormData = {
   is_bestseller: boolean;
   is_new: boolean;
   is_active: boolean;
+  track_stock: boolean;
+  stock: string;
   rating: string;
   reviews_count: string;
   tags: string;
@@ -42,7 +44,7 @@ const EMPTY: ProductFormData = {
   price: '', cost_price: '', weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
-  badge: '', is_bestseller: false, is_new: false, is_active: true,
+  badge: '', is_bestseller: false, is_new: false, is_active: true, track_stock: false, stock: '',
   rating: '4.5', reviews_count: '0', tags: '',
   usage_sv: '', usage_fr: '', usage_en: '',
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
@@ -54,7 +56,7 @@ const EMPTY: ProductFormData = {
 };
 
 type Props = {
-  initialData?: Partial<ProductFormData> & { id?: string; stock?: number };
+  initialData?: Partial<ProductFormData> & { id?: string };
   categories: any[];
   onSave: (data: any) => Promise<void>;
   saving: boolean;
@@ -65,12 +67,13 @@ type Props = {
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
 
 export default function ProductForm({ initialData, categories, onSave, saving, toast, autoSave = false }: Props) {
-  const stockQty  = initialData?.stock ?? null;
   const [form, setForm]       = useState<ProductFormData>({
     ...EMPTY,
     ...initialData,
     price: String(initialData?.price ?? ''),
     cost_price: initialData?.cost_price != null ? String(initialData.cost_price) : '',
+    track_stock: !!(initialData?.track_stock),
+    stock: initialData?.stock != null ? String(initialData.stock) : '',
     extra_images: (initialData as any)?.extra_images || [],
   });
   const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
@@ -94,6 +97,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
       tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
       badge:         f.badge || null,
       category_id:   f.category_id || null,
+      stock:         f.track_stock && f.stock !== '' ? parseInt(f.stock) : null,
       variants: f.variants
         .filter(v => v.label && v.price)
         .map(v => ({ label: v.label, price: parseFloat(v.price) })),
@@ -376,6 +380,11 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                   <span className="toggle-track"></span>
                   <span className="toggle-label">🆕 Nouveauté</span>
                 </label>
+                <label className="toggle">
+                  <input type="checkbox" checked={form.track_stock} onChange={e => set('track_stock', e.target.checked)} />
+                  <span className="toggle-track"></span>
+                  <span className="toggle-label">📦 Suivi de stock actif</span>
+                </label>
               </div>
 
               <div className="form-group">
@@ -543,12 +552,16 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                         </div>
                       </div>
                     )}
-                    {stockQty !== null && (
-                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: 'var(--dust)' }}>Stock actuel</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: stockQty <= 0 ? '#EF4444' : stockQty <= 5 ? '#F59E0B' : 'var(--ink)' }}>
-                          {stockQty} unités {stockQty <= 0 ? '⚠️ Rupture' : stockQty <= 5 ? '⚠️ Faible' : ''}
-                        </span>
+                    {form.track_stock && (
+                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <span style={{ fontSize: 12, color: 'var(--dust)', whiteSpace: 'nowrap' }}>Stock actuel</span>
+                        <input
+                          type="number" min="0" step="1"
+                          value={form.stock}
+                          onChange={e => set('stock', e.target.value)}
+                          placeholder="0"
+                          style={{ width: 80, textAlign: 'right', border: '1px solid var(--linen)', borderRadius: 4, padding: '3px 8px', fontSize: 13, fontWeight: 700, color: (parseInt(form.stock) || 0) <= 0 ? '#EF4444' : (parseInt(form.stock) || 0) <= 5 ? '#F59E0B' : 'var(--ink)' }}
+                        />
                       </div>
                     )}
                     <p style={{ fontSize: 10, color: 'var(--dust)', marginTop: 8, marginBottom: 0 }}>
