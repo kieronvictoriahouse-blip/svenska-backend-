@@ -78,7 +78,7 @@ export default function StockPage() {
   });
 
   const lowStock   = products.filter(p => p.track_stock && p.stock <= p.stock_alert && p.stock > 0).length;
-  const outOfStock = products.filter(p => p.track_stock && p.stock === 0).length;
+  const outOfStock = products.filter(p => p.track_stock && p.stock <= 0).length;
   const tracked    = products.filter(p => p.track_stock).length;
 
   const css = `
@@ -163,7 +163,7 @@ export default function StockPage() {
                   <tr><td colSpan={5}><div className="empty">Aucun produit</div></td></tr>
                 ) : filtered.map(p => {
                   const isLow = p.track_stock && p.stock <= p.stock_alert && p.stock > 0;
-                  const isOut = p.track_stock && p.stock === 0;
+                  const isOut = p.track_stock && p.stock <= 0;
                   return (
                     <tr key={p.id}>
                       <td><strong>{p.name_fr}</strong></td>
