@@ -85,6 +85,11 @@ export default function AchatsPage() {
   const [recForm, setRecForm] = useState({ notes: '', invoice_id: '', lines: [] as any[] });
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [sendOrder, setSendOrder] = useState<PurchaseOrder | null>(null);
+  const [sendLang, setSendLang] = useState<'sv' | 'en'>('sv');
+  const [sendEmailInput, setSendEmailInput] = useState('');
+  const [sendingPdf, setSendingPdf] = useState(false);
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
@@ -238,6 +243,61 @@ export default function AchatsPage() {
       .map((l: any) => ({ ...l, received_qty: l.qty }));
     setRecForm({ notes: '', invoice_id: '', lines });
     setShowReception(true);
+  }
+
+  function openSendModal(order: PurchaseOrder) {
+    const sup = order.contacts as any;
+    setSendOrder(order);
+    setSendEmailInput(sup?.email || '');
+    setSendLang('sv');
+    setShowSendModal(true);
+  }
+
+  async function downloadPdf(order: PurchaseOrder, lang: 'sv' | 'en') {
+    const token = localStorage.getItem('sd_admin_token') || '';
+    showToast('⏳ Génération PDF…');
+    try {
+      const res = await fetch(`/api/purchase-orders/${order.id}/pdf?lang=${lang}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { showToast('❌ Erreur génération PDF'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `purchase-order-${order.number}-${lang}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('✅ PDF téléchargé');
+    } catch {
+      showToast('❌ Erreur téléchargement PDF');
+    }
+  }
+
+  async function sendPdf() {
+    if (!sendOrder) return;
+    setSendingPdf(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch(`/api/purchase-orders/${sendOrder.id}/send-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: sendEmailInput, lang: sendLang }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('✅ PDF envoyé par email');
+        setShowSendModal(false);
+      } else {
+        showToast('❌ ' + (data.error || 'Erreur envoi'));
+      }
+    } catch {
+      showToast('❌ Erreur envoi email');
+    } finally {
+      setSendingPdf(false);
+    }
   }
 
   async function saveReception() {
@@ -465,6 +525,7 @@ export default function AchatsPage() {
                         {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v[L] || v.fr}</option>)}
                       </select>
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(o)} title={t('editTitle')}>✏️</button>
+                      <button className="btn btn-info btn-sm" onClick={() => openSendModal(o)} title="PDF / Envoyer">📄 PDF</button>
                       {['confirmed', 'partial'].includes(o.status) && (
                         <button className="btn btn-warning btn-sm" onClick={() => openReception(o)}>{t('reception')}</button>
                       )}
@@ -588,6 +649,70 @@ export default function AchatsPage() {
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => { setShowModal(false); setEditingOrder(null); }}>{tc('cancel')}</button>
                 <button className="btn btn-primary" onClick={saveOrder}>💾 {editingOrder ? tc('save') : tc('create')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal PDF / Envoi */}
+        {showSendModal && sendOrder && (
+          <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowSendModal(false)}>
+            <div className="modal" style={{ maxWidth: 460 }}>
+              <div className="modal-header">
+                <span className="modal-title">📄 PDF — {sendOrder.number}</span>
+                <button className="btn btn-secondary btn-sm" onClick={() => setShowSendModal(false)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">Langue du document</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className={`btn ${sendLang === 'sv' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      onClick={() => setSendLang('sv')}
+                    >
+                      🇸🇪 Suédois
+                    </button>
+                    <button
+                      className={`btn ${sendLang === 'en' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      onClick={() => setSendLang('en')}
+                    >
+                      🇬🇧 Anglais
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email fournisseur (pour envoi)</label>
+                  <input
+                    type="email"
+                    className="form-control"
+                    value={sendEmailInput}
+                    onChange={e => setSendEmailInput(e.target.value)}
+                    placeholder="fournisseur@exemple.com"
+                  />
+                </div>
+                <p style={{ fontSize: 12, color: '#6A7280', margin: 0 }}>
+                  Le PDF inclut les photos produits, quantités commandées et total.
+                </p>
+              </div>
+              <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => downloadPdf(sendOrder, sendLang)}
+                >
+                  ⬇️ Télécharger PDF
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-secondary" onClick={() => setShowSendModal(false)}>Annuler</button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={!sendEmailInput || sendingPdf}
+                    onClick={sendPdf}
+                  >
+                    {sendingPdf ? '⏳ Envoi…' : '📧 Envoyer par email'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
