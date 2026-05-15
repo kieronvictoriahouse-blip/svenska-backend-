@@ -83,6 +83,8 @@ export default function AchatsPage() {
     lines: [{ product_id: '', name: '', qty: 1, unit_cost: 0, unit_cost_eur: 0, total: 0 }],
   });
   const [recForm, setRecForm] = useState({ notes: '', invoice_id: '', lines: [] as any[] });
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(true);
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
@@ -93,7 +95,13 @@ export default function AchatsPage() {
     return subscribeAdminLang(setLang);
   }, []);
 
-  useEffect(() => { load(); loadSuppliers(); loadProducts(); }, [filter]);
+  useEffect(() => { load(); loadSuppliers(); loadProducts(); loadSuggestions(); }, [filter]);
+
+  async function loadSuggestions() {
+    const res = await fetch('/api/purchase-suggestions');
+    const data = await res.json();
+    setSuggestions(data.suggestions || []);
+  }
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -297,6 +305,17 @@ export default function AchatsPage() {
     .lang-toggle { display:flex; gap:4px; }
     .lang-btn { padding:4px 10px; font-size:11px; border:1px solid #D8CEBC; border-radius:4px; cursor:pointer; background:#fff; font-family:'Jost',sans-serif; }
     .lang-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
+    .sugg-panel { background:#fff; border:1px solid #D8CEBC; border-radius:8px; margin-bottom:22px; overflow:hidden; }
+    .sugg-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:#FDFAF5; border-bottom:1px solid #D8CEBC; cursor:pointer; user-select:none; }
+    .sugg-title { font-size:14px; font-weight:600; color:#1C2028; display:flex; align-items:center; gap:8px; }
+    .sugg-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .sugg-table th { padding:8px 14px; text-align:left; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:#6A7280; background:#FDFAF5; border-bottom:1px solid #EEE8DC; }
+    .sugg-table td { padding:10px 14px; border-bottom:1px solid #F5F0E8; vertical-align:middle; }
+    .sugg-table tr:last-child td { border-bottom:none; }
+    .sugg-table tr:hover td { background:#FDFAF5; }
+    .urgency-rupture { background:#FEE2E2; color:#EF4444; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:700; }
+    .urgency-faible { background:#FEF3C7; color:#F59E0B; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:700; }
+    .urgency-attention { background:#E0F2FE; color:#0284C7; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:700; }
   `;
 
   return (
@@ -330,6 +349,84 @@ export default function AchatsPage() {
           <div className="a-stat"><div className="a-stat-num" style={{ color: '#F59E0B' }}>{pendingCount}</div><div className="a-stat-label">{t('inProgress')}</div></div>
           <div className="a-stat"><div className="a-stat-num">{orders.filter(o => o.status === 'received').length}</div><div className="a-stat-label">{t('received')}</div></div>
         </div>
+
+        {/* Suggestions d'achat */}
+        {suggestions.length > 0 && (
+          <div className="sugg-panel">
+            <div className="sugg-header" onClick={() => setShowSuggestions(s => !s)}>
+              <div className="sugg-title">
+                💡 Suggestions d'achat
+                <span style={{ background: '#FEE2E2', color: '#EF4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                  {suggestions.filter(s => s.urgency === 'rupture').length} rupture{suggestions.filter(s => s.urgency === 'rupture').length > 1 ? 's' : ''}
+                </span>
+                <span style={{ background: '#FEF3C7', color: '#F59E0B', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                  {suggestions.filter(s => s.urgency === 'faible').length} faible{suggestions.filter(s => s.urgency === 'faible').length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <span style={{ fontSize: 12, color: '#6A7280' }}>{showSuggestions ? '▲ Réduire' : '▼ Afficher'}</span>
+            </div>
+            {showSuggestions && (
+              <table className="sugg-table">
+                <thead>
+                  <tr>
+                    <th>Produit</th>
+                    <th>Urgence</th>
+                    <th style={{ textAlign: 'right' }}>Stock actuel</th>
+                    <th style={{ textAlign: 'right' }}>Ventes 30j</th>
+                    <th style={{ textAlign: 'right' }}>Vitesse / jour</th>
+                    <th style={{ textAlign: 'right' }}>Jours restants</th>
+                    <th style={{ textAlign: 'right' }}>Qté suggérée</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suggestions.map(s => (
+                    <tr key={s.id}>
+                      <td style={{ fontWeight: 500, color: '#1C2028' }}>{s.name_fr}</td>
+                      <td>
+                        {s.urgency === 'rupture' && <span className="urgency-rupture">🔴 Rupture</span>}
+                        {s.urgency === 'faible'  && <span className="urgency-faible">⚠️ Faible</span>}
+                        {s.urgency === 'attention' && <span className="urgency-attention">🔵 Attention</span>}
+                      </td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: s.stock <= 0 ? '#EF4444' : s.stock <= (s.stock_alert ?? 5) ? '#F59E0B' : '#1C2028', fontWeight: 600 }}>
+                        {s.stock}
+                      </td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{s.sold30}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#6A7280' }}>
+                        {s.velocity > 0 ? s.velocity.toFixed(2) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: s.daysLeft <= 14 ? '#EF4444' : '#6A7280' }}>
+                        {s.velocity > 0 ? (s.daysLeft >= 999 ? '∞' : `${s.daysLeft}j`) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 700, color: '#3E5238' }}>
+                        {s.suggested > 0 ? `+${s.suggested}` : '—'}
+                      </td>
+                      <td>
+                        <button className="btn btn-secondary btn-sm" onClick={() => {
+                          setForm(f => ({
+                            ...f,
+                            lines: [...f.lines.filter(l => l.product_id), {
+                              product_id: s.id,
+                              name: s.name_fr,
+                              qty: s.suggested > 0 ? s.suggested : 10,
+                              unit_cost: s.cost_price || 0,
+                              unit_cost_eur: s.cost_price || 0,
+                              total: (s.suggested > 0 ? s.suggested : 10) * (s.cost_price || 0),
+                            }],
+                          }));
+                          setCurrency('EUR'); setExchangeRate(1);
+                          setEditingOrder(null); setShowModal(true);
+                        }}>
+                          + Commander
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         <div className="a-toolbar">
           <select className="a-select" value={filter} onChange={e => setFilter(e.target.value)}>
