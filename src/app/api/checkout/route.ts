@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
         shipping:         shippingCost,
         discount:         discountAmount > 0 ? Math.round(discountAmount * 100) / 100 : 0,
         total:            grandTotal,
-        lines:            JSON.stringify(orderLines),
+        lines:            orderLines,
         delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
         ...(isTestMode ? { is_test: true } : {}),
         ...(isMondialRelay && relay_point_id ? {
