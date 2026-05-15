@@ -12,7 +12,7 @@ CREATE OR REPLACE FUNCTION decrement_stock(p_id UUID, qty INTEGER)
 RETURNS VOID AS $$
 BEGIN
   UPDATE products
-  SET stock = GREATEST(0, COALESCE(stock, 0) - qty),
+  SET stock = COALESCE(stock, 0) - qty,
       updated_at = NOW()
   WHERE id = p_id
     AND track_stock = true;
