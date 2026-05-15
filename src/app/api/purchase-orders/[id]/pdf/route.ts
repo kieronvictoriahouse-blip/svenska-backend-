@@ -8,7 +8,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const lang = (req.nextUrl.searchParams.get('lang') || 'en') as PdfLang;
   try {
     const { buffer, filename } = await generatePurchaseOrderPdf(params.id, lang);
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
