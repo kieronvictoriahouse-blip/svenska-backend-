@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
+import { CLAUDE_EMAIL_BRIEF } from '@/lib/email-brief';
 import dynamic from 'next/dynamic';
 
 const EmailEditor = dynamic<any>(() => import('react-email-editor').then((m: any) => ({ default: m.default })), {
@@ -288,28 +289,31 @@ export default function EmailEditorPage() {
 
   function generateForClaude() {
     if (selectedProducts.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
-    const frontUrl = 'https://www.swedishcravings.fr';
     const prods = products.filter(p => selectedProducts.includes(p.id));
 
-    const productsHtml = prods.map(p => {
-      const img = p.image_url || p.image || p.main_image || (Array.isArray(p.images) ? p.images[0] : '');
+    const prodsYaml = prods.map(p => {
       const name = p.name_fr || p.name || '';
-      const desc = p.description_fr || p.description || '';
-      const price = (p.price || 0).toFixed(2);
-      return `  <div class="product">
-    ${img ? `<img src="${img}" alt="${name}" />` : ''}
-    <h3>${name}</h3>
-    ${desc ? `<p>${desc}</p>` : ''}
-    <strong>${price} €</strong>
-    <a href="${frontUrl}/boutique">Voir le produit →</a>
-  </div>`;
-    }).join('\n\n');
+      const img  = p.image_url || p.image || p.main_image || (Array.isArray(p.images) ? p.images[0] : '') || '';
+      const price = (p.price || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
+      return `  - nom: "${name}"
+    marque: "— ${name} —"
+    prix: "${price}"
+    image_url: "${img}"
+    lien: "https://www.swedishcravings.fr/boutique"`;
+    }).join('\n');
 
-    const html = `<!-- Produits Swedish Cravings -->\n<div class="products-grid">\n${productsHtml}\n</div>`;
+    const variables = `VARIABLES POUR CET EMAIL :
+preheader: "(à compléter — 60-90 caractères pour l'aperçu inbox)"
+intro_label: "— Lettre de la boutique —"
+section_label: "${promoSubject || 'Nos sélections de la semaine'}"
+produits:
+${prodsYaml}
+cta_bouton: "Visiter la boutique"
+signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
 
-    const prompt = `Crée un email marketing HTML complet pour ma boutique Swedish Cravings (épicerie suédoise en France). Style scandinave : fond beige clair #EDEAE4, texte #1C2028, accents dorés. Tout en CSS inline pour compatibilité email (pas de <style> global). Structure : header avec nom de la boutique, intro "${promoSubject || 'Nos sélections du moment'}", les produits ci-dessous en grille 2 colonnes, et un footer avec lien vers la boutique. Max 600px de large. Voici les produits :\n\n${html}`;
+    const prompt = CLAUDE_EMAIL_BRIEF + '\n\n---\n\n' + variables + '\n\nGénère le HTML complet. Choisis toi-même un titre accrocheur, une intro chaleureuse (2-3 paragraphes) et un CTA émotionnel adaptés aux produits ci-dessus. Respecte scrupuleusement le template et la charte.';
 
-    setClaudeBlock({ html, prompt });
+    setClaudeBlock({ html: variables, prompt });
   }
 
   return (
