@@ -55,9 +55,9 @@ export async function GET() {
     })
     .filter(p => p.urgency !== null || p.sold30 > 0)
     .sort((a, b) => {
-      const order = { rupture: 0, faible: 1, attention: 2 };
-      const oa = a.urgency ? order[a.urgency] : 3;
-      const ob = b.urgency ? order[b.urgency] : 3;
+      const order: Record<string, number> = { rupture: 0, faible: 1, attention: 2 };
+      const oa = a.urgency ? (order[a.urgency] ?? 3) : 3;
+      const ob = b.urgency ? (order[b.urgency] ?? 3) : 3;
       if (oa !== ob) return oa - ob;
       return b.sold30 - a.sold30;
     });
