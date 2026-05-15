@@ -82,6 +82,8 @@ export default function CommandesPage() {
   const [savingTracking, setSavingTracking] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [refundConfirm, setRefundConfirm] = useState(false);
+  const [showRestockModal, setShowRestockModal] = useState(false);
+  const [restockOrderId, setRestockOrderId] = useState<string | null>(null);
   const [markingTest, setMarkingTest] = useState(false);
   const [testConfirm, setTestConfirm] = useState(false);
   const [togglingStats, setTogglingStats] = useState(false);
@@ -172,6 +174,19 @@ export default function CommandesPage() {
     showToast('✅ ' + tc('status'));
     load();
     if (selected?.id === id) setSelected(o => o ? { ...o, status } : null);
+    if (status === 'cancelled' || status === 'refunded') {
+      setRestockOrderId(id);
+      setShowRestockModal(true);
+    }
+  }
+
+  async function doRestock(orderId: string) {
+    const token = localStorage.getItem('sd_admin_token') || '';
+    const res = await fetch(`/api/orders/${orderId}/restock`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    showToast(data.restocked > 0 ? `✅ Stock réincrémenté (${data.restocked} produit${data.restocked > 1 ? 's' : ''})` : '⚠️ Aucun produit suivi à réincrémenter');
+    setShowRestockModal(false);
+    setRestockOrderId(null);
   }
 
   async function saveCosts() {
@@ -933,6 +948,36 @@ export default function CommandesPage() {
               <div className="o-modal-footer">
                 <button className="btn btn-secondary" onClick={() => setShowNewModal(false)}>{tc('cancel')}</button>
                 <button className="btn btn-primary" onClick={createOrder}>💾 {tc('create')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Restock Modal */}
+        {showRestockModal && (
+          <div className="o-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowRestockModal(false); setRestockOrderId(null); } }}>
+            <div className="o-modal" style={{ maxWidth: 420 }}>
+              <div className="o-modal-header">
+                <span className="o-modal-title">📦 Réincrémenter le stock ?</span>
+              </div>
+              <div className="o-modal-body" style={{ fontSize: 14, lineHeight: 1.6, color: '#374151' }}>
+                <p style={{ margin: '0 0 8px' }}>Cette commande a été annulée ou remboursée.</p>
+                <p style={{ margin: 0 }}>Voulez-vous remettre les articles en stock ?</p>
+              </div>
+              <div className="o-modal-footer">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => { setShowRestockModal(false); setRestockOrderId(null); }}
+                >
+                  Non, garder tel quel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ background: '#10B981', borderColor: '#10B981' }}
+                  onClick={() => restockOrderId && doRestock(restockOrderId)}
+                >
+                  Oui, réincrémenter
+                </button>
               </div>
             </div>
           </div>
