@@ -15,6 +15,7 @@ type Order = {
   lines: any[]; subtotal: number; shipping: number; total: number;
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
+  transport_cost_real?: number; packaging_cost?: number;
   is_test?: boolean; promo_code?: string; discount?: number;
   stripe_session_id?: string; exclude_from_stats?: boolean;
   relay_point_id?: string; relay_point_name?: string; relay_point_address?: string; relay_point_pays?: string;
@@ -91,6 +92,9 @@ export default function CommandesPage() {
   const [mrWeight, setMrWeight] = useState('500');
   const [mrLoading, setMrLoading] = useState(false);
   const [mrResult, setMrResult] = useState<{ tracking: string; labelUrl: string } | null>(null);
+  const [transportInput, setTransportInput] = useState('');
+  const [packagingInput, setPackagingInput] = useState('');
+  const [savingCosts, setSavingCosts] = useState(false);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [newOrder, setNewOrder] = useState({
@@ -168,6 +172,23 @@ export default function CommandesPage() {
     showToast('✅ ' + tc('status'));
     load();
     if (selected?.id === id) setSelected(o => o ? { ...o, status } : null);
+  }
+
+  async function saveCosts() {
+    if (!selected) return;
+    const token = localStorage.getItem('sd_admin_token') || '';
+    setSavingCosts(true);
+    const transport_cost_real = parseFloat(transportInput) || 0;
+    const packaging_cost = parseFloat(packagingInput) || 0;
+    await fetch(`/api/orders/${selected.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ transport_cost_real, packaging_cost }),
+    });
+    setSelected(o => o ? { ...o, transport_cost_real, packaging_cost } : null);
+    load();
+    setSavingCosts(false);
+    showToast('✅ Coûts enregistrés');
   }
 
   async function saveTracking() {
@@ -364,8 +385,9 @@ export default function CommandesPage() {
     if (w) { w.document.write(html); w.document.close(); }
   }
 
-  function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number; urssaf: number } {
-    if (['cancelled', 'refunded'].includes(order.status)) return { margin: null, pct: null, stripeFee: 0, urssaf: 0 };
+  function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number; urssaf: number; transportReal: number; packagingCost: number } {
+    const empty = { margin: null, pct: null, stripeFee: 0, urssaf: 0, transportReal: 0, packagingCost: 0 };
+    if (['cancelled', 'refunded'].includes(order.status)) return empty;
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
     const total = order.total || 0;
@@ -373,16 +395,18 @@ export default function CommandesPage() {
     const stripeFee = order.source !== 'manual' && order.stripe_session_id
       ? Math.round((total * 0.015 + 0.25) * 100) / 100
       : 0;
-    const urssaf = Math.round(total * 0.123 * 100) / 100; // 12,3% du CA total
-    if (!hasAny) return { margin: null, pct: null, stripeFee, urssaf };
+    const urssaf = Math.round(total * 0.123 * 100) / 100;
+    const transportReal = order.transport_cost_real || 0;
+    const packagingCost = order.packaging_cost || 0;
+    if (!hasAny && transportReal === 0 && packagingCost === 0) return { ...empty, stripeFee, urssaf };
     let cost = 0;
     for (const l of lines) {
       const cp = l.product_id ? (costMap[l.product_id] || 0) : 0;
       cost += cp * (l.qty || 1);
     }
-    const margin = revenue - stripeFee - urssaf - cost;
+    const margin = revenue - stripeFee - urssaf - cost - transportReal - packagingCost;
     const pct = revenue > 0 ? (margin / revenue) * 100 : 0;
-    return { margin, pct, stripeFee, urssaf };
+    return { margin, pct, stripeFee, urssaf, transportReal, packagingCost };
   }
 
   const realOrders = orders.filter(o => !o.is_test);
@@ -515,7 +539,7 @@ export default function CommandesPage() {
             ) : visibleOrders.length === 0 ? (
               <tr><td colSpan={6}><div className="empty">{tc('noData')}</div></td></tr>
             ) : visibleOrders.map(o => (
-              <tr key={o.id} onClick={() => { setSelected(o); setTrackingInput(o.tracking_number || ''); setShowModal(true); setTestConfirm(false); setRefundConfirm(false); }}
+              <tr key={o.id} onClick={() => { setSelected(o); setTrackingInput(o.tracking_number || ''); setTransportInput(o.transport_cost_real ? String(o.transport_cost_real) : ''); setPackagingInput(o.packaging_cost ? String(o.packaging_cost) : ''); setShowModal(true); setTestConfirm(false); setRefundConfirm(false); }}
                 style={o.is_test ? { opacity: 0.6 } : {}}>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -617,8 +641,45 @@ export default function CommandesPage() {
                     <div className="detail-row" style={{ fontWeight: 700, fontSize: 15, borderTop: '2px solid #1C2028', marginTop: 4, paddingTop: 8 }}>
                       <span>{tc('total')}</span><span className="mono">{fmt(selected.total)}</span>
                     </div>
+
+                    {/* Coûts réels */}
+                    <div style={{ marginTop: 10, padding: '10px 12px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#92400E', marginBottom: 8 }}>💸 Coûts réels (marge)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, color: '#78350F' }}>🚚 Transport réel</span>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={transportInput}
+                            onChange={e => setTransportInput(e.target.value)}
+                            onBlur={saveCosts}
+                            placeholder="0.00"
+                            className="mono"
+                            style={{ width: 75, padding: '3px 6px', borderRadius: 4, border: '1px solid #FCD34D', fontSize: 12, textAlign: 'right', background: '#FFFBEB' }}
+                          />
+                          <span style={{ fontSize: 11, color: '#92400E' }}>€</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: '#78350F' }}>📦 Emballage</span>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={packagingInput}
+                            onChange={e => setPackagingInput(e.target.value)}
+                            onBlur={saveCosts}
+                            placeholder="0.00"
+                            className="mono"
+                            style={{ width: 75, padding: '3px 6px', borderRadius: 4, border: '1px solid #FCD34D', fontSize: 12, textAlign: 'right', background: '#FFFBEB' }}
+                          />
+                          <span style={{ fontSize: 11, color: '#92400E' }}>€</span>
+                        </div>
+                      </div>
+                      {savingCosts && <div style={{ fontSize: 10, color: '#92400E', marginTop: 4, textAlign: 'right' }}>⏳ Sauvegarde…</div>}
+                    </div>
+
                     {(() => {
-                      const { margin, pct, stripeFee, urssaf } = calcMargin(selected);
+                      const { margin, pct, stripeFee, urssaf, transportReal, packagingCost } = calcMargin(selected);
                       if (margin === null) return null;
                       const color = pct! >= 40 ? '#10B981' : pct! >= 20 ? '#F59E0B' : '#EF4444';
                       return (
@@ -638,6 +699,18 @@ export default function CommandesPage() {
                               <span>URSSAF (12,3% du CA)</span>
                               <span className="mono">−{fmt(urssaf)}</span>
                             </div>
+                            {transportReal > 0 && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
+                                <span>🚚 Transport réel</span>
+                                <span className="mono">−{fmt(transportReal)}</span>
+                              </div>
+                            )}
+                            {packagingCost > 0 && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
+                                <span>📦 Emballage</span>
+                                <span className="mono">−{fmt(packagingCost)}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
