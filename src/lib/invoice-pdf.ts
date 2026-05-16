@@ -9,11 +9,17 @@ const STATUS_FR: Record<string, string> = {
 };
 
 export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: Buffer; filename: string }> {
-  const { data: inv } = await supabaseAdmin
-    .from('invoices')
-    .select('*')
-    .eq('id', invoiceId)
-    .single();
+  // Lookup by invoice id first, then fallback by order_id (comme /api/invoices/[id])
+  let inv: any = null;
+  const byId = await supabaseAdmin.from('invoices').select('*').eq('id', invoiceId).maybeSingle();
+  if (byId.data) {
+    inv = byId.data;
+  } else {
+    const byOrder = await supabaseAdmin
+      .from('invoices').select('*').eq('order_id', invoiceId).neq('status', 'avoir')
+      .order('created_at', { ascending: true }).limit(1).maybeSingle();
+    inv = byOrder.data || null;
+  }
   if (!inv) throw new Error('Facture introuvable');
 
   const lines: InvoiceLine[] = Array.isArray(inv.lines)
