@@ -13,6 +13,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[invoice-pdf]', e);
+    return NextResponse.json({ error: e.message, stack: e.stack }, { status: 500 });
   }
 }
