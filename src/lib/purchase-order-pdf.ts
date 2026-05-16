@@ -49,7 +49,7 @@ export async function generatePurchaseOrderPdf(
     ? (() => { try { return JSON.parse(order.lines); } catch { return []; } })()
     : [];
 
-  const productIds = [...new Set(lines.map((l: any) => l.product_id).filter(Boolean))] as string[];
+  const productIds = Array.from(new Set(lines.map((l: any) => l.product_id).filter(Boolean))) as string[];
   const productMap: Record<string, any> = {};
   if (productIds.length) {
     const { data: products } = await supabaseAdmin
