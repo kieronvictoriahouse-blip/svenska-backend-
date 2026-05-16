@@ -3,6 +3,26 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 type InvoiceLine = { desc: string; qty: number; price: number; tva: number };
 
+// Mentions légales centralisées (art. 242 nonies A CGI)
+const SIREN_RAW  = '105003537';
+const EI_NAME    = 'EI Victoria Vallet';
+const RCS_CITY   = 'Romans-sur-Isère';
+const SIEGE      = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
+const MEDIATEUR  = '[médiateur à compléter]';
+const MEDIATEUR_URL = '[url à compléter]';
+
+function fmtSiren(s: string) {
+  const n = (s || '').replace(/\s/g, '');
+  if (n.length === 9)  return `${n.slice(0,3)} ${n.slice(3,6)} ${n.slice(6)}`;
+  if (n.length === 14) return `${n.slice(0,3)} ${n.slice(3,6)} ${n.slice(6,9)} ${n.slice(9,13)} ${n.slice(13)}`;
+  return s;
+}
+
+const PAYMENT_LABELS: Record<string, string> = {
+  card: 'carte bancaire', stripe: 'carte bancaire',
+  transfer: 'virement bancaire', paypal: 'PayPal', other: 'autre moyen',
+};
+
 const STATUS_FR: Record<string, string> = {
   draft: 'BROUILLON', sent: 'ÉMISE', paid: 'PAYÉE',
   late: 'EN RETARD', avoir: 'AVOIR', refunded: 'REMBOURSÉE',
@@ -91,17 +111,14 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   doc.rect(50, y, 230, 90).fill('#F9FAFB');
   doc.fillColor('#9CA3AF').font('Helvetica-Bold').fontSize(7).text('ÉMETTEUR', 62, y + 10, { characterSpacing: 1 });
   doc.fillColor('#1C2028').font('Helvetica-Bold').fontSize(10).text(inv.seller_name || 'Svenska Delikatessen', 62, y + 22);
-  let sellerY = y + 36;
-  if (inv.seller_siret) {
-    doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(`SIRET : ${inv.seller_siret}`, 62, sellerY);
-    sellerY += 12;
-  }
+  doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(EI_NAME, 62, y + 34);
+  let sellerY = y + 46;
+  doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(`SIREN : ${fmtSiren(SIREN_RAW)}`, 62, sellerY);
+  sellerY += 11;
+  doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(`RCS ${RCS_CITY}`, 62, sellerY);
+  sellerY += 11;
   if (inv.seller_email) {
     doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(inv.seller_email, 62, sellerY);
-    sellerY += 12;
-  }
-  if (inv.seller_phone) {
-    doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(inv.seller_phone, 62, sellerY);
   }
 
   // Client box (right)
@@ -197,31 +214,50 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
       .text('TVA non applicable — art. 293 B du CGI (micro-entreprise)', 50, y, { width: 495.28 });
   }
 
-  // ── LEGAL / NOTES ─────────────────────────────────────────────────────
-  y += 48;
-  if (inv.note || inv.legal_mention) {
-    doc.moveTo(50, y).lineTo(545.28, y).strokeColor('#E5E7EB').lineWidth(0.5).stroke();
-    y += 10;
-    if (inv.note) {
-      doc.fillColor('#9CA3AF').font('Helvetica-Bold').fontSize(7).text('NOTE', 50, y, { characterSpacing: 1 });
-      doc.fillColor('#374151').font('Helvetica').fontSize(9).text(inv.note, 50, y + 12, { width: 495.28 });
-      y += 28 + Math.max(0, Math.ceil(inv.note.length / 90) * 10);
-    }
-    if (inv.legal_mention) {
-      doc.fillColor('#9CA3AF').font('Helvetica-Bold').fontSize(7).text('MENTIONS LÉGALES', 50, y, { characterSpacing: 1 });
-      doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7.5).text(inv.legal_mention, 50, y + 12, { width: 495.28 });
-    }
+  // ── PAIEMENT ──────────────────────────────────────────────────────────
+  y += 16;
+  if (inv.status === 'paid') {
+    const paidLine = inv.paid_at
+      ? `Facture acquittée le ${new Date(inv.paid_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}${inv.payment_method ? ` par ${PAYMENT_LABELS[inv.payment_method] || inv.payment_method}` : ''}`
+      : 'Facture acquittée.';
+    doc.rect(50, y, 300, 20).fill('#F0FDF4');
+    doc.fillColor('#166534').font('Helvetica-Bold').fontSize(9).text(paidLine, 58, y + 6, { width: 286, lineBreak: false });
+    y += 28;
+  } else {
+    doc.fillColor('#6B7280').font('Helvetica').fontSize(9).text('Payable à réception de facture.', 50, y);
+    y += 20;
   }
 
-  // ── FOOTER ────────────────────────────────────────────────────────────
-  doc.fillColor('#C4C4C4').font('Helvetica').fontSize(7)
-    .text(`${inv.seller_name || 'Svenska Delikatessen'} · ${inv.number}`, 50, 820, { align: 'center', width: 495.28 });
+  // ── NOTE ──────────────────────────────────────────────────────────────
+  if (inv.note) {
+    doc.moveTo(50, y).lineTo(545.28, y).strokeColor('#E5E7EB').lineWidth(0.5).stroke();
+    y += 10;
+    doc.fillColor('#9CA3AF').font('Helvetica-Bold').fontSize(7).text('NOTE', 50, y, { characterSpacing: 1 });
+    doc.fillColor('#374151').font('Helvetica').fontSize(9).text(inv.note, 50, y + 12, { width: 495.28 });
+    y += 28 + Math.max(0, Math.ceil(inv.note.length / 90) * 10);
+  }
+
+  // ── PIED LÉGAL (art. 242 nonies A CGI, L441-9 C.com., L616-1 C.conso) ─
+  const FOOTER_Y = 760;
+  doc.moveTo(50, FOOTER_Y).lineTo(545.28, FOOTER_Y).strokeColor('#E5E7EB').lineWidth(0.5).stroke();
+  doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
+    `${inv.seller_name || 'Svenska Delikatessen'} — ${EI_NAME}   ·   Siège : ${inv.seller_address || SIEGE}`,
+    50, FOOTER_Y + 6, { width: 495.28, align: 'center' }
+  );
+  doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
+    `SIREN : ${fmtSiren(SIREN_RAW)} — SIRET : en attente   ·   RCS ${RCS_CITY} ${fmtSiren(SIREN_RAW)}`,
+    50, FOOTER_Y + 17, { width: 495.28, align: 'center' }
+  );
+  doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
+    `TVA non applicable, art. 293 B du CGI   ·   Médiateur (art. L616-1 C. conso) : ${MEDIATEUR} — ${MEDIATEUR_URL}`,
+    50, FOOTER_Y + 28, { width: 495.28, align: 'center' }
+  );
 
   doc.end();
   await done;
 
   return {
     buffer: Buffer.concat(chunks),
-    filename: `facture-${(inv.number || invoiceId).replace(/[^a-zA-Z0-9-_]/g, '-')}.pdf`,
+    filename: `facture-${(inv.number || inv.id || invoiceId).replace(/[^a-zA-Z0-9-_]/g, '-')}.pdf`,
   };
 }

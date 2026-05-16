@@ -24,6 +24,28 @@ type Invoice = {
   seller_address?: string;
   seller_email?: string;
   seller_phone?: string;
+  paid_at?: string;
+  payment_method?: string;
+};
+
+// ── Mentions légales (conformité art. 242 nonies A CGI) ──────────────────
+const SIREN_RAW  = '105003537';
+const EI_NAME    = 'EI Victoria Vallet';
+const RCS_CITY   = 'Romans-sur-Isère'; // à confirmer sur Infogreffe
+const SIEGE      = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
+const MEDIATEUR  = '[médiateur à compléter]'; // ex: CM2C — cm2c.net
+const MEDIATEUR_URL = '[url à compléter]';
+
+function fmtSiren(s: string) {
+  const n = (s || '').replace(/\s/g, '');
+  if (n.length === 9)  return `${n.slice(0,3)} ${n.slice(3,6)} ${n.slice(6)}`;
+  if (n.length === 14) return `${n.slice(0,3)} ${n.slice(3,6)} ${n.slice(6,9)} ${n.slice(9,13)} ${n.slice(13)}`;
+  return s;
+}
+
+const PAYMENT_LABELS: Record<string, string> = {
+  card: 'carte bancaire', stripe: 'carte bancaire',
+  transfer: 'virement bancaire', paypal: 'PayPal', other: 'autre moyen',
 };
 
 const fmt = (n: number) =>
@@ -193,9 +215,10 @@ export default function FacturePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
           {/* Vendeur */}
           <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
               {invoice.seller_name || 'Svenska Delikatessen'}
             </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{EI_NAME}</div>
             {invoice.seller_address && (
               <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, whiteSpace: 'pre-line' }}>
                 {invoice.seller_address}
@@ -207,11 +230,10 @@ export default function FacturePage() {
             {invoice.seller_phone && (
               <div style={{ fontSize: 13, color: '#64748b' }}>{invoice.seller_phone}</div>
             )}
-            {invoice.seller_siret && (
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6, fontWeight: 600 }}>
-                SIRET : {invoice.seller_siret}
-              </div>
-            )}
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, lineHeight: 1.7 }}>
+              <span style={{ fontWeight: 600 }}>SIREN : {fmtSiren(SIREN_RAW)}</span>
+              <br />RCS {RCS_CITY} {fmtSiren(SIREN_RAW)}
+            </div>
           </div>
 
           {/* Bloc facture */}
@@ -338,41 +360,54 @@ export default function FacturePage() {
           </div>
         </div>
 
+        {/* ── Paiement ── */}
+        {invoice.status === 'paid' && invoice.paid_at ? (
+          <div style={{
+            background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
+            padding: '10px 16px', marginBottom: 24, fontSize: 13, color: '#166534', fontWeight: 600,
+          }}>
+            ✅ Facture acquittée le {fmtDate(invoice.paid_at)}
+            {invoice.payment_method ? ` par ${PAYMENT_LABELS[invoice.payment_method] || invoice.payment_method}` : ''}
+          </div>
+        ) : invoice.status === 'paid' ? (
+          <div style={{ marginBottom: 24, fontSize: 13, color: '#64748b' }}>
+            ✅ Facture acquittée.
+          </div>
+        ) : (
+          <div style={{ marginBottom: 24, fontSize: 13, color: '#64748b' }}>
+            Payable à réception de facture.
+          </div>
+        )}
+
         {/* ── Note ── */}
         {invoice.note && (
           <div style={{
             background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
-            padding: '14px 16px', marginBottom: 32, fontSize: 13, color: '#475569',
+            padding: '14px 16px', marginBottom: 24, fontSize: 13, color: '#475569',
           }}>
             <strong>Note :</strong> {invoice.note}
           </div>
         )}
 
-        {/* ── Pied de page légal ── */}
-        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 24, marginTop: 8 }}>
+        {/* ── Pied de facture légal (art. 242 nonies A CGI, art. L441-9 C.com., art. L616-1 C.conso) ── */}
+        <div style={{ borderTop: '2px solid #e2e8f0', paddingTop: 20, marginTop: 8 }}>
           {isMicro && (
             <div style={{
               background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6,
-              padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400e', fontWeight: 500,
+              padding: '8px 14px', marginBottom: 14, fontSize: 11, color: '#92400e', fontWeight: 500,
             }}>
-              ⚠️ {invoice.legal_mention || 'TVA non applicable, art. 293 B du CGI'}
+              TVA non applicable, art. 293 B du CGI
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, fontSize: 11, color: '#94a3b8', lineHeight: 1.7 }}>
-            <div>
-              <div style={{ fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 10 }}>Vendeur</div>
-              <div>{invoice.seller_name}</div>
-              {invoice.seller_siret && <div>SIRET : {invoice.seller_siret}</div>}
-              {invoice.seller_address && <div>{invoice.seller_address}</div>}
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 10 }}>Paiement</div>
-              <div>Facture émise le {fmtDate(invoice.date)}</div>
-              <div>Paiement à réception de facture</div>
-              <div style={{ marginTop: 4, fontSize: 10, color: '#cbd5e1' }}>
-                Document généré par Swedish Cravings Admin — {new Date().toLocaleDateString('fr-FR')}
-              </div>
-            </div>
+          <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 2 }}>
+            <strong style={{ color: '#64748b' }}>
+              {invoice.seller_name || 'Svenska Delikatessen'} — {EI_NAME}
+            </strong><br />
+            Siège social : {invoice.seller_address || SIEGE}<br />
+            SIREN : {fmtSiren(SIREN_RAW)} — SIRET : en attente de communication<br />
+            RCS {RCS_CITY} {fmtSiren(SIREN_RAW)}<br />
+            TVA non applicable, art. 293 B du CGI<br />
+            Médiateur de la consommation (art. L616-1 C. conso) : {MEDIATEUR} — {MEDIATEUR_URL}
           </div>
         </div>
 
