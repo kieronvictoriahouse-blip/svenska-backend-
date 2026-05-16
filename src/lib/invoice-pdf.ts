@@ -8,8 +8,6 @@ const SIREN_RAW  = '105003537';
 const EI_NAME    = 'EI Victoria Vallet';
 const RCS_CITY   = 'Romans-sur-Isère';
 const SIEGE      = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
-const MEDIATEUR  = '[médiateur à compléter]';
-const MEDIATEUR_URL = '[url à compléter]';
 
 function fmtSiren(s: string) {
   const n = (s || '').replace(/\s/g, '');
@@ -238,15 +236,18 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   }
 
   // ── PIED LÉGAL (art. 242 nonies A CGI, L441-9 C.com., L616-1 C.conso) ─
-  const FOOTER_Y = 760;
-  doc.moveTo(50, FOOTER_Y).lineTo(545.28, FOOTER_Y).strokeColor('#E5E7EB').lineWidth(0.5).stroke();
-  doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
+  // Position footer right below last content (at least 30px gap), never past page bottom
+  let footerY = y + 30;
+  if (footerY + 40 > 810) { doc.addPage(); footerY = 60; }
+
+  doc.moveTo(50, footerY).lineTo(545.28, footerY).strokeColor('#D1D5DB').lineWidth(0.5).stroke();
+  doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(
     `${inv.seller_name || 'Svenska Delikatessen'} — ${EI_NAME}   ·   Siège : ${inv.seller_address || SIEGE}`,
-    50, FOOTER_Y + 6, { width: 495.28, align: 'center' }
+    50, footerY + 8, { width: 495.28, align: 'center' }
   );
-  doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
+  doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(
     `SIREN : ${fmtSiren(SIREN_RAW)} — RCS ${RCS_CITY}   ·   TVA non applicable, art. 293 B du CGI`,
-    50, FOOTER_Y + 17, { width: 495.28, align: 'center' }
+    50, footerY + 20, { width: 495.28, align: 'center' }
   );
 
   doc.end();
