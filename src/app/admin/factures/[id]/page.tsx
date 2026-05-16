@@ -44,6 +44,26 @@ export default function FacturePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadPdf() {
+    if (!invoice) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/invoices/${id}/pdf`);
+      if (!res.ok) { alert('Erreur génération PDF'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `facture-${invoice.number || id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { alert('Erreur téléchargement PDF'); }
+    finally { setDownloading(false); }
+  }
 
   useEffect(() => {
     fetch(`/api/invoices/${id}`, { cache: 'no-store' })
@@ -134,13 +154,23 @@ export default function FacturePage() {
           </a>
         )}
         <button
+          onClick={downloadPdf}
+          disabled={downloading}
+          style={{
+            background: '#10b981', border: 'none', color: '#fff',
+            padding: '7px 16px', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600,
+          }}
+        >
+          {downloading ? '⏳…' : '⬇️ Télécharger PDF'}
+        </button>
+        <button
           onClick={() => window.print()}
           style={{
             background: '#3b82f6', border: 'none', color: '#fff',
             padding: '7px 16px', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600,
           }}
         >
-          🖨️ Imprimer / PDF
+          🖨️ Imprimer
         </button>
       </div>
 

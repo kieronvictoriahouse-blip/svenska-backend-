@@ -896,6 +896,14 @@ export default function CommandesPage() {
                 >
                   🧾 Facture
                 </a>
+                <a
+                  href={`/api/invoices/${selected.id}/pdf`}
+                  download
+                  className="btn btn-sm"
+                  style={{ textDecoration: 'none', background: '#ECFDF5', color: '#065F46', border: '1px solid #6EE7B7' }}
+                >
+                  ⬇️ PDF
+                </a>
                 {avoirId && (
                   <a
                     href={`/admin/factures/${avoirId}`}
@@ -905,6 +913,16 @@ export default function CommandesPage() {
                     style={{ textDecoration: 'none', background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' }}
                   >
                     ↩️ Avoir
+                  </a>
+                )}
+                {avoirId && (
+                  <a
+                    href={`/api/invoices/${avoirId}/pdf`}
+                    download
+                    className="btn btn-sm"
+                    style={{ textDecoration: 'none', background: '#F5F3FF', color: '#5B21B6', border: '1px solid #DDD6FE' }}
+                  >
+                    ⬇️ PDF avoir
                   </a>
                 )}
                 <button className="btn btn-secondary" onClick={() => printDeliveryNote(selected)}>📄 {t('deliveryNote')}</button>
