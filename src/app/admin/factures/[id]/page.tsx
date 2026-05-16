@@ -404,10 +404,8 @@ export default function FacturePage() {
               {invoice.seller_name || 'Svenska Delikatessen'} — {EI_NAME}
             </strong><br />
             Siège social : {invoice.seller_address || SIEGE}<br />
-            SIREN : {fmtSiren(SIREN_RAW)} — SIRET : en attente de communication<br />
-            RCS {RCS_CITY} {fmtSiren(SIREN_RAW)}<br />
-            TVA non applicable, art. 293 B du CGI<br />
-            Médiateur de la consommation (art. L616-1 C. conso) : {MEDIATEUR} — {MEDIATEUR_URL}
+            SIREN : {fmtSiren(SIREN_RAW)} — RCS {RCS_CITY}<br />
+            TVA non applicable, art. 293 B du CGI
           </div>
         </div>
 

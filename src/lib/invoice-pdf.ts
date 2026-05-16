@@ -245,12 +245,8 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     50, FOOTER_Y + 6, { width: 495.28, align: 'center' }
   );
   doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
-    `SIREN : ${fmtSiren(SIREN_RAW)} — SIRET : en attente   ·   RCS ${RCS_CITY} ${fmtSiren(SIREN_RAW)}`,
+    `SIREN : ${fmtSiren(SIREN_RAW)} — RCS ${RCS_CITY}   ·   TVA non applicable, art. 293 B du CGI`,
     50, FOOTER_Y + 17, { width: 495.28, align: 'center' }
-  );
-  doc.fillColor('#9CA3AF').font('Helvetica').fontSize(7).text(
-    `TVA non applicable, art. 293 B du CGI   ·   Médiateur (art. L616-1 C. conso) : ${MEDIATEUR} — ${MEDIATEUR_URL}`,
-    50, FOOTER_Y + 28, { width: 495.28, align: 'center' }
   );
 
   doc.end();
