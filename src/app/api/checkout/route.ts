@@ -35,7 +35,7 @@ const ADMIN_TEST_EMAILS = (process.env.ADMIN_TEST_EMAILS || '')
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { items, customer_token, delivery_mode, promo_code, relay_point_id, relay_point_name, relay_point_address, relay_point_pays } = body;
+    const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays } = body;
     let { customer_email } = body;
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
@@ -206,6 +206,7 @@ export async function POST(req: NextRequest) {
         } : {}),
         ...(promo_code && discountAmount > 0 ? { promo_code: promo_code.toUpperCase().trim() } : {}),
         ...(promo_code && isFreeShippingPromo ? { promo_code: promo_code.toUpperCase().trim() } : {}),
+        ...(customer_note ? { notes: customer_note } : {}),
       })
       .select()
       .single();
