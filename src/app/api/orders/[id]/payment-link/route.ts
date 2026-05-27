@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const lines: any[] = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
 
-  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = lines
+  const lineItems: any[] = lines
     .filter((l: any) => (l.price || 0) > 0)
     .map((l: any) => ({
       price_data: {
