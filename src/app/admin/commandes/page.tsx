@@ -294,7 +294,7 @@ export default function CommandesPage() {
           customer_name: newOrder.customer_name, customer_email: newOrder.customer_email,
           shipping_address: newOrder.customer_address,
           notes: newOrder.notes || null, lines, subtotal, shipping: effectiveShipping, total,
-          delivery_mode: newOrderDelivery, source: 'manual',
+          delivery_mode: newOrderDelivery,
           ...(newOrderPromoData ? { promo_code: newOrderPromoData.code, discount } : {}),
         }),
       });
