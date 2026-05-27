@@ -20,6 +20,7 @@ type Order = {
   stripe_session_id?: string; exclude_from_stats?: boolean;
   relay_point_id?: string; relay_point_name?: string; relay_point_address?: string; relay_point_pays?: string;
   mondial_relay_tracking?: string; mondial_relay_label_url?: string;
+  payment_link_url?: string; payment_link_sent_at?: string;
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -89,6 +90,8 @@ export default function CommandesPage() {
   const [togglingStats, setTogglingStats] = useState(false);
   const [showTestOrders, setShowTestOrders] = useState(false);
   const [avoirId, setAvoirId] = useState<string | null>(null);
+  const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
   const [mrLivRel, setMrLivRel] = useState('');
   const [mrColRel, setMrColRel] = useState('');
   const [mrWeight, setMrWeight] = useState('500');
@@ -312,6 +315,49 @@ export default function CommandesPage() {
     }
   }
 
+  async function sendPaymentLink(byEmail: boolean) {
+    if (!selected) return;
+    setSendingPaymentLink(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch(`/api/orders/${selected.id}/payment-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ send_email: byEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(`❌ ${data.error || 'Erreur'}`); return; }
+      setSelected(o => o ? { ...o, payment_link_url: data.url, payment_link_sent_at: new Date().toISOString() } : null);
+      try { await navigator.clipboard.writeText(data.url); } catch {}
+      showToast(byEmail ? '✅ Lien envoyé par email + copié !' : '✅ Lien copié dans le presse-papier !');
+      load();
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+    } finally {
+      setSendingPaymentLink(false);
+    }
+  }
+
+  async function createCustomerAccount() {
+    if (!selected?.customer_email) return;
+    setCreatingAccount(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch('/api/customer/create-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: selected.customer_email, name: selected.customer_name, send_email: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(`❌ ${data.error || 'Erreur'}`); return; }
+      showToast(`✅ Compte créé — email envoyé à ${selected.customer_email}`);
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+    } finally {
+      setCreatingAccount(false);
+    }
+  }
+
   async function createMrLabel() {
     if (!selected) return;
     setMrLoading(true);
@@ -488,6 +534,12 @@ export default function CommandesPage() {
     .test-badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:4px; font-size:9px; font-weight:700; letter-spacing:1px; background:#FEF9C3; color:#854D0E; border:1px solid #FDE68A; margin-left:6px; }
     .btn-warning { background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
     .btn-warning:hover { background:#FDE68A; }
+    .btn-teal { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+    .btn-teal:hover { background:#D1FAE5; }
+    .btn-violet { background:#EDE9FE; color:#5B21B6; border:1px solid #DDD6FE; }
+    .btn-violet:hover { background:#DDD6FE; }
+    .payment-link-box { background:#F0F9FF; border:1px solid #BAE6FD; border-radius:6px; padding:14px 16px; margin-top:12px; }
+    .payment-link-url { font-family:'DM Mono',monospace; font-size:11px; color:#0C4A6E; word-break:break-all; background:#E0F2FE; padding:6px 8px; border-radius:4px; margin-bottom:8px; }
   `;
 
   return (
@@ -757,6 +809,44 @@ export default function CommandesPage() {
 
                 {selected.notes && <div style={{ marginTop: 12, padding: '10px 14px', background: '#F6F1E9', borderRadius: 6, fontSize: 12, fontStyle: 'italic', color: '#3E4550' }}>{selected.notes}</div>}
 
+                {/* Lien de paiement */}
+                {!['paid','confirmed','shipped','delivered','refunded','cancelled'].includes(selected.status) && (
+                  <div className="payment-link-box">
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1', marginBottom: 10 }}>
+                      💳 Lien de paiement Stripe
+                    </div>
+                    {selected.payment_link_url ? (
+                      <>
+                        <div className="payment-link-url">{selected.payment_link_url}</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button className="btn btn-sm btn-info" onClick={() => { navigator.clipboard?.writeText(selected.payment_link_url!); showToast('✅ Lien copié !'); }}>
+                            📋 Copier le lien
+                          </button>
+                          <button className="btn btn-sm btn-info" onClick={() => sendPaymentLink(true)} disabled={sendingPaymentLink}>
+                            {sendingPaymentLink ? '⏳…' : '📧 Renvoyer par email'}
+                          </button>
+                        </div>
+                        {selected.payment_link_sent_at && (
+                          <div style={{ fontSize: 10, color: '#6A7280', marginTop: 6 }}>
+                            Dernier envoi : {new Date(selected.payment_link_sent_at).toLocaleString('fr-FR')}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn btn-sm btn-info" onClick={() => sendPaymentLink(false)} disabled={sendingPaymentLink}>
+                          {sendingPaymentLink ? '⏳…' : '🔗 Générer le lien'}
+                        </button>
+                        {selected.customer_email && (
+                          <button className="btn btn-sm btn-info" onClick={() => sendPaymentLink(true)} disabled={sendingPaymentLink}>
+                            {sendingPaymentLink ? '⏳…' : '📧 Générer + envoyer par email'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Tracking / Pickup */}
                 {selected.delivery_mode === 'pickup' ? (
                   <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 6, padding: '14px 16px', marginTop: 16 }}>
@@ -885,6 +975,12 @@ export default function CommandesPage() {
                     disabled={refunding}
                   >
                     {refunding ? '⏳ Remboursement…' : refundConfirm ? t('refundConfirm') : `🔄 ${t('refund')}`}
+                  </button>
+                )}
+                {selected.customer_email && (
+                  <button className="btn btn-sm btn-violet" onClick={createCustomerAccount} disabled={creatingAccount}
+                    title="Crée le compte client et lui envoie un email avec son lien d'accès">
+                    {creatingAccount ? '⏳…' : '👤 Créer compte client'}
                   </button>
                 )}
                 <a
