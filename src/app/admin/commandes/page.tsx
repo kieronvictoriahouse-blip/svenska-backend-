@@ -24,6 +24,11 @@ type Order = {
 };
 
 type ProductCost = { id: string; cost_price: number };
+type Product = {
+  id: string; name_fr: string; name_en?: string; name_sv?: string;
+  price: number; weight?: string; image_url?: string;
+  product_variants?: { label: string; price: number }[];
+};
 
 const T = {
   title:         { fr: 'Commandes', en: 'Orders', sv: 'Beställningar' },
@@ -102,10 +107,16 @@ export default function CommandesPage() {
   const [savingCosts, setSavingCosts] = useState(false);
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
-  const [newOrder, setNewOrder] = useState({
-    customer_name: '', customer_email: '', customer_address: '', customer_country: 'France',
-    notes: '', shipping: '0', lines: [{ desc: '', qty: 1, price: 0 }]
-  });
+  const [productList, setProductList] = useState<Product[]>([]);
+  const [newOrder, setNewOrder] = useState({ customer_name: '', customer_email: '', customer_address: '', customer_country: 'France', notes: '' });
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerSelections, setPickerSelections] = useState<Record<string, { qty: number; variantLabel?: string; price: number }>>({});
+  const [newOrderDelivery, setNewOrderDelivery] = useState<'pickup' | 'mondial_relay' | 'delivery'>('pickup');
+  const [newOrderPromoCode, setNewOrderPromoCode] = useState('');
+  const [newOrderPromoData, setNewOrderPromoData] = useState<any>(null);
+  const [newOrderPromoMsg, setNewOrderPromoMsg] = useState('');
+  const [applyingPromo, setApplyingPromo] = useState(false);
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
@@ -155,6 +166,7 @@ export default function CommandesPage() {
     }
     setCostMap(costs);
     setImageMap(images);
+    setProductList(data.products || []);
   }
 
   async function load() {
@@ -224,17 +236,69 @@ export default function CommandesPage() {
     showToast('✅ ' + t('tracking'));
   }
 
+  function resetNewOrderModal() {
+    setNewOrder({ customer_name: '', customer_email: '', customer_address: '', customer_country: 'France', notes: '' });
+    setNewOrderDelivery('pickup');
+    setNewOrderPromoCode('');
+    setNewOrderPromoData(null);
+    setNewOrderPromoMsg('');
+    setPickerSelections({});
+    setPickerSearch('');
+    setShowNewModal(false);
+  }
+
+  async function applyPromoInNewOrder() {
+    const code = newOrderPromoCode.trim().toUpperCase();
+    if (!code) return;
+    setApplyingPromo(true);
+    try {
+      const token = localStorage.getItem('sd_admin_token') || '';
+      const res = await fetch('/api/marketing?tab=promo', { headers: { Authorization: `Bearer ${token}` } });
+      const { codes } = await res.json();
+      const found = (codes || []).find((c: any) => c.code === code);
+      if (!found || !found.is_active) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code invalide ou inactif'); return; }
+      const now = new Date();
+      if (found.valid_from && now < new Date(found.valid_from)) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code pas encore valide'); return; }
+      if (found.valid_until && now > new Date(found.valid_until)) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code expiré'); return; }
+      if (found.max_uses && (found.used_count || 0) >= found.max_uses) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code plus disponible'); return; }
+      setNewOrderPromoData(found);
+      setNewOrderPromoMsg(found.type === 'percent' ? `✅ −${found.value}%` : found.type === 'fixed' ? `✅ −${found.value} €` : '✅ Livraison offerte');
+    } finally {
+      setApplyingPromo(false);
+    }
+  }
+
   async function createOrder() {
     if (!newOrder.customer_name || !newOrder.customer_email) { showToast('⚠️ ' + t('custName')); return; }
-    const subtotal = newOrder.lines.reduce((s, l) => s + l.qty * l.price, 0);
-    const shipping = parseFloat(newOrder.shipping) || 0;
+    const lines = Object.entries(pickerSelections).filter(([, s]) => s.qty > 0).map(([pid, s]) => {
+      const p = productList.find(x => x.id === pid);
+      const variantObj = s.variantLabel ? p?.product_variants?.find(v => v.label === s.variantLabel) : null;
+      const price = variantObj ? variantObj.price : (p?.price || s.price);
+      return { desc: (p?.name_fr || pid) + (s.variantLabel ? ` — ${s.variantLabel}` : ''), qty: s.qty, price, product_id: pid, image_url: p?.image_url || null };
+    });
+    if (lines.length === 0) { showToast('⚠️ Ajoutez au moins un article'); return; }
+    const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
+    const baseShipping = subtotal >= 50 ? 0 : 4.90;
+    const isFreeShip = newOrderPromoData?.type === 'free_shipping';
+    const effectiveShipping = (newOrderDelivery === 'pickup' || isFreeShip) ? 0 : baseShipping;
+    let discount = 0;
+    if (newOrderPromoData?.type === 'percent') discount = Math.min(subtotal, (subtotal * newOrderPromoData.value) / 100);
+    else if (newOrderPromoData?.type === 'fixed') discount = Math.min(subtotal, newOrderPromoData.value);
+    const total = Math.max(0, subtotal - discount) + effectiveShipping;
+    const token = localStorage.getItem('sd_admin_token') || '';
     await fetch('/api/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...newOrder, subtotal, shipping, total: subtotal + shipping }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        customer_name: newOrder.customer_name, customer_email: newOrder.customer_email,
+        customer_address: newOrder.customer_address, customer_country: newOrder.customer_country,
+        notes: newOrder.notes || null, lines, subtotal, shipping: effectiveShipping, total,
+        delivery_mode: newOrderDelivery, source: 'manual',
+        ...(newOrderPromoData ? { promo_code: newOrderPromoData.code, discount } : {}),
+      }),
     });
-    setShowNewModal(false);
-    showToast('✅ ' + t('newOrder'));
+    resetNewOrderModal();
+    showToast('✅ Commande créée');
     load();
   }
 
@@ -540,6 +604,28 @@ export default function CommandesPage() {
     .btn-violet:hover { background:#DDD6FE; }
     .payment-link-box { background:#F0F9FF; border:1px solid #BAE6FD; border-radius:6px; padding:14px 16px; margin-top:12px; }
     .payment-link-url { font-family:'DM Mono',monospace; font-size:11px; color:#0C4A6E; word-break:break-all; background:#E0F2FE; padding:6px 8px; border-radius:4px; margin-bottom:8px; }
+    .picker-overlay { position:fixed; inset:0; background:rgba(28,32,40,0.6); z-index:300; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
+    .picker-modal { background:#fff; border-radius:6px; width:100%; max-width:560px; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,0.25); }
+    .picker-body { padding:4px 20px 16px; max-height:55vh; overflow-y:auto; }
+    .picker-search { width:100%; padding:8px 12px; border:1px solid #D8CEBC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; outline:none; box-sizing:border-box; margin-bottom:4px; }
+    .picker-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid #F0EBE1; }
+    .picker-item:last-child { border-bottom:none; }
+    .picker-item-img { width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid #D8CEBC; flex-shrink:0; }
+    .picker-item-noimg { width:44px; height:44px; border-radius:6px; border:1px solid #D8CEBC; background:#F0EBE1; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; }
+    .picker-item-info { flex:1; min-width:0; }
+    .picker-item-name { font-size:13px; font-weight:600; color:#1C2028; margin-bottom:3px; }
+    .picker-item-price { font-size:12px; color:#6A7280; font-family:'DM Mono',monospace; }
+    .picker-variants { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
+    .picker-variant-btn { padding:2px 8px; border-radius:4px; font-size:11px; border:1px solid #D8CEBC; background:#fff; cursor:pointer; font-family:'Jost',sans-serif; }
+    .picker-variant-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
+    .picker-qty { display:flex; align-items:center; gap:4px; margin-top:6px; }
+    .picker-qty-btn { width:22px; height:22px; border-radius:4px; border:1px solid #D8CEBC; background:#F6F1E9; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; line-height:1; }
+    .picker-qty-val { font-family:'DM Mono',monospace; font-size:13px; min-width:20px; text-align:center; }
+    .delivery-btn-row { display:flex; gap:6px; margin-bottom:4px; flex-wrap:wrap; }
+    .delivery-btn { flex:1; padding:8px 10px; border-radius:6px; border:1px solid #D8CEBC; background:#F6F1E9; cursor:pointer; font-family:'Jost',sans-serif; font-size:12px; font-weight:500; text-align:center; min-width:80px; }
+    .delivery-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
+    .selected-lines { margin-bottom:4px; }
+    .selected-line { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#FDFAF5; border:1px solid #D8CEBC; border-radius:6px; margin-bottom:4px; font-size:13px; }
   `;
 
   return (
@@ -1029,43 +1115,216 @@ export default function CommandesPage() {
         )}
 
         {/* New Order Modal */}
-        {showNewModal && (
-          <div className="o-modal-overlay" onClick={e => e.target === e.currentTarget && setShowNewModal(false)}>
-            <div className="o-modal">
-              <div className="o-modal-header"><span className="o-modal-title">{t('newOrderTitle')}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowNewModal(false)}>✕</button></div>
-              <div className="o-modal-body">
-                <div className="grid-2">
-                  <div className="form-group"><label className="form-label">{t('custName')}</label><input className="form-control" value={newOrder.customer_name} onChange={e => setNewOrder(o => ({ ...o, customer_name: e.target.value }))} /></div>
-                  <div className="form-group"><label className="form-label">{tc('email')} *</label><input className="form-control" value={newOrder.customer_email} onChange={e => setNewOrder(o => ({ ...o, customer_email: e.target.value }))} /></div>
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{tc('address')}</label><textarea className="form-control" style={{ minHeight: 60 }} value={newOrder.customer_address} onChange={e => setNewOrder(o => ({ ...o, customer_address: e.target.value }))} /></div>
+        {showNewModal && (() => {
+          const pickerLines = Object.entries(pickerSelections).filter(([, s]) => s.qty > 0).map(([pid, s]) => {
+            const p = productList.find(x => x.id === pid);
+            const variantObj = s.variantLabel ? p?.product_variants?.find(v => v.label === s.variantLabel) : null;
+            const price = variantObj ? variantObj.price : (p?.price || s.price);
+            return { pid, name: (p?.name_fr || pid) + (s.variantLabel ? ` — ${s.variantLabel}` : ''), qty: s.qty, price };
+          });
+          const subtotal = pickerLines.reduce((s, l) => s + l.qty * l.price, 0);
+          const baseShipping = subtotal >= 50 ? 0 : 4.90;
+          const isFreeShip = newOrderPromoData?.type === 'free_shipping';
+          const effectiveShipping = (newOrderDelivery === 'pickup' || isFreeShip) ? 0 : baseShipping;
+          let discount = 0;
+          if (newOrderPromoData?.type === 'percent') discount = Math.min(subtotal, (subtotal * newOrderPromoData.value) / 100);
+          else if (newOrderPromoData?.type === 'fixed') discount = Math.min(subtotal, newOrderPromoData.value);
+          const total = Math.max(0, subtotal - discount) + effectiveShipping;
+          return (
+            <div className="o-modal-overlay" onClick={e => e.target === e.currentTarget && resetNewOrderModal()}>
+              <div className="o-modal" style={{ maxWidth: 660 }}>
+                <div className="o-modal-header">
+                  <span className="o-modal-title">{t('newOrderTitle')}</span>
+                  <button className="btn btn-secondary btn-sm" onClick={resetNewOrderModal}>✕</button>
                 </div>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6A7280', marginBottom: 8 }}>{t('orderLines')}</div>
-                  {newOrder.lines.map((l, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 90px 28px', gap: 6, marginBottom: 6 }}>
-                      <input className="form-control" placeholder={tc('product')} value={l.desc} onChange={e => { const nl = [...newOrder.lines]; nl[i].desc = e.target.value; setNewOrder(o => ({ ...o, lines: nl })); }} />
-                      <input type="number" className="form-control mono" placeholder={tc('qty')} value={l.qty} min={1} onChange={e => { const nl = [...newOrder.lines]; nl[i].qty = parseInt(e.target.value) || 1; setNewOrder(o => ({ ...o, lines: nl })); }} />
-                      <input type="number" className="form-control mono" placeholder={tc('price')} value={l.price} step="0.01" onChange={e => { const nl = [...newOrder.lines]; nl[i].price = parseFloat(e.target.value) || 0; setNewOrder(o => ({ ...o, lines: nl })); }} />
-                      <button onClick={() => setNewOrder(o => ({ ...o, lines: o.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                <div className="o-modal-body">
+                  <div className="grid-2">
+                    <div className="form-group">
+                      <label className="form-label">{t('custName')}</label>
+                      <input className="form-control" value={newOrder.customer_name} onChange={e => setNewOrder(o => ({ ...o, customer_name: e.target.value }))} />
                     </div>
-                  ))}
-                  <button className="btn btn-secondary btn-sm" onClick={() => setNewOrder(o => ({ ...o, lines: [...o.lines, { desc: '', qty: 1, price: 0 }] }))}>{t('addLine')}</button>
+                    <div className="form-group">
+                      <label className="form-label">{tc('email')} *</label>
+                      <input className="form-control" type="email" value={newOrder.customer_email} onChange={e => setNewOrder(o => ({ ...o, customer_email: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                      <label className="form-label">{tc('address')}</label>
+                      <textarea className="form-control" style={{ minHeight: 60 }} value={newOrder.customer_address} onChange={e => setNewOrder(o => ({ ...o, customer_address: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6A7280' }}>{t('orderLines')}</div>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setShowProductPicker(true)}>🛒 Choisir des articles</button>
+                    </div>
+                    {pickerLines.length === 0 ? (
+                      <div style={{ padding: '12px 16px', background: '#FDFAF5', border: '1px dashed #D8CEBC', borderRadius: 6, textAlign: 'center', fontSize: 13, color: '#9CA3AF' }}>
+                        Aucun article — cliquez sur « Choisir des articles »
+                      </div>
+                    ) : (
+                      <div className="selected-lines">
+                        {pickerLines.map(l => (
+                          <div key={l.pid} className="selected-line">
+                            <span style={{ flex: 1 }}>{l.name} <span style={{ color: '#6A7280' }}>× {l.qty}</span></span>
+                            <span className="mono" style={{ fontSize: 12, marginRight: 10 }}>{fmt(l.qty * l.price)}</span>
+                            <button onClick={() => setPickerSelections(s => { const n = { ...s }; delete n[l.pid]; return n; })} style={{ border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Mode de livraison</label>
+                    <div className="delivery-btn-row">
+                      <button className={`delivery-btn${newOrderDelivery === 'pickup' ? ' active' : ''}`} onClick={() => setNewOrderDelivery('pickup')}>🏪 Click & Collect</button>
+                      <button className={`delivery-btn${newOrderDelivery === 'mondial_relay' ? ' active' : ''}`} onClick={() => setNewOrderDelivery('mondial_relay')}>📦 Point Relais</button>
+                      <button className={`delivery-btn${newOrderDelivery === 'delivery' ? ' active' : ''}`} onClick={() => setNewOrderDelivery('delivery')}>🚚 Livraison domicile</button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Code promo (optionnel)</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input className="form-control mono" style={{ textTransform: 'uppercase', flex: 1 }} placeholder="Ex: SWEDISH10"
+                        value={newOrderPromoCode}
+                        onChange={e => { setNewOrderPromoCode(e.target.value.toUpperCase()); setNewOrderPromoData(null); setNewOrderPromoMsg(''); }}
+                        onKeyDown={e => e.key === 'Enter' && applyPromoInNewOrder()} />
+                      <button className="btn btn-secondary btn-sm" onClick={applyPromoInNewOrder} disabled={applyingPromo} style={{ flexShrink: 0 }}>
+                        {applyingPromo ? '⏳' : 'Appliquer'}
+                      </button>
+                    </div>
+                    {newOrderPromoMsg && (
+                      <div style={{ fontSize: 12, marginTop: 4, color: newOrderPromoMsg.startsWith('✅') ? '#16A34A' : '#DC2626' }}>{newOrderPromoMsg}</div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">{tc('notes')}</label>
+                    <input className="form-control" value={newOrder.notes} onChange={e => setNewOrder(o => ({ ...o, notes: e.target.value }))} />
+                  </div>
+
+                  {pickerLines.length > 0 && (
+                    <div style={{ background: '#FDFAF5', border: '1px solid #D8CEBC', borderRadius: 6, padding: '12px 16px', fontSize: 13 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#6A7280' }}>
+                        <span>Sous-total</span><span className="mono">{fmt(subtotal)}</span>
+                      </div>
+                      {discount > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#16A34A' }}>
+                          <span>🎟 {newOrderPromoData.code}</span><span className="mono">−{fmt(discount)}</span>
+                        </div>
+                      )}
+                      {isFreeShip && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#16A34A' }}>
+                          <span>🎟 {newOrderPromoData.code}</span><span className="mono">Livraison offerte</span>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#6A7280' }}>
+                        <span>Livraison</span>
+                        <span className="mono" style={{ color: effectiveShipping === 0 ? '#10B981' : 'inherit' }}>
+                          {effectiveShipping === 0 ? 'Gratuite' : fmt(effectiveShipping)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 15, borderTop: '1px solid #D8CEBC', paddingTop: 8, marginTop: 4 }}>
+                        <span>Total</span><span className="mono">{fmt(total)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="grid-2">
-                  <div className="form-group"><label className="form-label">{t('shippingFee')}</label><input type="number" className="form-control mono" value={newOrder.shipping} step="0.01" onChange={e => setNewOrder(o => ({ ...o, shipping: e.target.value }))} /></div>
-                  <div className="form-group"><label className="form-label">{tc('notes')}</label><input className="form-control" value={newOrder.notes} onChange={e => setNewOrder(o => ({ ...o, notes: e.target.value }))} /></div>
+                <div className="o-modal-footer">
+                  <button className="btn btn-secondary" onClick={resetNewOrderModal}>{tc('cancel')}</button>
+                  <button className="btn btn-primary" onClick={createOrder}>💾 {tc('create')}</button>
                 </div>
-                <div style={{ textAlign: 'right', fontSize: 14, fontWeight: 600, fontFamily: 'DM Mono,monospace' }}>
-                  {tc('total')} : {fmt(newOrder.lines.reduce((s, l) => s + l.qty * l.price, 0) + (parseFloat(newOrder.shipping) || 0))}
-                </div>
-              </div>
-              <div className="o-modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowNewModal(false)}>{tc('cancel')}</button>
-                <button className="btn btn-primary" onClick={createOrder}>💾 {tc('create')}</button>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
+
+        {/* Product Picker Modal */}
+        {showProductPicker && (() => {
+          const filtered = productList.filter(p => {
+            if (!pickerSearch) return true;
+            return (p.name_fr || '').toLowerCase().includes(pickerSearch.toLowerCase());
+          });
+          return (
+            <div className="picker-overlay" onClick={e => e.target === e.currentTarget && setShowProductPicker(false)}>
+              <div className="picker-modal">
+                <div className="o-modal-header">
+                  <span className="o-modal-title">🛒 Choisir des articles</span>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setShowProductPicker(false)}>✕</button>
+                </div>
+                <div style={{ padding: '12px 20px 0' }}>
+                  <input className="picker-search" placeholder="Rechercher un produit..." value={pickerSearch}
+                    onChange={e => setPickerSearch(e.target.value)} autoFocus />
+                </div>
+                <div className="picker-body">
+                  {filtered.map(p => {
+                    const sel = pickerSelections[p.id];
+                    const hasVariants = (p.product_variants?.length || 0) > 1;
+                    const activeVariantLabel = sel?.variantLabel ?? (hasVariants ? p.product_variants![0].label : undefined);
+                    const displayPrice = hasVariants
+                      ? (p.product_variants!.find(v => v.label === activeVariantLabel)?.price ?? p.price)
+                      : p.price;
+                    return (
+                      <div key={p.id} className="picker-item">
+                        {p.image_url
+                          ? <img src={p.image_url} alt="" className="picker-item-img" />
+                          : <div className="picker-item-noimg">📦</div>}
+                        <div className="picker-item-info">
+                          <div className="picker-item-name">{p.name_fr}</div>
+                          <div className="picker-item-price">{fmt(displayPrice)}{p.weight ? ` · ${p.weight}` : ''}</div>
+                          {hasVariants && (
+                            <div className="picker-variants">
+                              {p.product_variants!.map(v => (
+                                <button key={v.label}
+                                  className={`picker-variant-btn${activeVariantLabel === v.label ? ' active' : ''}`}
+                                  onClick={() => setPickerSelections(s => ({
+                                    ...s,
+                                    [p.id]: { qty: s[p.id]?.qty || 1, variantLabel: v.label, price: v.price },
+                                  }))}>
+                                  {v.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {sel && sel.qty > 0 ? (
+                            <div className="picker-qty">
+                              <button className="picker-qty-btn" onClick={() => {
+                                const newQty = (sel.qty || 1) - 1;
+                                if (newQty <= 0) setPickerSelections(s => { const n = { ...s }; delete n[p.id]; return n; });
+                                else setPickerSelections(s => ({ ...s, [p.id]: { ...s[p.id], qty: newQty } }));
+                              }}>−</button>
+                              <span className="picker-qty-val">{sel.qty}</span>
+                              <button className="picker-qty-btn" onClick={() => setPickerSelections(s => ({
+                                ...s, [p.id]: { ...s[p.id], qty: (s[p.id]?.qty || 0) + 1 },
+                              }))}>+</button>
+                            </div>
+                          ) : (
+                            <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }}
+                              onClick={() => setPickerSelections(s => ({
+                                ...s,
+                                [p.id]: { qty: 1, variantLabel: hasVariants ? p.product_variants![0].label : undefined, price: displayPrice },
+                              }))}>
+                              + Ajouter
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="o-modal-footer">
+                  <span style={{ fontSize: 13, color: '#6A7280', flex: 1, alignSelf: 'center' }}>
+                    {Object.values(pickerSelections).filter(s => s.qty > 0).length} article(s)
+                  </span>
+                  <button className="btn btn-secondary" onClick={() => setShowProductPicker(false)}>Annuler</button>
+                  <button className="btn btn-primary" onClick={() => setShowProductPicker(false)}>✅ Confirmer</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Restock Modal */}
         {showRestockModal && (
