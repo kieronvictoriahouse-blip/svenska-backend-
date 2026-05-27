@@ -108,7 +108,7 @@ export default function CommandesPage() {
   const [costMap, setCostMap] = useState<Record<string, number>>({});
   const [imageMap, setImageMap] = useState<Record<string, string>>({});
   const [productList, setProductList] = useState<Product[]>([]);
-  const [newOrder, setNewOrder] = useState({ customer_name: '', customer_email: '', customer_address: '', customer_country: 'France', notes: '' });
+  const [newOrder, setNewOrder] = useState({ customer_name: '', customer_email: '', customer_address: '', notes: '' });
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerSelections, setPickerSelections] = useState<Record<string, { qty: number; variantLabel?: string; price: number }>>({});
@@ -237,7 +237,7 @@ export default function CommandesPage() {
   }
 
   function resetNewOrderModal() {
-    setNewOrder({ customer_name: '', customer_email: '', customer_address: '', customer_country: 'France', notes: '' });
+    setNewOrder({ customer_name: '', customer_email: '', customer_address: '', notes: '' });
     setNewOrderDelivery('pickup');
     setNewOrderPromoCode('');
     setNewOrderPromoData(null);
@@ -292,7 +292,7 @@ export default function CommandesPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           customer_name: newOrder.customer_name, customer_email: newOrder.customer_email,
-          shipping_address: newOrder.customer_address, customer_country: newOrder.customer_country,
+          shipping_address: newOrder.customer_address,
           notes: newOrder.notes || null, lines, subtotal, shipping: effectiveShipping, total,
           delivery_mode: newOrderDelivery, source: 'manual',
           ...(newOrderPromoData ? { promo_code: newOrderPromoData.code, discount } : {}),
