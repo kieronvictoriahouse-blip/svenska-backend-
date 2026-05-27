@@ -286,17 +286,27 @@ export default function CommandesPage() {
     else if (newOrderPromoData?.type === 'fixed') discount = Math.min(subtotal, newOrderPromoData.value);
     const total = Math.max(0, subtotal - discount) + effectiveShipping;
     const token = localStorage.getItem('sd_admin_token') || '';
-    await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        customer_name: newOrder.customer_name, customer_email: newOrder.customer_email,
-        customer_address: newOrder.customer_address, customer_country: newOrder.customer_country,
-        notes: newOrder.notes || null, lines, subtotal, shipping: effectiveShipping, total,
-        delivery_mode: newOrderDelivery, source: 'manual',
-        ...(newOrderPromoData ? { promo_code: newOrderPromoData.code, discount } : {}),
-      }),
-    });
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          customer_name: newOrder.customer_name, customer_email: newOrder.customer_email,
+          customer_address: newOrder.customer_address, customer_country: newOrder.customer_country,
+          notes: newOrder.notes || null, lines, subtotal, shipping: effectiveShipping, total,
+          delivery_mode: newOrderDelivery, source: 'manual',
+          ...(newOrderPromoData ? { promo_code: newOrderPromoData.code, discount } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(`❌ Erreur : ${err.error || err.message || res.status}`);
+        return;
+      }
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+      return;
+    }
     resetNewOrderModal();
     showToast('✅ Commande créée');
     load();
