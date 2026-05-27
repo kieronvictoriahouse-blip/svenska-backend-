@@ -292,7 +292,7 @@ export default function CommandesPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           customer_name: newOrder.customer_name, customer_email: newOrder.customer_email,
-          customer_address: newOrder.customer_address, customer_country: newOrder.customer_country,
+          shipping_address: newOrder.customer_address, customer_country: newOrder.customer_country,
           notes: newOrder.notes || null, lines, subtotal, shipping: effectiveShipping, total,
           delivery_mode: newOrderDelivery, source: 'manual',
           ...(newOrderPromoData ? { promo_code: newOrderPromoData.code, discount } : {}),
