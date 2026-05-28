@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Stripe non configuré' }, { status: 500, headers: CORS });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
+  const stripe = new Stripe(stripeKey, { apiVersion: '2024-06-20' });
 
   const lines: any[] = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
 
@@ -73,29 +73,38 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr';
+  const shippingAmt = Math.round((order.shipping || 0) * 100);
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    line_items: lineItems,
-    customer_email: order.customer_email || undefined,
-    shipping_options: [{
-      shipping_rate_data: {
-        type: 'fixed_amount',
-        fixed_amount: { amount: Math.round((order.shipping || 0) * 100), currency: 'eur' },
-        display_name: (order.shipping || 0) > 0 ? 'Livraison' : 'Livraison offerte',
-      },
-    }],
-    metadata: { order_id: order.id },
-    success_url: `${baseUrl}/success.html?order_id=${order.id}`,
-    cancel_url:  `${baseUrl}/panier.html`,
-    locale: 'fr',
-    expires_at: Math.floor(Date.now() / 1000) + 86400 * 7, // 7 jours
-  });
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      line_items: lineItems,
+      customer_email: order.customer_email || undefined,
+      ...(shippingAmt >= 0 ? {
+        shipping_options: [{
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: shippingAmt, currency: 'eur' },
+            display_name: shippingAmt > 0 ? 'Livraison' : 'Livraison offerte',
+          },
+        }],
+      } : {}),
+      metadata: { order_id: order.id },
+      success_url: `${baseUrl}/success.html?order_id=${order.id}`,
+      cancel_url:  `${baseUrl}/panier.html`,
+      locale: 'fr',
+      expires_at: Math.floor(Date.now() / 1000) + 86400 * 7,
+    });
+  } catch (err: any) {
+    console.error('[payment-link] Stripe error:', err.message);
+    return NextResponse.json({ error: `Stripe : ${err.message}` }, { status: 500, headers: CORS });
+  }
 
   const url = session.url!;
 
   await supabaseAdmin.from('orders').update({
-    payment_link_url:    url,
+    payment_link_url:     url,
     payment_link_sent_at: new Date().toISOString(),
   }).eq('id', order.id);
 
