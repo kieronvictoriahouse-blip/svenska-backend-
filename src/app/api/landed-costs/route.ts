@@ -59,9 +59,11 @@ export async function POST(req: NextRequest) {
     const currentStock = product.stock || 0;
     const currentPmp = product.cost_price || 0;
 
-    // Ajustement PMP : new_pmp = current_pmp + (qty_reçue × coût_alloué_unité) / stock_actuel
+    // Si des unités ont été vendues avant l'imputation du coût logistique, on plafonne qty
+    // au stock actuel pour éviter de concentrer tout le coût sur peu d'unités restantes.
+    const effectiveQty = Math.min(qty, currentStock);
     const newPmp = currentStock > 0
-      ? (currentStock * currentPmp + qty * allocatedPerUnit) / currentStock
+      ? (currentStock * currentPmp + effectiveQty * allocatedPerUnit) / currentStock
       : currentPmp + allocatedPerUnit;
 
     await supabaseAdmin.from('products').update({
