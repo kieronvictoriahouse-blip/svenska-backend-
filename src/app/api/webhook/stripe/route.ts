@@ -190,6 +190,50 @@ export async function POST(req: NextRequest) {
           html:    orderConfirmationHtml(orderForEmail, cfg),
         }, cfg);
 
+        // Notification interne — nouvelle commande
+        try {
+          const linesHtml = orderLines.map((l: any) =>
+            `<tr>
+              <td style="padding:4px 8px;border-bottom:1px solid #eee">${l.name || l.product_name || ''}</td>
+              <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center">${l.qty}</td>
+              <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">${((l.price || 0) * (l.qty || 1)).toFixed(2)} €</td>
+            </tr>`
+          ).join('');
+
+          const notifHtml = `
+            <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#222">
+              <h2 style="background:#1a1a2e;color:#fff;padding:16px 20px;margin:0;border-radius:6px 6px 0 0">
+                🛒 Nouvelle commande — ${existing?.order_number || ''}
+              </h2>
+              <div style="border:1px solid #ddd;border-top:none;padding:20px;border-radius:0 0 6px 6px">
+                <p><strong>Client :</strong> ${customerName}</p>
+                <p><strong>Email :</strong> ${customerEmail}</p>
+                <p><strong>Adresse :</strong> ${shippingAddress || '—'}</p>
+                <table style="width:100%;border-collapse:collapse;margin:12px 0">
+                  <thead>
+                    <tr style="background:#f5f5f5">
+                      <th style="padding:6px 8px;text-align:left">Produit</th>
+                      <th style="padding:6px 8px;text-align:center">Qté</th>
+                      <th style="padding:6px 8px;text-align:right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>${linesHtml}</tbody>
+                </table>
+                ${shippingCost > 0 ? `<p style="text-align:right;margin:4px 0">Livraison : <strong>${shippingCost.toFixed(2)} €</strong></p>` : ''}
+                <p style="text-align:right;font-size:1.1em">Total : <strong>${total.toFixed(2)} €</strong></p>
+              </div>
+            </div>`;
+
+          await sendEmail({
+            from:    fromEmail,
+            to:      'hej@swedishcravings.fr',
+            subject: `🛒 Nouvelle commande ${existing?.order_number || ''} — ${customerName} (${total.toFixed(2)} €)`,
+            html:    notifHtml,
+          }, cfg);
+        } catch (notifErr) {
+          console.error('[webhook] notification email error:', notifErr);
+        }
+
         // Second email facture
         if (!isTestEvent && !existing?.is_test) {
           try {
