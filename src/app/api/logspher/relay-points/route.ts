@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
           pays:         loc.country_code || country,
           carrier_name: carrier.name || '',
           carrier_uuid: carrier.uuid,
-          distance:     loc.distance ? String(loc.distance) : undefined,
+          distance:     loc.distance ? String(Math.round(Number(loc.distance) / 1000 * 10) / 10) : undefined,
         });
       }
     }
