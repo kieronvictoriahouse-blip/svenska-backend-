@@ -234,6 +234,40 @@ export async function POST(req: NextRequest) {
           console.error('[webhook] notification email error:', notifErr);
         }
 
+        // Étiquette LogSpher — livraison à domicile uniquement
+        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'delivery') {
+          try {
+            const { createLogspherLabel } = await import('@/lib/logspher');
+            const label = await createLogspherLabel({
+              order_number:     existing?.order_number || '',
+              customer_name:    customerName,
+              customer_email:   customerEmail,
+              customer_phone:   existing?.customer_phone || '',
+              shipping_address: shippingAddress,
+              lines:            orderLines,
+              total,
+            }, cfg);
+
+            await supabaseAdmin.from('orders').update({
+              tracking_number:        label.tracking_number,
+              logspher_shipment_id:   label.shipment_id,
+              logspher_tracking:      label.tracking_number,
+              logspher_label_url:     label.label_url,
+              logspher_carrier_name:  label.carrier_name,
+              logspher_carrier_code:  label.carrier_code,
+              updated_at:             new Date().toISOString(),
+            }).eq('id', orderId);
+          } catch (lsErr: any) {
+            console.error('[webhook] logspher label error:', lsErr?.message || lsErr);
+            try {
+              await supabaseAdmin.from('orders').update({
+                logspher_error: String(lsErr?.message || lsErr).slice(0, 500),
+                updated_at:     new Date().toISOString(),
+              }).eq('id', orderId);
+            } catch { /* non-bloquant */ }
+          }
+        }
+
         // Second email facture
         if (!isTestEvent && !existing?.is_test) {
           try {
