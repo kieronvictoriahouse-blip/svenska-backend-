@@ -13,17 +13,18 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { product_name, description, source_url, customer_email, lang } = body;
-  if (!product_name?.trim()) {
-    return NextResponse.json({ error: 'product_name requis' }, { status: 400 });
-  }
+  const { customer_name, product_name, description, source_url, customer_email, lang } = body;
+  if (!customer_name?.trim()) return NextResponse.json({ error: 'customer_name requis' }, { status: 400 });
+  if (!customer_email?.trim()) return NextResponse.json({ error: 'customer_email requis' }, { status: 400 });
+  if (!product_name?.trim()) return NextResponse.json({ error: 'product_name requis' }, { status: 400 });
   const { data, error } = await supabaseAdmin
     .from('product_suggestions')
     .insert({
+      customer_name: customer_name.trim(),
       product_name: product_name.trim(),
       description: description?.trim() || null,
       source_url: source_url?.trim() || null,
-      customer_email: customer_email?.trim() || null,
+      customer_email: customer_email.trim(),
       lang: lang || 'fr',
       status: 'new',
     })
