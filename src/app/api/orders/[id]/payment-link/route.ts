@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Stripe non configuré' }, { status: 500, headers: CORS });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: '2024-06-20' });
+  const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
 
   const lines: any[] = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
 
