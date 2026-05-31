@@ -170,8 +170,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const freeShipping = subtotal >= 50 || isFreeShippingPromo;
-    const shippingCost = isPickup ? 0 : (freeShipping ? 0 : 4.90);
+    const INTERNATIONAL_COUNTRIES = ['ES', 'PT', 'IT', 'DE', 'NL', 'BE', 'LU', 'CH'];
+    const relayCountry = (relay_point_pays || 'FR').toUpperCase();
+    const isInternational = isMondialRelay && INTERNATIONAL_COUNTRIES.includes(relayCountry);
+    const freeShippingThreshold = isInternational ? 70 : 50;
+    const baseShippingCost = isInternational ? 9.90 : 4.90;
+
+    const freeShipping = subtotal >= freeShippingThreshold || isFreeShippingPromo;
+    const shippingCost = isPickup ? 0 : (freeShipping ? 0 : baseShippingCost);
     const grandTotal = Math.max(0, subtotal - discountAmount) + shippingCost;
     if (grandTotal < 0.50) {
       return NextResponse.json({ error: `Total minimum de commande non atteint (${grandTotal.toFixed(2)} € < 0.50 €)` }, { status: 400, headers: CORS });
@@ -238,8 +244,12 @@ export async function POST(req: NextRequest) {
           ? {
               shipping_rate_data: {
                 type: 'fixed_amount',
-                fixed_amount: { amount: freeShipping ? 0 : 490, currency: 'eur' },
-                display_name: freeShipping ? 'Livraison gratuite en point relais' : 'Livraison en point relais Mondial Relay',
+                fixed_amount: { amount: freeShipping ? 0 : Math.round(baseShippingCost * 100), currency: 'eur' },
+                display_name: freeShipping
+                  ? 'Livraison gratuite en point relais'
+                  : isInternational
+                  ? `Livraison en point relais — International (${baseShippingCost.toFixed(2)} €)`
+                  : 'Livraison en point relais',
               },
             }
           : freeShipping
