@@ -1,4 +1,4 @@
-const API_URL = process.env.LOGSPHER_API_URL || 'https://api.logspher.com';
+const API_URL = process.env.LOGSPHER_API_URL || 'https://cloud.upelgo.com';
 
 function getApiKey() {
   const key = process.env.LOGSPHER_API_KEY;
@@ -53,7 +53,6 @@ function parseAddress(full: string) {
     address1Parts.push(rest[i]);
   }
 
-  // Fallback: find postcode inline in the last part
   if (!postcode) {
     const m = (rest[rest.length - 1] || '').match(/(\d{4,5})\s+(.+)/);
     if (m) {
@@ -79,13 +78,16 @@ export interface LogspherLabelResult {
   carrier_code: string;
 }
 
-export async function createLogspherLabel(
+export async function createLogspherRelayLabel(
   order: {
     order_number: string;
     customer_name: string;
     customer_email: string;
     customer_phone?: string;
-    shipping_address: string;
+    relay_point_id?: string;
+    relay_point_name?: string;
+    relay_point_address?: string;
+    relay_point_pays?: string;
     lines: Array<{ qty?: number; [key: string]: any }>;
     total: number;
   },
@@ -97,19 +99,26 @@ export async function createLogspherLabel(
   }
 ): Promise<LogspherLabelResult> {
   const shipFrom = parseAddress(wlConfig.address || '');
-  const shipTo = parseAddress(order.shipping_address);
+
+  // Adresse du client = adresse du point relais (c'est là que la livraison va)
+  const relayAddress = order.relay_point_address
+    ? parseAddress(order.relay_point_address)
+    : { address1: '', postcode: '', city: '', country: order.relay_point_pays || 'FR' };
 
   const nameParts = (order.customer_name || '').trim().split(/\s+/);
   const lastname = nameParts[0] || '';
   const firstname = nameParts.slice(1).join(' ') || lastname;
 
   const totalQty = (order.lines || []).reduce((acc, l) => acc + (l.qty || 1), 0);
-  const weightGrams = Math.max(500, totalQty * 500); // 500g par article, min 500g
+  const weightGrams = Math.max(500, totalQty * 500);
+
+  const destCountry = (relayAddress.country || order.relay_point_pays || 'FR').slice(0, 2).toUpperCase();
 
   const baseShipment = {
     type: 1,
     shipment_date: new Date().toISOString().split('T')[0],
-    delivery_type: 'HOME_DELIVERY',
+    delivery_type: 'PICKUP_POINT',
+    dropoff: true,
     content: 'Produits alimentaires suédois',
     insurance: false,
   };
@@ -126,23 +135,35 @@ export async function createLogspherLabel(
     phone: wlConfig.phone || '',
   };
 
+  // ship_to = adresse du client (pour l'identification)
   const baseShipTo = {
     pro: false,
-    country_code: (shipTo.country || 'FR').slice(0, 2),
-    postcode: shipTo.postcode,
-    city: shipTo.city,
-    address1: shipTo.address1,
+    country_code: destCountry,
+    postcode: relayAddress.postcode,
+    city: relayAddress.city,
+    address1: relayAddress.address1,
     lastname,
     firstname,
     email: order.customer_email || '',
     phone: order.customer_phone || '',
   };
 
+  // dropoff_to = point relais de destination
+  const dropoffTo = {
+    country_code: destCountry,
+    postcode: relayAddress.postcode,
+    city: relayAddress.city,
+    address1: relayAddress.address1,
+    company: order.relay_point_name || '',
+    lastname,
+    dropoff_location_id: order.relay_point_id || '',
+  };
+
   const baseParcels = [
     { weight: weightGrams, length: 30, width: 20, height: 15 },
   ];
 
-  // Step 1: get best offer via multi-rate
+  // Step 1: comparer toutes les offres point relais
   const rateRes = await apiFetch('/api/carrier/multi-rate', {
     method: 'POST',
     body: JSON.stringify({
@@ -158,11 +179,11 @@ export async function createLogspherLabel(
     throw new Error('Aucune offre LogSpher disponible: ' + JSON.stringify(rateRes.errors || {}));
   }
 
-  // Pick cheapest offer
+  // Prendre le moins cher
   const offers = [...rateRes.offers].sort((a: any, b: any) => (a.price_te ?? 0) - (b.price_te ?? 0));
   const best = offers[0];
 
-  // Step 2: create shipment label
+  // Step 2: créer l'étiquette
   const shipRes = await apiFetch('/api/carrier/ship', {
     method: 'POST',
     body: JSON.stringify({
@@ -176,6 +197,7 @@ export async function createLogspherLabel(
       },
       ship_from: baseShipFrom,
       ship_to: baseShipTo,
+      dropoff_to: dropoffTo,
       parcels: baseParcels,
       products: [
         {

@@ -234,17 +234,20 @@ export async function POST(req: NextRequest) {
           console.error('[webhook] notification email error:', notifErr);
         }
 
-        // Étiquette LogSpher — livraison à domicile uniquement
-        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'delivery') {
+        // Étiquette LogSpher — point relais (transporteur le moins cher automatique)
+        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'mondial_relay') {
           try {
-            const { createLogspherLabel } = await import('@/lib/logspher');
-            const label = await createLogspherLabel({
-              order_number:     existing?.order_number || '',
-              customer_name:    customerName,
-              customer_email:   customerEmail,
-              customer_phone:   existing?.customer_phone || '',
-              shipping_address: shippingAddress,
-              lines:            orderLines,
+            const { createLogspherRelayLabel } = await import('@/lib/logspher');
+            const label = await createLogspherRelayLabel({
+              order_number:        existing?.order_number || '',
+              customer_name:       customerName,
+              customer_email:      customerEmail,
+              customer_phone:      existing?.customer_phone || '',
+              relay_point_id:      existing?.relay_point_id || '',
+              relay_point_name:    existing?.relay_point_name || '',
+              relay_point_address: existing?.relay_point_address || '',
+              relay_point_pays:    existing?.relay_point_pays || 'FR',
+              lines:               orderLines,
               total,
             }, cfg);
 
