@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
       points.push({
         id: get('Num'),
         name: get('LgAdr1'),
-        adresse: [get('LgAdr3'), get('LgAdr4')].filter(Boolean).join(', '),
+        adresse: [get('LgAdr3'), get('LgAdr4')].filter(v => v && v.toUpperCase() !== 'NULL').join(', '),
         ville: get('Ville'),
         cp: get('CP'),
         pays: get('Pays'),
