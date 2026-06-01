@@ -988,6 +988,7 @@ export default function CommandesPage() {
 
                 {/* Mondial Relay */}
                 {!['refunded', 'cancelled'].includes(selected.status) && (
+                  <>
                   {(selected.logspher_label_url || selected.logspher_error) && (
                     <div style={{ background: selected.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${selected.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 8, padding: '12px 16px', marginTop: 12 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: selected.logspher_label_url ? '#166534' : '#9A3412', marginBottom: 8 }}>
@@ -996,7 +997,7 @@ export default function CommandesPage() {
                       {selected.logspher_label_url ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                           <span style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>✅ {selected.logspher_tracking}</span>
-                          <a href={selected.logspher_label_url} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#0369A1', fontWeight: 600, textDecoration: 'none', padding: '4px 10px', background: '#DBEAFE', borderRadius: 4 }}>⬇️ Télécharger l&apos;étiquette PDF</a>
+                          <a href={selected.logspher_label_url} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#0369A1', fontWeight: 600, textDecoration: 'none', padding: '4px 10px', background: '#DBEAFE', borderRadius: 4 }}>⬇️ Télécharger étiquette PDF</a>
                         </div>
                       ) : (
                         <div style={{ fontSize: 12, color: '#9A3412' }}>⚠️ {selected.logspher_error}</div>
@@ -1048,6 +1049,7 @@ export default function CommandesPage() {
                       {mrLoading ? '⏳ Création…' : '📦 Créer l\'étiquette'}
                     </button>
                   </div>
+                  </>
                 )}
               </div>
               <div className="o-modal-footer">
