@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mrHash, mrSoap, mrParseXml } from '@/lib/mondial-relay';
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
@@ -75,6 +84,28 @@ export async function GET(req: NextRequest) {
           return String(km);
         })(),
       });
+    }
+
+    // Recalcul des vraies distances et filtrage géographique
+    // On prend le point avec la plus petite distance MR comme centre de référence
+    const withCoords = points.filter(p => p.lat && p.lng && !isNaN(parseFloat(p.lat)));
+    if (withCoords.length > 0) {
+      withCoords.sort((a, b) => Number(a.distance || 999) - Number(b.distance || 999));
+      const ref = withCoords[0];
+      const refLat = parseFloat(ref.lat);
+      const refLng = parseFloat(ref.lng);
+
+      const filtered = points.filter(p => {
+        const lat = parseFloat(p.lat);
+        const lng = parseFloat(p.lng);
+        if (isNaN(lat) || isNaN(lng)) return true;
+        const realKm = haversineKm(refLat, refLng, lat, lng);
+        p.distance = String(Math.round(realKm * 10) / 10);
+        return realKm <= 25; // Max 25km de rayon réel
+      });
+      // Trier par distance croissante
+      filtered.sort((a, b) => Number(a.distance || 0) - Number(b.distance || 0));
+      return NextResponse.json({ points: filtered });
     }
 
     return NextResponse.json({ points });
