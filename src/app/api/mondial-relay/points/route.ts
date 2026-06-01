@@ -66,7 +66,14 @@ export async function GET(req: NextRequest) {
         pays: get('Pays'),
         lat: get('Latitude').replace(',', '.'),
         lng: get('Longitude').replace(',', '.'),
-        distance: get('Distance') ? String(Math.round(Number(get('Distance')) / 1000 * 10) / 10) : '',
+        distance: (function() {
+          const raw = Number(get('Distance') || '0');
+          if (!raw) return '';
+          // MR renvoie la distance en mètres → convertir en km arrondi à 1 décimale
+          const km = Math.round(raw / 1000 * 10) / 10;
+          console.log('[MR distance] raw=' + raw + ' → ' + km + 'km');
+          return String(km);
+        })(),
       });
     }
 

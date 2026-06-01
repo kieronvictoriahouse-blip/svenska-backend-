@@ -45,40 +45,43 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // 1. Récupérer les transporteurs actifs
+    // 1. Récupérer tous les transporteurs actifs
     const carriers: Array<{ uuid: string; name: string; carrierName?: string }> =
       await logspherFetch('/api/configuration/carrier/uuid/available');
 
+    console.log('[logspher/relay-points] carriers:', JSON.stringify(carriers));
+
     if (!Array.isArray(carriers) || carriers.length === 0) {
-      return NextResponse.json({ points: [] }, { headers: CORS });
+      return NextResponse.json({ points: [], debug: 'no carriers' }, { headers: CORS });
     }
 
-    // 2. Filtrer les transporteurs shop-to-shop / point relais
-    const shop2shopCarriers = carriers.filter(c => {
-      const n = (c.name || c.carrierName || '').toLowerCase();
-      return n.includes('2shop') || n.includes('shop2shop') || n.includes('relay') || n.includes('relais') || n.includes('mondial');
-    });
-
-    // Si aucun carrier shop2shop trouvé, essayer tous
-    const targets = shop2shopCarriers.length > 0 ? shop2shopCarriers : carriers;
-
-    // 3. Appeler dropoff-locations pour chaque transporteur en parallèle
+    // 2. Essayer tous les transporteurs actifs (certains ne supportent pas dropoff, on ignore les erreurs)
     const results = await Promise.allSettled(
-      targets.map(async (carrier) => {
+      carriers.map(async (carrier) => {
+        const body = {
+          address:      cp || city, // address est requis dans l'API
+          city:         city || '',
+          postcode:     cp,
+          country_code: country,
+        };
         const data = await logspherFetch(`/api/carrier/${carrier.uuid}/dropoff-locations`, {
           method: 'POST',
-          body: JSON.stringify({
-            address: '',
-            city: city || '',
-            postcode: cp,
-            country_code: country,
-          }),
+          body: JSON.stringify(body),
         });
         return { carrier, locations: data.locations || [] };
       })
     );
 
-    // 4. Normaliser et fusionner les points
+    // Log des erreurs par carrier pour debug
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.log(`[logspher/relay-points] carrier ${carriers[i]?.name} (${carriers[i]?.uuid}) failed:`, r.reason?.message);
+      } else {
+        console.log(`[logspher/relay-points] carrier ${carriers[i]?.name} → ${r.value.locations.length} points`);
+      }
+    });
+
+    // 3. Normaliser et fusionner les points
     const points: Array<{
       id: string;
       name: string;
@@ -95,8 +98,13 @@ export async function GET(req: NextRequest) {
       if (r.status === 'rejected') continue;
       const { carrier, locations } = r.value;
       for (const loc of locations) {
+        const rawDist = loc.distance;
+        // LogSpher renvoie la distance en mètres → convertir en km
+        const distKm = rawDist
+          ? String(Math.round(Number(rawDist) / 1000 * 10) / 10)
+          : undefined;
         points.push({
-          id:           loc.id || loc.dropoff_location_id || '',
+          id:           String(loc.id || loc.dropoff_location_id || ''),
           name:         loc.name || loc.company || '',
           adresse:      loc.address1 || loc.address || '',
           ville:        loc.city || '',
@@ -104,7 +112,7 @@ export async function GET(req: NextRequest) {
           pays:         loc.country_code || country,
           carrier_name: carrier.name || '',
           carrier_uuid: carrier.uuid,
-          distance:     loc.distance ? String(Math.round(Number(loc.distance) / 1000 * 10) / 10) : undefined,
+          distance:     distKm,
         });
       }
     }
