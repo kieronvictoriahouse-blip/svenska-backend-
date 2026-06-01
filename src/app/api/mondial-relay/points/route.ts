@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
         pays: get('Pays'),
         lat: get('Latitude').replace(',', '.'),
         lng: get('Longitude').replace(',', '.'),
-        distance: get('Distance'),
+        distance: get('Distance') ? String(Math.round(Number(get('Distance')) / 1000 * 10) / 10) : '',
       });
     }
 
