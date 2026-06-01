@@ -116,11 +116,13 @@ export async function createLogspherRelayLabel(
   const destCountry = (relayAddress.country || order.relay_point_pays || 'FR').slice(0, 2).toUpperCase();
 
   const baseShipment = {
-    type: 1,
+    id: 1,
+    type: 2,
     shipment_date: new Date().toISOString().split('T')[0],
-    delivery_type: 'PICKUP_POINT',
+    delivery_type: 'DELIVERY_TO_COLLECTION_POINT',
     dropoff: true,
-    content: 'Produits alimentaires suédois',
+    content: 'Produits alimentaires suedois',
+    reason: 'Commercial',
     insurance: false,
   };
 
@@ -160,8 +162,9 @@ export async function createLogspherRelayLabel(
     dropoff_location_id: order.relay_point_id || '',
   };
 
+  const weightKg = weightGrams / 1000;
   const baseParcels = [
-    { weight: weightGrams, length: 30, width: 20, height: 15 },
+    { number: 1, weight: weightKg, volumetric_weight: weightKg, x: 30, y: 20, z: 15 },
   ];
 
   // Step 1: obtenir le tarif — via le carrier UUID du point relais choisi si disponible, sinon multi-rate
@@ -219,11 +222,12 @@ export async function createLogspherRelayLabel(
       parcels: baseParcels,
       products: [
         {
-          desc: 'Produits alimentaires suédois',
-          qty: totalQty,
-          weight: weightGrams,
-          price: order.total,
-          currency: 'EUR',
+          number:      totalQty,
+          currency:    'EUR',
+          value:       order.total,
+          value_eur:   order.total,
+          description: 'Produits alimentaires suedois',
+          country_code: 'FR',
         },
       ],
     }),

@@ -234,8 +234,8 @@ export async function POST(req: NextRequest) {
           console.error('[webhook] notification email error:', notifErr);
         }
 
-        // Étiquette LogSpher — point relais (transporteur le moins cher automatique)
-        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'mondial_relay') {
+        // Étiquette point relais Chronopost via LogSpher (seulement si carrier_uuid connu)
+        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'mondial_relay' && existing?.relay_carrier_uuid) {
           try {
             const { createLogspherRelayLabel } = await import('@/lib/logspher');
             const label = await createLogspherRelayLabel({
@@ -253,13 +253,13 @@ export async function POST(req: NextRequest) {
             }, cfg);
 
             await supabaseAdmin.from('orders').update({
-              tracking_number:        label.tracking_number,
-              logspher_shipment_id:   label.shipment_id,
-              logspher_tracking:      label.tracking_number,
-              logspher_label_url:     label.label_url,
-              logspher_carrier_name:  label.carrier_name,
-              logspher_carrier_code:  label.carrier_code,
-              updated_at:             new Date().toISOString(),
+              tracking_number:       label.tracking_number,
+              logspher_shipment_id:  label.shipment_id,
+              logspher_tracking:     label.tracking_number,
+              logspher_label_url:    label.label_url,
+              logspher_carrier_name: label.carrier_name,
+              logspher_carrier_code: label.carrier_code,
+              updated_at:            new Date().toISOString(),
             }).eq('id', orderId);
           } catch (lsErr: any) {
             console.error('[webhook] logspher label error:', lsErr?.message || lsErr);

@@ -14,6 +14,11 @@ export async function OPTIONS() {
 
 const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
+// UUIDs des carriers qui supportent les points relais (dropoff-locations)
+// Chronopost BtoC (Chrono Relais) + Chronopost 2Shop
+const RELAY_CARRIER_UUIDS = (process.env.LOGSPHER_RELAY_CARRIER_UUIDS || '8c242fd4-bd1a-4fb9-8188-5586b3f1e807,a0ad7a57-f1f2-4c89-9d1c-7c94ab4a7933')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
 function getApiKey() {
   const key = process.env.LOGSPHER_API_KEY;
   if (!key) throw new Error('LOGSPHER_API_KEY manquante');
@@ -30,7 +35,7 @@ async function lsFetch(path: string, options: RequestInit = {}) {
     },
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`LogSpher ${path} → ${res.status}: ${text}`);
+  if (!res.ok) throw new Error(`LogSpher ${path} → ${res.status}: ${text?.slice(0, 200)}`);
   return JSON.parse(text);
 }
 
@@ -44,57 +49,49 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'cp ou city requis' }, { status: 400, headers: CORS });
   }
 
-  try {
-    // 1. Récupérer tous les transporteurs actifs
-    const carriers: Array<{ uuid: string; name: string; carrierName?: string }> =
-      await lsFetch('/api/configuration/carrier/uuid/available');
+  const results = await Promise.allSettled(
+    RELAY_CARRIER_UUIDS.map(async (uuid) => {
+      const data = await lsFetch(`/api/carrier/${uuid}/dropoff-locations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          address:      city || cp,
+          city:         city || '',
+          postcode:     cp,
+          country_code: country,
+        }),
+      });
+      return { uuid, locations: data.locations || [] };
+    })
+  );
 
-    if (!Array.isArray(carriers) || carriers.length === 0) {
-      return NextResponse.json({ points: [] }, { headers: CORS });
+  const points: any[] = [];
+  const carrierNames: Record<string, string> = {
+    '8c242fd4-bd1a-4fb9-8188-5586b3f1e807': 'Chronopost Relais',
+    'a0ad7a57-f1f2-4c89-9d1c-7c94ab4a7933': 'Chronopost 2Shop',
+  };
+
+  for (const r of results) {
+    if (r.status === 'rejected') {
+      console.warn('[relay-points] carrier failed:', r.reason?.message);
+      continue;
     }
-
-    // 2. Appeler dropoff-locations pour chaque carrier en parallèle
-    //    Les carriers qui ne supportent pas le dropoff échouent silencieusement
-    const results = await Promise.allSettled(
-      carriers.map(async (carrier) => {
-        const data = await lsFetch(`/api/carrier/${carrier.uuid}/dropoff-locations`, {
-          method: 'POST',
-          body: JSON.stringify({
-            address:      cp,
-            city:         city || '',
-            postcode:     cp,
-            country_code: country,
-          }),
-        });
-        return { carrier, locations: data.locations || [] };
-      })
-    );
-
-    // 3. Normaliser et fusionner
-    const points: any[] = [];
-    for (const r of results) {
-      if (r.status === 'rejected') continue;
-      const { carrier, locations } = r.value;
-      if (!locations.length) continue;
-      for (const loc of locations) {
-        const rawDist = Number(loc.distance || 0);
-        points.push({
-          id:           String(loc.id || loc.dropoff_location_id || ''),
-          name:         loc.name || loc.company || '',
-          adresse:      loc.address1 || loc.address || '',
-          ville:        loc.city || '',
-          cp:           loc.postcode || loc.postal_code || '',
-          pays:         loc.country_code || country,
-          carrier_name: carrier.name || '',
-          carrier_uuid: carrier.uuid,
-          distance:     rawDist ? String(Math.round(rawDist / 1000 * 10) / 10) : undefined,
-        });
-      }
+    const { uuid, locations } = r.value;
+    for (const loc of locations) {
+      const rawDist = Number(loc.distance || 0);
+      points.push({
+        id:           String(loc.location_id || loc.dropoff_location_id || ''),
+        name:         loc.name || '',
+        adresse:      loc.address1 || '',
+        ville:        loc.city || '',
+        cp:           loc.postcode || '',
+        pays:         loc.country_code || country,
+        carrier_name: carrierNames[uuid] || 'Chronopost',
+        carrier_uuid: uuid,
+        distance:     rawDist ? String(Math.round(rawDist * 10) / 10) : undefined,
+        hours:        loc.hours_formatted || undefined,
+      });
     }
-
-    return NextResponse.json({ points }, { headers: CORS });
-  } catch (err: any) {
-    console.error('[logspher/relay-points]', err.message);
-    return NextResponse.json({ error: err.message, points: [] }, { status: 500, headers: CORS });
   }
+
+  return NextResponse.json({ points }, { headers: CORS });
 }
