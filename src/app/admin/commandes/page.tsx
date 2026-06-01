@@ -20,6 +20,7 @@ type Order = {
   stripe_session_id?: string; exclude_from_stats?: boolean;
   relay_point_id?: string; relay_point_name?: string; relay_point_address?: string; relay_point_pays?: string;
   mondial_relay_tracking?: string; mondial_relay_label_url?: string;
+  logspher_tracking?: string; logspher_label_url?: string; logspher_carrier_name?: string; logspher_error?: string;
   payment_link_url?: string; payment_link_sent_at?: string;
 };
 
@@ -987,6 +988,21 @@ export default function CommandesPage() {
 
                 {/* Mondial Relay */}
                 {!['refunded', 'cancelled'].includes(selected.status) && (
+                  {(selected.logspher_label_url || selected.logspher_error) && (
+                    <div style={{ background: selected.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${selected.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 8, padding: '12px 16px', marginTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: selected.logspher_label_url ? '#166534' : '#9A3412', marginBottom: 8 }}>
+                        📦 Étiquette {selected.logspher_carrier_name || 'LogSpher'}
+                      </div>
+                      {selected.logspher_label_url ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>✅ {selected.logspher_tracking}</span>
+                          <a href={selected.logspher_label_url} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#0369A1', fontWeight: 600, textDecoration: 'none', padding: '4px 10px', background: '#DBEAFE', borderRadius: 4 }}>⬇️ Télécharger l&apos;étiquette PDF</a>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: '#9A3412' }}>⚠️ {selected.logspher_error}</div>
+                      )}
+                    </div>
+                  )}
                   <div className="tracking-box" style={{ background: '#F0F9FF', borderColor: '#BAE6FD', marginTop: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1', marginBottom: 10 }}>
                       🚚 Expédition Mondial Relay

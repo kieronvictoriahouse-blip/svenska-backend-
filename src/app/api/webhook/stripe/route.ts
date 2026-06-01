@@ -236,8 +236,12 @@ export async function POST(req: NextRequest) {
           console.error('[webhook] notification email error:', notifErr);
         }
 
-        // Étiquette point relais Chronopost via LogSpher (seulement si carrier_uuid connu)
-        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'mondial_relay' && existing?.relay_carrier_uuid) {
+        // Étiquette point relais via LogSpher
+        // relay_carrier_uuid = Chronopost si choisi par client, sinon Mondial Relay par défaut
+        const relayCarrierUuid = existing?.relay_carrier_uuid
+          || process.env.LOGSPHER_MR_UUID
+          || 'b139ac1f-bbb9-4235-b87e-aedcb3c32132';
+        if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'mondial_relay') {
           try {
             const { createLogspherRelayLabel } = await import('@/lib/logspher');
             const label = await createLogspherRelayLabel({
@@ -249,7 +253,7 @@ export async function POST(req: NextRequest) {
               relay_point_name:    existing?.relay_point_name || '',
               relay_point_address: existing?.relay_point_address || '',
               relay_point_pays:    existing?.relay_point_pays || 'FR',
-              relay_carrier_uuid:  existing?.relay_carrier_uuid || '',
+              relay_carrier_uuid:  relayCarrierUuid,
               lines:               orderLines,
               total,
             }, cfg);
