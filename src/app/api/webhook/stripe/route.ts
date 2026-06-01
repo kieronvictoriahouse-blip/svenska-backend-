@@ -247,6 +247,7 @@ export async function POST(req: NextRequest) {
               relay_point_name:    existing?.relay_point_name || '',
               relay_point_address: existing?.relay_point_address || '',
               relay_point_pays:    existing?.relay_point_pays || 'FR',
+              relay_carrier_uuid:  existing?.relay_carrier_uuid || '',
               lines:               orderLines,
               total,
             }, cfg);

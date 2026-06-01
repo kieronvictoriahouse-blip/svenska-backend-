@@ -88,6 +88,7 @@ export async function createLogspherRelayLabel(
     relay_point_name?: string;
     relay_point_address?: string;
     relay_point_pays?: string;
+    relay_carrier_uuid?: string;
     lines: Array<{ qty?: number; [key: string]: any }>;
     total: number;
   },
@@ -163,25 +164,42 @@ export async function createLogspherRelayLabel(
     { weight: weightGrams, length: 30, width: 20, height: 15 },
   ];
 
-  // Step 1: comparer toutes les offres point relais
-  const rateRes = await apiFetch('/api/carrier/multi-rate', {
-    method: 'POST',
-    body: JSON.stringify({
-      order_id: order.order_number,
-      shipment: baseShipment,
-      ship_from: baseShipFrom,
-      ship_to: baseShipTo,
-      parcels: baseParcels,
-    }),
-  });
-
-  if (!rateRes.success || !Array.isArray(rateRes.offers) || !rateRes.offers.length) {
-    throw new Error('Aucune offre LogSpher disponible: ' + JSON.stringify(rateRes.errors || {}));
+  // Step 1: obtenir le tarif — via le carrier UUID du point relais choisi si disponible, sinon multi-rate
+  let best: any;
+  if (order.relay_carrier_uuid) {
+    // Le client a choisi un point relais d'un carrier spécifique → on utilise ce carrier directement
+    const rateRes = await apiFetch(`/api/carrier/${order.relay_carrier_uuid}/rate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        order_id: order.order_number,
+        shipment: baseShipment,
+        ship_from: baseShipFrom,
+        ship_to: baseShipTo,
+        parcels: baseParcels,
+      }),
+    });
+    if (!rateRes.success || !Array.isArray(rateRes.offers) || !rateRes.offers.length) {
+      throw new Error('Aucune offre pour ce carrier: ' + JSON.stringify(rateRes.errors || {}));
+    }
+    best = rateRes.offers[0];
+  } else {
+    // Fallback multi-rate → moins cher
+    const rateRes = await apiFetch('/api/carrier/multi-rate', {
+      method: 'POST',
+      body: JSON.stringify({
+        order_id: order.order_number,
+        shipment: baseShipment,
+        ship_from: baseShipFrom,
+        ship_to: baseShipTo,
+        parcels: baseParcels,
+      }),
+    });
+    if (!rateRes.success || !Array.isArray(rateRes.offers) || !rateRes.offers.length) {
+      throw new Error('Aucune offre LogSpher disponible: ' + JSON.stringify(rateRes.errors || {}));
+    }
+    const offers = [...rateRes.offers].sort((a: any, b: any) => (a.price_te ?? 0) - (b.price_te ?? 0));
+    best = offers[0];
   }
-
-  // Prendre le moins cher
-  const offers = [...rateRes.offers].sort((a: any, b: any) => (a.price_te ?? 0) - (b.price_te ?? 0));
-  const best = offers[0];
 
   // Step 2: créer l'étiquette
   const shipRes = await apiFetch('/api/carrier/ship', {
