@@ -22,8 +22,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'cp ou ville requis' }, { status: 400 });
   }
 
-  // Normaliser le code postal — supprimer tirets et espaces (ex: 9700-301 → 9700301)
-  const cpNorm = cp.replace(/[-\s]/g, '');
+  // Normaliser le code postal selon le pays
+  // Portugal : XXXX-XXX → MR attend XXXX (4 premiers chiffres)
+  // Autres : supprimer tirets et espaces
+  const cpNorm = pays === 'PT'
+    ? cp.split('-')[0].trim()
+    : cp.replace(/[-\s]/g, '');
 
   const enseigne = process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI';
   const privateKey = process.env.MONDIAL_RELAY_KEY;
@@ -89,39 +93,32 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Filtrage par code postal — même département pour la France,
-    // même zone pour les autres pays
-    const searchPrefix = cpNorm.slice(0, 2);
-    const filtered = points.filter(p => {
-      if (!p.cp) return true;
-      const resultCp = p.cp.replace(/[-\s]/g, '');
-      const resultPrefix = resultCp.slice(0, 2);
-      // France : même département (2 premiers chiffres)
-      if (pays === 'FR') return resultPrefix === searchPrefix;
-      // Autres pays : même zone (2 premiers caractères)
-      return resultPrefix === searchPrefix;
-    });
+    // Calcul du centroïde médian de TOUS les points (robuste aux outliers)
+    const withCoords = points.filter(p => p.lat && p.lng && !isNaN(parseFloat(p.lat)));
+    if (withCoords.length > 1) {
+      const sortedLats = [...withCoords].map(p => parseFloat(p.lat)).sort((a, b) => a - b);
+      const sortedLngs = [...withCoords].map(p => parseFloat(p.lng)).sort((a, b) => a - b);
+      const mid = Math.floor(sortedLats.length / 2);
+      const refLat = sortedLats[mid];
+      const refLng = sortedLngs[mid];
 
-    // Recalcul des distances réelles via haversine
-    // Référence = centroïde des points filtrés (médiane lat/lng)
-    const withCoords = filtered.filter(p => p.lat && p.lng && !isNaN(parseFloat(p.lat)));
-    if (withCoords.length > 0) {
-      const lats = withCoords.map(p => parseFloat(p.lat)).sort((a, b) => a - b);
-      const lngs = withCoords.map(p => parseFloat(p.lng)).sort((a, b) => a - b);
-      const refLat = lats[Math.floor(lats.length / 2)];
-      const refLng = lngs[Math.floor(lngs.length / 2)];
+      // Recalculer les distances et filtrer à 30km max du centroïde
+      const result = points
+        .map(p => {
+          const lat = parseFloat(p.lat);
+          const lng = parseFloat(p.lng);
+          if (isNaN(lat) || isNaN(lng)) return { ...p, _dist: 999 };
+          const d = haversineKm(refLat, refLng, lat, lng);
+          return { ...p, distance: String(Math.round(d * 10) / 10), _dist: d };
+        })
+        .filter(p => p._dist <= 30)
+        .sort((a, b) => a._dist - b._dist)
+        .map(({ _dist, ...p }) => p);
 
-      filtered.forEach(p => {
-        const lat = parseFloat(p.lat);
-        const lng = parseFloat(p.lng);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          p.distance = String(Math.round(haversineKm(refLat, refLng, lat, lng) * 10) / 10);
-        }
-      });
-      filtered.sort((a, b) => Number(a.distance || 0) - Number(b.distance || 0));
+      return NextResponse.json({ points: result });
     }
 
-    return NextResponse.json({ points: filtered });
+    return NextResponse.json({ points });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
