@@ -92,10 +92,12 @@ export async function POST(req: NextRequest) {
           .neq('id', orderId);
       }
 
-      // Décrémenter le stock
-      for (const line of orderLines) {
-        if (line.product_id) {
-          try { await supabaseAdmin.rpc('decrement_stock', { p_id: line.product_id, qty: line.qty }); } catch { /* non bloquant */ }
+      // Décrémenter le stock — skip pour les commandes test
+      if (!isTestEvent && !existing?.is_test) {
+        for (const line of orderLines) {
+          if (line.product_id) {
+            try { await supabaseAdmin.rpc('decrement_stock', { p_id: line.product_id, qty: line.qty }); } catch { /* non bloquant */ }
+          }
         }
       }
 
