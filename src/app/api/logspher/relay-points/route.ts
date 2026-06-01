@@ -12,7 +12,7 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
 }
 
-const API_URL = process.env.LOGSPHER_API_URL || 'https://cloud.upelgo.com';
+const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
 function getApiKey() {
   const key = process.env.LOGSPHER_API_KEY;

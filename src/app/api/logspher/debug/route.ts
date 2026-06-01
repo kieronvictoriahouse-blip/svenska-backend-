@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-const API_URL = process.env.LOGSPHER_API_URL || 'https://cloud.upelgo.com';
+const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
 function getApiKey() {
   return process.env.LOGSPHER_API_KEY || '';
