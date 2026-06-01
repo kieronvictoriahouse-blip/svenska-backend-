@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'cp ou ville requis' }, { status: 400 });
   }
 
+  // Normaliser le code postal — supprimer tirets et espaces (ex: 9700-301 → 9700301)
+  const cpNorm = cp.replace(/[-\s]/g, '');
+
   const enseigne = process.env.MONDIAL_RELAY_ENSEIGNE || 'CC23X5KI';
   const privateKey = process.env.MONDIAL_RELAY_KEY;
   if (!privateKey) {
@@ -33,7 +36,7 @@ export async function GET(req: NextRequest) {
     Pays: pays,
     NumPointRelais: '',
     Ville: ville,
-    CP: cp,
+    CP: cpNorm,
     Latitude: '',
     Longitude: '',
     Taille: '',
