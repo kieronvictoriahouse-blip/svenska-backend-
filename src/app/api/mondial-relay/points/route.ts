@@ -89,29 +89,39 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Recalcul des vraies distances et filtrage géographique
-    // On prend le point avec la plus petite distance MR comme centre de référence
-    const withCoords = points.filter(p => p.lat && p.lng && !isNaN(parseFloat(p.lat)));
-    if (withCoords.length > 0) {
-      withCoords.sort((a, b) => Number(a.distance || 999) - Number(b.distance || 999));
-      const ref = withCoords[0];
-      const refLat = parseFloat(ref.lat);
-      const refLng = parseFloat(ref.lng);
+    // Filtrage par code postal — même département pour la France,
+    // même zone pour les autres pays
+    const searchPrefix = cpNorm.slice(0, 2);
+    const filtered = points.filter(p => {
+      if (!p.cp) return true;
+      const resultCp = p.cp.replace(/[-\s]/g, '');
+      const resultPrefix = resultCp.slice(0, 2);
+      // France : même département (2 premiers chiffres)
+      if (pays === 'FR') return resultPrefix === searchPrefix;
+      // Autres pays : même zone (2 premiers caractères)
+      return resultPrefix === searchPrefix;
+    });
 
-      const filtered = points.filter(p => {
+    // Recalcul des distances réelles via haversine
+    // Référence = centroïde des points filtrés (médiane lat/lng)
+    const withCoords = filtered.filter(p => p.lat && p.lng && !isNaN(parseFloat(p.lat)));
+    if (withCoords.length > 0) {
+      const lats = withCoords.map(p => parseFloat(p.lat)).sort((a, b) => a - b);
+      const lngs = withCoords.map(p => parseFloat(p.lng)).sort((a, b) => a - b);
+      const refLat = lats[Math.floor(lats.length / 2)];
+      const refLng = lngs[Math.floor(lngs.length / 2)];
+
+      filtered.forEach(p => {
         const lat = parseFloat(p.lat);
         const lng = parseFloat(p.lng);
-        if (isNaN(lat) || isNaN(lng)) return true;
-        const realKm = haversineKm(refLat, refLng, lat, lng);
-        p.distance = String(Math.round(realKm * 10) / 10);
-        return realKm <= 25; // Max 25km de rayon réel
+        if (!isNaN(lat) && !isNaN(lng)) {
+          p.distance = String(Math.round(haversineKm(refLat, refLng, lat, lng) * 10) / 10);
+        }
       });
-      // Trier par distance croissante
       filtered.sort((a, b) => Number(a.distance || 0) - Number(b.distance || 0));
-      return NextResponse.json({ points: filtered });
     }
 
-    return NextResponse.json({ points });
+    return NextResponse.json({ points: filtered });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
