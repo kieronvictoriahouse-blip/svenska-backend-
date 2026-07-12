@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
 
     const customerName  = shipping?.name || session.customer_details?.name || '';
     const customerEmail = session.customer_details?.email || '';
+    const customerPhone = session.customer_details?.phone || '';
     const total         = (session.amount_total || 0) / 100;
     const shippingCost  = session.shipping_cost?.amount_total ? session.shipping_cost.amount_total / 100 : 0;
 
@@ -74,6 +75,7 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.from('orders').update({
         customer_name:    customerName,
         customer_email:   customerEmail,
+        ...(customerPhone ? { customer_phone: customerPhone } : {}),
         shipping_address: shippingAddress,
         subtotal:         subtotal > 0 ? subtotal : total,
         shipping:         shippingCost,
