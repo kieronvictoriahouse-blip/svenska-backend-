@@ -93,12 +93,19 @@ export default function ComptabilitePage() {
     setTimeout(() => setToast(''), 3500);
   };
 
+  const authHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
+    return { Authorization: `Bearer ${token}` };
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
+      const headers = { Authorization: `Bearer ${token}` };
       const [sumRes, entRes] = await Promise.all([
-        fetch(`/api/accounting/summary?year=${selectedYear}`, { cache: 'no-store' }),
-        fetch(`/api/accounting/entries?year=${selectedYear}`, { cache: 'no-store' }),
+        fetch(`/api/accounting/summary?year=${selectedYear}`, { cache: 'no-store', headers }),
+        fetch(`/api/accounting/entries?year=${selectedYear}`, { cache: 'no-store', headers }),
       ]);
       if (sumRes.ok) setSummary(await sumRes.json());
       if (entRes.ok) setEntries((await entRes.json()).entries || []);
@@ -107,12 +114,25 @@ export default function ComptabilitePage() {
     }
   }, [selectedYear]);
 
+  async function downloadFile(url: string, filename: string) {
+    try {
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) { showToast('❌ Export échoué (session expirée ?)'); return; }
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(objUrl);
+    } catch { showToast('❌ Export échoué'); }
+  }
+
   useEffect(() => { load(); }, [load]);
 
   async function sync() {
     setSyncing(true);
     try {
-      const res = await fetch('/api/accounting/sync', { method: 'POST' });
+      const res = await fetch('/api/accounting/sync', { method: 'POST', headers: authHeaders() });
       const data = await res.json();
       if (res.ok) {
         showToast(`✅ ${data.count} nouvelles entrées importées`);
@@ -131,7 +151,7 @@ export default function ComptabilitePage() {
     try {
       const res = await fetch('/api/accounting/entries', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ date: fDate, type: formType, category: fCat, description: fDesc, amount: parseFloat(fAmount) }),
       });
       if (res.ok) {
@@ -150,9 +170,9 @@ export default function ComptabilitePage() {
 
   async function deleteEntry(id: string) {
     if (!confirm('Supprimer cette entrée ?')) return;
-    const res = await fetch(`/api/accounting/entries?id=${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/accounting/entries?id=${id}`, { method: 'DELETE', headers: authHeaders() });
     if (res.ok) { showToast('🗑️ Supprimé'); load(); }
-    else showToast('❌ Erreur suppression');
+    else { const e = await res.json().catch(() => ({})); showToast('❌ ' + (e?.error || 'Erreur suppression')); }
   }
 
   const income  = entries.filter(e => e.type === 'income');
@@ -213,30 +233,28 @@ export default function ComptabilitePage() {
           >
             {syncing ? '⏳ Sync…' : '🔄 Synchroniser'}
           </button>
-          <a
-            href={`/api/accounting/fec?year=${selectedYear}`}
-            download
+          <button
+            onClick={() => downloadFile(`/api/accounting/fec?year=${selectedYear}`, `FEC_${selectedYear}.txt`)}
             style={{
               padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
               background: '#1e293b', color: '#fff', fontSize: 14, fontWeight: 600,
-              textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
             }}
             title="Export FEC — obligatoire en cas de contrôle fiscal (Art. L.47 A LPF)"
           >
             📁 Export FEC
-          </a>
-          <a
-            href={`/api/accounting/export-excel?year=${selectedYear}`}
-            download
+          </button>
+          <button
+            onClick={() => downloadFile(`/api/accounting/export-excel?year=${selectedYear}`, `Comptabilite_${selectedYear}.csv`)}
             style={{
               padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
               background: '#10b981', color: '#fff', fontSize: 14, fontWeight: 600,
-              textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
             }}
             title="Export Excel (CSV)"
           >
             📊 Excel
-          </a>
+          </button>
           <button
             onClick={() => setShowUrssaf(v => !v)}
             style={{
@@ -282,7 +300,7 @@ export default function ComptabilitePage() {
               { ok: true,  label: 'Seuil franchise TVA correct (91 900 €)', ref: 'Art. 293 B CGI', note: 'Livraisons de biens 2025' },
               { ok: false, label: 'Mention TVA sur factures', ref: 'Art. 293 B CGI', note: 'Ajouter "TVA non applicable, art. 293 B du CGI" sur tes factures' },
               { ok: false, label: 'SIRET sur factures émises', ref: 'Art. L.441-9 Ccom', note: 'Obligatoire sur toute facture' },
-              { ok: false, label: 'Conservation 10 ans', ref: 'Art. L.123-22 Ccom', note: 'Désactiver la suppression des écritures validées' },
+              { ok: true,  label: 'Conservation 10 ans', ref: 'Art. L.123-22 Ccom', note: 'Écritures automatiques non supprimables (contre-passation obligatoire)' },
               { ok: false, label: 'RGPD — données clients', ref: 'Règlement UE 2016/679', note: 'Mentions légales + politique de confidentialité sur le site' },
             ].map((item, i) => (
               <div key={i} style={{

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const type = searchParams.get('type');
   const year = searchParams.get('year') || new Date().getFullYear().toString();
@@ -23,6 +25,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const { date, type, category, description, amount } = body;
 
@@ -46,8 +49,23 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const id = req.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
+
+  // Conservation légale (Art. L.123-22 Ccom) : seules les écritures saisies
+  // manuellement sont supprimables. Les écritures issues d'une synchro
+  // (commande, réception, coût logistique, remboursement) sont figées —
+  // pour les annuler, passer par une écriture de contre-passation.
+  const { data: entry } = await supabaseAdmin
+    .from('accounting_entries').select('reference_type').eq('id', id).maybeSingle();
+  if (!entry) return NextResponse.json({ error: 'Écriture introuvable' }, { status: 404 });
+  if (entry.reference_type && entry.reference_type !== 'manual') {
+    return NextResponse.json(
+      { error: 'Écriture automatique non supprimable (conservation légale). Utilisez une contre-passation.' },
+      { status: 403 },
+    );
+  }
 
   const { error } = await supabaseAdmin.from('accounting_entries').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

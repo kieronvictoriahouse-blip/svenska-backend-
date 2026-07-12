@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const created: string[] = [];
   const skipped: string[] = [];
   const invoicesCreated: string[] = [];
@@ -36,12 +38,14 @@ export async function POST(_req: NextRequest) {
       .eq('type', 'income')
       .maybeSingle();
 
+    const orderDate = (order.created_at || new Date().toISOString()).split('T')[0];
+
     if (existing) {
       skipped.push(order.order_number);
     } else {
       const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
       await supabaseAdmin.from('accounting_entries').insert({
-        date: order.created_at.split('T')[0],
+        date: orderDate,
         type: 'income',
         category,
         description: `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
@@ -62,7 +66,7 @@ export async function POST(_req: NextRequest) {
       if (!existingStripe) {
         const stripeFee = Math.round(((order.total || 0) * 0.015 + 0.25) * 100) / 100;
         await supabaseAdmin.from('accounting_entries').insert({
-          date: order.created_at.split('T')[0],
+          date: orderDate,
           type: 'expense',
           category: 'frais_stripe',
           description: `Frais Stripe — ${order.order_number}`,
@@ -94,7 +98,7 @@ export async function POST(_req: NextRequest) {
 
     const lines: any[] = typeof rec.lines === 'string' ? JSON.parse(rec.lines) : rec.lines || [];
     const total = lines.reduce(
-      (s: number, l: any) => s + (parseInt(l.received_qty) || 0) * (parseFloat(l.unit_cost) || 0),
+      (s: number, l: any) => s + (parseFloat(l.received_qty) || 0) * (parseFloat(l.unit_cost) || 0),
       0,
     );
     if (total <= 0) { skipped.push(rec.number); continue; }

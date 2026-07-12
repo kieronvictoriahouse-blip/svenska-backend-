@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,7 @@ function escapeFec(s: string) {
 }
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const year = req.nextUrl.searchParams.get('year') || new Date().getFullYear().toString();
   const companyName = req.nextUrl.searchParams.get('company') || 'ENTREPRISE';
   const siren = req.nextUrl.searchParams.get('siren') || '000000000';

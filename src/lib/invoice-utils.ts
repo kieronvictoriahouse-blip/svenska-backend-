@@ -1,6 +1,26 @@
 import { supabaseAdmin } from './supabase';
 import PDFDocument from 'pdfkit';
 
+/**
+ * Numéro de pièce séquentiel et continu (Art. 242 nonies A CGI).
+ * Dérivé du plus grand numéro existant en base pour ce préfixe — ne dépend
+ * d'aucun compteur externe susceptible de dériver, donc pas de doublon ni de
+ * trou. `prefix` inclut l'année, ex. "FAC-2026-" ou "AV-2026-".
+ */
+export async function nextSequentialNumber(prefix: string): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from('invoices')
+    .select('number')
+    .like('number', `${prefix}%`)
+    .order('number', { ascending: false })
+    .limit(1);
+  const last = data?.[0]?.number
+    ? parseInt(String(data[0].number).slice(prefix.length), 10)
+    : 0;
+  const next = (Number.isNaN(last) ? 0 : last) + 1;
+  return `${prefix}${String(next).padStart(4, '0')}`;
+}
+
 export async function generateInvoicePdf(invoice: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
@@ -93,11 +113,7 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     .from('white_label_config').select('*').limit(1).maybeSingle();
 
   // Numéro de facture séquentiel par année (Art. 242 nonies A CGI)
-  const counterKey = `invoice_next_${year}`;
-  const { data: setting } = await supabaseAdmin
-    .from('company_settings').select('value').eq('key', counterKey).maybeSingle();
-  const nextNum = parseInt(setting?.value || '1', 10);
-  const invoiceNumber = `FAC-${year}-${String(nextNum).padStart(4, '0')}`;
+  const invoiceNumber = await nextSequentialNumber(`FAC-${year}-`);
 
   // Préparer les lignes de facture
   let rawLines: any[] = [];
@@ -164,11 +180,6 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     console.error('[invoice-utils] Erreur création facture:', error.message);
     return null;
   }
-
-  // Incrémenter le compteur annuel
-  const newVal = (nextNum + 1).toString();
-  await supabaseAdmin.from('company_settings')
-    .upsert({ key: counterKey, value: newVal }, { onConflict: 'key' });
 
   return invoice;
 }

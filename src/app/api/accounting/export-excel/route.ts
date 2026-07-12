@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const year = req.nextUrl.searchParams.get('year') || new Date().getFullYear().toString();
 
   const { data, error } = await supabaseAdmin

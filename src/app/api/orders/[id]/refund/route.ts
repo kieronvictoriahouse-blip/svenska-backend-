@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
+import { nextSequentialNumber } from '@/lib/invoice-utils';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -61,12 +62,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const { data: originalInv } = await supabaseAdmin
       .from('invoices').select('*').eq('order_id', params.id).neq('status', 'avoir').maybeSingle();
 
-    // Numéro d'avoir séquentiel
-    const counterKey = `avoir_next_${year}`;
-    const { data: setting } = await supabaseAdmin
-      .from('company_settings').select('value').eq('key', counterKey).maybeSingle();
-    const nextNum = parseInt(setting?.value || '1', 10);
-    const avoirNumber = `AV-${year}-${String(nextNum).padStart(4, '0')}`;
+    // Numéro d'avoir séquentiel (même logique fiable que les factures)
+    const avoirNumber = await nextSequentialNumber(`AV-${year}-`);
 
     // Créer l'avoir (montants négatifs)
     await supabaseAdmin.from('invoices').insert({
@@ -89,9 +86,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       seller_email:   originalInv?.seller_email   || '',
       seller_phone:   originalInv?.seller_phone   || '',
     });
-
-    await supabaseAdmin.from('company_settings')
-      .upsert({ key: counterKey, value: (nextNum + 1).toString() }, { onConflict: 'key' });
 
     // Marquer la facture originale comme remboursée
     if (originalInv) {
