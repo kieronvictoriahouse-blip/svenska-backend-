@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { rehostImage } from '@/lib/rehost-image';
+
+export const maxDuration = 60;
 
 // Helper auth
 async function requireAuth(req: NextRequest) {
@@ -32,6 +35,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const body = await req.json();
+
+  // Rapatrie les nouvelles images externes dans notre Storage (évite les liens morts).
+  if (typeof body.image_url === 'string' && body.image_url) {
+    body.image_url = (await rehostImage(body.image_url)) || body.image_url;
+  }
+  if (Array.isArray(body.extra_images)) {
+    body.extra_images = await Promise.all(
+      body.extra_images.map(async (u: string) => (await rehostImage(u)) || u)
+    );
+  }
 
   // Mise à jour produit
   const updateData: Record<string, any> = {};
