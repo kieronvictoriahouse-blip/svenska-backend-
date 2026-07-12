@@ -12,6 +12,7 @@ export default function ProduitsPage() {
   const [toast, setToast] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [rehosting, setRehosting] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -74,9 +75,30 @@ export default function ProduitsPage() {
     showToast(`🗑️ ${selected.size} produit(s) supprimé(s)`);
   }
 
+  async function rehostImages() {
+    if (!window.confirm('Rapatrier toutes les images externes dans le Storage ?\n\nLes images encore vivantes seront copiées chez nous (liens permanents). Les images déjà mortes (404) resteront à re-scraper.')) return;
+    setRehosting(true);
+    try {
+      const token = localStorage.getItem('sd_admin_token');
+      const res = await fetch('/api/admin/rehost-images', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+      const failed = (data.failed || []).length;
+      showToast(`🖼️ ${data.rehosted}/${data.total_external} rapatriées${failed ? ` · ${failed} morte(s) à re-scraper` : ''}`);
+      await load();
+    } catch (e: any) {
+      showToast(`⚠️ ${e.message}`);
+    } finally {
+      setRehosting(false);
+    }
+  }
+
   function showToast(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(''), 2800);
+    setTimeout(() => setToast(''), 4000);
   }
 
   const filtered = products.filter(p => {
@@ -101,6 +123,10 @@ export default function ProduitsPage() {
               {deleting ? '⏳' : '🗑️'} Supprimer ({selected.size})
             </button>
           )}
+          <button className="btn btn-secondary btn-sm" onClick={rehostImages} disabled={rehosting}
+            title="Copie les images externes (olw.se, etc.) dans notre Storage pour éviter les liens morts">
+            {rehosting ? '⏳ Rapatriement…' : '🖼️ Rapatrier images'}
+          </button>
           <Link href="/admin/produits/nouveau" className="btn btn-primary btn-sm">+ Nouveau produit</Link>
         </div>
       </div>
