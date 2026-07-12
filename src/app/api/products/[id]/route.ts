@@ -53,7 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     'subtitle_sv', 'subtitle_fr', 'subtitle_en',
     'desc_sv', 'desc_fr', 'desc_en',
     'price', 'cost_price', 'weight', 'origin_sv', 'origin_fr', 'origin_en',
-    'image_url', 'badge', 'is_bestseller', 'is_new', 'is_active',
+    'image_url', 'badge', 'is_bestseller', 'is_new', 'is_active', 'pickup_only',
     'rating', 'reviews_count', 'tags', 'sort_order',
     'usage_sv', 'usage_fr', 'usage_en',
     'ingredients_sv', 'ingredients_fr', 'ingredients_en',

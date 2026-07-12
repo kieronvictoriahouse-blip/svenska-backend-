@@ -23,6 +23,7 @@ type ProductFormData = {
   is_bestseller: boolean;
   is_new: boolean;
   is_active: boolean;
+  pickup_only: boolean;
   track_stock: boolean;
   stock: string;
   rating: string;
@@ -44,7 +45,7 @@ const EMPTY: ProductFormData = {
   price: '', cost_price: '', weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
-  badge: '', is_bestseller: false, is_new: false, is_active: true, track_stock: false, stock: '',
+  badge: '', is_bestseller: false, is_new: false, is_active: true, pickup_only: false, track_stock: false, stock: '',
   rating: '4.5', reviews_count: '0', tags: '',
   usage_sv: '', usage_fr: '', usage_en: '',
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
@@ -72,6 +73,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
     ...initialData,
     price: String(initialData?.price ?? ''),
     cost_price: initialData?.cost_price != null ? String(initialData.cost_price) : '',
+    pickup_only: !!(initialData?.pickup_only),
     track_stock: !!(initialData?.track_stock),
     stock: initialData?.stock != null ? String(initialData.stock) : '',
     extra_images: (initialData as any)?.extra_images || [],
@@ -385,6 +387,16 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                   <span className="toggle-track"></span>
                   <span className="toggle-label">📦 Suivi de stock actif</span>
                 </label>
+                <label className="toggle">
+                  <input type="checkbox" checked={form.pickup_only} onChange={e => set('pickup_only', e.target.checked)} />
+                  <span className="toggle-track"></span>
+                  <span className="toggle-label">🏪 Retrait uniquement (click &amp; collect)</span>
+                </label>
+                {form.pickup_only && (
+                  <p style={{ fontSize: 12, color: 'var(--dust)', margin: '-6px 0 0 52px', lineHeight: 1.4 }}>
+                    ❄️ Produit non expédiable (frais, fragile…). Tout panier le contenant passera automatiquement en retrait en magasin.
+                  </p>
+                )}
               </div>
 
               <div className="form-group">

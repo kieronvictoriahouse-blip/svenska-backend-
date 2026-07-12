@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
     const lineItems: any[] = [];
     const orderLines: Array<{ product_id: string; name: string; name_en?: string; name_sv?: string; qty: number; price: number; image_url?: string }> = [];
     let subtotal = 0;
+    let hasPickupOnly = false;
 
     for (const item of items) {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
@@ -80,6 +81,7 @@ export async function POST(req: NextRequest) {
       q = isUUID ? q.eq('id', item.id) : q.eq('sort_order', sortOrder);
       const { data: product } = await q.maybeSingle();
       if (!product) continue;
+      if (product.pickup_only) hasPickupOnly = true;
 
       const variant = item.variant
         ? (product.product_variants || []).find((v: { label: string }) => v.label === item.variant)
@@ -106,6 +108,15 @@ export async function POST(req: NextRequest) {
 
     if (lineItems.length === 0) {
       return NextResponse.json({ error: 'Produits introuvables' }, { status: 400, headers: CORS });
+    }
+
+    // Verrou : un produit "retrait uniquement" (frais, fragile…) impose le click & collect
+    // pour toute la commande. On refuse tout autre mode côté serveur (l'UI peut être contournée).
+    if (hasPickupOnly && !isPickup) {
+      return NextResponse.json(
+        { error: 'Votre panier contient un produit disponible en retrait en magasin uniquement (click & collect). Sélectionnez ce mode de livraison pour finaliser la commande.', code: 'PICKUP_ONLY' },
+        { status: 400, headers: CORS },
+      );
     }
 
     console.log('[checkout] lineItems:', JSON.stringify(lineItems), 'subtotal:', subtotal);
