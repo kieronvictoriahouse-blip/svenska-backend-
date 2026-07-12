@@ -10,18 +10,39 @@ export async function POST(req: NextRequest) {
   const created: string[] = [];
   const skipped: string[] = [];
   const invoicesCreated: string[] = [];
+  const removed: string[] = [];
+
+  // ── Nettoyage : retirer les écritures des commandes devenues test ou
+  //    hors-stats (auto-réparation — évite un CA gonflé par des commandes
+  //    de démo qui avaient déjà été synchronisées). Même périmètre que le
+  //    dashboard commandes : is_test OU exclude_from_stats.
+  const { data: excludedOrders } = await supabaseAdmin
+    .from('orders')
+    .select('id, order_number')
+    .or('is_test.eq.true,exclude_from_stats.eq.true');
+  for (const o of excludedOrders || []) {
+    const { data: del } = await supabaseAdmin
+      .from('accounting_entries')
+      .delete()
+      .eq('reference_type', 'order')
+      .eq('reference_id', o.id)
+      .select('id');
+    if (del && del.length) removed.push(o.order_number);
+  }
 
   // ── Sync orders → recettes + factures manquantes ────────────────────────
   const { data: orders } = await supabaseAdmin
     .from('orders')
     .select('*')
     .in('status', ['paid', 'confirmed', 'shipped', 'delivered'])
-    .or('is_test.is.null,is_test.eq.false');
+    .or('is_test.is.null,is_test.eq.false')
+    .or('exclude_from_stats.is.null,exclude_from_stats.eq.false');
 
   for (const order of orders || []) {
     // Créer la facture si manquante
-    const { data: existingInv } = await supabaseAdmin
-      .from('invoices').select('id').eq('order_id', order.id).maybeSingle();
+    const { data: invRows } = await supabaseAdmin
+      .from('invoices').select('id').eq('order_id', order.id).limit(1);
+    const existingInv = invRows && invRows.length > 0;
     if (!existingInv && order.customer_email) {
       try {
         const inv = await createInvoiceFromOrder(order);
@@ -30,13 +51,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Entrée comptable (income uniquement — les frais_stripe sont séparés)
-    const { data: existing } = await supabaseAdmin
+    // .limit(1) et non .maybeSingle() : si des doublons existent déjà,
+    // maybeSingle renvoie une erreur → data null → on réinsérerait (la cause
+    // historique du CA gonflé). Un simple test de présence évite ça.
+    const { data: existingRows } = await supabaseAdmin
       .from('accounting_entries')
       .select('id')
       .eq('reference_type', 'order')
       .eq('reference_id', order.id)
       .eq('type', 'income')
-      .maybeSingle();
+      .limit(1);
+    const existing = existingRows && existingRows.length > 0;
 
     const orderDate = (order.created_at || new Date().toISOString()).split('T')[0];
 
@@ -59,11 +84,11 @@ export async function POST(req: NextRequest) {
 
     // Frais Stripe automatiques — uniquement pour les commandes passées par Stripe
     if (order.stripe_session_id && (order.total || 0) > 0) {
-      const { data: existingStripe } = await supabaseAdmin
+      const { data: stripeRows } = await supabaseAdmin
         .from('accounting_entries').select('id')
         .eq('reference_type', 'order').eq('reference_id', order.id).eq('category', 'frais_stripe')
-        .maybeSingle();
-      if (!existingStripe) {
+        .limit(1);
+      if (!(stripeRows && stripeRows.length > 0)) {
         const stripeFee = Math.round(((order.total || 0) * 0.015 + 0.25) * 100) / 100;
         await supabaseAdmin.from('accounting_entries').insert({
           date: orderDate,
@@ -87,14 +112,14 @@ export async function POST(req: NextRequest) {
     .neq('status', 'cancelled');
 
   for (const rec of receptions || []) {
-    const { data: existing } = await supabaseAdmin
+    const { data: existingRec } = await supabaseAdmin
       .from('accounting_entries')
       .select('id')
       .eq('reference_type', 'reception')
       .eq('reference_id', rec.id)
-      .maybeSingle();
+      .limit(1);
 
-    if (existing) { skipped.push(rec.number); continue; }
+    if (existingRec && existingRec.length > 0) { skipped.push(rec.number); continue; }
 
     const lines: any[] = typeof rec.lines === 'string' ? JSON.parse(rec.lines) : rec.lines || [];
     const total = lines.reduce(
@@ -127,14 +152,14 @@ export async function POST(req: NextRequest) {
     .eq('status', 'validated');
 
   for (const lc of landedCosts || []) {
-    const { data: existing } = await supabaseAdmin
+    const { data: existingLc } = await supabaseAdmin
       .from('accounting_entries')
       .select('id')
       .eq('reference_type', 'landed_cost')
       .eq('reference_id', lc.id)
-      .maybeSingle();
+      .limit(1);
 
-    if (existing) { skipped.push(`LC-${lc.id.slice(0, 6)}`); continue; }
+    if (existingLc && existingLc.length > 0) { skipped.push(`LC-${lc.id.slice(0, 6)}`); continue; }
 
     const date = lc.created_at
       ? lc.created_at.split('T')[0]
@@ -155,5 +180,5 @@ export async function POST(req: NextRequest) {
     created.push(`LC-${lc.id.slice(0, 6)}`);
   }
 
-  return NextResponse.json({ created, skipped, count: created.length });
+  return NextResponse.json({ created, skipped, removed, count: created.length, removedCount: removed.length });
 }

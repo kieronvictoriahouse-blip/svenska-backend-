@@ -129,11 +129,13 @@ export async function POST(req: NextRequest) {
         }
 
         // Entrée comptable automatique
-        const { data: existingEntry } = await supabaseAdmin
+        // .limit(1) et non .maybeSingle() : sur doublons existants, maybeSingle
+        // renvoie une erreur → data null → réinsertion (cause du CA gonflé).
+        const { data: entryRows } = await supabaseAdmin
           .from('accounting_entries').select('id')
           .eq('reference_type', 'order').eq('reference_id', orderId).eq('type', 'income')
-          .maybeSingle();
-        if (!existingEntry) {
+          .limit(1);
+        if (!(entryRows && entryRows.length > 0)) {
           await supabaseAdmin.from('accounting_entries').insert({
             date:             new Date().toISOString().split('T')[0],
             type:             'income',
@@ -147,11 +149,11 @@ export async function POST(req: NextRequest) {
         }
 
         // Frais Stripe automatiques (~1,5% + 0,25€ par transaction)
-        const { data: existingStripeEntry } = await supabaseAdmin
+        const { data: stripeEntryRows } = await supabaseAdmin
           .from('accounting_entries').select('id')
           .eq('reference_type', 'order').eq('reference_id', orderId).eq('category', 'frais_stripe')
-          .maybeSingle();
-        if (!existingStripeEntry && total > 0) {
+          .limit(1);
+        if (!(stripeEntryRows && stripeEntryRows.length > 0) && total > 0) {
           const stripeFee = Math.round((total * 0.015 + 0.25) * 100) / 100;
           await supabaseAdmin.from('accounting_entries').insert({
             date:             new Date().toISOString().split('T')[0],
