@@ -47,11 +47,12 @@ export async function POST(req: NextRequest) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
 
+    const fmtAddr = (a?: { line1?: string; line2?: string; postal_code?: string; city?: string; country?: string } | null) =>
+      a ? [a.line1, a.line2, `${a.postal_code || ''} ${a.city || ''}`.trim(), a.country].filter(Boolean).join(', ') : '';
+
     const shipping        = session.shipping_details as { name?: string; address?: { line1?: string; line2?: string; postal_code?: string; city?: string; country?: string } } | null;
-    const shippingAddress = shipping?.address
-      ? [shipping.address.line1, shipping.address.line2, `${shipping.address.postal_code} ${shipping.address.city}`, shipping.address.country]
-          .filter(Boolean).join(', ')
-      : '';
+    const shippingAddress = fmtAddr(shipping?.address);
+    const billingAddress  = fmtAddr(session.customer_details?.address);
 
     const customerName  = shipping?.name || session.customer_details?.name || '';
     const customerEmail = session.customer_details?.email || '';
@@ -72,11 +73,18 @@ export async function POST(req: NextRequest) {
 
       const subtotal = total - shippingCost;
 
+      // Adresse effective : livraison Stripe → point relais → facturation.
+      // Garantit une adresse sur la commande/facture/email même en relais/retrait.
+      const relayAddress = existing?.relay_point_address
+        ? ['Point relais', existing.relay_point_name, '—', existing.relay_point_address].filter(Boolean).join(' ')
+        : '';
+      const effectiveAddress = shippingAddress || relayAddress || billingAddress;
+
       await supabaseAdmin.from('orders').update({
         customer_name:    customerName,
         customer_email:   customerEmail,
         ...(customerPhone ? { customer_phone: customerPhone } : {}),
-        shipping_address: shippingAddress,
+        shipping_address: effectiveAddress,
         subtotal:         subtotal > 0 ? subtotal : total,
         shipping:         shippingCost,
         total,
@@ -116,7 +124,7 @@ export async function POST(req: NextRequest) {
             ...existing,
             customer_name:    customerName,
             customer_email:   customerEmail,
-            shipping_address: shippingAddress,
+            shipping_address: effectiveAddress,
             subtotal:         subtotal > 0 ? subtotal : total,
             shipping:         shippingCost,
             total,
@@ -182,7 +190,7 @@ export async function POST(req: NextRequest) {
           ...(existing || {}),
           customer_name:    customerName,
           customer_email:   customerEmail,
-          shipping_address: shippingAddress,
+          shipping_address: effectiveAddress,
           subtotal:         subtotal > 0 ? subtotal : total,
           shipping:         shippingCost,
           total,
@@ -214,7 +222,8 @@ export async function POST(req: NextRequest) {
               <div style="border:1px solid #ddd;border-top:none;padding:20px;border-radius:0 0 6px 6px">
                 <p><strong>Client :</strong> ${customerName}</p>
                 <p><strong>Email :</strong> ${customerEmail}</p>
-                <p><strong>Adresse :</strong> ${shippingAddress || '—'}</p>
+                ${customerPhone ? `<p><strong>Téléphone :</strong> ${customerPhone}</p>` : ''}
+                <p><strong>Adresse :</strong> ${effectiveAddress || '—'}</p>
                 <table style="width:100%;border-collapse:collapse;margin:12px 0">
                   <thead>
                     <tr style="background:#f5f5f5">
@@ -252,7 +261,7 @@ export async function POST(req: NextRequest) {
               order_number:        existing?.order_number || '',
               customer_name:       customerName,
               customer_email:      customerEmail,
-              customer_phone:      existing?.customer_phone || '',
+              customer_phone:      customerPhone || existing?.customer_phone || '',
               relay_point_id:      existing?.relay_point_id || '',
               relay_point_name:    existing?.relay_point_name || '',
               relay_point_address: existing?.relay_point_address || '',

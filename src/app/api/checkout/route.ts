@@ -240,6 +240,9 @@ export async function POST(req: NextRequest) {
       customer_email: customer_email || undefined,
       // Stripe collecte le téléphone (plus de gate custom nom/téléphone côté front)
       phone_number_collection: { enabled: true },
+      // Toujours une adresse de facturation → factures complètes même en
+      // retrait/relais (où aucune adresse de livraison n'est demandée).
+      billing_address_collection: 'required',
       ...(stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
       ...(isPickup || isMondialRelay ? {} : {
         shipping_address_collection: { allowed_countries: ['FR', 'BE', 'CH', 'LU', 'MC', 'DE', 'ES', 'IT', 'NL', 'PT', 'SE', 'GB'] },
