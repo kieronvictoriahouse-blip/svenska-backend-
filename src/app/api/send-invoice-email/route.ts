@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { generateInvoicePdf } from '@/lib/invoice-utils';
+import { generateInvoicePdf } from '@/lib/invoice-pdf';
 import { sendEmail } from '@/lib/email-send';
 import { getWlConfig } from '@/lib/mailer';
 
@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
     if (!inv) return NextResponse.json({ error: 'Facture introuvable' }, { status: 404 });
     if (typeof inv.lines === 'string') inv.lines = JSON.parse(inv.lines);
 
-    const pdfBuffer = await generateInvoicePdf(inv);
+    // Même générateur que le téléchargement admin → une seule facture, format légal complet
+    const { buffer: pdfBuffer } = await generateInvoicePdf(inv.id);
 
     const cfg = await getWlConfig();
     const siteName  = cfg.site_name || 'Swedish Cravings';

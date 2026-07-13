@@ -6,7 +6,10 @@ import { requireAuth } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  // Auth : admin connecté OU appel interne du cron (Bearer CRON_SECRET)
+  const cronSecret = process.env.CRON_SECRET;
+  const cronOk = !!cronSecret && req.headers.get('authorization') === `Bearer ${cronSecret}`;
+  if (!cronOk && !await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const created: string[] = [];
   const skipped: string[] = [];
   const invoicesCreated: string[] = [];

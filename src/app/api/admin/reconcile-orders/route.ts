@@ -11,7 +11,10 @@ export const maxDuration = 120;
 // on remplit nom/email/téléphone. Idempotent, sans email ni facture (déjà gérés
 // ailleurs). Sert de filet quand un webhook a échoué.
 export async function POST(req: NextRequest) {
-  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  // Auth : admin connecté OU appel interne du cron (Bearer CRON_SECRET, jamais en dur)
+  const cronSecret = process.env.CRON_SECRET;
+  const cronOk = !!cronSecret && req.headers.get('authorization') === `Bearer ${cronSecret}`;
+  if (!cronOk && !await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) return NextResponse.json({ error: 'Stripe non configuré' }, { status: 500 });

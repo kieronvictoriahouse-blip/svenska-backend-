@@ -21,7 +21,14 @@ export async function nextSequentialNumber(prefix: string): Promise<string> {
   return `${prefix}${String(next).padStart(4, '0')}`;
 }
 
-export async function generateInvoicePdf(invoice: any): Promise<Buffer> {
+/**
+ * @deprecated NE PAS UTILISER. Générateur PDF basique (design incomplet, sans
+ * mentions légales SIREN/RCS). Le seul générateur officiel est
+ * `generateInvoicePdf(invoiceId)` dans `@/lib/invoice-pdf` — utilisé À LA FOIS
+ * par le téléchargement admin ET l'email client. Conservé ici sans importeur ;
+ * à supprimer lors d'un prochain nettoyage.
+ */
+export async function generateInvoicePdfLegacy(invoice: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks: Buffer[] = [];
