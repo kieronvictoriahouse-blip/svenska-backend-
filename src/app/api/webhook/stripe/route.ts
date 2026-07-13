@@ -80,18 +80,29 @@ export async function POST(req: NextRequest) {
         : '';
       const effectiveAddress = shippingAddress || relayAddress || billingAddress;
 
-      await supabaseAdmin.from('orders').update({
-        customer_name:    customerName,
-        customer_email:   customerEmail,
-        ...(customerPhone ? { customer_phone: customerPhone } : {}),
-        shipping_address: effectiveAddress,
-        subtotal:         subtotal > 0 ? subtotal : total,
-        shipping:         shippingCost,
+      // 1) Mise à jour ESSENTIELLE — uniquement des colonnes garanties + statut payé.
+      //    Ne doit jamais échouer : c'est ce qui rend la commande visible/payée.
+      const { error: coreErr } = await supabaseAdmin.from('orders').update({
+        customer_name:     customerName,
+        customer_email:    customerEmail,
+        subtotal:          subtotal > 0 ? subtotal : total,
+        shipping:          shippingCost,
         total,
-        status:           'paid',
+        status:            'paid',
         stripe_session_id: session.id,
-        updated_at:       new Date().toISOString(),
+        updated_at:        new Date().toISOString(),
       }).eq('id', orderId);
+      if (coreErr) console.error('[webhook] MAJ commande (essentiel) échouée:', coreErr.message);
+
+      // 2) Champs OPTIONNELS (téléphone, adresse) — séparés et non bloquants :
+      //    une colonne manquante ou un type jsonb ne doit pas empêcher le "payé".
+      const optional: Record<string, unknown> = {};
+      if (customerPhone)   optional.customer_phone = customerPhone;
+      if (effectiveAddress) optional.shipping_address = effectiveAddress;
+      if (Object.keys(optional).length) {
+        const { error: optErr } = await supabaseAdmin.from('orders').update(optional).eq('id', orderId);
+        if (optErr) console.error('[webhook] MAJ commande (optionnel, non bloquant):', optErr.message);
+      }
 
       // Annuler les brouillons en attente du même client (doublons de checkout)
       if (customerEmail) {
