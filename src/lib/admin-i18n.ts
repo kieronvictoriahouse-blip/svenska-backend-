@@ -52,4 +52,5 @@ export const T_ORDER_STATUS = {
   delivered: { fr: 'Livrée',      en: 'Delivered',   sv: 'Levererad' },
   cancelled: { fr: 'Annulée',     en: 'Cancelled',   sv: 'Avbruten' },
   refunded:  { fr: 'Remboursée',  en: 'Refunded',    sv: 'Återbetald' },
+  abandoned: { fr: 'Abandonnée',  en: 'Abandoned',   sv: 'Övergiven' },
 };

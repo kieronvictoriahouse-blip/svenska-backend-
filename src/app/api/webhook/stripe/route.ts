@@ -343,6 +343,18 @@ export async function POST(req: NextRequest) {
         stripe_session_id: session.id,
       });
     }
+  } else if (event.type === 'checkout.session.expired') {
+    // Panier abandonné : la session Checkout a expiré sans paiement.
+    // On marque la commande brouillon liée comme "abandonnée" (si toujours
+    // en attente) pour ne pas polluer les vraies commandes dans l'admin.
+    const expiredSession = event.data.object as any;
+    const abandonedOrderId = expiredSession?.metadata?.order_id;
+    if (abandonedOrderId) {
+      await supabaseAdmin.from('orders')
+        .update({ status: 'abandoned', updated_at: new Date().toISOString() })
+        .eq('id', abandonedOrderId)
+        .eq('status', 'pending');
+    }
   }
 
   return NextResponse.json({ received: true });

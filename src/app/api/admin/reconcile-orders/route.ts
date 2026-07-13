@@ -64,5 +64,22 @@ export async function POST(req: NextRequest) {
     startingAfter = sessions.data[sessions.data.length - 1]?.id;
   }
 
-  return NextResponse.json({ message: `${fixed.length} commande(s) réconciliée(s).`, fixed, skipped });
+  // Balayage : les commandes restées "pending" sans paiement Stripe depuis
+  // plus de 3 h sont des paniers abandonnés → statut "abandoned".
+  const cutoff = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+  const { data: swept } = await supabaseAdmin
+    .from('orders')
+    .update({ status: 'abandoned', updated_at: new Date().toISOString() })
+    .eq('status', 'pending')
+    .is('stripe_session_id', null)
+    .lt('created_at', cutoff)
+    .select('order_number');
+  const abandoned = (swept || []).map(o => o.order_number);
+
+  return NextResponse.json({
+    message: `${fixed.length} commande(s) réconciliée(s), ${abandoned.length} abandonnée(s).`,
+    fixed,
+    abandoned,
+    skipped,
+  });
 }

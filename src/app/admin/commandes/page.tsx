@@ -73,6 +73,7 @@ const toAddrStr = (v: any): string => !v ? '' : typeof v === 'string' ? v : [v.l
 const STATUS_COLORS: Record<string, string> = {
   pending: '#F59E0B', paid: '#10B981', confirmed: '#3B82F6',
   shipped: '#8B5CF6', delivered: '#10B981', cancelled: '#EF4444', refunded: '#6B7280',
+  abandoned: '#B0AEA8',
 };
 
 export default function CommandesPage() {
@@ -95,6 +96,7 @@ export default function CommandesPage() {
   const [testConfirm, setTestConfirm] = useState(false);
   const [togglingStats, setTogglingStats] = useState(false);
   const [showTestOrders, setShowTestOrders] = useState(false);
+  const [showAbandoned, setShowAbandoned] = useState(false);
   const [avoirId, setAvoirId] = useState<string | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
@@ -549,7 +551,12 @@ export default function CommandesPage() {
   }
 
   const realOrders = orders.filter(o => !o.is_test);
-  const visibleOrders = showTestOrders ? orders : realOrders;
+  const abandonedCount = realOrders.filter(o => o.status === 'abandoned').length;
+  const _base = showTestOrders ? orders : realOrders;
+  // Masque les paniers abandonnés par défaut (sauf si on filtre dessus ou toggle activé)
+  const visibleOrders = (showAbandoned || filter === 'abandoned')
+    ? _base
+    : _base.filter(o => o.status !== 'abandoned');
   const totalRevenue = realOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
   const pendingCount = realOrders.filter(o => o.status === 'pending').length;
   const testCount = orders.filter(o => o.is_test).length;
@@ -691,6 +698,14 @@ export default function CommandesPage() {
               onClick={() => setShowTestOrders(v => !v)}
             >
               🧪 {showTestOrders ? `Masquer tests (${testCount})` : `Tests (${testCount})`}
+            </button>
+          )}
+          {abandonedCount > 0 && (
+            <button
+              className={`btn btn-sm ${showAbandoned ? 'btn-warning' : 'btn-secondary'}`}
+              onClick={() => setShowAbandoned(v => !v)}
+            >
+              🛒 {showAbandoned ? `Masquer abandonnées (${abandonedCount})` : `Abandonnées (${abandonedCount})`}
             </button>
           )}
         </div>
