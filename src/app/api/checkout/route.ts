@@ -142,9 +142,11 @@ export async function POST(req: NextRequest) {
 
         if (promo) {
           const now = new Date();
+          // valid_until inclusif jusqu'à la fin de la journée (23:59:59), sinon
+          // un code "jusqu'au 14/07" expirerait dès le 14 à 00:00.
           const isDateValid =
             (!promo.valid_from || now >= new Date(promo.valid_from)) &&
-            (!promo.valid_until || now <= new Date(promo.valid_until));
+            (!promo.valid_until || now <= new Date(String(promo.valid_until).slice(0, 10) + 'T23:59:59'));
           const isUsageOk = !promo.max_uses || (promo.used_count || 0) < promo.max_uses;
           const isMinOrderOk = subtotal >= (promo.min_order || 0);
 

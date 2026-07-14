@@ -262,7 +262,7 @@ export default function CommandesPage() {
       if (!found || !found.is_active) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code invalide ou inactif'); return; }
       const now = new Date();
       if (found.valid_from && now < new Date(found.valid_from)) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code pas encore valide'); return; }
-      if (found.valid_until && now > new Date(found.valid_until)) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code expiré'); return; }
+      if (found.valid_until && now > new Date(String(found.valid_until).slice(0, 10) + 'T23:59:59')) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code expiré'); return; }
       if (found.max_uses && (found.used_count || 0) >= found.max_uses) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code plus disponible'); return; }
       setNewOrderPromoData(found);
       setNewOrderPromoMsg(found.type === 'percent' ? `✅ −${found.value}%` : found.type === 'fixed' ? `✅ −${found.value} €` : '✅ Livraison offerte');
