@@ -48,12 +48,22 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   // Marquer la réception comme annulée
   await supabaseAdmin.from('receptions').update({ status: 'cancelled' }).eq('id', params.id);
 
-  // Remettre la commande d'achat en "confirmed" si elle était "received"
+  // Remettre la commande d'achat en "confirmed" UNIQUEMENT s'il ne reste plus
+  // aucune autre réception valide pour cette PO (sinon on la remettrait en
+  // attente à tort alors qu'une autre réception l'a déjà réceptionnée).
   if (reception.purchase_order_id) {
-    await supabaseAdmin.from('purchase_orders')
-      .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-      .eq('id', reception.purchase_order_id)
-      .eq('status', 'received');
+    const { data: otherReceptions } = await supabaseAdmin
+      .from('receptions')
+      .select('id')
+      .eq('purchase_order_id', reception.purchase_order_id)
+      .neq('status', 'cancelled')
+      .neq('id', params.id);
+    if (!otherReceptions || otherReceptions.length === 0) {
+      await supabaseAdmin.from('purchase_orders')
+        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('id', reception.purchase_order_id)
+        .eq('status', 'received');
+    }
   }
 
   return NextResponse.json({ success: true, reversed: lines.length });
