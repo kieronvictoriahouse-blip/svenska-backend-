@@ -26,6 +26,7 @@ type ProductFormData = {
   pickup_only: boolean;
   track_stock: boolean;
   stock: string;
+  reorder_qty: string;
   rating: string;
   reviews_count: string;
   tags: string;
@@ -45,7 +46,7 @@ const EMPTY: ProductFormData = {
   price: '', cost_price: '', weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
-  badge: '', is_bestseller: false, is_new: false, is_active: true, pickup_only: false, track_stock: false, stock: '',
+  badge: '', is_bestseller: false, is_new: false, is_active: true, pickup_only: false, track_stock: false, stock: '', reorder_qty: '',
   rating: '4.5', reviews_count: '0', tags: '',
   usage_sv: '', usage_fr: '', usage_en: '',
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
@@ -76,6 +77,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
     pickup_only: !!(initialData?.pickup_only),
     track_stock: !!(initialData?.track_stock),
     stock: initialData?.stock != null ? String(initialData.stock) : '',
+    reorder_qty: (initialData as any)?.reorder_qty != null ? String((initialData as any).reorder_qty) : '',
     extra_images: (initialData as any)?.extra_images || [],
   });
   const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
@@ -100,6 +102,7 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
       badge:         f.badge || null,
       category_id:   f.category_id || null,
       stock:         f.track_stock && f.stock !== '' ? parseInt(f.stock) : null,
+      reorder_qty:   f.reorder_qty !== '' ? parseInt(f.reorder_qty) : null,
       variants: f.variants
         .filter(v => v.label && v.price)
         .map(v => ({ label: v.label, price: parseFloat(v.price) })),
@@ -573,6 +576,18 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
                           onChange={e => set('stock', e.target.value)}
                           placeholder="0"
                           style={{ width: 80, textAlign: 'right', border: '1px solid var(--linen)', borderRadius: 4, padding: '3px 8px', fontSize: 13, fontWeight: 700, color: (parseInt(form.stock) || 0) <= 0 ? '#EF4444' : (parseInt(form.stock) || 0) <= 5 ? '#F59E0B' : 'var(--ink)' }}
+                        />
+                      </div>
+                    )}
+                    {form.track_stock && (
+                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <span style={{ fontSize: 12, color: 'var(--dust)', whiteSpace: 'nowrap' }}>Qté réappro mini <span style={{ color: 'var(--linen)' }} title="Quantité minimum à commander (ex. carton de 50). Défaut 10.">ⓘ</span></span>
+                        <input
+                          type="number" min="0" step="1"
+                          value={form.reorder_qty}
+                          onChange={e => set('reorder_qty', e.target.value)}
+                          placeholder="10"
+                          style={{ width: 80, textAlign: 'right', border: '1px solid var(--linen)', borderRadius: 4, padding: '3px 8px', fontSize: 13 }}
                         />
                       </div>
                     )}

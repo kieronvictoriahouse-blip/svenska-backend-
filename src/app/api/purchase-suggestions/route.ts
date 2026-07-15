@@ -5,7 +5,7 @@ export async function GET() {
   // Produits avec suivi de stock
   const { data: products } = await supabaseAdmin
     .from('products')
-    .select('id, name_fr, stock, stock_alert, cost_price, track_stock')
+    .select('id, name_fr, stock, stock_alert, cost_price, track_stock, reorder_qty')
     .eq('track_stock', true)
     .eq('is_active', true);
 
@@ -59,20 +59,20 @@ export async function GET() {
       const onOrder = onOrderMap[p.id] || 0;
       const effectiveStock = stock + onOrder; // ce qu'on aura une fois les POs reçues
       const alert = p.stock_alert ?? 5;
+      // Quantité de réappro minimum par produit (ex. carton de 50), défaut 10
+      const minReorder = p.reorder_qty && p.reorder_qty > 0 ? p.reorder_qty : 10;
 
       // Jours de stock restant (compte le stock déjà commandé)
       const daysLeft = velocity > 0 ? Math.floor(effectiveStock / velocity) : (effectiveStock > 0 ? 999 : 0);
 
-      // Qté suggérée = couvrir 60 jours − (stock + déjà commandé). Évite de
-      // recommander ce qui est déjà en route.
-      const suggested = Math.max(
-        Math.ceil(velocity * 60) - effectiveStock,
-        effectiveStock <= 0 ? 10 : 0,
-      );
+      // Besoin = couvrir 60 jours − (stock + déjà commandé). Si on réapprovisionne,
+      // on ne descend jamais sous la quantité mini du produit (MOQ/carton).
+      const need = Math.ceil(velocity * 60) - effectiveStock;
+      const suggested = (need > 0 || effectiveStock <= 0) ? Math.max(need, minReorder) : 0;
 
       const urgency = effectiveStock <= 0 ? 'rupture' : effectiveStock <= alert ? 'faible' : daysLeft <= 14 ? 'attention' : null;
 
-      return { ...p, sold30, velocity, onOrder, daysLeft, suggested: Math.ceil(suggested), urgency };
+      return { ...p, sold30, velocity, onOrder, daysLeft, suggested: Math.ceil(suggested), urgency, minReorder };
     })
     .filter(p => p.urgency !== null || p.sold30 > 0)
     .sort((a, b) => {
