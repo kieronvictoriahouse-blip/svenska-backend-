@@ -432,7 +432,7 @@ export default function AchatsPage() {
                     <th>Produit</th>
                     <th>Urgence</th>
                     <th style={{ textAlign: 'right' }}>Stock actuel</th>
-                    <th style={{ textAlign: 'right' }}>Ventes 30j</th>
+                    <th style={{ textAlign: 'right' }}>Ventes 90j</th>
                     <th style={{ textAlign: 'right' }}>Vitesse / jour</th>
                     <th style={{ textAlign: 'right' }}>Jours restants</th>
                     <th style={{ textAlign: 'right' }}>Qté suggérée</th>

@@ -11,8 +11,10 @@ export async function GET() {
 
   if (!products?.length) return NextResponse.json({ suggestions: [] });
 
-  // Ventes des 30 derniers jours (commandes payées/confirmées/expédiées/livrées, non test)
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  // Fenêtre de vélocité : 90 j (30 j trop court pour une boutique jeune / ventes
+  // sporadiques, et masque les produits en rupture depuis > 30 j).
+  const WINDOW_DAYS = 90;
+  const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { data: orders } = await supabaseAdmin
     .from('orders')
     .select('lines')
@@ -53,8 +55,8 @@ export async function GET() {
 
   const suggestions = products
     .map(p => {
-      const sold30 = salesMap[p.id] || 0;
-      const velocity = sold30 / 30; // unités/jour
+      const sold = salesMap[p.id] || 0;
+      const velocity = sold / WINDOW_DAYS; // unités/jour sur la fenêtre
       const stock = p.stock ?? 0;
       const onOrder = onOrderMap[p.id] || 0;
       const effectiveStock = stock + onOrder; // ce qu'on aura une fois les POs reçues
@@ -72,9 +74,9 @@ export async function GET() {
 
       const urgency = effectiveStock <= 0 ? 'rupture' : effectiveStock <= alert ? 'faible' : daysLeft <= 14 ? 'attention' : null;
 
-      return { ...p, sold30, velocity, onOrder, daysLeft, suggested: Math.ceil(suggested), urgency, minReorder };
+      return { ...p, sold, sold30: sold, velocity, onOrder, daysLeft, suggested: Math.ceil(suggested), urgency, minReorder, windowDays: WINDOW_DAYS };
     })
-    .filter(p => p.urgency !== null || p.sold30 > 0)
+    .filter(p => p.urgency !== null || p.sold > 0)
     .sort((a, b) => {
       const order: Record<string, number> = { rupture: 0, faible: 1, attention: 2 };
       const oa = a.urgency ? (order[a.urgency] ?? 3) : 3;
