@@ -450,6 +450,7 @@ export default function AchatsPage() {
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: s.stock <= 0 ? '#EF4444' : s.stock <= (s.stock_alert ?? 5) ? '#F59E0B' : '#1C2028', fontWeight: 600 }}>
                         {s.stock}
+                        {s.onOrder > 0 && <div style={{ fontSize: 10, color: '#2563EB', fontWeight: 500 }}>+{s.onOrder} en commande</div>}
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{s.sold30}</td>
                       <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#6A7280' }}>

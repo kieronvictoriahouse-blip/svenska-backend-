@@ -11,24 +11,42 @@ export async function GET() {
 
   if (!products?.length) return NextResponse.json({ suggestions: [] });
 
-  // Ventes des 30 derniers jours (commandes paid/shipped/delivered, non test)
+  // Ventes des 30 derniers jours (commandes payées/confirmées/expédiées/livrées, non test)
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const { data: orders } = await supabaseAdmin
     .from('orders')
     .select('lines')
-    .in('status', ['paid', 'shipped', 'delivered'])
+    .in('status', ['paid', 'confirmed', 'shipped', 'delivered'])
     .or('is_test.is.null,is_test.eq.false')
     .gte('created_at', since);
+
+  const parseLines = (raw: any): any[] =>
+    Array.isArray(raw) ? raw
+    : typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return []; } })()
+    : [];
 
   // Agréger les ventes par product_id
   const salesMap: Record<string, number> = {};
   for (const order of orders || []) {
-    const lines = Array.isArray(order.lines) ? order.lines
-      : typeof order.lines === 'string' ? (() => { try { return JSON.parse(order.lines); } catch { return []; } })()
-      : [];
-    for (const line of lines) {
+    for (const line of parseLines(order.lines)) {
       if (line.product_id) {
-        salesMap[line.product_id] = (salesMap[line.product_id] || 0) + (parseInt(line.qty) || 0);
+        salesMap[line.product_id] = (salesMap[line.product_id] || 0) + (parseFloat(line.qty) || 0);
+      }
+    }
+  }
+
+  // Quantités déjà commandées mais pas encore reçues (POs en cours) → à déduire
+  // pour ne pas suggérer de recommander ce qui est déjà en route.
+  const { data: pos } = await supabaseAdmin
+    .from('purchase_orders')
+    .select('lines, status')
+    .in('status', ['sent', 'confirmed', 'partial']);
+  const onOrderMap: Record<string, number> = {};
+  for (const po of pos || []) {
+    for (const line of parseLines(po.lines)) {
+      if (line.product_id) {
+        const remaining = (parseFloat(line.qty) || 0) - (parseFloat(line.received_qty) || 0);
+        if (remaining > 0) onOrderMap[line.product_id] = (onOrderMap[line.product_id] || 0) + remaining;
       }
     }
   }
@@ -38,20 +56,23 @@ export async function GET() {
       const sold30 = salesMap[p.id] || 0;
       const velocity = sold30 / 30; // unités/jour
       const stock = p.stock ?? 0;
+      const onOrder = onOrderMap[p.id] || 0;
+      const effectiveStock = stock + onOrder; // ce qu'on aura une fois les POs reçues
       const alert = p.stock_alert ?? 5;
 
-      // Jours de stock restant (si velocity > 0)
-      const daysLeft = velocity > 0 ? Math.floor(stock / velocity) : (stock > 0 ? 999 : 0);
+      // Jours de stock restant (compte le stock déjà commandé)
+      const daysLeft = velocity > 0 ? Math.floor(effectiveStock / velocity) : (effectiveStock > 0 ? 999 : 0);
 
-      // Qté suggérée = couvrir 60 jours - stock actuel, min 5 si rupture
+      // Qté suggérée = couvrir 60 jours − (stock + déjà commandé). Évite de
+      // recommander ce qui est déjà en route.
       const suggested = Math.max(
-        Math.ceil(velocity * 60) - stock,
-        stock <= 0 ? 10 : 0,
+        Math.ceil(velocity * 60) - effectiveStock,
+        effectiveStock <= 0 ? 10 : 0,
       );
 
-      const urgency = stock <= 0 ? 'rupture' : stock <= alert ? 'faible' : daysLeft <= 14 ? 'attention' : null;
+      const urgency = effectiveStock <= 0 ? 'rupture' : effectiveStock <= alert ? 'faible' : daysLeft <= 14 ? 'attention' : null;
 
-      return { ...p, sold30, velocity, daysLeft, suggested: Math.ceil(suggested), urgency };
+      return { ...p, sold30, velocity, onOrder, daysLeft, suggested: Math.ceil(suggested), urgency };
     })
     .filter(p => p.urgency !== null || p.sold30 > 0)
     .sort((a, b) => {
