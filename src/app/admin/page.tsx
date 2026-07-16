@@ -1,203 +1,154 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-
-const APPS = [
-  {
-    href: '/admin/produits',
-    icon: '🛍️',
-    label: 'Boutique',
-    desc: 'Produits · Stock · Commandes',
-    color: '#7B4F7B',
-    bg: 'linear-gradient(135deg, #7B4F7B 0%, #9E6E9E 100%)',
-  },
-  {
-    href: '/admin/achats',
-    icon: '📬',
-    label: 'Achats',
-    desc: 'Commandes · Réceptions',
-    color: '#1A6B55',
-    bg: 'linear-gradient(135deg, #1A6B55 0%, #2E9B7B 100%)',
-  },
-  {
-    href: '/admin/gestion',
-    icon: '💰',
-    label: 'Finance',
-    desc: 'Factures · Marges · Rapports',
-    color: '#1C4E80',
-    bg: 'linear-gradient(135deg, #1C4E80 0%, #2E6FAD 100%)',
-  },
-  {
-    href: '/admin/comptabilite',
-    icon: '📊',
-    label: 'Comptabilité',
-    desc: 'CA · Recettes · Achats · Micro',
-    color: '#0F5132',
-    bg: 'linear-gradient(135deg, #0F5132 0%, #198754 100%)',
-  },
-  {
-    href: '/admin/contacts',
-    icon: '👥',
-    label: 'Contacts',
-    desc: 'Clients · Fournisseurs',
-    color: '#5B3427',
-    bg: 'linear-gradient(135deg, #5B3427 0%, #8B5E3C 100%)',
-  },
-  {
-    href: '/admin/marketing',
-    icon: '📣',
-    label: 'Marketing',
-    desc: 'Campagnes · Codes promo',
-    color: '#7B2D8B',
-    bg: 'linear-gradient(135deg, #7B2D8B 0%, #A855C0 100%)',
-  },
-  {
-    href: '/admin/home-cms',
-    icon: '🖼️',
-    label: 'Contenu',
-    desc: 'Home CMS · Médiathèque',
-    color: '#8B5E3C',
-    bg: 'linear-gradient(135deg, #8B5E3C 0%, #AA4455 100%)',
-  },
-  {
-    href: '/admin/stock',
-    icon: '📦',
-    label: 'Stocks',
-    desc: 'Niveaux · Alertes · Mouvements',
-    color: '#C67C3A',
-    bg: 'linear-gradient(135deg, #C67C3A 0%, #E09A55 100%)',
-  },
-  {
-    href: '/admin/white-label',
-    icon: '⚙️',
-    label: 'Configuration',
-    desc: 'White Label · Import données',
-    color: '#424242',
-    bg: 'linear-gradient(135deg, #424242 0%, #616161 100%)',
-  },
-];
+import { MODULES } from '@/lib/admin-nav';
 
 type Stats = {
-  products: number;
-  orders: number;
-  categories: number;
-  bestsellers: number;
+  products: number; orders: number; contacts: number;
+  pending_orders: number; low_stock: number; revenue_month: number; abandoned: number;
 };
 
+const QUICK = [
+  { href: '/admin/produits/nouveau', icon: '➕', label: 'Nouveau produit' },
+  { href: '/admin/commandes',        icon: '🛒', label: 'Commandes' },
+  { href: '/admin/home-cms',         icon: '✏️', label: 'Modifier la home' },
+  { href: '/admin/medias',           icon: '📸', label: 'Photos' },
+];
+
 export default function AdminHome() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [greeting, setGreeting] = useState('Bonjour');
+  const [stats, setStats] = useState<Stats>({
+    products: 0, orders: 0, contacts: 0, pending_orders: 0, low_stock: 0, revenue_month: 0, abandoned: 0,
+  });
   const [siteName, setSiteName] = useState('');
-  const [frontUrl, setFrontUrl] = useState(process.env.NEXT_PUBLIC_FRONT_URL || '');
+  const [greeting, setGreeting] = useState('Bonjour');
 
   useEffect(() => {
     const h = new Date().getHours();
-    if (h < 12) setGreeting('Bonjour');
-    else if (h < 18) setGreeting('Bon après-midi');
-    else setGreeting('Bonsoir');
+    setGreeting(h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir');
+    loadStats();
+  }, []);
 
-    Promise.all([
-      fetch('/api/products?limit=200').then(r => r.json()).catch(() => ({})),
-      fetch('/api/categories').then(r => r.json()).catch(() => ({})),
-      fetch('/api/white-label').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([p, c, wl]) => {
-      const ps = p.products || [];
+  async function loadStats() {
+    try {
+      const [p, o, c, s, ab, wl] = await Promise.all([
+        fetch('/api/products?limit=500').then(r => r.json()).catch(() => ({})),
+        fetch('/api/orders').then(r => r.json()).catch(() => ({})),
+        fetch('/api/contacts').then(r => r.json()).catch(() => ({})),
+        fetch('/api/stock').then(r => r.json()).catch(() => ({})),
+        fetch('/api/marketing?tab=abandoned').then(r => r.json()).catch(() => ({})),
+        fetch('/api/white-label').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      const orders = o.orders || [];
+      const now = new Date();
+      const monthRevenue = orders
+        .filter((x: any) => x.status !== 'cancelled' && new Date(x.created_at).getMonth() === now.getMonth() && new Date(x.created_at).getFullYear() === now.getFullYear())
+        .reduce((sum: number, x: any) => sum + (x.total || 0), 0);
       setStats({
-        products: ps.length,
-        orders: 0,
-        categories: (c.categories || []).length,
-        bestsellers: ps.filter((x: any) => x.is_bestseller).length,
+        products: (p.products || []).length,
+        orders: orders.length,
+        contacts: (c.contacts || []).length,
+        pending_orders: orders.filter((x: any) => x.status === 'pending').length,
+        low_stock: (s.products || []).filter((x: any) => x.track_stock && x.stock <= x.stock_alert).length,
+        revenue_month: monthRevenue,
+        abandoned: (ab.carts || []).filter((x: any) => !x.recovered).length,
       });
       if (wl?.config?.site_name) setSiteName(wl.config.site_name);
-      if (wl?.config?.front_url) setFrontUrl(wl.config.front_url);
-    });
-  }, []);
+    } catch (e) {}
+  }
 
   const email = typeof window !== 'undefined' ? (localStorage.getItem('sd_admin_email') || '') : '';
   const firstName = email.split('@')[0] || 'Admin';
+  const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
-  const QUICK = [
-    { href: '/admin/produits/nouveau', icon: '➕', label: 'Nouveau produit' },
-    { href: '/admin/commandes',        icon: '🛒', label: 'Commandes' },
-    { href: '/admin/home-cms',         icon: '✏️', label: 'Modifier la home' },
-    { href: '/admin/medias',           icon: '📸', label: 'Uploader photos' },
-  ];
+  const ALERTS = [
+    stats.pending_orders > 0 && { label: `${stats.pending_orders} commande(s) en attente`, color: '#F59E0B', href: '/admin/commandes' },
+    stats.low_stock > 0 && { label: `${stats.low_stock} produit(s) en stock faible`, color: '#EF4444', href: '/admin/stock' },
+    stats.abandoned > 0 && { label: `${stats.abandoned} panier(s) abandonné(s)`, color: '#8B5CF6', href: '/admin/marketing?tab=cart' },
+  ].filter(Boolean) as { label: string; color: string; href: string }[];
+
+  const css = `
+    .hub { padding: 28px; max-width: 1120px; margin: 0 auto; }
+    .hub-header { margin-bottom: 22px; }
+    .hub-title { font-family: 'Cormorant Garamond', serif; font-size: 34px; font-weight: 600; color: #1C2028; line-height: 1.1; }
+    .hub-title em { font-style: italic; color: #7B4F7B; }
+    .hub-sub { font-size: 13px; color: #8B7E72; margin-top: 4px; }
+    .hub-quick { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 24px; }
+    .hub-quick a { display: inline-flex; align-items: center; gap: 7px; background: #1C2028; color: #fff;
+      border-radius: 24px; padding: 8px 16px; font-size: 12.5px; font-weight: 600; text-decoration: none; transition: opacity .15s; }
+    .hub-quick a:hover { opacity: .85; }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+    .kpi { background: #fff; border: 1px solid #E8E4DE; border-radius: 12px; padding: 16px 20px; }
+    .kpi-num { font-size: 26px; font-weight: 800; color: #1C2028; line-height: 1; }
+    .kpi-label { font-size: 11px; color: #8B7E72; margin-top: 5px; text-transform: uppercase; letter-spacing: .5px; }
+    .alerts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
+    .alert { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 20px;
+      font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; text-decoration: none; }
+    .hub-section { margin-top: 22px; }
+    .hub-section-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700;
+      letter-spacing: 1.5px; text-transform: uppercase; color: #8B7E72; margin-bottom: 12px; }
+    .hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+    .hub-card { background: #fff; border: 1px solid #E8E4DE; border-radius: 12px; padding: 16px 18px;
+      text-decoration: none; display: flex; align-items: center; gap: 13px; transition: transform .15s, box-shadow .15s, border-color .15s; }
+    .hub-card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,0.10); border-color: transparent; }
+    .hub-card-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 21px; flex-shrink: 0; }
+    .hub-card-label { font-size: 14px; font-weight: 700; color: #1C2028; }
+    .hub-card-desc { font-size: 11px; color: #8B7E72; margin-top: 2px; line-height: 1.4; }
+    @media(max-width: 900px) { .kpi-row { grid-template-columns: 1fr 1fr; } .hub { padding: 18px; } }
+    @media(max-width: 500px) { .hub-grid { grid-template-columns: 1fr 1fr; } }
+  `;
 
   return (
-    <div className="launcher">
-      {/* Welcome */}
-      <div className="launcher-welcome">
-        <div className="launcher-flag">⚙️</div>
-        <h1 className="launcher-title">
-          {greeting}, <em>{firstName}</em>
-        </h1>
-        <p className="launcher-sub">
-          {siteName ? `${siteName} · ` : ''}Admin &nbsp;·&nbsp;
-          {stats ? `${stats.products} produits · ${stats.categories} catégories` : '···'}
-        </p>
-      </div>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+      <div className="hub">
+        <div className="hub-header">
+          <div className="hub-title">{greeting}, <em>{firstName}</em></div>
+          <div className="hub-sub">{siteName ? `${siteName} · ` : ''}Back-office · {stats.products} produits · {stats.contacts} contacts</div>
+        </div>
 
-      {/* Quick actions */}
-      <div style={{
-        display: 'flex', gap: 10, marginBottom: 48, flexWrap: 'wrap', justifyContent: 'center',
-      }}>
-        {QUICK.map(q => (
-          <Link key={q.href} href={q.href} style={{
-            display: 'flex', alignItems: 'center', gap: 7,
-            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 24, padding: '8px 18px',
-            fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)',
-            textDecoration: 'none', transition: 'all 0.15s',
-          }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
-          >
-            <span>{q.icon}</span> {q.label}
-          </Link>
+        <div className="hub-quick">
+          {QUICK.map(q => (
+            <Link key={q.href} href={q.href}><span>{q.icon}</span> {q.label}</Link>
+          ))}
+        </div>
+
+        <div className="kpi-row">
+          <div className="kpi"><div className="kpi-num">{fmt(stats.revenue_month)}</div><div className="kpi-label">CA ce mois</div></div>
+          <div className="kpi"><div className="kpi-num">{stats.orders}</div><div className="kpi-label">Commandes</div></div>
+          <div className="kpi"><div className="kpi-num">{stats.contacts}</div><div className="kpi-label">Contacts</div></div>
+          <div className="kpi"><div className="kpi-num">{stats.products}</div><div className="kpi-label">Produits</div></div>
+        </div>
+
+        {ALERTS.length > 0 && (
+          <div className="alerts">
+            {ALERTS.map((a, i) => (
+              <Link key={i} href={a.href} className="alert" style={{ background: a.color + '15', color: a.color, borderColor: a.color + '30' }}>
+                ⚠️ {a.label}
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {MODULES.map(mod => (
+          <div key={mod.key} className="hub-section">
+            <div className="hub-section-title" style={{ color: mod.color }}>
+              <span>{mod.icon}</span> {mod.label}
+            </div>
+            <div className="hub-grid">
+              {mod.nav.map(item => (
+                <Link key={item.href} href={item.href} className="hub-card">
+                  <div className="hub-card-icon" style={{ background: mod.color + '18' }}>{item.icon}</div>
+                  <div>
+                    <div className="hub-card-label">{item.label}</div>
+                    {item.desc && <div className="hub-card-desc">{item.desc}</div>}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
-
-      {/* App Grid */}
-      <div className="launcher-grid">
-        {APPS.map(app => (
-          <Link key={app.href} href={app.href} className="app-tile">
-            <div className="app-tile-icon" style={{ background: app.bg }}>
-              {app.icon}
-            </div>
-            <div>
-              <div className="app-tile-label">{app.label}</div>
-              <div className="app-tile-desc">{app.desc}</div>
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Footer links */}
-      <div className="launcher-footer">
-        {frontUrl && (
-          <>
-            <a href={frontUrl} target="_blank" rel="noopener" className="launcher-footer-link">
-              🌐 Voir le site
-            </a>
-            <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
-          </>
-        )}
-        <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" className="launcher-footer-link">
-          🗄️ Supabase
-        </a>
-        <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
-        <a href="https://vercel.com/dashboard" target="_blank" rel="noopener" className="launcher-footer-link">
-          ▲ Vercel
-        </a>
-        {siteName && (
-          <>
-            <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>
-              {siteName} © {new Date().getFullYear()}
-            </span>
-          </>
-        )}
-      </div>
-    </div>
+    </>
   );
 }

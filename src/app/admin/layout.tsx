@@ -4,96 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { getAdminLang, setAdminLang, subscribeAdminLang, AdminLang } from '@/lib/admin-i18n';
 import { getValidToken } from '@/lib/auth-client';
-
-const APPS = [
-  {
-    key: 'boutique',
-    label: 'Boutique',
-    icon: '🛍️',
-    color: '#7B4F7B',
-    paths: ['/admin/produits', '/admin/categories', '/admin/stock', '/admin/commandes', '/admin/import'],
-    nav: [
-      { href: '/admin/produits',             icon: '📦', label: 'Produits' },
-      { href: '/admin/categories',           icon: '🗂️', label: 'Catégories' },
-      { href: '/admin/stock',                icon: '🔢', label: 'Stocks' },
-      { href: '/admin/commandes',            icon: '🛒', label: 'Commandes' },
-      { href: '/admin/import',               icon: '📥', label: 'Import URL' },
-      { href: '/admin/produits/suggestions', icon: '💡', label: 'Suggestions' },
-    ],
-  },
-  {
-    key: 'achats',
-    label: 'Achats',
-    icon: '📬',
-    color: '#1A6B55',
-    paths: ['/admin/achats', '/admin/receptions'],
-    nav: [
-      { href: '/admin/achats',     icon: '🛍️', label: 'Commandes achat' },
-      { href: '/admin/receptions', icon: '📬', label: 'Réceptions' },
-    ],
-  },
-  {
-    key: 'finance',
-    label: 'Finance',
-    icon: '💰',
-    color: '#1C4E80',
-    paths: ['/admin/gestion', '/admin/comptabilite'],
-    nav: [
-      { href: '/admin/gestion',            icon: '🧾', label: 'Factures vente' },
-      { href: '/admin/gestion?tab=achat',  icon: '📄', label: 'Factures achat' },
-      { href: '/admin/gestion?tab=marges', icon: '📈', label: 'Marges' },
-      { href: '/admin/comptabilite',       icon: '📊', label: 'Comptabilité' },
-    ],
-  },
-  {
-    key: 'marketing',
-    label: 'Marketing',
-    icon: '📣',
-    color: '#7B2D8B',
-    paths: ['/admin/marketing'],
-    nav: [
-      { href: '/admin/marketing',                  icon: '📧', label: 'Campagnes' },
-      { href: '/admin/marketing/editor',           icon: '✏️', label: 'Éditeur email' },
-      { href: '/admin/marketing/automations',      icon: '🤖', label: 'Automations' },
-      { href: '/admin/marketing?tab=promo',        icon: '🎟️', label: 'Codes promo' },
-      { href: '/admin/marketing?tab=cart',         icon: '🛒', label: 'Abandon panier' },
-    ],
-  },
-  {
-    key: 'contenu',
-    label: 'Contenu',
-    icon: '🖼️',
-    color: '#8B5E3C',
-    paths: ['/admin/home-cms', '/admin/medias', '/admin/homepage', '/admin/pages'],
-    nav: [
-      { href: '/admin/home-cms', icon: '🏠', label: 'Page d\'accueil' },
-      { href: '/admin/pages',    icon: '📄', label: 'Pages' },
-      { href: '/admin/medias',   icon: '🖼️', label: 'Médiathèque' },
-    ],
-  },
-  {
-    key: 'contacts',
-    label: 'Contacts',
-    icon: '👥',
-    color: '#5B3427',
-    paths: ['/admin/contacts'],
-    nav: [
-      { href: '/admin/contacts?type=client',   icon: '👤', label: 'Clients' },
-      { href: '/admin/contacts?type=supplier', icon: '🏭', label: 'Fournisseurs' },
-    ],
-  },
-  {
-    key: 'config',
-    label: 'Configuration',
-    icon: '⚙️',
-    color: '#424242',
-    paths: ['/admin/white-label'],
-    nav: [
-      { href: '/admin/white-label',             icon: '🎨', label: 'White Label' },
-      { href: '/admin/white-label?tab=import',  icon: '📥', label: 'Import données' },
-    ],
-  },
-];
+import { MODULES, findModule, isFullBleed, isNavItemActive } from '@/lib/admin-nav';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -107,10 +18,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [lang, setLang] = useState<AdminLang>('fr');
 
   const isHome = pathname === '/admin';
+  const fullBleed = isFullBleed(pathname);
+  const search = typeof window !== 'undefined' ? window.location.search : '';
 
-  const currentApp = isHome ? null : APPS.find(app =>
-    app.paths.some(p => pathname.startsWith(p))
-  ) || null;
+  const currentApp = isHome ? null : findModule(pathname);
 
   useEffect(() => {
     const mail = localStorage.getItem('sd_admin_email');
@@ -463,7 +374,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </Link>
 
-        {!isHome && currentApp && (
+        {!isHome && currentApp && !fullBleed && (
           <button className="nav-ham" onClick={() => setMob(o => !o)} title="Menu" aria-label="Menu">
             {mobOpen ? '✕' : '☰'}
           </button>
@@ -509,15 +420,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* OVERLAY mobile */}
         {mobOpen && <div className="sidebar-overlay" onClick={() => setMob(false)} />}
 
-        {/* MODULE SIDEBAR — visible uniquement hors home */}
-        {!isHome && currentApp && (
+        {/* MODULE SIDEBAR — visible uniquement hors home et hors pages plein écran */}
+        {!isHome && currentApp && !fullBleed && (
           <aside className={`module-sidebar${mobOpen ? ' open' : ''}`}>
             <div className="module-sidebar-header" style={{ color: currentApp.color }}>
               {currentApp.icon} {currentApp.label}
             </div>
             <nav className="module-nav">
               {currentApp.nav.map((item, i) => {
-                const isActive = pathname.startsWith(item.href.split('?')[0]);
+                const isActive = isNavItemActive(item, pathname, search, currentApp.nav);
                 return (
                   <Link key={i} href={item.href} className={`module-nav-link ${isActive ? 'active' : ''}`}
                     style={isActive ? { color: currentApp.color, borderLeftColor: currentApp.color } : {}}>
@@ -531,11 +442,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         )}
 
         <main className="admin-main" style={{
-          marginLeft: !isHome && currentApp ? '200px' : '0',
-          padding: isHome || pathname.startsWith('/admin/marketing/editor') ? '0' : '28px',
+          marginLeft: !isHome && currentApp && !fullBleed ? '200px' : '0',
+          padding: isHome || fullBleed ? '0' : '28px',
         }}>
           {children}
-          {!pathname.startsWith('/admin/marketing/editor') && (
+          {!fullBleed && (
             <div style={{
               textAlign: 'right',
               padding: isHome ? '16px 40px' : '20px 0 4px',
