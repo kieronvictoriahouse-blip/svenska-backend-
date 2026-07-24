@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
     const orderLines: Array<{ product_id: string; name: string; name_en?: string; name_sv?: string; qty: number; price: number; image_url?: string }> = [];
     let subtotal = 0;
     let hasPickupOnly = false;
+    const stockErrors: Array<{ name: string; available: number; requested: number }> = [];
 
     for (const item of items) {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
@@ -82,6 +83,18 @@ export async function POST(req: NextRequest) {
       const { data: product } = await q.maybeSingle();
       if (!product) continue;
       if (product.pickup_only) hasPickupOnly = true;
+
+      // Contrôle de stock côté serveur (l'UI peut être contournée) : on refuse toute
+      // quantité supérieure au stock réel pour les produits en suivi de stock.
+      if (product.track_stock === true && typeof product.stock === 'number') {
+        if (product.stock <= 0 || item.quantity > product.stock) {
+          stockErrors.push({
+            name: product.name_fr || product.id,
+            available: Math.max(0, product.stock),
+            requested: item.quantity,
+          });
+        }
+      }
 
       const variant = item.variant
         ? (product.product_variants || []).find((v: { label: string }) => v.label === item.variant)
@@ -108,6 +121,14 @@ export async function POST(req: NextRequest) {
 
     if (lineItems.length === 0) {
       return NextResponse.json({ error: 'Produits introuvables' }, { status: 400, headers: CORS });
+    }
+
+    // Stock insuffisant → on refuse la commande AVANT tout paiement.
+    if (stockErrors.length > 0) {
+      return NextResponse.json(
+        { error: 'Stock insuffisant pour un ou plusieurs articles.', code: 'OUT_OF_STOCK', items: stockErrors },
+        { status: 409, headers: CORS },
+      );
     }
 
     // Verrou : un produit "retrait uniquement" (frais, fragile…) impose le click & collect
