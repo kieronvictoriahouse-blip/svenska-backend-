@@ -38,19 +38,30 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
+  // Les variantes vivent dans la table product_variants, pas dans products → on les sépare.
+  const { variants, ...fields } = body;
+
   // Rapatrie les images externes dans notre Storage (sinon liens morts type olw.se).
   // En cas d'échec on garde l'URL d'origine — mieux qu'aucune image.
-  if (typeof body.image_url === 'string' && body.image_url) {
-    body.image_url = (await rehostImage(body.image_url)) || body.image_url;
+  if (typeof fields.image_url === 'string' && fields.image_url) {
+    fields.image_url = (await rehostImage(fields.image_url)) || fields.image_url;
   }
-  if (Array.isArray(body.extra_images) && body.extra_images.length > 0) {
-    body.extra_images = await Promise.all(
-      body.extra_images.map(async (u: string) => (await rehostImage(u)) || u)
+  if (Array.isArray(fields.extra_images) && fields.extra_images.length > 0) {
+    fields.extra_images = await Promise.all(
+      fields.extra_images.map(async (u: string) => (await rehostImage(u)) || u)
     );
   }
 
-  const { data, error } = await supabaseAdmin.from('products').insert(body).select().single();
+  const { data, error } = await supabaseAdmin.from('products').insert(fields).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Variantes → table dédiée (non bloquant : le produit est déjà créé)
+  if (Array.isArray(variants) && variants.length > 0) {
+    const rows = variants
+      .filter((v: any) => v && v.label)
+      .map((v: any, i: number) => ({ product_id: data.id, label: v.label, price: parseFloat(v.price), is_default: i === 0, sort_order: i }));
+    if (rows.length) await supabaseAdmin.from('product_variants').insert(rows);
+  }
 
   return NextResponse.json({ product: data });
 }
