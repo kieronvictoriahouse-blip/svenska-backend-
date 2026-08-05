@@ -12,7 +12,7 @@ type Campaign = {
 type PromoCode = {
   id: string; code: string; type: string; value: number; min_order: number;
   max_uses?: number; used_count: number; valid_from?: string; valid_until?: string;
-  is_active: boolean; single_use_per_customer: boolean;
+  is_active: boolean; single_use_per_customer: boolean; gift_product_ids?: string[];
 };
 type AbandonedCart = {
   id: string; customer_email: string; customer_name?: string; cart_total: number;
@@ -38,7 +38,8 @@ function MarketingInner() {
   const [editingCode, setEditingCode] = useState<PromoCode | null>(null);
   const [toast, setToast] = useState('');
   const [campForm, setCampForm] = useState({ name: '', type: 'email', status: 'draft', subject: '', content: '', target_segment: 'all', budget: '' });
-  const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false });
+  const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[] });
+  const [products, setProducts] = useState<Array<{ id: string; name_fr: string }>>([]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -52,6 +53,11 @@ function MarketingInner() {
     } else if (tab === 'promo') {
       const res = await fetch('/api/marketing?tab=promo');
       setCodes((await res.json()).codes || []);
+      try {
+        const pr = await fetch('/api/products');
+        const pj = await pr.json();
+        setProducts((pj.products || []).map((p: any) => ({ id: p.id, name_fr: p.name_fr })).filter((p: any) => p.id && p.name_fr));
+      } catch { /* liste cadeau indisponible */ }
     } else if (tab === 'cart') {
       const res = await fetch('/api/marketing?tab=abandoned');
       setCarts((await res.json()).carts || []);
@@ -68,7 +74,7 @@ function MarketingInner() {
     loadData();
   }
 
-  const BLANK_CODE = { code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false };
+  const BLANK_CODE = { code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[] };
 
   function openNewCode() {
     setEditingCode(null);
@@ -88,13 +94,31 @@ function MarketingInner() {
       valid_until: c.valid_until ? c.valid_until.slice(0, 10) : '',
       is_active: c.is_active,
       single_use_per_customer: c.single_use_per_customer,
+      gift_product_ids: (c as any).gift_product_ids || [],
     });
     setShowCodeModal(true);
   }
 
   async function saveCode() {
-    if (!codeForm.code || !codeForm.value) { showToast('⚠️ Code et valeur requis'); return; }
-    const payload = { ...codeForm, value: parseFloat(codeForm.value), min_order: parseFloat(codeForm.min_order) || 0, max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null, valid_from: codeForm.valid_from || null, valid_until: codeForm.valid_until || null, single_use_per_customer: codeForm.single_use_per_customer };
+    const isGift = codeForm.type === 'gift';
+    if (isGift) {
+      if (!codeForm.gift_product_ids || codeForm.gift_product_ids.length === 0) { showToast('⚠️ Choisissez au moins 1 produit cadeau'); return; }
+    } else if (!codeForm.code || !codeForm.value) {
+      showToast('⚠️ Code et valeur requis'); return;
+    }
+    const autoCode = codeForm.code || (isGift ? ('CADEAU-' + Math.random().toString(36).slice(2, 7).toUpperCase()) : '');
+    const payload = {
+      ...codeForm,
+      code: autoCode.toUpperCase(),
+      value: isGift ? 0 : (parseFloat(codeForm.value) || 0),
+      min_order: parseFloat(codeForm.min_order) || 0,
+      max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null,
+      valid_from: codeForm.valid_from || null,
+      valid_until: codeForm.valid_until || null,
+      single_use_per_customer: codeForm.single_use_per_customer,
+      gift_product_ids: isGift ? codeForm.gift_product_ids : [],
+    };
+    if (!isGift) delete (payload as any).gift_product_ids;
     const url = editingCode ? `/api/marketing?tab=promo&id=${editingCode.id}` : '/api/marketing?tab=promo';
     const method = editingCode ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -273,8 +297,8 @@ function MarketingInner() {
                 : codes.map(c => (
                   <tr key={c.id}>
                     <td><strong className="mono">{c.code}</strong></td>
-                    <td>{c.type === 'percent' ? 'Pourcentage' : c.type === 'fixed' ? 'Montant fixe' : 'Livraison offerte'}</td>
-                    <td className="mono" style={{ fontWeight: 600, color: '#9E5A3C' }}>{c.type === 'percent' ? `${c.value}%` : c.type === 'fixed' ? fmt(c.value) : 'Offerte'}</td>
+                    <td>{c.type === 'percent' ? 'Pourcentage' : c.type === 'fixed' ? 'Montant fixe' : c.type === 'gift' ? '🎁 Cadeau' : 'Livraison offerte'}</td>
+                    <td className="mono" style={{ fontWeight: 600, color: '#9E5A3C' }}>{c.type === 'percent' ? `${c.value}%` : c.type === 'fixed' ? fmt(c.value) : c.type === 'gift' ? `🎁 ${(c.gift_product_ids || []).length} produit(s)` : 'Offerte'}</td>
                     <td>{c.used_count}{c.max_uses ? ` / ${c.max_uses}` : ''}</td>
                     <td style={{ fontSize: 12, color: '#6A7280' }}>{fmtDate(c.valid_from)} → {fmtDate(c.valid_until)}</td>
                     <td style={{ textAlign: 'center' }}>{c.single_use_per_customer ? <span title="1 utilisation max par client" style={{ fontSize: 16 }}>🔒</span> : <span style={{ color: '#D8CEBC', fontSize: 14 }}>—</span>}</td>
@@ -372,21 +396,45 @@ function MarketingInner() {
               <div className="modal-header"><span className="modal-title">{editingCode ? `Modifier "${editingCode.code}"` : 'Nouveau code promo'}</span><button className="btn btn-secondary btn-sm" onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>✕</button></div>
               <div className="modal-body">
                 <div className="grid-2">
+                  {codeForm.type !== 'gift' && (
                   <div className="form-group"><label className="form-label">Code *</label><input className="form-control mono" value={codeForm.code} style={{ textTransform: 'uppercase' }} onChange={e => setCodeForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="EX: NOEL10" /></div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">Type</label>
                     <select className="form-control" value={codeForm.type} onChange={e => setCodeForm(f => ({ ...f, type: e.target.value }))}>
                       <option value="percent">Pourcentage (%)</option>
                       <option value="fixed">Montant fixe (€)</option>
                       <option value="free_shipping">Livraison offerte</option>
+                      <option value="gift">🎁 Cadeau offert</option>
                     </select>
                   </div>
+                  {codeForm.type !== 'gift' && (
                   <div className="form-group"><label className="form-label">Valeur *</label><input type="number" className="form-control mono" value={codeForm.value} onChange={e => setCodeForm(f => ({ ...f, value: e.target.value }))} placeholder={codeForm.type === 'percent' ? '10' : '5'} /></div>
-                  <div className="form-group"><label className="form-label">Commande minimum (€)</label><input type="number" className="form-control mono" value={codeForm.min_order} onChange={e => setCodeForm(f => ({ ...f, min_order: e.target.value }))} /></div>
+                  )}
+                  <div className="form-group"><label className="form-label">{codeForm.type === 'gift' ? 'Cadeau offert dès (€) *' : 'Commande minimum (€)'}</label><input type="number" className="form-control mono" value={codeForm.min_order} onChange={e => setCodeForm(f => ({ ...f, min_order: e.target.value }))} placeholder={codeForm.type === 'gift' ? '10' : ''} /></div>
                   <div className="form-group"><label className="form-label">Nb utilisations max</label><input type="number" className="form-control mono" value={codeForm.max_uses} onChange={e => setCodeForm(f => ({ ...f, max_uses: e.target.value }))} placeholder="Illimité" /></div>
                   <div className="form-group"><label className="form-label">Valide du</label><input type="date" className="form-control" value={codeForm.valid_from} onChange={e => setCodeForm(f => ({ ...f, valid_from: e.target.value }))} /></div>
                   <div className="form-group"><label className="form-label">Valide jusqu'au</label><input type="date" className="form-control" value={codeForm.valid_until} onChange={e => setCodeForm(f => ({ ...f, valid_until: e.target.value }))} /></div>
                 </div>
+                {codeForm.type === 'gift' && (
+                  <div className="form-group">
+                    <label className="form-label">Produits offerts éligibles * <span style={{ fontWeight: 400, color: '#6A7280' }}>(le client en choisit un dans le panier)</span></label>
+                    <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #E8E0D0', borderRadius: 6, padding: '8px 10px' }}>
+                      {products.length === 0
+                        ? <div style={{ fontSize: 12, color: '#6A7280' }}>Chargement des produits…</div>
+                        : products.map(p => {
+                            const on = codeForm.gift_product_ids.includes(p.id);
+                            return (
+                              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={on} onChange={() => setCodeForm(f => ({ ...f, gift_product_ids: on ? f.gift_product_ids.filter(x => x !== p.id) : [...f.gift_product_ids, p.id] }))} />
+                                {p.name_fr}
+                              </label>
+                            );
+                          })}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6A7280', marginTop: 4 }}>{codeForm.gift_product_ids.length} sélectionné(s). Le cadeau s'ajoute automatiquement à 0 € dès le montant atteint ; si plusieurs, le client choisit.</div>
+                  </div>
+                )}
                 <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                   <label className="toggle">
                     <input type="checkbox" checked={codeForm.single_use_per_customer} onChange={e => setCodeForm(f => ({ ...f, single_use_per_customer: e.target.checked }))} />

@@ -74,8 +74,11 @@ export async function POST(req: NextRequest) {
     let subtotal = 0;
     let hasPickupOnly = false;
     const stockErrors: Array<{ name: string; available: number; requested: number }> = [];
+    const giftClaims: Array<{ id: string }> = [];
 
     for (const item of items) {
+      // Les cadeaux (offerts) sont mis de côté : validés + ajoutés à 0 € après le sous-total.
+      if (item && item.gift) { giftClaims.push({ id: item.id }); continue; }
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
       const sortOrder = isUUID ? NaN : parseInt(item.id);
       let q = supabaseAdmin.from('products').select('*, product_variants(*)').eq('is_active', true);
@@ -129,6 +132,49 @@ export async function POST(req: NextRequest) {
         { error: 'Stock insuffisant pour un ou plusieurs articles.', code: 'OUT_OF_STOCK', items: stockErrors },
         { status: 409, headers: CORS },
       );
+    }
+
+    // ── Cadeau offert : validé 100% côté serveur (impossible de forcer un produit gratuit) ──
+    // On n'ajoute le cadeau à 0 € que si : offre gift active + valide, sous-total (hors cadeau)
+    // ≥ seuil, et le produit demandé fait bien partie des cadeaux éligibles.
+    if (giftClaims.length > 0) {
+      try {
+        const now = new Date();
+        const { data: gifts } = await supabaseAdmin
+          .from('promo_codes').select('*').eq('type', 'gift').eq('is_active', true)
+          .order('created_at', { ascending: false });
+        const offer = (gifts || []).find((p: any) => {
+          const dateOk = (!p.valid_from || now >= new Date(p.valid_from)) &&
+            (!p.valid_until || now <= new Date(String(p.valid_until).slice(0, 10) + 'T23:59:59'));
+          return dateOk && (!p.max_uses || (p.used_count || 0) < p.max_uses);
+        });
+        if (offer && subtotal >= (parseFloat(offer.min_order) || 0)) {
+          let ids: string[] = [];
+          const raw = (offer as any).gift_product_ids;
+          if (Array.isArray(raw)) ids = raw;
+          else if (typeof raw === 'string') { try { ids = JSON.parse(raw); } catch { ids = []; } }
+          const claim = giftClaims.find(g => ids.includes(g.id));
+          if (claim) {
+            const { data: gp } = await supabaseAdmin
+              .from('products')
+              .select('id, name_fr, name_en, name_sv, image_url, is_active, track_stock, stock')
+              .eq('id', claim.id).eq('is_active', true).maybeSingle();
+            const inStock = gp && !(gp.track_stock === true && (gp.stock || 0) <= 0);
+            if (gp && inStock) {
+              orderLines.push({
+                product_id: gp.id,
+                name: (gp.name_fr || 'Cadeau') + ' (offert)',
+                name_en: (gp.name_en || gp.name_fr || 'Gift') + ' (free gift)',
+                name_sv: (gp.name_sv || gp.name_fr || 'Gåva') + ' (gåva)',
+                qty: 1, price: 0,
+                ...(gp.image_url ? { image_url: gp.image_url } : {}),
+              });
+            }
+          }
+        }
+      } catch (giftErr) {
+        console.warn('[checkout] gift error (non-fatal):', giftErr);
+      }
     }
 
     // Verrou : un produit "retrait uniquement" (frais, fragile…) impose le click & collect
