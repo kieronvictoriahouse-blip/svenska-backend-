@@ -22,6 +22,8 @@ type Order = {
   mondial_relay_tracking?: string; mondial_relay_label_url?: string;
   logspher_tracking?: string; logspher_label_url?: string; logspher_carrier_name?: string; logspher_error?: string;
   payment_link_url?: string; payment_link_sent_at?: string;
+  refunded_amount?: number; refunded_at?: string;
+  refunds?: { date: string; amount: number; shipping_kept?: number; reason?: string | null; stripe_refund_id?: string | null; order_modified?: boolean; items?: any[] }[];
 };
 
 type ProductCost = { id: string; cost_price: number };
@@ -60,6 +62,9 @@ const T = {
   source:        { fr: 'Source', en: 'Source', sv: 'Källa' },
   refund:        { fr: 'Rembourser', en: 'Refund', sv: 'Återbetala' },
   refundConfirm: { fr: '⚠️ Confirmer le remboursement ?', en: '⚠️ Confirm refund?', sv: '⚠️ Bekräfta återbetalning?' },
+  partialRefund: { fr: 'Remboursement partiel', en: 'Partial refund', sv: 'Delvis återbetalning' },
+  refunded:      { fr: 'Déjà remboursé', en: 'Already refunded', sv: 'Redan återbetalt' },
+  netCollected:  { fr: 'Net encaissé', en: 'Net collected', sv: 'Netto' },
   markTest:      { fr: 'Marquer comme test', en: 'Mark as test', sv: 'Markera som test' },
   markTestConfirm: { fr: '⚠️ Confirmer ? Supprime la comptabilité associée', en: '⚠️ Confirm? Removes accounting entry', sv: '⚠️ Bekräfta? Tar bort bokföringen' },
   showTest:      { fr: 'Afficher les commandes test', en: 'Show test orders', sv: 'Visa testbeställningar' },
@@ -90,6 +95,16 @@ export default function CommandesPage() {
   const [savingTracking, setSavingTracking] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [refundConfirm, setRefundConfirm] = useState(false);
+  const [showPartialPanel, setShowPartialPanel] = useState(false);
+  const [partialItems, setPartialItems] = useState<Record<number, number>>({});   // index ligne → qté créditée
+  const [partialShipping, setPartialShipping] = useState('');
+  const [partialOverride, setPartialOverride] = useState('');                     // montant forcé (sinon calculé)
+  const [partialReason, setPartialReason] = useState('');
+  const [partialModifyOrder, setPartialModifyOrder] = useState(true);
+  const [partialRestock, setPartialRestock] = useState(true);
+  const [partialNotify, setPartialNotify] = useState(true);
+  const [partialSwitchDelivery, setPartialSwitchDelivery] = useState(false);
+  const [partialConfirm, setPartialConfirm] = useState(false);
   const [showRestockModal, setShowRestockModal] = useState(false);
   const [restockOrderId, setRestockOrderId] = useState<string | null>(null);
   const [markingTest, setMarkingTest] = useState(false);
@@ -133,14 +148,30 @@ export default function CommandesPage() {
 
   useEffect(() => { load(); loadCosts(); }, [filter, search]);
   useEffect(() => { loadCosts(); }, []);
+  // Réinitialise le panneau de remboursement partiel à chaque commande ouverte
   useEffect(() => {
-    if (!selected || selected.status !== 'refunded') { setAvoirId(null); return; }
+    setShowPartialPanel(false);
+    setPartialItems({});
+    setPartialOverride('');
+    setPartialReason('');
+    setPartialModifyOrder(true);
+    setPartialRestock(true);
+    setPartialNotify(true);
+    setPartialConfirm(false);
+    // Click & Collect basculé en expédition → on pré-remplit le port standard
+    const isPickupWithoutShipping = selected?.delivery_mode === 'pickup' && !(selected?.shipping > 0);
+    setPartialShipping(isPickupWithoutShipping ? '4.90' : '');
+    setPartialSwitchDelivery(isPickupWithoutShipping);
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected || (selected.status !== 'refunded' && !(selected.refunded_amount! > 0))) { setAvoirId(null); return; }
     const token = localStorage.getItem('sd_admin_token') || '';
     fetch(`/api/invoices?order_id=${selected.id}&status=avoir`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => setAvoirId(d.invoices?.[0]?.id || null))
       .catch(() => setAvoirId(null));
-  }, [selected?.id, selected?.status]);
+  }, [selected?.id, selected?.status, selected?.refunded_amount]);
 
   useEffect(() => {
     if (!selected) { setMrResult(null); return; }
@@ -392,6 +423,86 @@ export default function CommandesPage() {
     }
   }
 
+  // ── Remboursement partiel ─────────────────────────────────────────
+  const orderLinesOf = (o: Order): any[] => {
+    try { return typeof o.lines === 'string' ? JSON.parse(o.lines as any) : (o.lines || []); }
+    catch { return []; }
+  };
+
+  function partialTotals(o: Order | null) {
+    if (!o) return { credit: 0, shipping: 0, net: 0, amount: 0, remaining: 0 };
+    const lines = orderLinesOf(o);
+    const credit = Object.entries(partialItems).reduce((s, [idx, qty]) => {
+      const l = lines[Number(idx)];
+      return s + (l ? (l.price || 0) * (qty || 0) : 0);
+    }, 0);
+    const shipping = Math.max(0, parseFloat(partialShipping) || 0);
+    const net = Math.round((credit - shipping) * 100) / 100;
+    const amount = partialOverride !== '' ? Math.round((parseFloat(partialOverride) || 0) * 100) / 100 : net;
+    // Reste remboursable : ne pas re-déduire ce qui est déjà répercuté dans `total`
+    const remaining = Math.round(((o.total || 0) - pendingRefundAdj(o).amount) * 100) / 100;
+    return { credit: Math.round(credit * 100) / 100, shipping, net, amount, remaining };
+  }
+
+  async function handlePartialRefund() {
+    if (!selected) return;
+    const { shipping, amount, remaining } = partialTotals(selected);
+    if (!(amount > 0)) { showToast('❌ Le montant à rembourser doit être positif'); return; }
+    if (amount > remaining + 0.005) { showToast(`❌ Maximum remboursable : ${fmt(remaining)}`); return; }
+    if (!partialConfirm) { setPartialConfirm(true); return; }
+
+    setRefunding(true);
+    setPartialConfirm(false);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    try {
+      const res = await fetch(`/api/orders/${selected.id}/refund`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          amount,
+          items: Object.entries(partialItems).map(([index, qty]) => ({ index: Number(index), qty })),
+          shipping_charge: shipping,
+          reason: partialReason || undefined,
+          restock: partialRestock,
+          notify: partialNotify,
+          modify_order: partialModifyOrder,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(`❌ ${data.error || 'Erreur remboursement'}`); return; }
+
+      // Bascule Click & Collect → expédition si demandé
+      if (partialSwitchDelivery && selected.delivery_mode === 'pickup') {
+        await fetch(`/api/orders/${selected.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ delivery_mode: 'delivery' }),
+        }).catch(() => {});
+      }
+
+      showToast(
+        data.warning
+          ? `✅ ${fmt(data.amount)} remboursés — ⚠️ ${data.warning}`
+          : `✅ ${fmt(data.amount)} remboursés${partialNotify ? ' — client notifié' : ''}`
+      );
+      // La commande a pu être réécrite (lignes, port, total) → on relit la version à jour
+      try {
+        const fresh = await fetch(`/api/orders/${selected.id}`).then(r => r.json());
+        if (fresh?.order) setSelected(fresh.order);
+      } catch {
+        setSelected(o => o ? { ...o, status: data.status || o.status, refunded_amount: data.refunded_amount } : null);
+      }
+      setShowPartialPanel(false);
+      setPartialItems({});
+      setPartialOverride('');
+      load();
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+    } finally {
+      setRefunding(false);
+    }
+  }
+
   async function sendPaymentLink(byEmail: boolean) {
     if (!selected) return;
     setSendingPaymentLink(true);
@@ -523,15 +634,39 @@ export default function CommandesPage() {
     if (w) { w.document.write(html); w.document.close(); }
   }
 
+  const r2 = (n: number) => Math.round((n || 0) * 100) / 100;
+
+  /**
+   * Remboursements NON répercutés dans les montants de la commande.
+   * Un remboursement avec `order_modified` a déjà retiré ses lignes et ajusté
+   * total/port : le déduire une seconde fois fausserait marge et stats.
+   */
+  function pendingRefundAdj(o: Order) {
+    const hasHistory = Array.isArray(o.refunds) && o.refunds.length > 0;
+    const pending = hasHistory ? o.refunds!.filter(r => !r.order_modified) : [];
+    return {
+      // Sans historique (remboursement antérieur à la migration 028) → considéré non répercuté
+      amount:       r2(hasHistory ? pending.reduce((s, r) => s + (r.amount || 0), 0) : (o.refunded_amount || 0)),
+      shippingKept: r2(pending.reduce((s, r) => s + (r.shipping_kept || 0), 0)),
+      items:        pending.flatMap(r => r.items || []),
+      // Montant réellement encaissé à l'origine (base des frais Stripe)
+      originalCharge: r2((o.total || 0) + (hasHistory ? o.refunds!.filter(r => r.order_modified).reduce((s, r) => s + (r.amount || 0), 0) : 0)),
+    };
+  }
+
   function calcMargin(order: Order): { margin: number | null; pct: number | null; stripeFee: number; urssaf: number; transportReal: number; packagingCost: number; shippingCollected: number } {
     const empty = { margin: null, pct: null, stripeFee: 0, urssaf: 0, transportReal: 0, packagingCost: 0, shippingCollected: 0 };
     if (['cancelled', 'refunded'].includes(order.status)) return empty;
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const hasAny = lines.some((l: any) => l.product_id && costMap[l.product_id] != null);
-    const total = order.total || 0;
-    const shippingCollected = order.shipping || 0; // ce que le client a payé pour le port
+    const adj = pendingRefundAdj(order);
+    // Revenu net = montants de la commande − remboursements pas encore répercutés
+    const total = r2((order.total || 0) - adj.amount);
+    // Port perçu = port de la commande + port retenu sur un remboursement non répercuté
+    const shippingCollected = r2((order.shipping || 0) + adj.shippingKept);
+    // Stripe prélève ses frais sur l'encaissement initial et ne les restitue pas sur un partiel
     const stripeFee = order.source !== 'manual' && order.stripe_session_id
-      ? Math.round((total * 0.015 + 0.25) * 100) / 100
+      ? r2(adj.originalCharge * 0.015 + 0.25)
       : 0;
     const urssaf = Math.round(total * 0.123 * 100) / 100;
     const transportReal = order.transport_cost_real || 0;
@@ -541,6 +676,11 @@ export default function CommandesPage() {
     for (const l of lines) {
       const cp = l.product_id ? (costMap[l.product_id] || 0) : 0;
       cost += cp * (l.qty || 1);
+    }
+    // Articles remboursés + remis en stock : ils ne pèsent plus sur le coût de la commande
+    // (si la commande a été réécrite, la ligne a déjà disparu de `lines` — rien à retirer)
+    for (const it of adj.items) {
+      if (it.restocked && it.product_id) cost -= (costMap[it.product_id] || 0) * (it.qty || 0);
     }
     // Revenu = total (inclut le port payé par le client)
     // transport_cost_real est déduit en coût brut — le port perçu compense via le revenu total
@@ -557,7 +697,9 @@ export default function CommandesPage() {
   const visibleOrders = (showAbandoned || filter === 'abandoned')
     ? _base
     : _base.filter(o => o.status !== 'abandoned');
-  const totalRevenue = realOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + (o.total || 0), 0);
+  const totalRevenue = realOrders
+    .filter(o => o.status !== 'cancelled')
+    .reduce((s, o) => s + (o.total || 0) - pendingRefundAdj(o).amount, 0);
   const pendingCount = realOrders.filter(o => o.status === 'pending').length;
   const testCount = orders.filter(o => o.is_test).length;
 
@@ -823,6 +965,24 @@ export default function CommandesPage() {
                     <div className="detail-row" style={{ fontWeight: 700, fontSize: 15, borderTop: '2px solid #1C2028', marginTop: 4, paddingTop: 8 }}>
                       <span>{tc('total')}</span><span className="mono">{fmt(selected.total)}</span>
                     </div>
+                    {(selected.refunded_amount || 0) > 0 && (() => {
+                      // Si la commande a été réécrite, `total` est déjà net : on n'affiche
+                      // le remboursement qu'à titre informatif.
+                      const pending = pendingRefundAdj(selected).amount;
+                      return (
+                        <>
+                          <div className="detail-row" style={{ color: '#B45309' }}>
+                            <span>↩️ {t('refunded')}</span><span className="mono">−{fmt(selected.refunded_amount || 0)}</span>
+                          </div>
+                          {pending > 0 && (
+                            <div className="detail-row" style={{ fontWeight: 700, color: '#065F46' }}>
+                              <span>{t('netCollected')}</span>
+                              <span className="mono">{fmt((selected.total || 0) - pending)}</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {/* Coûts réels */}
                     <div style={{ marginTop: 10, padding: '10px 12px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 6 }}>
@@ -920,6 +1080,185 @@ export default function CommandesPage() {
                 </div>
 
                 {selected.notes && <div style={{ marginTop: 12, padding: '10px 14px', background: '#F6F1E9', borderRadius: 6, fontSize: 12, fontStyle: 'italic', color: '#3E4550' }}>{selected.notes}</div>}
+
+                {/* ── Modifier la commande & rembourser la différence ─────────── */}
+                {['paid', 'confirmed', 'shipped', 'delivered'].includes(selected.status) && !selected.is_test && (() => {
+                  const lines = orderLinesOf(selected);
+                  const { credit, shipping, net, amount, remaining } = partialTotals(selected);
+                  const overMax = amount > remaining + 0.005;
+                  return (
+                    <div style={{ marginTop: 16, background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#9A3412' }}>
+                          ✂️ {t('partialRefund')}
+                        </div>
+                        <button
+                          className="btn btn-sm"
+                          style={{ background: '#FFEDD5', color: '#9A3412', border: '1px solid #FED7AA' }}
+                          onClick={() => { setShowPartialPanel(v => !v); setPartialConfirm(false); }}
+                        >
+                          {showPartialPanel ? '▲ Fermer' : '▼ Retirer des articles / rembourser'}
+                        </button>
+                      </div>
+
+                      {(selected.refunded_amount || 0) > 0 && (
+                        <div style={{ fontSize: 12, color: '#9A3412', marginTop: 8 }}>
+                          Déjà remboursé : <span className="mono" style={{ fontWeight: 700 }}>{fmt(selected.refunded_amount || 0)}</span>
+                          {' · '}reste remboursable : <span className="mono" style={{ fontWeight: 700 }}>{fmt(remaining)}</span>
+                        </div>
+                      )}
+
+                      {showPartialPanel && (
+                        <div style={{ marginTop: 12 }}>
+                          {/* Sélection des articles à retirer */}
+                          <div className="form-label" style={{ color: '#9A3412' }}>Articles à retirer / créditer</div>
+                          <div style={{ background: '#fff', border: '1px solid #FED7AA', borderRadius: 6, padding: '2px 10px' }}>
+                            {lines.length === 0 && <div style={{ fontSize: 12, color: '#9A3412', padding: '8px 0' }}>Aucune ligne</div>}
+                            {lines.map((l: any, i: number) => {
+                              const maxQty = Number(l.qty) || 1;
+                              const sel = partialItems[i] || 0;
+                              return (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < lines.length - 1 ? '1px solid #FFEDD5' : 'none' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={sel > 0}
+                                    onChange={e => setPartialItems(s => {
+                                      const n = { ...s };
+                                      if (e.target.checked) n[i] = maxQty; else delete n[i];
+                                      return n;
+                                    })}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <span style={{ flex: 1, fontSize: 13 }}>
+                                    {l.name_fr || l.name || l.desc || '—'}
+                                    <span style={{ color: '#9A3412', fontSize: 11 }}> (× {maxQty} — {fmt(l.price || 0)}/u)</span>
+                                  </span>
+                                  {sel > 0 && maxQty > 1 && (
+                                    <input
+                                      type="number" min={1} max={maxQty} value={sel}
+                                      onChange={e => {
+                                        const q = Math.max(1, Math.min(maxQty, parseInt(e.target.value) || 1));
+                                        setPartialItems(s => ({ ...s, [i]: q }));
+                                      }}
+                                      className="mono"
+                                      style={{ width: 52, padding: '3px 6px', borderRadius: 4, border: '1px solid #FDBA74', fontSize: 12, textAlign: 'right' }}
+                                    />
+                                  )}
+                                  <span className="mono" style={{ fontSize: 13, minWidth: 74, textAlign: 'right', fontWeight: sel > 0 ? 700 : 400, color: sel > 0 ? '#9A3412' : '#9CA3AF' }}>
+                                    {fmt((l.price || 0) * (sel > 0 ? sel : maxQty))}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Frais de port à facturer */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
+                            <span style={{ fontSize: 13, color: '#7C2D12' }}>🚚 Frais de port à facturer au client</span>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              <input
+                                type="number" min="0" step="0.01"
+                                value={partialShipping}
+                                onChange={e => { setPartialShipping(e.target.value); setPartialConfirm(false); }}
+                                placeholder="0.00"
+                                className="mono"
+                                style={{ width: 80, padding: '4px 8px', borderRadius: 4, border: '1px solid #FDBA74', fontSize: 13, textAlign: 'right', background: '#fff' }}
+                              />
+                              <span style={{ fontSize: 12, color: '#9A3412' }}>€</span>
+                            </div>
+                          </div>
+
+                          {/* Calcul */}
+                          <div style={{ marginTop: 12, background: '#fff', border: '1px solid #FED7AA', borderRadius: 6, padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7C2D12', padding: '2px 0' }}>
+                              <span>Crédit articles retirés</span><span className="mono">+{fmt(credit)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7C2D12', padding: '2px 0' }}>
+                              <span>Frais de port facturés</span><span className="mono">−{fmt(shipping)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #FED7AA', marginTop: 6, paddingTop: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: '#9A3412' }}>💶 À rembourser au client</span>
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                <input
+                                  type="number" min="0" step="0.01"
+                                  value={partialOverride !== '' ? partialOverride : (net > 0 ? net.toFixed(2) : '0.00')}
+                                  onChange={e => { setPartialOverride(e.target.value); setPartialConfirm(false); }}
+                                  className="mono"
+                                  style={{ width: 90, padding: '5px 8px', borderRadius: 4, border: `1px solid ${overMax ? '#EF4444' : '#FDBA74'}`, fontSize: 14, fontWeight: 700, textAlign: 'right', color: '#9A3412', background: '#FFFBEB' }}
+                                />
+                                <span style={{ fontSize: 13, color: '#9A3412', fontWeight: 700 }}>€</span>
+                              </div>
+                            </div>
+                            {partialOverride !== '' && Math.abs(amount - net) > 0.005 && (
+                              <div style={{ fontSize: 11, color: '#B45309', marginTop: 6, fontStyle: 'italic' }}>
+                                Montant forcé (calcul : {fmt(net)}) — un ajustement commercial sera ajouté à l'avoir.
+                              </div>
+                            )}
+                            {overMax && (
+                              <div style={{ fontSize: 11, color: '#B91C1C', marginTop: 6, fontWeight: 600 }}>
+                                ⚠️ Maximum remboursable : {fmt(remaining)}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Motif */}
+                          <div style={{ marginTop: 10 }}>
+                            <input
+                              className="form-control"
+                              style={{ fontSize: 13, background: '#fff', borderColor: '#FED7AA' }}
+                              placeholder="Motif (visible sur l'avoir et l'email client) — ex : fromage retiré, commande expédiée"
+                              value={partialReason}
+                              onChange={e => setPartialReason(e.target.value)}
+                            />
+                          </div>
+
+                          {/* Options */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 10, fontSize: 12, color: '#7C2D12' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={partialModifyOrder} onChange={e => setPartialModifyOrder(e.target.checked)} />
+                              Retirer ces articles de la commande et y ajouter les frais de port
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={partialRestock} onChange={e => setPartialRestock(e.target.checked)} />
+                              Remettre les articles retirés en stock
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={partialNotify} onChange={e => setPartialNotify(e.target.checked)} />
+                              Notifier le client par email
+                            </label>
+                            {selected.delivery_mode === 'pickup' && (
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={partialSwitchDelivery} onChange={e => setPartialSwitchDelivery(e.target.checked)} />
+                                Passer la commande de Click &amp; Collect à expédition
+                              </label>
+                            )}
+                          </div>
+
+                          <button
+                            className="btn btn-sm"
+                            onClick={handlePartialRefund}
+                            disabled={refunding || !(amount > 0) || overMax}
+                            style={{
+                              marginTop: 12, width: '100%', justifyContent: 'center',
+                              background: partialConfirm ? '#EA580C' : '#FFEDD5',
+                              color: partialConfirm ? '#fff' : '#9A3412',
+                              border: '1px solid #FDBA74',
+                              padding: '9px 16px', fontSize: 13, fontWeight: 700,
+                              opacity: (!(amount > 0) || overMax) ? 0.5 : 1,
+                              cursor: refunding || !(amount > 0) || overMax ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {refunding
+                              ? '⏳ Remboursement Stripe…'
+                              : partialConfirm
+                                ? `⚠️ Confirmer : rembourser ${fmt(amount)} sur Stripe ?`
+                                : `💶 Rembourser ${fmt(amount)} au client`}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Lien de paiement */}
                 {!['paid','confirmed','shipped','delivered','refunded','cancelled'].includes(selected.status) && (
