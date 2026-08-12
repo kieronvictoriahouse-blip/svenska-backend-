@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getAdminLang, setAdminLang, subscribeAdminLang, AdminLang } from '@/lib/admin-i18n';
 import { getValidToken, adminFetch } from '@/lib/auth-client';
-import { NavBadge, isFullBleed } from '@/lib/admin-nav';
+import { NavBadge, isFullBleed, isBare } from '@/lib/admin-nav';
 import { T } from '@/lib/admin-theme';
 import AdminShell from './AdminShell';
 
@@ -99,6 +99,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [pathname]);
 
   useEffect(() => { setNavOpen(false); }, [pathname, search]);
+
+  // Documents A4 : aucun shell, la page occupe la feuille entière.
+  if (isBare(pathname)) return <>{children}</>;
 
   return (
     <AdminShell

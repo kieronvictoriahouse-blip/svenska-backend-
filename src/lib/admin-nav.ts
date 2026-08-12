@@ -110,6 +110,12 @@ export function isFullBleed(pathname: string): boolean {
   return pathname.startsWith('/admin/marketing/editor');
 }
 
+/** Pages « nues » : rendues sans shell du tout (documents A4 à imprimer).
+ *  Elles restent protégées par le middleware et le contrôle d'auth du layout. */
+export function isBare(pathname: string): boolean {
+  return pathname.startsWith('/admin/documents/');
+}
+
 /**
  * État actif d'un item, en tenant compte des variantes ?tab= / ?type=.
  * Évite le bug « plusieurs liens actifs à la fois ».
