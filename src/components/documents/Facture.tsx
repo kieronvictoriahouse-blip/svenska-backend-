@@ -1,7 +1,7 @@
 'use client';
 import {
   A4Page, Rails, DocHeader, HRule, Parties, MetaBand, LinesTable, Totals, DocFooter,
-  Watermark, D, DocLine, Party, eurDoc, dateLong,
+  Watermark, DesignationCell, D, DocLine, Party, eurDoc, dateLong,
 } from './doc-kit';
 
 /* Document 1 — FACTURE (handoff, partie 2, §1).
@@ -55,8 +55,15 @@ export default function Facture({ d }: { d: FactureData }) {
 
       <LinesTable
         tone="green"
-        columns={{ ref: true, qty: true, unit: true, amount: true }}
         lines={d.lines}
+        cols={[
+          { label: 'Désignation', cell: DesignationCell },
+          { label: 'Réf.',    width: 88, small: true, cell: l => l.ref || '—' },
+          { label: 'Qté',     width: 52, align: 'center', cell: l => l.qty },
+          { label: 'P.U.',    width: 88, align: 'right',  cell: l => (l.unit != null ? eurDoc(l.unit) : '') },
+          { label: 'Montant', width: 96, align: 'right', bold: true,
+            cell: l => (l.amountText != null ? l.amountText : l.amount != null ? eurDoc(l.amount) : '') },
+        ]}
       />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 28, marginTop: 22, alignItems: 'flex-start' }}>

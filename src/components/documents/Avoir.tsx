@@ -1,7 +1,7 @@
 'use client';
 import {
   A4Page, Rails, DocHeader, HRule, Parties, MetaBand, NoteBox, LinesTable, Totals, DocFooter,
-  DocLine, Party, eurDoc, dateLong,
+  DesignationCell, DocLine, Party, eurDoc, dateLong,
 } from './doc-kit';
 
 /* Document 2 — AVOIR (handoff, partie 2, §2).
@@ -69,9 +69,15 @@ export default function Avoir({ d }: { d: AvoirData }) {
 
       <LinesTable
         tone="gold"
-        columns={{ ref: true, qty: true, unit: true, amount: true }}
         lines={lines}
         marginTop={22}
+        cols={[
+          { label: 'Désignation', cell: DesignationCell },
+          { label: 'Réf.',    width: 88, small: true, cell: l => l.ref || '—' },
+          { label: 'Qté',     width: 52, align: 'center', cell: l => l.qty },
+          { label: 'P.U.',    width: 88, align: 'right',  cell: l => (l.unit != null ? eurDoc(l.unit) : '') },
+          { label: 'Montant', width: 96, align: 'right', bold: true, cell: l => l.amountText },
+        ]}
       />
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 22 }}>

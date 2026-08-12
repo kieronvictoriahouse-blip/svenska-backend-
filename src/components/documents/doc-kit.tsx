@@ -104,24 +104,48 @@ export const HRule = ({ margin = '22px 0 20px' }: { margin?: string }) => (
 
 /* ── Blocs adresse : émetteur à plat / destinataire sur cream ── */
 export function Parties({
-  fromLabel = 'Émetteur', from, toLabel, to, tone = 'green',
-}: { fromLabel?: string; from: Party; toLabel: string; to: Party; tone?: DocTone }) {
+  fromLabel = 'Émetteur', from, toLabel, to, tone = 'green', creamSide = 'right',
+}: {
+  fromLabel?: string; from: Party; toLabel: string; to: Party; tone?: DocTone;
+  /** Côté du bloc cream : droite (facture, avoir, BL) ou gauche (bon de commande, bon de retour). */
+  creamSide?: 'left' | 'right';
+}) {
+  const plain = (label: string, party: Party) => (
+    <div>
+      <div style={{ fontSize: 8.5, letterSpacing: '.26em', textTransform: 'uppercase', color: D.label, fontWeight: 600, marginBottom: 7 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: D.ink }}>{party.name}</div>
+      <div style={{ fontSize: 12, lineHeight: 1.65, color: D.body, marginTop: 3 }}>
+        {party.lines.map((l, i) => <React.Fragment key={i}>{l}<br /></React.Fragment>)}
+      </div>
+    </div>
+  );
+  const cream = (label: string, party: Party) => (
+    <div style={{ background: D.cream, borderLeft: `2px solid ${toneColor(tone)}`, padding: '13px 16px' }}>
+      <div style={{ fontSize: 8.5, letterSpacing: '.26em', textTransform: 'uppercase', color: D.label2, fontWeight: 600, marginBottom: 7 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: D.ink }}>{party.name}</div>
+      <div style={{ fontSize: 12, lineHeight: 1.65, color: D.body, marginTop: 3 }}>
+        {party.lines.map((l, i) => <React.Fragment key={i}>{l}<br /></React.Fragment>)}
+      </div>
+    </div>
+  );
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22 }}>
-      <div>
-        <div style={{ fontSize: 8.5, letterSpacing: '.26em', textTransform: 'uppercase', color: D.label, fontWeight: 600, marginBottom: 7 }}>{fromLabel}</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: D.ink }}>{from.name}</div>
-        <div style={{ fontSize: 12, lineHeight: 1.65, color: D.body, marginTop: 3 }}>
-          {from.lines.map((l, i) => <React.Fragment key={i}>{l}<br /></React.Fragment>)}
-        </div>
-      </div>
-      <div style={{ background: D.cream, borderLeft: `2px solid ${toneColor(tone)}`, padding: '13px 16px' }}>
-        <div style={{ fontSize: 8.5, letterSpacing: '.26em', textTransform: 'uppercase', color: D.label2, fontWeight: 600, marginBottom: 7 }}>{toLabel}</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: D.ink }}>{to.name}</div>
-        <div style={{ fontSize: 12, lineHeight: 1.65, color: D.body, marginTop: 3 }}>
-          {to.lines.map((l, i) => <React.Fragment key={i}>{l}<br /></React.Fragment>)}
-        </div>
-      </div>
+      {creamSide === 'left'
+        ? <>{cream(fromLabel, from)}{plain(toLabel, to)}</>
+        : <>{plain(fromLabel, from)}{cream(toLabel, to)}</>}
+    </div>
+  );
+}
+
+/** Encart latéral gauche des pieds de table : « Consignes », « Conditions »,
+ *  « Comment procéder ». Libellé 8,5 px + texte 11/11,5 px. */
+export function SideNote({ title, children, maxWidth = 300, fontSize = 11 }: {
+  title: string; children: React.ReactNode; maxWidth?: number; fontSize?: number;
+}) {
+  return (
+    <div style={{ flex: 1, maxWidth, fontSize, color: D.soft, lineHeight: fontSize >= 11.5 ? 1.85 : 1.7 }}>
+      <div style={{ fontSize: 8.5, letterSpacing: '.24em', textTransform: 'uppercase', color: D.label, fontWeight: 600, marginBottom: 8 }}>{title}</div>
+      {children}
     </div>
   );
 }
@@ -151,60 +175,72 @@ export const NoteBox = ({ children, marginTop = 18 }: { children: React.ReactNod
 );
 
 /* ── Table des lignes ───────────────────────────────────────
-   En-tête coloré + filet 1,5 px de la couleur du document. */
+   En-tête coloré + filet 1,5 px de la couleur du document.
+   Les colonnes sont déclarées explicitement : chaque document a la
+   sienne (facture P.U./Montant, BL Commandé/Livré/Lot-DLC, retour
+   Motif/À rembourser…). Première et dernière colonnes collées aux
+   marges (padding 11px 0), les autres à 11px 12px. */
+export type DocCol = {
+  label: string;
+  width?: number;
+  align?: 'left' | 'center' | 'right';
+  cell: (l: any) => React.ReactNode;
+  /** 11,5 px couleur discrète (réf., lot, motif) */
+  small?: boolean;
+  /** 600 (montants, quantité livrée) */
+  bold?: boolean;
+};
+
 export function LinesTable({
-  tone = 'green', columns, lines, marginTop = 24,
-}: {
-  tone?: DocTone;
-  /** Colonnes affichées, dans l'ordre du handoff. */
-  columns: { ref?: boolean; qty?: boolean; unit?: boolean; amount?: boolean; qtyLabel?: string; amountLabel?: string; extra?: { label: string; width: number; align?: 'left' | 'center' | 'right' } };
-  lines: DocLine[];
-  marginTop?: number;
-}) {
+  tone = 'green', cols, lines, marginTop = 24,
+}: { tone?: DocTone; cols: DocCol[]; lines: any[]; marginTop?: number }) {
   const c = toneColor(tone);
-  const th = (align: 'left' | 'center' | 'right', width?: number, pad = '0 12px 9px'): React.CSSProperties => ({
-    textAlign: align, fontSize: 8.5, letterSpacing: '.22em', textTransform: 'uppercase',
-    color: c, fontWeight: 600, padding: pad, borderBottom: `1.5px solid ${c}`, width,
-  });
-  const td = (align: 'left' | 'center' | 'right', pad = '11px 12px'): React.CSSProperties => ({
-    padding: pad, borderBottom: `1px solid ${D.ruleRow}`, fontSize: 13, textAlign: align,
-    fontVariantNumeric: 'tabular-nums',
-  });
+  const last = cols.length - 1;
 
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', marginTop }}>
       <thead>
         <tr>
-          <th style={th('left', undefined, '0 0 9px')}>Désignation</th>
-          {columns.ref && <th style={th('left', 88)}>Réf.</th>}
-          {columns.qty && <th style={th('center', 52)}>{columns.qtyLabel || 'Qté'}</th>}
-          {columns.extra && <th style={th(columns.extra.align || 'center', columns.extra.width)}>{columns.extra.label}</th>}
-          {columns.unit && <th style={th('right', 88)}>P.U.</th>}
-          {columns.amount && <th style={{ ...th('right', 96), padding: '0 0 9px' }}>{columns.amountLabel || 'Montant'}</th>}
+          {cols.map((col, i) => (
+            <th key={i} style={{
+              textAlign: col.align || 'left',
+              fontSize: 8.5, letterSpacing: '.22em', textTransform: 'uppercase',
+              color: c, fontWeight: 600,
+              padding: i === 0 || i === last ? '0 0 9px' : '0 12px 9px',
+              borderBottom: `1.5px solid ${c}`,
+              width: col.width,
+            }}>{col.label}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {lines.map((l, i) => (
-          <tr key={i}>
-            <td style={{ ...td('left', '11px 0'), fontVariantNumeric: 'normal' }}>
-              <span style={{ fontWeight: 500 }}>{l.label}</span>
-              {l.desc && <><br /><span style={{ fontSize: 10.5, color: D.soft2 }}>{l.desc}</span></>}
-            </td>
-            {columns.ref && <td style={{ ...td('left'), fontSize: 11.5, color: D.soft }}>{l.ref || '—'}</td>}
-            {columns.qty && <td style={td('center')}>{l.qty ?? ''}</td>}
-            {columns.extra && <td style={{ ...td(columns.extra.align || 'center'), fontSize: 11.5, color: D.soft }}>{(l as any)[columns.extra.label] ?? l.amountText ?? ''}</td>}
-            {columns.unit && <td style={td('right')}>{l.unit != null ? eurDoc(l.unit) : ''}</td>}
-            {columns.amount && (
-              <td style={{ ...td('right', '11px 0'), fontWeight: 600 }}>
-                {l.amountText != null ? l.amountText : l.amount != null ? eurDoc(l.amount) : ''}
-              </td>
-            )}
+        {lines.map((l, ri) => (
+          <tr key={ri}>
+            {cols.map((col, i) => (
+              <td key={i} style={{
+                padding: i === 0 || i === last ? '11px 0' : '11px 12px',
+                borderBottom: `1px solid ${D.ruleRow}`,
+                fontSize: col.small ? 11.5 : 13,
+                color: col.small ? D.soft : undefined,
+                textAlign: col.align || 'left',
+                fontWeight: col.bold ? 600 : undefined,
+                fontVariantNumeric: 'tabular-nums',
+              }}>{col.cell(l)}</td>
+            ))}
           </tr>
         ))}
       </tbody>
     </table>
   );
 }
+
+/** Cellule « désignation » : nom en 500 + description 10,5 px optionnelle. */
+export const DesignationCell = (l: DocLine) => (
+  <span style={{ fontVariantNumeric: 'normal' }}>
+    <span style={{ fontWeight: 500 }}>{l.label}</span>
+    {l.desc && <><br /><span style={{ fontSize: 10.5, color: D.soft2 }}>{l.desc}</span></>}
+  </span>
+);
 
 /* ── Colonne des totaux (290 px) + bloc total plein ────────── */
 export function Totals({
@@ -255,9 +291,10 @@ export function SignatureBox({ title, hint, height = 74 }: { title: string; hint
 /* ── Pied : séparateur décoratif + phrase + mentions ───────── */
 export function DocFooter({
   closing, legal, contact,
-}: { closing: string; legal: React.ReactNode; contact: React.ReactNode }) {
+}: { closing?: string; legal: React.ReactNode; contact: React.ReactNode }) {
   return (
     <div style={{ marginTop: 'auto', paddingTop: 22 }}>
+      {closing && <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center', marginBottom: 14 }}>
         <div style={{ width: 56, height: 1, background: D.rule }} />
         <div style={{ width: 5, height: 5, background: D.gold, transform: 'rotate(45deg)' }} />
@@ -266,6 +303,7 @@ export function DocFooter({
       <div style={{ textAlign: 'center', fontFamily: SERIF, fontStyle: 'italic', fontSize: 14, color: D.green, marginBottom: 16 }}>
         {closing}
       </div>
+      </>}
       <div style={{
         display: 'flex', justifyContent: 'space-between', gap: 20, paddingTop: 13,
         borderTop: `1px solid ${D.rule}`, fontSize: 9.5, color: D.soft2, lineHeight: 1.65,
