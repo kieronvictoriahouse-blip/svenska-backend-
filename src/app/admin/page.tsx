@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MODULES } from '@/lib/admin-nav';
+import { adminFetch } from '@/lib/auth-client';
 
 type Stats = {
   products: number; orders: number; contacts: number;
@@ -35,7 +36,7 @@ export default function AdminHome() {
         fetch('/api/orders').then(r => r.json()).catch(() => ({})),
         fetch('/api/contacts').then(r => r.json()).catch(() => ({})),
         fetch('/api/stock').then(r => r.json()).catch(() => ({})),
-        fetch('/api/marketing?tab=abandoned').then(r => r.json()).catch(() => ({})),
+        adminFetch('/api/marketing?tab=abandoned').then(r => r.json()).catch(() => ({})),
         fetch('/api/white-label').then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       const orders = o.orders || [];

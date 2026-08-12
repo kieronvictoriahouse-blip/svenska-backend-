@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
+
+// Route strictement admin : elle expose les codes promo (valeurs, compteurs)
+// et les paniers abandonnés (emails clients), et permet de les créer/modifier.
+// La validation d'un code côté boutique passe par /api/promo/validate.
+const DENY = () => NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return DENY();
   const { searchParams } = new URL(req.url);
   const tab = searchParams.get('tab');
 
@@ -27,6 +34,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return DENY();
   const { searchParams } = new URL(req.url);
   const tab = searchParams.get('tab');
   const body = await req.json();
@@ -54,6 +62,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  if (!await requireAuth(req)) return DENY();
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const tab = searchParams.get('tab');
@@ -74,6 +83,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!await requireAuth(req)) return DENY();
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const tab = searchParams.get('tab');

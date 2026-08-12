@@ -14,6 +14,9 @@ const ALLOWED = new Set([
   'announcement_fr','announcement_sv','announcement_en',
   'footer_desc_fr','footer_desc_sv','footer_desc_en',
   'footer_tagline_fr','footer_tagline_sv','footer_tagline_en',
+  'ship_promo_active','ship_promo_threshold','ship_promo_threshold_intl',
+  'ship_promo_from','ship_promo_until',
+  'ship_promo_label_fr','ship_promo_label_sv','ship_promo_label_en',
 ]);
 
 

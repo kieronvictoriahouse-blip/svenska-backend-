@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { adminFetch } from '@/lib/auth-client';
 
 type Campaign = {
   id: string; name: string; type: string; status: string; subject?: string;
@@ -40,26 +41,92 @@ function MarketingInner() {
   const [campForm, setCampForm] = useState({ name: '', type: 'email', status: 'draft', subject: '', content: '', target_segment: 'all', budget: '' });
   const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[] });
   const [products, setProducts] = useState<Array<{ id: string; name_fr: string }>>([]);
+  // Opération « livraison offerte » (seuil de franco abaissé sur une période)
+  const [ship, setShip] = useState({
+    ship_promo_active: false, ship_promo_threshold: '', ship_promo_threshold_intl: '',
+    ship_promo_from: '', ship_promo_until: '',
+    ship_promo_label_fr: '', ship_promo_label_sv: '', ship_promo_label_en: '',
+  });
+  const [baseThreshold, setBaseThreshold] = useState(50);
+  const [savingShip, setSavingShip] = useState(false);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  /** Reproduit `isShipPromoActive` de @/lib/shipping pour l'aperçu admin */
+  const shipPromoLive = (() => {
+    if (!ship.ship_promo_active) return false;
+    const today = new Date().toISOString().slice(0, 10);
+    if (ship.ship_promo_from && today < ship.ship_promo_from) return false;
+    if (ship.ship_promo_until && today > ship.ship_promo_until) return false;
+    return true;
+  })();
+
+  async function saveShipPromo() {
+    const thr = ship.ship_promo_threshold === '' ? null : Number(ship.ship_promo_threshold);
+    if (ship.ship_promo_active && thr === null && ship.ship_promo_threshold_intl === '') {
+      showToast('⚠️ Renseignez au moins un seuil (France ou international)'); return;
+    }
+    if (thr !== null && (Number.isNaN(thr) || thr < 0)) { showToast('⚠️ Seuil France invalide'); return; }
+    if (ship.ship_promo_from && ship.ship_promo_until && ship.ship_promo_from > ship.ship_promo_until) {
+      showToast('⚠️ La date de fin précède la date de début'); return;
+    }
+    setSavingShip(true);
+    try {
+      const res = await adminFetch('/api/white-label', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ship_promo_active: ship.ship_promo_active,
+          ship_promo_threshold: thr,
+          ship_promo_threshold_intl: ship.ship_promo_threshold_intl === '' ? null : Number(ship.ship_promo_threshold_intl),
+          ship_promo_from: ship.ship_promo_from || null,
+          ship_promo_until: ship.ship_promo_until || null,
+          ship_promo_label_fr: ship.ship_promo_label_fr || null,
+          ship_promo_label_sv: ship.ship_promo_label_sv || null,
+          ship_promo_label_en: ship.ship_promo_label_en || null,
+        }),
+      });
+      if (!res.ok) { showToast('❌ Erreur enregistrement'); return; }
+      showToast(shipPromoLive ? '✅ Opération en cours sur la boutique' : '✅ Opération enregistrée');
+    } catch (e: any) {
+      showToast(`❌ ${e.message}`);
+    } finally {
+      setSavingShip(false);
+    }
+  }
 
   useEffect(() => { loadData(); }, [tab]);
 
   async function loadData() {
     setLoading(true);
     if (tab === 'campaigns') {
-      const res = await fetch('/api/marketing');
+      const res = await adminFetch('/api/marketing');
       setCampaigns((await res.json()).campaigns || []);
     } else if (tab === 'promo') {
-      const res = await fetch('/api/marketing?tab=promo');
+      const res = await adminFetch('/api/marketing?tab=promo');
       setCodes((await res.json()).codes || []);
       try {
         const pr = await fetch('/api/products');
         const pj = await pr.json();
         setProducts((pj.products || []).map((p: any) => ({ id: p.id, name_fr: p.name_fr })).filter((p: any) => p.id && p.name_fr));
       } catch { /* liste cadeau indisponible */ }
+      try {
+        const wl = await adminFetch('/api/white-label').then(r => r.json());
+        const c = wl.config || {};
+        setBaseThreshold(Number(c.free_shipping_threshold) > 0 ? Number(c.free_shipping_threshold) : 50);
+        setShip({
+          ship_promo_active:         c.ship_promo_active === true,
+          ship_promo_threshold:      c.ship_promo_threshold      != null ? String(c.ship_promo_threshold) : '',
+          ship_promo_threshold_intl: c.ship_promo_threshold_intl != null ? String(c.ship_promo_threshold_intl) : '',
+          ship_promo_from:           c.ship_promo_from  ? String(c.ship_promo_from).slice(0, 10)  : '',
+          ship_promo_until:          c.ship_promo_until ? String(c.ship_promo_until).slice(0, 10) : '',
+          ship_promo_label_fr:       c.ship_promo_label_fr || '',
+          ship_promo_label_sv:       c.ship_promo_label_sv || '',
+          ship_promo_label_en:       c.ship_promo_label_en || '',
+        });
+      } catch { /* opération livraison indisponible */ }
     } else if (tab === 'cart') {
-      const res = await fetch('/api/marketing?tab=abandoned');
+      const res = await adminFetch('/api/marketing?tab=abandoned');
       setCarts((await res.json()).carts || []);
     }
     setLoading(false);
@@ -67,7 +134,7 @@ function MarketingInner() {
 
   async function saveCampaign() {
     if (!campForm.name) { showToast('⚠️ Nom requis'); return; }
-    const res = await fetch('/api/marketing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campForm) });
+    const res = await adminFetch('/api/marketing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campForm) });
     if (!res.ok) { showToast('❌ Erreur'); return; }
     showToast('✅ Campagne créée !');
     setShowModal(false);
@@ -131,20 +198,20 @@ function MarketingInner() {
 
   async function deleteCode(c: PromoCode) {
     if (!confirm(`Supprimer le code "${c.code}" ? Cette action est irréversible.`)) return;
-    const res = await fetch(`/api/marketing?tab=promo&id=${c.id}`, { method: 'DELETE' });
+    const res = await adminFetch(`/api/marketing?tab=promo&id=${c.id}`, { method: 'DELETE' });
     if (!res.ok) { showToast('❌ Erreur lors de la suppression'); return; }
     showToast(`🗑 Code "${c.code}" supprimé`);
     loadData();
   }
 
   async function toggleCode(code: PromoCode) {
-    await fetch(`/api/marketing?tab=promo&id=${code.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !code.is_active }) });
+    await adminFetch(`/api/marketing?tab=promo&id=${code.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !code.is_active }) });
     loadData();
   }
 
   async function sendRelance(cartId: string, step: number) {
     showToast(`📧 Relance J+${step === 1 ? 1 : step === 2 ? 3 : 7} envoyée (simulation)`);
-    await fetch(`/api/marketing?tab=abandoned&id=${cartId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [`email_${step}_sent_at`]: new Date().toISOString() }) });
+    await adminFetch(`/api/marketing?tab=abandoned&id=${cartId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [`email_${step}_sent_at`]: new Date().toISOString() }) });
     loadData();
   }
 
@@ -283,6 +350,98 @@ function MarketingInner() {
         {/* CODES PROMO */}
         {tab === 'promo' && (
           <>
+            {/* ── Opération livraison offerte (sans code à saisir) ───────── */}
+            <div style={{
+              background: shipPromoLive ? '#ECFDF5' : '#FDFAF5',
+              border: `1px solid ${shipPromoLive ? '#6EE7B7' : '#D8CEBC'}`,
+              borderRadius: 8, padding: '16px 18px', marginBottom: 20,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: shipPromoLive ? '#065F46' : '#6A7280' }}>
+                    🚚 Opération livraison offerte
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6A7280', marginTop: 3 }}>
+                    Abaisse le seuil de franco pour tout le monde, sans code à saisir. Hors opération : <strong>{fmt(baseThreshold)}</strong>.
+                  </div>
+                </div>
+                <label className="toggle" title="Activer l'opération">
+                  <input type="checkbox" checked={ship.ship_promo_active}
+                    onChange={e => setShip(s => ({ ...s, ship_promo_active: e.target.checked }))} />
+                  <span className="toggle-slider" />
+                </label>
+              </div>
+
+              {ship.ship_promo_active && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginTop: 14 }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Seuil France (€) *</label>
+                      <input type="number" min="0" step="0.01" className="form-control mono" placeholder="25"
+                        value={ship.ship_promo_threshold}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_threshold: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Seuil international (€)</label>
+                      <input type="number" min="0" step="0.01" className="form-control mono" placeholder="vide = 70 € inchangé"
+                        value={ship.ship_promo_threshold_intl}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_threshold_intl: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Du (inclus)</label>
+                      <input type="date" className="form-control" value={ship.ship_promo_from}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_from: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Au (inclus)</label>
+                      <input type="date" className="form-control" value={ship.ship_promo_until}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_until: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12, marginTop: 10 }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Message bandeau 🇫🇷</label>
+                      <input className="form-control" placeholder="Livraison offerte dès 25 € !"
+                        value={ship.ship_promo_label_fr}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_label_fr: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">🇸🇪</label>
+                      <input className="form-control" placeholder="Fri frakt från 25 €!"
+                        value={ship.ship_promo_label_sv}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_label_sv: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">🇬🇧</label>
+                      <input className="form-control" placeholder="Free delivery from €25!"
+                        value={ship.ship_promo_label_en}
+                        onChange={e => setShip(s => ({ ...s, ship_promo_label_en: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  {Number(ship.ship_promo_threshold) >= baseThreshold && ship.ship_promo_threshold !== '' && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#B45309', fontWeight: 600 }}>
+                      ⚠️ Ce seuil ({fmt(Number(ship.ship_promo_threshold))}) n'est pas plus avantageux que le seuil habituel ({fmt(baseThreshold)}).
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: shipPromoLive ? '#065F46' : '#6A7280' }}>
+                  {!ship.ship_promo_active
+                    ? '○ Inactive — seuil habituel appliqué'
+                    : shipPromoLive
+                      ? `● En cours : livraison offerte dès ${fmt(Number(ship.ship_promo_threshold) || 0)} en France`
+                      : '◐ Activée mais hors période — le seuil habituel s\'applique aujourd\'hui'}
+                </div>
+                <button className="btn btn-primary" onClick={saveShipPromo} disabled={savingShip}>
+                  {savingShip ? '⏳…' : '💾 Enregistrer l\'opération'}
+                </button>
+              </div>
+            </div>
+
             <div className="m-stats">
               <div className="m-stat"><div className="m-stat-num">{codes.length}</div><div className="m-stat-label">Codes créés</div></div>
               <div className="m-stat"><div className="m-stat-num" style={{ color: '#10B981' }}>{codes.filter(c => c.is_active).length}</div><div className="m-stat-label">Actifs</div></div>

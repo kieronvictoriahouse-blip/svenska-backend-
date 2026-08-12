@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
+import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
+import { evaluatePromo } from '@/lib/promo';
 import crypto from 'crypto';
 
 const CUSTOMER_SECRET = process.env.CUSTOMER_JWT_SECRET || process.env.SNIPCART_SECRET_KEY || 'sd-customer-secret';
@@ -208,28 +210,21 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
 
         if (promo) {
-          const now = new Date();
-          // valid_until inclusif jusqu'à la fin de la journée (23:59:59), sinon
-          // un code "jusqu'au 14/07" expirerait dès le 14 à 00:00.
-          const isDateValid =
-            (!promo.valid_from || now >= new Date(promo.valid_from)) &&
-            (!promo.valid_until || now <= new Date(String(promo.valid_until).slice(0, 10) + 'T23:59:59'));
-          const isUsageOk = !promo.max_uses || (promo.used_count || 0) < promo.max_uses;
-          const isMinOrderOk = subtotal >= (promo.min_order || 0);
-
-          // Check per-customer usage limit
-          let isPerUserOk = true;
-          if (isDateValid && isUsageOk && isMinOrderOk && promo.single_use_per_customer && customer_email) {
+          // Vérifie l'usage client avant d'évaluer (une seule requête, si utile)
+          let alreadyUsedByCustomer = false;
+          if (promo.single_use_per_customer && customer_email) {
             const { data: existingUsage } = await supabaseAdmin
               .from('promo_code_usages')
               .select('id')
               .eq('promo_code_id', promo.id)
               .eq('customer_email', customer_email.toLowerCase())
               .maybeSingle();
-            if (existingUsage) isPerUserOk = false;
+            alreadyUsedByCustomer = !!existingUsage;
           }
 
-          if (isDateValid && isUsageOk && isMinOrderOk && isPerUserOk) {
+          // Mêmes règles que /api/promo/validate — cf. @/lib/promo
+          const verdict = evaluatePromo(promo, { subtotal, alreadyUsedByCustomer });
+          if (verdict.ok) {
             promoCodeId = promo.id;
             if (promo.type === 'percent') {
               const coupon = await stripe.coupons.create({ percent_off: promo.value, duration: 'once' });
@@ -250,14 +245,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const INTERNATIONAL_COUNTRIES = ['ES', 'PT', 'IT', 'DE', 'NL', 'BE', 'LU', 'CH'];
     const relayCountry = (relay_point_pays || 'FR').toUpperCase();
     const isInternational = isMondialRelay && INTERNATIONAL_COUNTRIES.includes(relayCountry);
-    const freeShippingThreshold = isInternational ? 70 : 50;
-    const baseShippingCost = isInternational ? 9.90 : 4.90;
 
-    const freeShipping = subtotal >= freeShippingThreshold || isFreeShippingPromo;
-    const shippingCost = isPickup ? 0 : (freeShipping ? 0 : baseShippingCost);
+    // Barème + opération « livraison offerte » : le serveur fait autorité,
+    // le front n'affiche qu'une estimation.
+    const { data: shipCfg } = await supabaseAdmin
+      .from('white_label_config').select('*').limit(1).maybeSingle();
+    const shipRules = resolveShipping(shipCfg, { isInternational });
+
+    const freeShipping = subtotal >= shipRules.threshold || isFreeShippingPromo;
+    const shippingCost = isPickup ? 0 : (freeShipping ? 0 : shipRules.cost);
     const grandTotal = Math.max(0, subtotal - discountAmount) + shippingCost;
     if (grandTotal < 0.50) {
       return NextResponse.json({ error: `Total minimum de commande non atteint (${grandTotal.toFixed(2)} € < 0.50 €)` }, { status: 400, headers: CORS });
@@ -329,11 +327,11 @@ export async function POST(req: NextRequest) {
           ? {
               shipping_rate_data: {
                 type: 'fixed_amount',
-                fixed_amount: { amount: freeShipping ? 0 : Math.round(baseShippingCost * 100), currency: 'eur' },
+                fixed_amount: { amount: freeShipping ? 0 : Math.round(shipRules.cost * 100), currency: 'eur' },
                 display_name: freeShipping
                   ? 'Livraison gratuite en point relais'
                   : isInternational
-                  ? `Livraison en point relais — International (${baseShippingCost.toFixed(2)} €)`
+                  ? `Livraison en point relais — International (${shipRules.cost.toFixed(2)} €)`
                   : 'Livraison en point relais',
               },
             }

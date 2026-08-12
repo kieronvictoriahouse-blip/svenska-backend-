@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { adminFetch } from '@/lib/auth-client';
 
 type Automation = {
   id: string; name: string; type: string; status: string;
@@ -57,7 +58,7 @@ export default function AutomationsPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch('/api/marketing/automations');
+    const res = await adminFetch('/api/marketing/automations');
     const d = await res.json();
     setAutomations(d.automations || []);
     setLoading(false);
@@ -65,7 +66,7 @@ export default function AutomationsPage() {
 
   async function toggle(auto: Automation) {
     const newStatus = auto.status === 'active' ? 'paused' : 'active';
-    await fetch('/api/marketing/automations', {
+    await adminFetch('/api/marketing/automations', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: auto.id, status: newStatus }),
@@ -77,7 +78,7 @@ export default function AutomationsPage() {
   async function activate(preset: typeof AUTOMATION_PRESETS[0]) {
     const existing = automations.find(a => a.type === preset.type);
     if (existing) { showToast('⚠️ Cette automation existe déjà'); return; }
-    const res = await fetch('/api/marketing/automations', {
+    const res = await adminFetch('/api/marketing/automations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -93,7 +94,7 @@ export default function AutomationsPage() {
 
   async function saveEdit() {
     if (!editId) return;
-    await fetch('/api/marketing/automations', {
+    await adminFetch('/api/marketing/automations', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: editId, ...editData }),
@@ -105,7 +106,7 @@ export default function AutomationsPage() {
 
   async function deleteAuto(id: string) {
     if (!confirm('Supprimer cette automation ?')) return;
-    await fetch(`/api/marketing/automations?id=${id}`, { method: 'DELETE' });
+    await adminFetch(`/api/marketing/automations?id=${id}`, { method: 'DELETE' });
     await load();
     showToast('🗑️ Automation supprimée');
   }

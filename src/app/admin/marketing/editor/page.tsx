@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
 import { CLAUDE_EMAIL_BRIEF } from '@/lib/email-brief';
 import dynamic from 'next/dynamic';
+import { adminFetch } from '@/lib/auth-client';
 
 const EmailEditor = dynamic<any>(() => import('react-email-editor').then((m: any) => ({ default: m.default })), {
   ssr: false,
@@ -72,7 +73,7 @@ export default function EmailEditorPage() {
   }, [promoMode]);
 
   useEffect(() => {
-    fetch('/api/marketing', { cache: 'no-store' })
+    adminFetch('/api/marketing', { cache: 'no-store' })
       .then(r => r.json())
       .then(d => setCampaigns((d.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type)));
   }, []);
@@ -118,16 +119,16 @@ export default function EmailEditorPage() {
     try {
       if (mode === 'new' || !selectedId) {
         const name = campName || subject || `Campagne ${new Date().toLocaleDateString('fr-FR')}`;
-        const res = await fetch('/api/marketing', {
+        const res = await adminFetch('/api/marketing', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, type: 'email', status: 'draft', subject, target_segment: segment, content }),
         });
         const d = await res.json();
         setSelectedId(d.campaign?.id); setMode('select');
-        const d2 = await (await fetch('/api/marketing')).json();
+        const d2 = await (await adminFetch('/api/marketing')).json();
         setCampaigns((d2.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
       } else {
-        await fetch(`/api/marketing?id=${selectedId}`, {
+        await adminFetch(`/api/marketing?id=${selectedId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subject, target_segment: segment, content }),
         });
@@ -175,7 +176,7 @@ export default function EmailEditorPage() {
       try {
         if (mode === 'new') {
           if (!campName) { showToast('⚠️ Saisissez un nom de campagne'); return; }
-          const res = await fetch('/api/marketing', {
+          const res = await adminFetch('/api/marketing', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: campName, type: 'email', status: 'draft', subject, target_segment: segment, content }),
@@ -184,14 +185,14 @@ export default function EmailEditorPage() {
             const { campaign } = await res.json();
             setSelectedId(campaign.id);
             setMode('select');
-            const res2 = await fetch('/api/marketing');
+            const res2 = await adminFetch('/api/marketing');
             const d = await res2.json();
             setCampaigns((d.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
             showToast('✅ Campagne créée et sauvegardée !');
           }
         } else {
           if (!selectedId) { showToast('⚠️ Sélectionnez une campagne'); return; }
-          await fetch(`/api/marketing?id=${selectedId}`, {
+          await adminFetch(`/api/marketing?id=${selectedId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ subject, target_segment: segment, content }),
@@ -236,7 +237,7 @@ export default function EmailEditorPage() {
     setGeneratingPromo(true);
     try {
       const prods = products.filter(p => selectedProducts.includes(p.id));
-      const res = await fetch('/api/marketing/promo-email', {
+      const res = await adminFetch('/api/marketing/promo-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ products: prods, subject: promoSubject, intro: promoIntro }),
@@ -249,7 +250,7 @@ export default function EmailEditorPage() {
       let campId = selectedId;
       if (mode === 'new' || !campId) {
         const name = campName || campSubject || `Promo ${new Date().toLocaleDateString('fr-FR')}`;
-        const r2 = await fetch('/api/marketing', {
+        const r2 = await adminFetch('/api/marketing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, type: 'email', status: 'draft', subject: campSubject, target_segment: segment, content }),
@@ -259,11 +260,11 @@ export default function EmailEditorPage() {
         setSelectedId(campId);
         setCampName(name);
         setMode('select');
-        const res2 = await fetch('/api/marketing');
+        const res2 = await adminFetch('/api/marketing');
         const d2 = await res2.json();
         setCampaigns((d2.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
       } else {
-        await fetch(`/api/marketing?id=${campId}`, {
+        await adminFetch(`/api/marketing?id=${campId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subject: campSubject, target_segment: segment, content }),

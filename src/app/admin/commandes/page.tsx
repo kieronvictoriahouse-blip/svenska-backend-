@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang } from '@/lib/admin-i18n';
+import { resolveShipping } from '@/lib/shipping';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -135,6 +136,8 @@ export default function CommandesPage() {
   const [newOrderPromoData, setNewOrderPromoData] = useState<any>(null);
   const [newOrderPromoMsg, setNewOrderPromoMsg] = useState('');
   const [applyingPromo, setApplyingPromo] = useState(false);
+  // Config boutique : seuil de franco + opération « livraison offerte » en cours
+  const [wlConfig, setWlConfig] = useState<any>(null);
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
@@ -148,6 +151,12 @@ export default function CommandesPage() {
 
   useEffect(() => { load(); loadCosts(); }, [filter, search]);
   useEffect(() => { loadCosts(); }, []);
+  useEffect(() => {
+    fetch('/api/white-label')
+      .then(r => r.json())
+      .then(d => setWlConfig(d.config || null))
+      .catch(() => setWlConfig(null));
+  }, []);
   // Réinitialise le panneau de remboursement partiel à chaque commande ouverte
   useEffect(() => {
     setShowPartialPanel(false);
@@ -312,7 +321,8 @@ export default function CommandesPage() {
     });
     if (lines.length === 0) { showToast('⚠️ Ajoutez au moins un article'); return; }
     const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
-    const baseShipping = subtotal >= 50 ? 0 : 4.90;
+    const shipRules = resolveShipping(wlConfig, { isInternational: false });
+    const baseShipping = subtotal >= shipRules.threshold ? 0 : shipRules.cost;
     const isFreeShip = newOrderPromoData?.type === 'free_shipping';
     const effectiveShipping = (newOrderDelivery === 'pickup' || isFreeShip) ? 0 : baseShipping;
     let discount = 0;
@@ -1505,7 +1515,8 @@ export default function CommandesPage() {
             return { pid, name: (p?.name_fr || pid) + (s.variantLabel ? ` — ${s.variantLabel}` : ''), qty: s.qty, price };
           });
           const subtotal = pickerLines.reduce((s, l) => s + l.qty * l.price, 0);
-          const baseShipping = subtotal >= 50 ? 0 : 4.90;
+          const shipRules = resolveShipping(wlConfig, { isInternational: false });
+    const baseShipping = subtotal >= shipRules.threshold ? 0 : shipRules.cost;
           const isFreeShip = newOrderPromoData?.type === 'free_shipping';
           const effectiveShipping = (newOrderDelivery === 'pickup' || isFreeShip) ? 0 : baseShipping;
           let discount = 0;
