@@ -1,5 +1,17 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
+import { T } from '@/lib/admin-theme';
+
+/* ═══════════════════════════════════════════════════════════════
+   FORMULAIRE PRODUIT — écran 3 du handoff (« Fiche produit »).
+   Réparti sur 4 onglets pilotés par le parent : Général · Prix &
+   stock · Photos · SEO & traductions. Deux colonnes flexibles
+   (flex 2 1 420px / flex 1 1 260px) qui se replient sans media query.
+
+   ⚠️ Les 40 champs de ProductFormData sont tous exposés — toute
+   suppression fait perdre une capacité de saisie. La logique
+   (serialize, autosave, upload, variantes) est inchangée.
+   ═══════════════════════════════════════════════════════════════ */
 
 type Variant = { label: string; price: string };
 
@@ -46,7 +58,8 @@ const EMPTY: ProductFormData = {
   price: '', cost_price: '', weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
-  badge: '', is_bestseller: false, is_new: false, is_active: true, pickup_only: false, track_stock: false, stock: '', reorder_qty: '',
+  badge: '', is_bestseller: false, is_new: false, is_active: true,
+  pickup_only: false, track_stock: false, stock: '', reorder_qty: '',
   rating: '4.5', reviews_count: '0', tags: '',
   usage_sv: '', usage_fr: '', usage_en: '',
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
@@ -57,6 +70,8 @@ const EMPTY: ProductFormData = {
   variants: [{ label: '', price: '' }],
 };
 
+export type ProductTab = 'general' | 'prix' | 'photos' | 'seo';
+
 type Props = {
   initialData?: Partial<ProductFormData> & { id?: string };
   categories: any[];
@@ -64,12 +79,53 @@ type Props = {
   saving: boolean;
   toast: string;
   autoSave?: boolean;
+  /** Onglet affiché ; non fourni = tout afficher (écran « nouveau produit »). */
+  tab?: ProductTab;
+  /** Le parent rend son propre bouton d'enregistrement (en-tête collant). */
+  hideSubmit?: boolean;
+  /** Remonte l'état d'auto-enregistrement au parent. */
+  onStatus?: (s: string) => void;
+  /** Permet au parent de déclencher la soumission. */
+  formId?: string;
 };
 
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
 
-export default function ProductForm({ initialData, categories, onSave, saving, toast, autoSave = false }: Props) {
-  const [form, setForm]       = useState<ProductFormData>({
+/* ── Petites briques visuelles du handoff ─────────────────── */
+const Card = ({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) => (
+  <div className="sc-card">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
+      <span className="sc-card-title">{title}</span>
+      {action}
+    </div>
+    <div style={{ padding: '13px 15px' }}>{children}</div>
+  </div>
+);
+
+const Field = ({ label, hint, children }: { label?: string; hint?: string; children: React.ReactNode }) => (
+  <div style={{ marginBottom: 12 }}>
+    {label && <label className="sc-label">{label}</label>}
+    {children}
+    {hint && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>{hint}</div>}
+  </div>
+);
+
+/** Interrupteur 34 × 19 px, piste verte active (handoff). */
+const Switch = ({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) => (
+  <div>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+      <button type="button" className="sc-switch" role="switch" aria-checked={on} onClick={() => onChange(!on)} />
+      <span style={{ fontSize: 12.5, color: T.text2 }}>{label}</span>
+    </label>
+    {hint && <div style={{ fontSize: 10.5, color: T.muted, margin: '4px 0 0 44px', lineHeight: 1.45 }}>{hint}</div>}
+  </div>
+);
+
+export default function ProductForm({
+  initialData, categories, onSave, saving, toast, autoSave = false,
+  tab, hideSubmit = false, onStatus, formId,
+}: Props) {
+  const [form, setForm] = useState<ProductFormData>({
     ...EMPTY,
     ...initialData,
     price: String(initialData?.price ?? ''),
@@ -80,17 +136,19 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
     reorder_qty: (initialData as any)?.reorder_qty != null ? String((initialData as any).reorder_qty) : '',
     extra_images: (initialData as any)?.extra_images || [],
   });
-  const [lang, setLang]       = useState<'fr' | 'sv' | 'en'>('fr');
+  const [lang, setLang] = useState<'fr' | 'sv' | 'en'>('fr');
   const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver]   = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [newExtraUrl, setNewExtraUrl] = useState('');
   const [asStatus, setAsStatus] = useState<AutoSaveStatus>('idle');
-  const fileRef    = useRef<HTMLInputElement>(null);
-  const asTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const asTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialized = useRef(false);
 
   useEffect(() => { initialized.current = true; }, []);
+  useEffect(() => { onStatus?.(asStatus); }, [asStatus, onStatus]);
 
+  /* ── Logique inchangée ──────────────────────────────────── */
   function serialize(f: ProductFormData) {
     return {
       ...f,
@@ -137,7 +195,6 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
     set('variants', form.variants.filter((_, idx) => idx !== i));
   }
 
-  // ── Upload image ──────────────────────────────────────────────────
   async function uploadFile(file: File) {
     if (!file) return;
     setUploading(true);
@@ -159,480 +216,343 @@ export default function ProductForm({ initialData, categories, onSave, saving, t
       setUploading(false);
     }
   }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) uploadFile(file);
-  }
-
-  function handleDrop(e: React.DragEvent) {
+  };
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) uploadFile(file);
-  }
+  };
 
-  // ── Submit ─────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (asTimer.current) clearTimeout(asTimer.current);
     await onSave(serialize(form));
   }
 
-  const LANGS = [
-    { id: 'fr', flag: '🇫🇷', label: 'Français' },
-    { id: 'sv', flag: '🇸🇪', label: 'Svenska' },
-    { id: 'en', flag: '🇬🇧', label: 'English' },
-  ] as const;
+  /* ── Affichage par onglet ───────────────────────────────── */
+  const show = (t: ProductTab) => !tab || tab === t;
+  const LANGS = [{ id: 'fr', label: 'Français' }, { id: 'sv', label: 'Svenska' }, { id: 'en', label: 'English' }] as const;
+
+  const LangPicker = () => (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {LANGS.map(l => (
+        <button key={l.id} type="button" className={`sc-chip${lang === l.id ? ' on' : ''}`}
+                style={{ height: 26, padding: '0 10px', fontSize: 11 }}
+                onClick={() => setLang(l.id)}>{l.label}</button>
+      ))}
+    </div>
+  );
+
+  const pv = parseFloat(form.price) || 0;
+  const pa = parseFloat(form.cost_price) || 0;
+  const margeEur = pa > 0 ? pv - pa : null;
+  const margePct = pa > 0 && pv > 0 ? ((pv - pa) / pv) * 100 : null;
+  const margeColor = margePct === null ? T.muted : margePct >= 50 ? T.green : margePct >= 30 ? '#C97A2B' : T.red;
 
   return (
-    <form onSubmit={handleSubmit}>
-      {/* ── LANG TABS ── */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 28, border: '1px solid var(--linen)', borderRadius: 'var(--radius)', overflow: 'hidden', width: 'fit-content' }}>
-        {LANGS.map(l => (
-          <button key={l.id} type="button"
-            onClick={() => setLang(l.id)}
-            style={{
-              padding: '9px 20px', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600,
-              border: 'none', cursor: 'pointer', transition: 'all 0.18s',
-              background: lang === l.id ? 'var(--moss)' : 'var(--cream)',
-              color: lang === l.id ? 'white' : 'var(--dust)',
-            }}>
-            {l.flag} {l.label}
-          </button>
-        ))}
-      </div>
+    <form id={formId} onSubmit={handleSubmit}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 28 }}>
+        {/* ══════════ COLONNE PRINCIPALE ══════════ */}
+        <div style={{ flex: '2 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* ── COLONNE GAUCHE ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {show('general') && (
+            <Card title="Informations" action={<LangPicker />}>
+              <Field label={`Nom (${lang.toUpperCase()}) *`}>
+                <input className="sc-input" required={lang === 'fr'}
+                       value={form[`name_${lang}`]} onChange={e => set(`name_${lang}`, e.target.value)}
+                       placeholder="Nom du produit" />
+              </Field>
+              <Field label="Sous-titre / accroche">
+                <input className="sc-input" value={form[`subtitle_${lang}`]}
+                       onChange={e => set(`subtitle_${lang}`, e.target.value)}
+                       placeholder="Ex : Le cœur du kanelbulle" />
+              </Field>
+              <Field label="Description longue">
+                <textarea className="sc-input sc-textarea" rows={4}
+                          value={form[`desc_${lang}`]} onChange={e => set(`desc_${lang}`, e.target.value)}
+                          placeholder="Description détaillée du produit…" />
+              </Field>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+                <Field label="Catégorie">
+                  <select className="sc-input sc-select" value={form.category_id} onChange={e => set('category_id', e.target.value)}>
+                    <option value="">— Aucune —</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name_fr}</option>)}
+                  </select>
+                </Field>
+                <Field label="Poids / contenance">
+                  <input className="sc-input" value={form.weight} onChange={e => set('weight', e.target.value)} placeholder="Ex : 200 g" />
+                </Field>
+                <Field label={`Origine (${lang.toUpperCase()})`}>
+                  <input className="sc-input" value={form[`origin_${lang}`]} onChange={e => set(`origin_${lang}`, e.target.value)} placeholder="Suède" />
+                </Field>
+              </div>
+              <Field label="Tags" hint="Séparés par des virgules. Servent aux filtres de la boutique.">
+                <input className="sc-input" value={form.tags} onChange={e => set('tags', e.target.value)}
+                       placeholder="Bio, Vegan, Sans gluten, Signature…" />
+              </Field>
+            </Card>
+          )}
 
-          {/* Infos de base */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">📋 Informations de base</span></div>
-            <div className="card-body">
-              <div className="form-group">
-                <label className="form-label">Catégorie</label>
-                <select className="form-control" value={form.category_id} onChange={e => set('category_id', e.target.value)}>
-                  <option value="">— Sélectionner une catégorie —</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.emoji} {c.name_fr}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Nom <span className="req">*</span></label>
-                <input className="form-control" required
-                  value={form[`name_${lang}`]}
-                  onChange={e => set(`name_${lang}`, e.target.value)}
-                  placeholder={`Nom du produit en ${lang === 'fr' ? 'français' : lang === 'sv' ? 'suédois' : 'anglais'}`}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Sous-titre / accroche</label>
-                <input className="form-control"
-                  value={form[`subtitle_${lang}`]}
-                  onChange={e => set(`subtitle_${lang}`, e.target.value)}
-                  placeholder="Ex : Le cœur du kanelbulle"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Description longue</label>
-                <textarea className="form-control" rows={5}
-                  value={form[`desc_${lang}`]}
-                  onChange={e => set(`desc_${lang}`, e.target.value)}
-                  placeholder="Description détaillée du produit…"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Accordéon produit */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">📖 Contenu accordéon</span></div>
-            <div className="card-body">
-              <div className="form-group">
-                <label className="form-label">🍳 Utilisation / Recette</label>
-                <textarea className="form-control" rows={3}
-                  value={form[`usage_${lang}`]}
-                  onChange={e => set(`usage_${lang}`, e.target.value)}
-                  placeholder="Comment utiliser ce produit…"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">🧪 Ingrédients / Composition</label>
-                <textarea className="form-control" rows={2}
-                  value={form[`ingredients_${lang}`]}
-                  onChange={e => set(`ingredients_${lang}`, e.target.value)}
-                  placeholder="Liste des ingrédients…"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">⚠️ Allergènes</label>
-                <input className="form-control"
-                  value={form[`allergens_${lang}`]}
-                  onChange={e => set(`allergens_${lang}`, e.target.value)}
-                  placeholder="Ex : Contient : gluten, lait, moutarde"
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">🏠 Conservation</label>
-                <input className="form-control"
-                  value={form[`storage_${lang}`]}
-                  onChange={e => set(`storage_${lang}`, e.target.value)}
-                  placeholder="Ex : Frais et sec. 24 mois."
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Variantes */}
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">🔢 Variantes de conditionnement</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={addVariant}>+ Ajouter</button>
-            </div>
-            <div className="card-body">
-              <p className="form-hint" style={{ marginBottom: 16 }}>Ex : 50g, 100g, 250g — chaque variante peut avoir un prix différent.</p>
-              {form.variants.map((v, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 140px 36px', gap: 10, marginBottom: 10 }}>
-                  <input className="form-control" placeholder="Libellé (ex: 50g, Kit 4 sachets)"
-                    value={v.label} onChange={e => setVariant(i, 'label', e.target.value)} />
-                  <input className="form-control" placeholder="Prix €" type="number" step="0.01" min="0"
-                    value={v.price} onChange={e => setVariant(i, 'price', e.target.value)} />
-                  <button type="button" className="btn btn-ghost btn-icon"
-                    onClick={() => removeVariant(i)} disabled={form.variants.length <= 1}
-                    style={{ color: 'var(--danger)', fontSize: 16 }}>✕</button>
+          {show('prix') && (
+            <>
+              <Card title="Prix & marge">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12 }}>
+                  <Field label="Prix de vente TTC *">
+                    <input className="sc-input sc-num" required type="number" step="0.01" min="0"
+                           value={form.price} onChange={e => set('price', e.target.value)} placeholder="6.90" />
+                  </Field>
+                  <Field label="Prix d'achat (PMP)">
+                    <input className="sc-input sc-num" type="number" step="0.01" min="0"
+                           value={form.cost_price} onChange={e => set('cost_price', e.target.value)} placeholder="3.50" />
+                  </Field>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Tags */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">🏷️ Tags</span></div>
-            <div className="card-body">
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <input className="form-control"
-                  value={form.tags}
-                  onChange={e => set('tags', e.target.value)}
-                  placeholder="Bio, Vegan, Sans gluten, Signature, Saisonnier, Cadeau…"
-                />
-                <p className="form-hint">Séparer par des virgules. Ces tags servent aux filtres de la boutique.</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Nutrition */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">📊 Valeurs nutritionnelles</span></div>
-            <div className="card-body">
-              <p className="form-hint" style={{ marginBottom: 16 }}>Pour 100g — laisser vide si non applicable. Rempli automatiquement par l&apos;import URL.</p>
-              <div className="form-group">
-                <label className="form-label">Taille de la portion</label>
-                <input className="form-control" placeholder="Ex : 30g, 1 sachet (25g)…"
-                  value={form.nutrition.portion}
-                  onChange={e => set('nutrition', { ...form.nutrition, portion: e.target.value })} />
-              </div>
-              {([
-                ['energie',      'Énergie (kcal/kJ)',     'Ex : 452 kcal / 1891 kJ'],
-                ['graisses',     'Matières grasses (g)',  'Ex : 18g'],
-                ['dont_satures', '— dont acides gras saturés (g)', 'Ex : 2.5g'],
-                ['glucides',     'Glucides (g)',          'Ex : 62g'],
-                ['dont_sucres',  '— dont sucres (g)',     'Ex : 4g'],
-                ['fibres',       'Fibres (g)',            'Ex : 3g'],
-                ['proteines',    'Protéines (g)',         'Ex : 8g'],
-                ['sel',          'Sel (g)',               'Ex : 1.2g'],
-              ] as [keyof Nutrition, string, string][]).map(([key, label, ph]) => (
-                <div key={key} className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-                  <label className="form-label" style={{ margin: 0, fontSize: 13, color: key.startsWith('dont') ? 'var(--dust)' : undefined, paddingLeft: key.startsWith('dont') ? 12 : 0 }}>
-                    {label}
-                  </label>
-                  <input className="form-control" placeholder={ph}
-                    value={(form.nutrition as any)[key] || ''}
-                    onChange={e => set('nutrition', { ...form.nutrition, [key]: e.target.value })} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* ── COLONNE DROITE ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-
-          {/* Actions */}
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">⚙️ Publication</span>
-              {autoSave && (
-                <span style={{ fontSize: 11, color: asStatus === 'saved' ? '#10B981' : asStatus === 'saving' || asStatus === 'pending' ? '#F59E0B' : 'var(--dust)', transition: 'color 0.3s' }}>
-                  {asStatus === 'pending' ? '◌ En attente…' : asStatus === 'saving' ? '⏳ Sauvegarde…' : asStatus === 'saved' ? '✓ Sauvegardé' : ''}
-                </span>
-              )}
-            </div>
-            <div className="card-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
-                <label className="toggle">
-                  <input type="checkbox" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} />
-                  <span className="toggle-track"></span>
-                  <span className="toggle-label">Produit actif (visible sur le site)</span>
-                </label>
-                <label className="toggle">
-                  <input type="checkbox" checked={form.is_bestseller} onChange={e => set('is_bestseller', e.target.checked)} />
-                  <span className="toggle-track"></span>
-                  <span className="toggle-label">⭐ Best-seller (affiché en home)</span>
-                </label>
-                <label className="toggle">
-                  <input type="checkbox" checked={form.is_new} onChange={e => set('is_new', e.target.checked)} />
-                  <span className="toggle-track"></span>
-                  <span className="toggle-label">🆕 Nouveauté</span>
-                </label>
-                <label className="toggle">
-                  <input type="checkbox" checked={form.track_stock} onChange={e => set('track_stock', e.target.checked)} />
-                  <span className="toggle-track"></span>
-                  <span className="toggle-label">📦 Suivi de stock actif</span>
-                </label>
-                <label className="toggle">
-                  <input type="checkbox" checked={form.pickup_only} onChange={e => set('pickup_only', e.target.checked)} />
-                  <span className="toggle-track"></span>
-                  <span className="toggle-label">🏪 Retrait uniquement (click &amp; collect)</span>
-                </label>
-                {form.pickup_only && (
-                  <p style={{ fontSize: 12, color: 'var(--dust)', margin: '-6px 0 0 52px', lineHeight: 1.4 }}>
-                    ❄️ Produit non expédiable (frais, fragile…). Tout panier le contenant passera automatiquement en retrait en magasin.
-                  </p>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Badge affiché</label>
-                <select className="form-control" value={form.badge} onChange={e => set('badge', e.target.value)}>
-                  <option value="">— Aucun badge —</option>
-                  <option value="badge-pop">🔴 Best-seller</option>
-                  <option value="badge-new">🟢 Nouveau</option>
-                  <option value="badge-org">🌿 Bio / Organic</option>
-                  <option value="badge-must">⭐ Incontournable</option>
-                </select>
-              </div>
-
-              <button type="submit" disabled={saving}
-                className={autoSave ? 'btn btn-secondary' : 'btn btn-primary'}
-                style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: 14 }}>
-                {saving ? '⏳ Enregistrement…' : autoSave ? '💾 Forcer la sauvegarde' : '💾 Sauvegarder le produit'}
-              </button>
-            </div>
-          </div>
-
-          {/* Image */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">🖼️ Image produit</span></div>
-            <div className="card-body">
-              {form.image_url ? (
-                <div style={{ marginBottom: 12 }}>
-                  <img src={form.image_url} alt="Preview"
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'contain', padding: 8, background: 'var(--cream)', borderRadius: 'var(--radius)', border: '1px solid var(--linen)' }} />
-                  <button type="button" className="btn btn-danger btn-sm"
-                    style={{ width: '100%', marginTop: 8, justifyContent: 'center' }}
-                    onClick={() => set('image_url', '')}>
-                    ✕ Supprimer l'image
-                  </button>
-                </div>
-              ) : (
-                <div
-                  className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
-                  onClick={() => fileRef.current?.click()}
-                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={handleDrop}
-                >
-                  {uploading ? (
-                    <><span className="upload-zone-icon">⏳</span><p className="upload-zone-text">Upload en cours…</p></>
+                {/* Encart marge recalculé à la frappe */}
+                <div style={{ background: '#F2F5F0', border: `1px solid ${T.border}`, borderRadius: 8, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: T.muted, marginBottom: 10 }}>
+                    Coût & marge
+                  </div>
+                  {pa <= 0 ? (
+                    <div style={{ fontSize: 12, color: T.muted, fontStyle: 'italic' }}>
+                      Aucun PMP — valide une réception pour mettre à jour le coût.
+                    </div>
                   ) : (
-                    <><span className="upload-zone-icon">📸</span>
-                      <p className="upload-zone-text">Glisser-déposer ou cliquer</p>
-                      <p className="upload-zone-hint">JPG, PNG, WebP — max 5 MB</p>
-                    </>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      {[
+                        { v: `${pa.toFixed(2)} €`, l: 'PMP', c: T.ink },
+                        { v: `${margeEur! > 0 ? '+' : ''}${margeEur!.toFixed(2)} €`, l: 'Marge brute', c: margeColor },
+                        { v: margePct !== null ? `${margePct.toFixed(0)} %` : '—', l: 'Taux', c: margeColor },
+                      ].map(x => (
+                        <div key={x.l} style={{ textAlign: 'center' }}>
+                          <div className="sc-num" style={{ fontSize: 16, fontWeight: 700, color: x.c }}>{x.v}</div>
+                          <div style={{ fontSize: 10.5, color: T.muted }}>{x.l}</div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              )}
-              <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+              </Card>
 
-              <div className="form-group" style={{ marginTop: 12, marginBottom: 0 }}>
-                <label className="form-label">Ou coller une URL d'image</label>
-                <input className="form-control" type="url"
-                  value={form.image_url}
-                  onChange={e => set('image_url', e.target.value)}
-                  placeholder="https://images.unsplash.com/…"
-                />
-              </div>
+              <Card title="Variantes de conditionnement"
+                    action={<button type="button" className="sc-btn sc-btn-secondary" onClick={addVariant}><span className="ms">add</span>Ajouter</button>}>
+                <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 10 }}>
+                  Ex : 50 g, 100 g, 250 g — chaque variante peut avoir son prix.
+                </div>
+                {form.variants.map((v, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 30px', gap: 8, marginBottom: 8 }}>
+                    <input className="sc-input" placeholder="Libellé (ex : 50 g)" value={v.label}
+                           onChange={e => setVariant(i, 'label', e.target.value)} />
+                    <input className="sc-input sc-num" placeholder="Prix €" type="number" step="0.01" min="0"
+                           value={v.price} onChange={e => setVariant(i, 'price', e.target.value)} />
+                    <button type="button" className="sc-iconbtn" onClick={() => removeVariant(i)}
+                            disabled={form.variants.length <= 1} aria-label="Retirer la variante">
+                      <span className="ms">delete</span>
+                    </button>
+                  </div>
+                ))}
+              </Card>
+            </>
+          )}
 
-              {/* Galerie complémentaire */}
-              <div style={{ marginTop: 20, borderTop: '1px solid var(--linen)', paddingTop: 16 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--dust)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
-                  Images galerie ({form.extra_images.length})
-                </p>
-                {form.extra_images.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                    {form.extra_images.map((u, i) => (
-                      <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--linen)', background: 'var(--cream)', flexShrink: 0 }}>
-                        <img src={u} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} onError={e => { (e.target as HTMLImageElement).parentElement!.style.opacity = '0.3'; }} />
-                        <button type="button"
-                          onClick={() => set('extra_images', form.extra_images.filter((_, idx) => idx !== i) as any)}
-                          style={{ position: 'absolute', top: 1, right: 1, background: 'rgba(198,40,40,0.85)', border: 'none', color: '#fff', width: 16, height: 16, borderRadius: '50%', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
-                          ✕
-                        </button>
-                      </div>
-                    ))}
+          {show('photos') && (
+            <Card title="Photos">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(104px,1fr))', gap: 10 }}>
+                {form.image_url && (
+                  <div style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: `1px solid ${T.border}`, background: '#F7F4EF' }}>
+                    <img src={form.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    <span className="sc-badge" style={{ position: 'absolute', top: 6, left: 6, background: 'var(--accent)', color: '#fff' }}>Principale</span>
+                    <button type="button" className="sc-iconbtn" onClick={() => set('image_url', '')}
+                            style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(255,255,255,.9)' }} aria-label="Retirer l'image principale">
+                      <span className="ms">delete</span>
+                    </button>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input className="form-control" type="url" placeholder="https://... URL image galerie"
-                    value={newExtraUrl} onChange={e => setNewExtraUrl(e.target.value)}
-                    style={{ fontSize: 12 }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && newExtraUrl.trim()) {
-                        e.preventDefault();
-                        set('extra_images', [...form.extra_images, newExtraUrl.trim()] as any);
-                        setNewExtraUrl('');
-                      }
-                    }}
-                  />
-                  <button type="button" className="btn btn-secondary btn-sm"
-                    style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-                    onClick={() => {
-                      if (!newExtraUrl.trim()) return;
-                      set('extra_images', [...form.extra_images, newExtraUrl.trim()] as any);
-                      setNewExtraUrl('');
-                    }}>
-                    + Ajouter
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Prix & stock */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">💶 Prix & Détails</span></div>
-            <div className="card-body">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="form-group">
-                  <label className="form-label">Prix de vente <span className="req">*</span></label>
-                  <input className="form-control" required type="number" step="0.01" min="0"
-                    value={form.price} onChange={e => set('price', e.target.value)}
-                    placeholder="6.90" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Prix d'achat (coût)</label>
-                  <input className="form-control" type="number" step="0.01" min="0"
-                    value={form.cost_price} onChange={e => set('cost_price', e.target.value)}
-                    placeholder="3.50" />
-                </div>
-              </div>
-
-              {/* PMP + marge — toujours visible sur une fiche existante */}
-              {initialData?.id && (() => {
-                const pv = parseFloat(form.price) || 0;
-                const costPrice = parseFloat(form.cost_price) || 0;
-                const hasCost = costPrice > 0;
-                const margeEur = hasCost ? pv - costPrice : null;
-                const margePct = hasCost && pv > 0 ? (margeEur! / pv) * 100 : null;
-                const color = margePct === null ? 'var(--dust)' : margePct >= 50 ? '#10B981' : margePct >= 30 ? '#F59E0B' : '#EF4444';
-                return (
-                  <div style={{ background: 'var(--cream)', borderRadius: 'var(--radius)', border: '1px solid var(--linen)', padding: '12px 14px', marginBottom: 16 }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--dust)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
-                      Coût &amp; Marge
-                    </p>
-                    {!hasCost ? (
-                      <p style={{ fontSize: 12, color: 'var(--dust)', fontStyle: 'italic', margin: 0 }}>
-                        Aucun PMP — validez une réception pour mettre à jour le coût.
-                      </p>
-                    ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>
-                            {costPrice.toFixed(2)} €
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP</div>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color }}>
-                            {margeEur! > 0 ? '+' : ''}{margeEur!.toFixed(2)} €
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--dust)' }}>Marge brute</div>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color }}>
-                            {margePct !== null ? `${margePct.toFixed(0)} %` : '—'}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--dust)' }}>Taux</div>
-                        </div>
-                      </div>
-                    )}
-                    {form.track_stock && (
-                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                        <span style={{ fontSize: 12, color: 'var(--dust)', whiteSpace: 'nowrap' }}>Stock actuel</span>
-                        <input
-                          type="number" min="0" step="1"
-                          value={form.stock}
-                          onChange={e => set('stock', e.target.value)}
-                          placeholder="0"
-                          style={{ width: 80, textAlign: 'right', border: '1px solid var(--linen)', borderRadius: 4, padding: '3px 8px', fontSize: 13, fontWeight: 700, color: (parseInt(form.stock) || 0) <= 0 ? '#EF4444' : (parseInt(form.stock) || 0) <= 5 ? '#F59E0B' : 'var(--ink)' }}
-                        />
-                      </div>
-                    )}
-                    {form.track_stock && (
-                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--linen)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                        <span style={{ fontSize: 12, color: 'var(--dust)', whiteSpace: 'nowrap' }}>Qté réappro mini <span style={{ color: 'var(--linen)' }} title="Quantité minimum à commander (ex. carton de 50). Défaut 10.">ⓘ</span></span>
-                        <input
-                          type="number" min="0" step="1"
-                          value={form.reorder_qty}
-                          onChange={e => set('reorder_qty', e.target.value)}
-                          placeholder="10"
-                          style={{ width: 80, textAlign: 'right', border: '1px solid var(--linen)', borderRadius: 4, padding: '3px 8px', fontSize: 13 }}
-                        />
-                      </div>
-                    )}
-                    <p style={{ fontSize: 10, color: 'var(--dust)', marginTop: 8, marginBottom: 0 }}>
-                      PMP mis à jour automatiquement à chaque réception
-                    </p>
+                {form.extra_images.map((u, i) => (
+                  <div key={i} style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: `1px solid ${T.border}`, background: '#F7F4EF' }}>
+                    <img src={u} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    <button type="button" className="sc-iconbtn" onClick={() => set('extra_images', form.extra_images.filter((_, x) => x !== i))}
+                            style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(255,255,255,.9)' }} aria-label="Retirer cette image">
+                      <span className="ms">delete</span>
+                    </button>
                   </div>
-                );
-              })()}
-              <div className="form-group">
-                <label className="form-label">Conditionnement / Poids</label>
-                <input className="form-control"
-                  value={form.weight} onChange={e => set('weight', e.target.value)}
-                  placeholder="50g, 25 sachets, Kit…" />
+                ))}
+                {/* Case « Déposer » pointillée */}
+                <button type="button"
+                        onClick={() => fileRef.current?.click()}
+                        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                        onDragLeave={() => setDragOver(false)}
+                        onDrop={handleDrop}
+                        style={{
+                          aspectRatio: '1', borderRadius: 8, cursor: 'pointer',
+                          border: `1px dashed ${dragOver ? 'var(--accent)' : T.borderField}`,
+                          background: dragOver ? '#FBF9F6' : 'transparent',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          color: T.muted, fontSize: 11,
+                        }}>
+                  <span className="ms" style={{ fontSize: 22 }}>{uploading ? 'hourglass_top' : 'add_photo_alternate'}</span>
+                  {uploading ? 'Envoi…' : 'Déposer'}
+                </button>
               </div>
-              <div className="form-group">
-                <label className="form-label">Origine</label>
-                <input className="form-control"
-                  value={form[`origin_${lang}`]}
-                  onChange={e => set(`origin_${lang}`, e.target.value)}
-                  placeholder="Suède, Inde / Suède…" />
-              </div>
-              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Note (/5)</label>
-                  <input className="form-control" type="number" step="0.1" min="0" max="5"
-                    value={form.rating} onChange={e => set('rating', e.target.value)} />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Nb avis</label>
-                  <input className="form-control" type="number" min="0"
-                    value={form.reviews_count} onChange={e => set('reviews_count', e.target.value)} />
-                </div>
-              </div>
-            </div>
-          </div>
+              <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
 
+              <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+                <Field label="URL de l'image principale">
+                  <input className="sc-input" type="url" value={form.image_url}
+                         onChange={e => set('image_url', e.target.value)} placeholder="https://…" />
+                </Field>
+                <Field label={`Ajouter à la galerie (${form.extra_images.length})`}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="sc-input" type="url" value={newExtraUrl}
+                           onChange={e => setNewExtraUrl(e.target.value)} placeholder="https://…" />
+                    <button type="button" className="sc-btn sc-btn-secondary"
+                            onClick={() => { if (newExtraUrl.trim()) { set('extra_images', [...form.extra_images, newExtraUrl.trim()]); setNewExtraUrl(''); } }}>
+                      <span className="ms">add</span>
+                    </button>
+                  </div>
+                </Field>
+              </div>
+            </Card>
+          )}
+
+          {show('seo') && (
+            <>
+              <Card title="Contenu de la fiche" action={<LangPicker />}>
+                <Field label="Utilisation / recette">
+                  <textarea className="sc-input sc-textarea" rows={3} value={form[`usage_${lang}`]}
+                            onChange={e => set(`usage_${lang}`, e.target.value)} placeholder="Comment utiliser ce produit…" />
+                </Field>
+                <Field label="Ingrédients / composition">
+                  <textarea className="sc-input sc-textarea" rows={2} value={form[`ingredients_${lang}`]}
+                            onChange={e => set(`ingredients_${lang}`, e.target.value)} placeholder="Liste des ingrédients…" />
+                </Field>
+                <Field label="Allergènes">
+                  <input className="sc-input" value={form[`allergens_${lang}`]}
+                         onChange={e => set(`allergens_${lang}`, e.target.value)} placeholder="Contient : gluten, lait…" />
+                </Field>
+                <Field label="Conservation">
+                  <input className="sc-input" value={form[`storage_${lang}`]}
+                         onChange={e => set(`storage_${lang}`, e.target.value)} placeholder="Frais et sec. 24 mois." />
+                </Field>
+              </Card>
+
+              <Card title="Valeurs nutritionnelles">
+                <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 10 }}>
+                  Pour 100 g — laisser vide si non applicable. Rempli automatiquement par l&apos;import URL.
+                </div>
+                <Field label="Taille de la portion">
+                  <input className="sc-input" value={form.nutrition.portion}
+                         onChange={e => set('nutrition', { ...form.nutrition, portion: e.target.value })}
+                         placeholder="Ex : 30 g, 1 sachet" />
+                </Field>
+                {([
+                  ['energie', 'Énergie (kcal/kJ)', '452 kcal / 1891 kJ'],
+                  ['graisses', 'Matières grasses (g)', '18'],
+                  ['dont_satures', '— dont acides gras saturés (g)', '2.5'],
+                  ['glucides', 'Glucides (g)', '62'],
+                  ['dont_sucres', '— dont sucres (g)', '4'],
+                  ['fibres', 'Fibres (g)', '3'],
+                  ['proteines', 'Protéines (g)', '8'],
+                  ['sel', 'Sel (g)', '1.2'],
+                ] as [keyof Nutrition, string, string][]).map(([key, label, ph]) => (
+                  <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: 10, alignItems: 'center', marginBottom: 7 }}>
+                    <span style={{ fontSize: 12, color: key.startsWith('dont') ? T.muted : T.text2, paddingLeft: key.startsWith('dont') ? 12 : 0 }}>{label}</span>
+                    <input className="sc-input sc-num" style={{ height: 30 }} placeholder={ph}
+                           value={(form.nutrition as any)[key] || ''}
+                           onChange={e => set('nutrition', { ...form.nutrition, [key]: e.target.value })} />
+                  </div>
+                ))}
+              </Card>
+
+              <Card title="Avis affichés">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <Field label="Note (sur 5)">
+                    <input className="sc-input sc-num" type="number" step="0.1" min="0" max="5"
+                           value={form.rating} onChange={e => set('rating', e.target.value)} />
+                  </Field>
+                  <Field label="Nombre d'avis">
+                    <input className="sc-input sc-num" type="number" min="0"
+                           value={form.reviews_count} onChange={e => set('reviews_count', e.target.value)} />
+                  </Field>
+                </div>
+              </Card>
+            </>
+          )}
+        </div>
+
+        {/* ══════════ COLONNE LATÉRALE ══════════ */}
+        <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          {show('general') && (
+            <Card title="Publication">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
+                <Switch on={form.is_active}     onChange={v => set('is_active', v)}     label="Visible sur le site" />
+                <Switch on={form.is_bestseller} onChange={v => set('is_bestseller', v)} label="Best-seller (affiché en home)" />
+                <Switch on={form.is_new}        onChange={v => set('is_new', v)}        label="Nouveauté" />
+                <Switch on={form.track_stock}   onChange={v => set('track_stock', v)}   label="Suivi de stock actif" />
+                <Switch on={form.pickup_only}   onChange={v => set('pickup_only', v)}   label="Retrait uniquement"
+                        hint={form.pickup_only ? 'Produit non expédiable. Tout panier le contenant passe en retrait en magasin.' : undefined} />
+              </div>
+              <Field label="Badge affiché">
+                <select className="sc-input sc-select" value={form.badge} onChange={e => set('badge', e.target.value)}>
+                  <option value="">— Aucun —</option>
+                  <option value="badge-pop">Best-seller</option>
+                  <option value="badge-new">Nouveau</option>
+                  <option value="badge-org">Bio / Organic</option>
+                  <option value="badge-must">Incontournable</option>
+                </select>
+              </Field>
+            </Card>
+          )}
+
+          {show('prix') && (
+            <Card title="Stock">
+              {!form.track_stock ? (
+                <div style={{ fontSize: 12, color: T.muted, fontStyle: 'italic' }}>
+                  Le suivi de stock est désactivé. Active-le dans l&apos;onglet Général.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 14 }}>
+                    <button type="button" className="sc-iconbtn"
+                            onClick={() => set('stock', String(Math.max(0, (parseInt(form.stock) || 0) - 1)))}
+                            aria-label="Retirer une unité"><span className="ms">remove</span></button>
+                    <input className="sc-num" type="number" min="0" value={form.stock}
+                           onChange={e => set('stock', e.target.value)}
+                           style={{
+                             width: 78, textAlign: 'center', fontSize: 22, fontWeight: 700,
+                             border: `1px solid ${T.borderField}`, borderRadius: 7, padding: '4px 6px',
+                             color: (parseInt(form.stock) || 0) <= 0 ? T.red : (parseInt(form.stock) || 0) <= 5 ? '#C97A2B' : T.ink,
+                           }} />
+                    <button type="button" className="sc-iconbtn"
+                            onClick={() => set('stock', String((parseInt(form.stock) || 0) + 1))}
+                            aria-label="Ajouter une unité"><span className="ms">add</span></button>
+                  </div>
+                  <Field label="Quantité de réappro minimum" hint="Ex. carton de 50. Défaut 10.">
+                    <input className="sc-input sc-num" type="number" min="0" value={form.reorder_qty}
+                           onChange={e => set('reorder_qty', e.target.value)} placeholder="10" />
+                  </Field>
+                </>
+              )}
+            </Card>
+          )}
+
+          {!hideSubmit && (
+            <button type="submit" disabled={saving} className={`sc-btn ${autoSave ? 'sc-btn-secondary' : 'sc-btn-green'}`}
+                    style={{ width: '100%', justifyContent: 'center', padding: '10px 16px' }}>
+              <span className="ms">save</span>
+              {saving ? 'Enregistrement…' : autoSave ? 'Forcer la sauvegarde' : 'Enregistrer le produit'}
+            </button>
+          )}
+
+          {toast && (
+            <div style={{ background: T.ink, color: '#fff', padding: '9px 14px', borderRadius: 7, fontSize: 12 }}>{toast}</div>
+          )}
         </div>
       </div>
-
-      {toast && (
-        <div className="toast-container">
-          <div className={`toast ${toast.startsWith('✅') ? 'success' : toast.startsWith('❌') ? 'error' : ''}`}>{toast}</div>
-        </div>
-      )}
     </form>
   );
 }
