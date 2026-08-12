@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
+import { T as TH, BADGE } from '@/lib/admin-theme';
 
 type Campaign = {
   id: string; name: string; type: string; status: string; subject?: string;
@@ -228,304 +229,411 @@ function MarketingInner() {
   const recoveredCarts = carts.filter(c => c.recovered).length;
   const recoveredValue = carts.filter(c => c.recovered).reduce((s, c) => s + c.cart_total, 0);
 
+  /* ═══════════════════════════════════════════════════════════════
+     ÉCRANS 11 & 12 — CAMPAGNES / CODES PROMO (+ abandon panier)
+     Handoff §11 : cartes horizontales avec jauges Ouvertures / Clics.
+     Handoff §12 : table Code (mono sur fond), Remise, Condition,
+     Utilisations avec jauge, Validité, Statut.
+     ═══════════════════════════════════════════════════════════════ */
+
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
-    * { box-sizing: border-box; }
-    .m-wrap { font-family: 'Jost', sans-serif; }
-    .m-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-    .m-title { font-family: 'Cormorant Garamond', serif; font-size: 30px; font-weight: 600; color: #1C2028; }
-    .m-tabs { display: flex; gap: 0; border: 1px solid #D8CEBC; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
-    .m-tab { padding: 10px 20px; font-family: 'Jost', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: #fff; color: #6A7280; transition: all 0.15s; }
-    .m-tab.active { background: #3E5238; color: #fff; }
-    .m-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-    .m-stat { background: #fff; border: 1px solid #D8CEBC; border-radius: 6px; padding: 14px 18px; }
-    .m-stat-num { font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500; }
-    .m-stat-label { font-size: 11px; color: #6A7280; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .m-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid #D8CEBC; border-radius: 6px; overflow: hidden; }
-    .m-table th { padding: 10px 14px; text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #6A7280; background: #FDFAF5; border-bottom: 1px solid #D8CEBC; }
-    .m-table td { padding: 11px 14px; border-bottom: 1px solid #F0EBE1; vertical-align: middle; }
-    .m-table tr:last-child td { border-bottom: none; }
-    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; }
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; border: none; }
-    .btn-primary { background: #3E5238; color: #fff; } .btn-primary:hover { background: #587050; }
-    .btn-secondary { background: #F6F1E9; color: #3E4550; border: 1px solid #D8CEBC; }
-    .btn-sm { padding: 4px 10px; font-size: 11px; }
-    .modal-overlay { position: fixed; inset: 0; background: rgba(28,32,40,0.5); z-index: 200; display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto; }
-    .modal { background: #fff; border-radius: 8px; width: 100%; max-width: 640px; margin: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
-    .modal-header { padding: 16px 20px; border-bottom: 1px solid #D8CEBC; display: flex; align-items: center; justify-content: space-between; }
-    .modal-title { font-size: 16px; font-weight: 600; }
-    .modal-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
-    .modal-footer { padding: 14px 20px; border-top: 1px solid #D8CEBC; display: flex; justify-content: flex-end; gap: 10px; }
-    .form-group { margin-bottom: 12px; }
-    .form-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: #6A7280; margin-bottom: 4px; }
-    .form-control { width: 100%; padding: 8px 10px; border: 1px solid #D8CEBC; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; outline: none; }
-    .form-control:focus { border-color: #7A9468; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-    .mono { font-family: 'DM Mono', monospace; }
-    .progress { height: 6px; background: #D8CEBC; border-radius: 3px; overflow: hidden; margin-top: 4px; }
-    .progress-fill { height: 100%; border-radius: 3px; background: #3E5238; }
-    .empty { padding: 40px; text-align: center; color: #6A7280; font-style: italic; }
-    .toast { position: fixed; bottom: 24px; right: 24px; background: #1C2028; color: #fff; padding: 10px 18px; border-radius: 6px; font-size: 13px; z-index: 999; }
-    textarea.form-control { min-height: 120px; resize: vertical; }
-    select.form-control { appearance: none; }
-    .toggle { position: relative; width: 36px; height: 20px; }
-    .toggle input { opacity: 0; width: 0; height: 0; }
-    .toggle-slider { position: absolute; inset: 0; background: #D8CEBC; border-radius: 10px; cursor: pointer; transition: 0.2s; }
-    .toggle-slider::before { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: 0.2s; }
-    input:checked + .toggle-slider { background: #3E5238; }
-    input:checked + .toggle-slider::before { transform: translateX(16px); }
+    .mk-modal-overlay { position:fixed; inset:0; background:rgba(21,24,30,.45); backdrop-filter:blur(2px); z-index:200; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
+    .mk-modal { background:#fff; border:1px solid ${TH.border}; border-radius:10px; width:100%; max-width:560px; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,.2); }
+    .mk-modal-header { padding:14px 18px; border-bottom:1px solid ${TH.border}; }
+    .mk-modal-body { padding:18px; max-height:74vh; overflow-y:auto; }
+    .mk-modal-footer { padding:13px 18px; border-top:1px solid ${TH.border}; display:flex; justify-content:flex-end; gap:8px; }
+    .toggle { display:inline-flex; align-items:center; cursor:pointer; }
+    .toggle input { position:absolute; opacity:0; width:0; height:0; }
+    .toggle-slider { width:34px; height:19px; border-radius:10px; background:#DCD6CC; position:relative; transition:background .15s; }
+    .toggle-slider::after { content:''; position:absolute; top:2px; left:2px; width:15px; height:15px; border-radius:50%; background:#fff; transition:transform .15s; }
+    .toggle input:checked + .toggle-slider { background:${TH.green}; }
+    .toggle input:checked + .toggle-slider::after { transform:translateX(15px); }
+    .form-group { margin-bottom:12px; }
+    .form-label { display:block; font-size:11px; font-weight:600; color:${TH.text2b}; margin-bottom:5px; }
+    .form-control { width:100%; height:34px; border:1px solid ${TH.borderField}; border-radius:7px; padding:0 10px; font-size:12.5px; background:#fff; outline:none; }
+    .form-control:focus { border-color:var(--accent); }
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .btn { display:inline-flex; align-items:center; gap:6px; border-radius:7px; padding:8px 14px; font-size:12.5px; font-weight:500; cursor:pointer; border:1px solid ${TH.borderField}; background:#fff; color:#3A3228; }
+    .btn-primary { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
+    .btn-secondary { background:#fff; }
+    .empty { padding:40px; text-align:center; color:${TH.muted}; font-size:12.5px; }
   `;
+
+  const TABS: Array<[string, string]> = [
+    ['campaigns', 'Campagnes'], ['promo', 'Codes promo'], ['cart', 'Abandon panier'],
+  ];
+
+  const campaignTone = (s: string) =>
+    s === 'active' ? BADGE.green : s === 'paused' ? BADGE.amber : s === 'completed' ? BADGE.blue : BADGE.gray;
+  const campaignLabel = (s: string) =>
+    ({ draft: 'Brouillon', active: 'Active', paused: 'Pausée', completed: 'Terminée' } as Record<string, string>)[s] || s;
+
+  const Gauge = ({ value, max, color }: { value: number; max: number; color: string }) => (
+    <div style={{ height: 5, borderRadius: 2.5, background: TH.borderFaint2, width: '100%' }}>
+      <div style={{ height: '100%', width: `${Math.min(100, max > 0 ? (value / max) * 100 : 0)}%`, borderRadius: 2.5, background: color }} />
+    </div>
+  );
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="m-wrap">
-        <div className="m-header">
-          <div className="m-title">📣 Marketing</div>
-          <div>
-            {tab === 'campaigns' && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Nouvelle campagne</button>}
-            {tab === 'promo' && <button className="btn btn-primary" onClick={openNewCode}>+ Nouveau code promo</button>}
+
+      <div className="sc-head">
+        <div>
+          <div className="sc-title">Marketing</div>
+          <div className="sc-sub">
+            {tab === 'campaigns' ? `${campaigns.length} campagne(s) · ROAS ${roas}`
+              : tab === 'promo' ? `${codes.length} code(s) · ${codes.filter(c => c.is_active).length} actif(s)`
+              : `${carts.length} panier(s) abandonné(s) · ${recoveredCarts} récupéré(s)`}
           </div>
         </div>
-
-        <div className="m-tabs">
-          {[['campaigns', '📧 Campagnes'], ['promo', '🎟️ Codes promo'], ['cart', '🛒 Abandon panier']].map(([k, l]) => (
-            <button key={k} className={`m-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
-          ))}
+        <div className="sc-actions">
+          {tab === 'campaigns' && (
+            <button className="sc-btn sc-btn-primary" onClick={() => setShowModal(true)}>
+              <span className="ms">add</span>Nouvelle campagne
+            </button>
+          )}
+          {tab === 'promo' && (
+            <button className="sc-btn sc-btn-primary" onClick={openNewCode}>
+              <span className="ms">add</span>Nouveau code promo
+            </button>
+          )}
         </div>
+      </div>
 
-        {/* CAMPAGNES */}
-        {tab === 'campaigns' && (
-          <>
-            <div className="m-stats">
-              <div className="m-stat"><div className="m-stat-num">{campaigns.length}</div><div className="m-stat-label">Campagnes</div></div>
-              <div className="m-stat"><div className="m-stat-num mono">{fmt(totalBudget)}</div><div className="m-stat-label">Budget dépensé</div></div>
-              <div className="m-stat"><div className="m-stat-num mono">{fmt(totalRevCamp)}</div><div className="m-stat-label">CA généré</div></div>
-              <div className="m-stat"><div className="m-stat-num">{roas}x</div><div className="m-stat-label">ROAS moyen</div></div>
+      {/* Onglets */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}` }}>
+        {TABS.map(([k, l]) => {
+          const on = tab === k;
+          return (
+            <button key={k} onClick={() => setTab(k)}
+              style={{
+                border: 'none', background: 'none', cursor: 'pointer', padding: '9px 13px', fontSize: 12.5,
+                fontWeight: on ? 600 : 400, color: on ? 'var(--accent)' : TH.text2,
+                boxShadow: on ? 'inset 0 -2px 0 var(--accent)' : undefined,
+              }}>{l}</button>
+          );
+        })}
+      </div>
+
+      {/* ══════════ CAMPAGNES ══════════ */}
+      {tab === 'campaigns' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+            {[
+              { l: 'Campagnes', v: String(campaigns.length) },
+              { l: 'Envoyés', v: campaigns.reduce((s, c) => s + (c.sent_count || 0), 0).toLocaleString('fr-FR') },
+              { l: 'CA généré', v: fmt(totalRevCamp) },
+              { l: 'ROAS', v: String(roas) },
+            ].map(k => (
+              <div key={k.l} className="sc-card" style={{ padding: '13px 15px' }}>
+                <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
+                <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {loading && <div className="sc-empty">Chargement…</div>}
+          {!loading && campaigns.length === 0 && <div className="sc-empty">Aucune campagne.</div>}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {campaigns.map(c => {
+              const openRate = c.sent_count ? (c.open_count / c.sent_count) * 100 : 0;
+              const clickRate = c.sent_count ? (c.click_count / c.sent_count) * 100 : 0;
+              const tone = campaignTone(c.status);
+              return (
+                <div key={c.id} className="sc-card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 15px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: TH.ink }}>{c.name}</span>
+                      <span className="sc-badge" style={{ background: tone.bg, color: tone.fg }}>{campaignLabel(c.status)}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: TH.muted }}>
+                      {SEGMENTS[c.target_segment] || c.target_segment} · {fmtDate(c.created_at)}
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'center', minWidth: 70 }}>
+                    <div className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: TH.ink }}>{c.sent_count || 0}</div>
+                    <div style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>Envoyés</div>
+                  </div>
+
+                  <div style={{ flex: '1 1 120px', minWidth: 100 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
+                      <span>Ouvertures</span><span className="sc-num">{fmtPct(openRate)}</span>
+                    </div>
+                    <Gauge value={openRate} max={100} color="var(--accent)" />
+                  </div>
+
+                  <div style={{ flex: '1 1 120px', minWidth: 100 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
+                      <span>Clics</span><span className="sc-num">{fmtPct(clickRate)}</span>
+                    </div>
+                    {/* Échelle ×2 : les taux de clic sont bas, sinon la barre est illisible */}
+                    <Gauge value={clickRate * 2} max={100} color={TH.blue} />
+                  </div>
+
+                  <div style={{ textAlign: 'right', minWidth: 90 }}>
+                    <div className="sc-num" style={{ fontSize: 14, fontWeight: 700, color: TH.green }}>{fmt(c.revenue_generated || 0)}</div>
+                    <div style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>CA généré</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ══════════ CODES PROMO ══════════ */}
+      {tab === 'promo' && (
+        <>
+          {/* Opération livraison offerte — panneau conservé */}
+          <div style={{
+            background: shipPromoLive ? '#ECFDF5' : '#FDFAF5',
+            border: `1px solid ${shipPromoLive ? '#6EE7B7' : TH.border}`,
+            borderRadius: 10, padding: '15px 16px', marginBottom: 14,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: shipPromoLive ? '#065F46' : TH.muted }}>
+                  Opération livraison offerte
+                </div>
+                <div style={{ fontSize: 11.5, color: TH.muted, marginTop: 3 }}>
+                  Abaisse le seuil de franco pour tout le monde, sans code à saisir. Hors opération : <strong>{fmt(baseThreshold)}</strong>.
+                </div>
+              </div>
+              <label className="toggle">
+                <input type="checkbox" checked={ship.ship_promo_active}
+                       onChange={e => setShip(s => ({ ...s, ship_promo_active: e.target.checked }))} />
+                <span className="toggle-slider" />
+              </label>
             </div>
-            <table className="m-table">
-              <thead><tr><th>Campagne</th><th>Type</th><th>Segment</th><th>Envoyés</th><th>✅ Délivrés</th><th>👁 Ouverts</th><th>🖱 Clics</th><th>⛔ Rebonds</th><th>Statut</th></tr></thead>
-              <tbody>
-                {loading ? <tr><td colSpan={9}><div className="empty">Chargement…</div></td></tr>
-                : campaigns.length === 0 ? <tr><td colSpan={9}><div className="empty">Aucune campagne</div></td></tr>
-                : campaigns.map(c => {
-                  const st = STATUS_C[c.status] || { label: c.status, color: '#6A7280' };
-                  const base = c.sent_count || 0;
-                  const delivRate = base > 0 ? (c.delivered_count / base * 100) : 0;
-                  const openRate  = base > 0 ? (c.open_count / base * 100) : 0;
-                  const clickRate = base > 0 ? (c.click_count / base * 100) : 0;
-                  const bouncePct = base > 0 ? (c.bounced_count / base * 100) : 0;
-                  const hasStats  = base > 0;
-                  return (
-                    <tr key={c.id}>
-                      <td><strong>{c.name}</strong>{c.subject && <div style={{ fontSize: 11, color: '#6A7280' }}>{c.subject}</div>}</td>
-                      <td>{CAMP_TYPES[c.type] || c.type}</td>
-                      <td style={{ fontSize: 12, color: '#6A7280' }}>{SEGMENTS[c.target_segment] || c.target_segment}</td>
-                      <td className="mono">{base.toLocaleString()}</td>
-                      <td>
-                        {hasStats ? <>
-                          <div className="mono" style={{ color: '#10B981' }}>{c.delivered_count} <span style={{ fontSize: 10, color: '#6A7280' }}>({fmtPct(delivRate)})</span></div>
-                          <div className="progress"><div className="progress-fill" style={{ width: `${Math.min(delivRate, 100)}%`, background: '#10B981' }} /></div>
-                        </> : <span style={{ color: '#D8CEBC' }}>—</span>}
-                      </td>
-                      <td>
-                        {hasStats ? <>
-                          <div className="mono">{c.open_count} <span style={{ fontSize: 10, color: '#6A7280' }}>({fmtPct(openRate)})</span></div>
-                          <div className="progress"><div className="progress-fill" style={{ width: `${Math.min(openRate, 100)}%` }} /></div>
-                        </> : <span style={{ color: '#D8CEBC' }}>—</span>}
-                      </td>
-                      <td>
-                        {hasStats ? <div className="mono">{c.click_count} <span style={{ fontSize: 10, color: '#6A7280' }}>({fmtPct(clickRate)})</span></div>
-                          : <span style={{ color: '#D8CEBC' }}>—</span>}
-                      </td>
-                      <td>
-                        {hasStats && c.bounced_count > 0
-                          ? <div className="mono" style={{ color: '#DC2626' }}>{c.bounced_count} <span style={{ fontSize: 10 }}>({fmtPct(bouncePct)})</span></div>
-                          : hasStats ? <div className="mono" style={{ color: '#10B981' }}>0</div>
-                          : <span style={{ color: '#D8CEBC' }}>—</span>}
-                      </td>
-                      <td><span className="badge" style={{ background: st.color + '20', color: st.color }}>{st.label}</span></td>
+
+            {ship.ship_promo_active && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginTop: 14 }}>
+                  <div>
+                    <label className="sc-label">Seuil France (€) *</label>
+                    <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="25"
+                           value={ship.ship_promo_threshold}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_threshold: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="sc-label">Seuil international (€)</label>
+                    <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="vide = inchangé"
+                           value={ship.ship_promo_threshold_intl}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_threshold_intl: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="sc-label">Du (inclus)</label>
+                    <input className="sc-input" type="date" value={ship.ship_promo_from}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_from: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="sc-label">Au (inclus)</label>
+                    <input className="sc-input" type="date" value={ship.ship_promo_until}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_until: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12, marginTop: 10 }}>
+                  <div>
+                    <label className="sc-label">Message bandeau FR</label>
+                    <input className="sc-input" placeholder="Livraison offerte dès 25 € !"
+                           value={ship.ship_promo_label_fr}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_label_fr: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="sc-label">SV</label>
+                    <input className="sc-input" value={ship.ship_promo_label_sv}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_label_sv: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="sc-label">EN</label>
+                    <input className="sc-input" value={ship.ship_promo_label_en}
+                           onChange={e => setShip(s => ({ ...s, ship_promo_label_en: e.target.value }))} />
+                  </div>
+                </div>
+                {!shipFrOk && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
+                    Seuil France vide : l’opération ne changera rien pour tes clients français, le seuil de {fmt(baseThreshold)} restera appliqué.
+                  </div>
+                )}
+                {Number(ship.ship_promo_threshold) >= baseThreshold && ship.ship_promo_threshold !== '' && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: '#B45309', fontWeight: 600 }}>
+                    Ce seuil ({fmt(Number(ship.ship_promo_threshold))}) n’est pas plus avantageux que le seuil habituel ({fmt(baseThreshold)}).
+                  </div>
+                )}
+              </>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: shipPromoLive && shipFrOk ? '#065F46' : shipPromoLive ? '#B45309' : TH.muted }}>
+                {!ship.ship_promo_active
+                  ? 'Inactive — seuil habituel appliqué'
+                  : !shipPromoLive
+                    ? "Activée mais hors période — le seuil habituel s'applique aujourd'hui"
+                    : shipFrOk
+                      ? `En cours : livraison offerte dès ${fmt(Number(ship.ship_promo_threshold))} en France`
+                      : `En cours mais sans effet en France — seuil habituel ${fmt(baseThreshold)} maintenu`}
+              </div>
+              <button className="sc-btn sc-btn-green" onClick={saveShipPromo} disabled={savingShip}>
+                <span className="ms">save</span>{savingShip ? '…' : 'Enregistrer l’opération'}
+              </button>
+            </div>
+          </div>
+
+          {loading && <div className="sc-empty">Chargement…</div>}
+          {!loading && codes.length === 0 && <div className="sc-empty">Aucun code promo.</div>}
+
+          {!loading && codes.length > 0 && (
+            <div className="sc-card" style={{ overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="sc-table" style={{ minWidth: 760 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 130 }}>Code</th>
+                      <th style={{ width: 120 }}>Remise</th>
+                      <th style={{ width: 130 }}>Condition</th>
+                      <th style={{ width: 150 }}>Utilisations</th>
+                      <th style={{ width: 170 }}>Validité</th>
+                      <th style={{ width: 90 }}>Statut</th>
+                      <th style={{ width: 70 }} />
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </>
-        )}
-
-        {/* CODES PROMO */}
-        {tab === 'promo' && (
-          <>
-            {/* ── Opération livraison offerte (sans code à saisir) ───────── */}
-            <div style={{
-              background: shipPromoLive ? '#ECFDF5' : '#FDFAF5',
-              border: `1px solid ${shipPromoLive ? '#6EE7B7' : '#D8CEBC'}`,
-              borderRadius: 8, padding: '16px 18px', marginBottom: 20,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: shipPromoLive ? '#065F46' : '#6A7280' }}>
-                    🚚 Opération livraison offerte
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6A7280', marginTop: 3 }}>
-                    Abaisse le seuil de franco pour tout le monde, sans code à saisir. Hors opération : <strong>{fmt(baseThreshold)}</strong>.
-                  </div>
-                </div>
-                <label className="toggle" title="Activer l'opération">
-                  <input type="checkbox" checked={ship.ship_promo_active}
-                    onChange={e => setShip(s => ({ ...s, ship_promo_active: e.target.checked }))} />
-                  <span className="toggle-slider" />
-                </label>
-              </div>
-
-              {ship.ship_promo_active && (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginTop: 14 }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Seuil France (€) *</label>
-                      <input type="number" min="0" step="0.01" className="form-control mono" placeholder="25"
-                        value={ship.ship_promo_threshold}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_threshold: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Seuil international (€)</label>
-                      <input type="number" min="0" step="0.01" className="form-control mono" placeholder="vide = 70 € inchangé"
-                        value={ship.ship_promo_threshold_intl}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_threshold_intl: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Du (inclus)</label>
-                      <input type="date" className="form-control" value={ship.ship_promo_from}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_from: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Au (inclus)</label>
-                      <input type="date" className="form-control" value={ship.ship_promo_until}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_until: e.target.value }))} />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12, marginTop: 10 }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Message bandeau 🇫🇷</label>
-                      <input className="form-control" placeholder="Livraison offerte dès 25 € !"
-                        value={ship.ship_promo_label_fr}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_label_fr: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">🇸🇪</label>
-                      <input className="form-control" placeholder="Fri frakt från 25 €!"
-                        value={ship.ship_promo_label_sv}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_label_sv: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">🇬🇧</label>
-                      <input className="form-control" placeholder="Free delivery from €25!"
-                        value={ship.ship_promo_label_en}
-                        onChange={e => setShip(s => ({ ...s, ship_promo_label_en: e.target.value }))} />
-                    </div>
-                  </div>
-
-                  {!shipFrOk && (
-                    <div style={{ marginTop: 10, fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
-                      ⚠️ Seuil France vide : l'opération ne changera rien pour tes clients français, le seuil de {fmt(baseThreshold)} restera appliqué.
-                    </div>
-                  )}
-                  {Number(ship.ship_promo_threshold) >= baseThreshold && ship.ship_promo_threshold !== '' && (
-                    <div style={{ marginTop: 10, fontSize: 12, color: '#B45309', fontWeight: 600 }}>
-                      ⚠️ Ce seuil ({fmt(Number(ship.ship_promo_threshold))}) n'est pas plus avantageux que le seuil habituel ({fmt(baseThreshold)}).
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: shipPromoLive && shipFrOk ? '#065F46' : shipPromoLive ? '#B45309' : '#6A7280' }}>
-                  {!ship.ship_promo_active
-                    ? '○ Inactive — seuil habituel appliqué'
-                    : !shipPromoLive
-                      ? "◐ Activée mais hors période — le seuil habituel s'applique aujourd'hui"
-                      : shipFrOk
-                        ? `● En cours : livraison offerte dès ${fmt(Number(ship.ship_promo_threshold))} en France`
-                        : `◐ En cours mais sans effet en France — seuil habituel ${fmt(baseThreshold)} maintenu`}
-                </div>
-                <button className="btn btn-primary" onClick={saveShipPromo} disabled={savingShip}>
-                  {savingShip ? '⏳…' : '💾 Enregistrer l\'opération'}
-                </button>
+                  </thead>
+                  <tbody>
+                    {codes.map(c => {
+                      const used = c.used_count || 0;
+                      const quota = c.max_uses || 0;
+                      const full = quota > 0 && used >= quota;
+                      return (
+                        <tr key={c.id}>
+                          <td>
+                            <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, color: TH.ink }}>
+                              {c.code}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600, color: '#9E5A3C' }}>
+                            {c.type === 'percent' ? `−${c.value} %`
+                              : c.type === 'fixed' ? `−${fmt(c.value)}`
+                              : c.type === 'gift' ? `${(c.gift_product_ids || []).length} cadeau(x)`
+                              : 'Livraison offerte'}
+                          </td>
+                          <td style={{ color: TH.text2b }}>
+                            {c.min_order ? `dès ${fmt(c.min_order)}` : '—'}
+                            {c.single_use_per_customer ? ' · 1×/client' : ''}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span className="sc-num" style={{ fontSize: 11.5, minWidth: 52, color: full ? TH.red : TH.text2b }}>
+                                {used}{quota ? ` / ${quota}` : ''}
+                              </span>
+                              {quota > 0 && (
+                                <div style={{ flex: 1 }}>
+                                  <Gauge value={used} max={quota} color={full ? TH.red : 'var(--accent)'} />
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ fontSize: 11.5, color: TH.muted }}>
+                            {fmtDate(c.valid_from)} → {fmtDate(c.valid_until)}
+                          </td>
+                          <td>
+                            <button className="sc-switch" role="switch" aria-checked={c.is_active}
+                                    onClick={() => toggleCode(c)} aria-label={`Activer ${c.code}`} />
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              <button className="sc-iconbtn" onClick={() => openEditCode(c)} aria-label="Modifier"><span className="ms">edit</span></button>
+                              <button className="sc-iconbtn" onClick={() => deleteCode(c)} aria-label="Supprimer"><span className="ms">delete</span></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
+          )}
+        </>
+      )}
 
-            <div className="m-stats">
-              <div className="m-stat"><div className="m-stat-num">{codes.length}</div><div className="m-stat-label">Codes créés</div></div>
-              <div className="m-stat"><div className="m-stat-num" style={{ color: '#10B981' }}>{codes.filter(c => c.is_active).length}</div><div className="m-stat-label">Actifs</div></div>
-              <div className="m-stat"><div className="m-stat-num">{codes.reduce((s, c) => s + c.used_count, 0)}</div><div className="m-stat-label">Utilisations total</div></div>
-              <div className="m-stat"><div className="m-stat-num">—</div><div className="m-stat-label">CA via codes</div></div>
-            </div>
-            <table className="m-table">
-              <thead><tr><th>Code</th><th>Type</th><th>Valeur</th><th>Utilisations</th><th>Validité</th><th>1x/client</th><th>Actif</th><th></th></tr></thead>
-              <tbody>
-                {loading ? <tr><td colSpan={8}><div className="empty">Chargement…</div></td></tr>
-                : codes.length === 0 ? <tr><td colSpan={8}><div className="empty">Aucun code promo</div></td></tr>
-                : codes.map(c => (
-                  <tr key={c.id}>
-                    <td><strong className="mono">{c.code}</strong></td>
-                    <td>{c.type === 'percent' ? 'Pourcentage' : c.type === 'fixed' ? 'Montant fixe' : c.type === 'gift' ? '🎁 Cadeau' : 'Livraison offerte'}</td>
-                    <td className="mono" style={{ fontWeight: 600, color: '#9E5A3C' }}>{c.type === 'percent' ? `${c.value}%` : c.type === 'fixed' ? fmt(c.value) : c.type === 'gift' ? `🎁 ${(c.gift_product_ids || []).length} produit(s)` : 'Offerte'}</td>
-                    <td>{c.used_count}{c.max_uses ? ` / ${c.max_uses}` : ''}</td>
-                    <td style={{ fontSize: 12, color: '#6A7280' }}>{fmtDate(c.valid_from)} → {fmtDate(c.valid_until)}</td>
-                    <td style={{ textAlign: 'center' }}>{c.single_use_per_customer ? <span title="1 utilisation max par client" style={{ fontSize: 16 }}>🔒</span> : <span style={{ color: '#D8CEBC', fontSize: 14 }}>—</span>}</td>
-                    <td>
-                      <label className="toggle">
-                        <input type="checkbox" checked={c.is_active} onChange={() => toggleCode(c)} />
-                        <span className="toggle-slider" />
-                      </label>
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEditCode(c)} style={{ marginRight: 4 }} title="Modifier">✏️</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => deleteCode(c)} style={{ color: '#991B1B' }} title="Supprimer">🗑</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
+      {/* ══════════ ABANDON PANIER ══════════ */}
+      {tab === 'cart' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+            {[
+              { l: 'Paniers abandonnés', v: String(carts.length) },
+              { l: 'Récupérés', v: String(recoveredCarts) },
+              { l: 'Valeur récupérée', v: fmt(recoveredValue) },
+              { l: 'Taux', v: carts.length ? fmtPct((recoveredCarts / carts.length) * 100) : '—' },
+            ].map(k => (
+              <div key={k.l} className="sc-card" style={{ padding: '13px 15px' }}>
+                <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
+                <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
+              </div>
+            ))}
+          </div>
 
-        {/* ABANDON PANIER */}
-        {tab === 'cart' && (
-          <>
-            <div className="m-stats">
-              <div className="m-stat"><div className="m-stat-num">{carts.length}</div><div className="m-stat-label">Paniers abandonnés</div></div>
-              <div className="m-stat"><div className="m-stat-num" style={{ color: '#10B981' }}>{recoveredCarts}</div><div className="m-stat-label">Récupérés</div></div>
-              <div className="m-stat"><div className="m-stat-num mono">{fmt(recoveredValue)}</div><div className="m-stat-label">CA récupéré</div></div>
-              <div className="m-stat"><div className="m-stat-num">{carts.length > 0 ? fmtPct(recoveredCarts / carts.length * 100) : '0%'}</div><div className="m-stat-label">Taux récupération</div></div>
-            </div>
-            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#1E40AF' }}>
-              💡 <strong>Séquence automatique :</strong> J+1 "Vous avez oublié quelque chose…" · J+3 "Votre panier vous attend" · J+7 "Dernière chance — 10% de réduction"
-            </div>
-            <table className="m-table">
-              <thead><tr><th>Client</th><th>Montant</th><th>Date abandon</th><th>Relance J+1</th><th>Relance J+3</th><th>Statut</th><th>Actions</th></tr></thead>
-              <tbody>
-                {loading ? <tr><td colSpan={7}><div className="empty">Chargement…</div></td></tr>
-                : carts.length === 0 ? <tr><td colSpan={7}><div className="empty">Aucun panier abandonné</div></td></tr>
-                : carts.map(c => (
-                  <tr key={c.id}>
-                    <td><div style={{ fontWeight: 600 }}>{c.customer_name || '—'}</div><div style={{ fontSize: 11, color: '#6A7280' }}>{c.customer_email}</div></td>
-                    <td className="mono" style={{ fontWeight: 600 }}>{fmt(c.cart_total)}</td>
-                    <td style={{ fontSize: 12, color: '#6A7280' }}>{fmtDate(c.created_at)}</td>
-                    <td>{c.email_1_sent_at ? <span style={{ color: '#10B981', fontSize: 12 }}>✅ {fmtDate(c.email_1_sent_at)}</span> : <button className="btn btn-secondary btn-sm" onClick={() => sendRelance(c.id, 1)}>Envoyer</button>}</td>
-                    <td>{c.email_2_sent_at ? <span style={{ color: '#10B981', fontSize: 12 }}>✅ {fmtDate(c.email_2_sent_at)}</span> : <button className="btn btn-secondary btn-sm" onClick={() => sendRelance(c.id, 2)}>Envoyer</button>}</td>
-                    <td><span className="badge" style={{ background: c.recovered ? '#D1FAE5' : '#FEE2E2', color: c.recovered ? '#065F46' : '#991B1B' }}>{c.recovered ? '✅ Récupéré' : '⏳ En cours'}</span></td>
-                    <td><button className="btn btn-secondary btn-sm">👁 Voir</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
+          {loading && <div className="sc-empty">Chargement…</div>}
+          {!loading && carts.length === 0 && <div className="sc-empty">Aucun panier abandonné.</div>}
 
-        {/* Modal campagne */}
+          {!loading && carts.length > 0 && (
+            <div className="sc-card" style={{ overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="sc-table" style={{ minWidth: 700 }}>
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th className="sc-right" style={{ width: 100 }}>Panier</th>
+                      <th style={{ width: 120 }}>Abandonné le</th>
+                      <th style={{ width: 130 }}>Relances</th>
+                      <th style={{ width: 110 }}>Statut</th>
+                      <th style={{ width: 160 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {carts.map(c => (
+                      <tr key={c.id}>
+                        <td>
+                          <div style={{ fontSize: 12.5, color: TH.ink }}>{c.customer_name || '—'}</div>
+                          <div style={{ fontSize: 10.5, color: TH.muted, wordBreak: 'break-all' }}>{c.customer_email}</div>
+                        </td>
+                        <td className="sc-num sc-right" style={{ fontWeight: 600 }}>{fmt(c.cart_total)}</td>
+                        <td style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(c.created_at)}</td>
+                        <td style={{ fontSize: 11.5, color: TH.muted }}>
+                          {c.email_1_sent_at ? '1' : '—'}{c.email_2_sent_at ? ' · 2' : ''}
+                        </td>
+                        <td>
+                          <span className="sc-badge" style={{
+                            background: c.recovered ? BADGE.green.bg : BADGE.gray.bg,
+                            color: c.recovered ? BADGE.green.fg : BADGE.gray.fg,
+                          }}>{c.recovered ? 'Récupéré' : 'En attente'}</span>
+                        </td>
+                        <td>
+                          {!c.recovered && (
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              {!c.email_1_sent_at && (
+                                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
+                                        onClick={() => sendRelance(c.id, 1)}>Relance 1</button>
+                              )}
+                              {c.email_1_sent_at && !c.email_2_sent_at && (
+                                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
+                                        onClick={() => sendRelance(c.id, 2)}>Relance 2</button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
         {showModal && (
           <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
             <div className="modal">
@@ -626,8 +734,12 @@ function MarketingInner() {
             </div>
           </div>
         )}
-      </div>
-      {toast && <div className="toast">{toast}</div>}
+
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: TH.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300 }}>
+          {toast}
+        </div>
+      )}
     </>
   );
 }
