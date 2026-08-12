@@ -1,301 +1,334 @@
 'use client';
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { adminFetch } from '@/lib/auth-client';
+import { T, BADGE, BadgeTone, initials, eur, thumbStyle } from '@/lib/admin-theme';
+
+/* ═══════════════════════════════════════════════════════════════
+   ÉCRANS 17 & 18 — CLIENTS / FOURNISSEURS
+   Un seul écran, deux rendus selon ?type= :
+   · Clients (§17)      → table, avatar rond, segment en badge
+   · Fournisseurs (§18) → grille de cartes auto-fill minmax(280px,1fr)
+   ═══════════════════════════════════════════════════════════════ */
 
 type Contact = {
   id: string; type: string; company?: string; first_name?: string; last_name?: string;
   email?: string; phone?: string; mobile?: string; address?: string; city?: string; zip?: string;
   country?: string; siret?: string; notes?: string; tags?: string[];
   total_orders?: number; total_purchases?: number; is_active?: boolean; created_at: string;
+  delivery_days?: number;
 };
-
-const TYPE_LABELS: Record<string, string> = { client: 'Client', supplier: 'Fournisseur', both: 'Les deux' };
-const TYPE_COLORS: Record<string, string> = { client: '#2563EB', supplier: '#7C3AED', both: '#059669' };
-const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('fr-FR');
 
 const COUNTRIES = ['France','Belgique','Suisse','Luxembourg','Allemagne','Espagne','Italie','Pays-Bas','Portugal','Royaume-Uni','Suède','Norvège','Danemark','Finlande','Autriche','Pologne','République tchèque','États-Unis','Canada','Australie','Autre'];
 const EMPTY: Partial<Contact> = { type: 'client', country: 'France', tags: [] };
 
+const fullName = (c: Contact) =>
+  c.company || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || '—';
+
+/** Segment commercial, dérivé du volume réel (pas de champ dédié en base). */
+function segmentOf(c: Contact): { label: string; tone: BadgeTone } {
+  const n = c.total_orders || 0;
+  const spent = c.total_purchases || 0;
+  if (c.company || c.siret) return { label: 'Pro', tone: 'amber' };
+  if (spent >= 300 || n >= 8) return { label: 'VIP', tone: 'plum' };
+  if (n >= 5) return { label: 'Fidèle', tone: 'green' };
+  if (n >= 2) return { label: 'Récurrent', tone: 'blue' };
+  return { label: 'Nouveau', tone: 'gray' };
+}
+
 function ContactsInner() {
   const searchParams = useSearchParams();
   const typeFilter = searchParams.get('type') || '';
+
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState(typeFilter);
-  const [selected, setSelected] = useState<Contact | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<Partial<Contact>>(EMPTY);
-  const [isEditing, setIsEditing] = useState(false);
   const [toast, setToast] = useState('');
-  const [detail, setDetail] = useState<{ orders: any[]; purchases: any[] } | null>(null);
+  const [detail, setDetail] = useState<{ contact: Contact; orders: any[]; purchases: any[] } | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+  const isSupplier = filter === 'supplier';
+  const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3000); };
 
+  useEffect(() => { setFilter(typeFilter); }, [typeFilter]);
   useEffect(() => { load(); }, [filter, search]);
 
   async function load() {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (filter) params.set('type', filter);
-    if (search) params.set('search', search);
-    const res = await fetch('/api/contacts?' + params);
-    const data = await res.json();
-    setContacts(data.contacts || []);
-    setLoading(false);
+    try {
+      const p = new URLSearchParams();
+      if (filter) p.set('type', filter);
+      if (search) p.set('search', search);
+      const d = await adminFetch('/api/contacts?' + p.toString()).then(r => r.json());
+      setContacts(d.contacts || []);
+    } finally { setLoading(false); }
   }
 
   async function openDetail(c: Contact) {
-    setSelected(c);
-    const res = await fetch(`/api/contacts/${c.id}`);
-    const data = await res.json();
-    setDetail({ orders: data.orders || [], purchases: data.purchases || [] });
-    setShowModal(false);
-    setIsEditing(false);
+    setDetail({ contact: c, orders: [], purchases: [] });
+    try {
+      const d = await adminFetch(`/api/contacts/${c.id}`).then(r => r.json());
+      setDetail({ contact: d.contact || c, orders: d.orders || [], purchases: d.purchases || [] });
+    } catch { /* détail indisponible, la fiche reste ouverte */ }
   }
 
   async function save() {
-    const method = form.id ? 'PUT' : 'POST';
-    const url = form.id ? `/api/contacts/${form.id}` : '/api/contacts';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    if (!res.ok) { showToast('❌ Erreur'); return; }
-    showToast('✅ Contact sauvegardé !');
-    setShowModal(false);
-    setIsEditing(false);
-    load();
+    if (!form.email && !form.company && !form.last_name) { say('Renseigne au moins un nom ou un email'); return; }
+    setSaving(true);
+    try {
+      const url = form.id ? `/api/contacts/${form.id}` : '/api/contacts';
+      const res = await adminFetch(url, {
+        method: form.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error();
+      say(form.id ? 'Contact mis à jour' : 'Contact créé');
+      setShowModal(false); setForm(EMPTY); load();
+    } catch { say('Enregistrement impossible'); }
+    finally { setSaving(false); }
   }
 
-  async function deleteContact(id: string) {
-    if (!confirm('Archiver ce contact ?')) return;
-    await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
-    showToast('🗑 Contact archivé');
-    setSelected(null);
-    load();
+  async function remove(c: Contact) {
+    if (!window.confirm(`Supprimer « ${fullName(c)} » ?`)) return;
+    await adminFetch(`/api/contacts/${c.id}`, { method: 'DELETE' });
+    setContacts(cs => cs.filter(x => x.id !== c.id));
+    setDetail(null);
+    say('Contact supprimé');
   }
 
-  function openNew() { setForm({ ...EMPTY }); setIsEditing(true); setShowModal(true); setSelected(null); }
-  function openEdit(c: Contact) { setForm({ ...c }); setIsEditing(true); setShowModal(true); }
-
-  const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
-    * { box-sizing: border-box; }
-    .c-wrap { font-family: 'Jost', sans-serif; display: flex; gap: 20px; height: calc(100vh - 0px); }
-    .c-list { flex: 1; min-width: 0; }
-    .c-detail { width: 380px; flex-shrink: 0; background: #fff; border: 1px solid #D8CEBC; border-radius: 8px; overflow-y: auto; }
-    .c-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
-    .c-title { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 600; color: #1C2028; }
-    .c-toolbar { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-    .c-search { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #D8CEBC; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; outline: none; }
-    .c-select { padding: 8px 12px; border: 1px solid #D8CEBC; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; background: #fff; outline: none; }
-    .c-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid #D8CEBC; border-radius: 8px; overflow: hidden; }
-    .c-table th { padding: 10px 14px; text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #6A7280; background: #FDFAF5; border-bottom: 1px solid #D8CEBC; }
-    .c-table td { padding: 11px 14px; border-bottom: 1px solid #F0EBE1; vertical-align: middle; }
-    .c-table tr:last-child td { border-bottom: none; }
-    .c-table tr:hover td { background: #FDFAF5; cursor: pointer; }
-    .c-table tr.selected td { background: #E8EEE5; }
-    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; }
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
-    .btn-primary { background: #3E5238; color: #fff; } .btn-primary:hover { background: #587050; }
-    .btn-secondary { background: #F6F1E9; color: #3E4550; border: 1px solid #D8CEBC; } .btn-secondary:hover { background: #D8CEBC; }
-    .btn-sm { padding: 4px 10px; font-size: 11px; }
-    .btn-danger { background: #FEE2E2; color: #991B1B; } .btn-danger:hover { background: #FCA5A5; }
-    .modal-overlay { position: fixed; inset: 0; background: rgba(28,32,40,0.5); z-index: 200; display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto; }
-    .modal { background: #fff; border-radius: 8px; width: 100%; max-width: 600px; margin: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
-    .modal-header { padding: 16px 20px; border-bottom: 1px solid #D8CEBC; display: flex; align-items: center; justify-content: space-between; }
-    .modal-title { font-size: 16px; font-weight: 600; }
-    .modal-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
-    .modal-footer { padding: 14px 20px; border-top: 1px solid #D8CEBC; display: flex; justify-content: flex-end; gap: 10px; }
-    .form-group { margin-bottom: 12px; }
-    .form-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: #6A7280; margin-bottom: 4px; }
-    .form-control { width: 100%; padding: 8px 10px; border: 1px solid #D8CEBC; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; outline: none; }
-    .form-control:focus { border-color: #7A9468; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-    .detail-header { padding: 20px; border-bottom: 1px solid #D8CEBC; }
-    .detail-avatar { width: 48px; height: 48px; border-radius: 50%; background: #3E5238; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600; margin-bottom: 10px; }
-    .detail-name { font-size: 16px; font-weight: 600; }
-    .detail-email { font-size: 12px; color: #6A7280; }
-    .detail-section { padding: 14px 20px; border-bottom: 1px solid #F0EBE1; }
-    .detail-section-title { font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #6A7280; margin-bottom: 10px; }
-    .detail-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
-    .mono { font-family: 'DM Mono', monospace; }
-    .empty { padding: 40px; text-align: center; color: #6A7280; font-style: italic; }
-    .toast { position: fixed; bottom: 24px; right: 24px; background: #1C2028; color: #fff; padding: 10px 18px; border-radius: 6px; font-size: 13px; z-index: 999; }
-    textarea.form-control { min-height: 70px; resize: vertical; }
-    select.form-control { appearance: none; }
-  `;
-
-  const initials = (c: Contact) => {
-    if (c.company) return c.company.slice(0, 2).toUpperCase();
-    return ((c.first_name || '')[0] + (c.last_name || '')[0]).toUpperCase() || '??';
-  };
+  function exportCsv() {
+    const rows = [['Nom', 'Email', 'Téléphone', 'Ville', 'Pays', 'Commandes', 'Total']];
+    for (const c of contacts) {
+      rows.push([fullName(c), c.email || '', c.phone || c.mobile || '', c.city || '', c.country || '',
+                 String(c.total_orders || 0), String(c.total_purchases || 0)]);
+    }
+    const csv = rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(';')).join('\n');
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `${isSupplier ? 'fournisseurs' : 'clients'}-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="c-wrap">
-        <div className="c-list">
-          <div className="c-header">
-            <div>
-              <div className="c-title">
-                {filter === 'client' ? '👤 Clients' : filter === 'supplier' ? '🏭 Fournisseurs' : '📇 Contacts'}
-              </div>
-              <div style={{ fontSize: 13, color: '#6A7280', marginTop: 4 }}>{contacts.length} contacts</div>
-            </div>
-            <button className="btn btn-primary" onClick={openNew}>+ Nouveau contact</button>
-          </div>
-
-          <div className="c-toolbar">
-            <input className="c-search" placeholder="Rechercher…" value={search} onChange={e => setSearch(e.target.value)} />
-            <select className="c-select" value={filter} onChange={e => setFilter(e.target.value)}>
-              <option value="">Tous types</option>
-              <option value="client">Clients</option>
-              <option value="supplier">Fournisseurs</option>
-              <option value="both">Les deux</option>
-            </select>
-          </div>
-
-          <table className="c-table">
-            <thead><tr><th>Nom</th><th>Type</th><th>Email</th><th>Ville</th><th>CA</th><th>Actions</th></tr></thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6}><div className="empty">Chargement…</div></td></tr>
-              ) : contacts.length === 0 ? (
-                <tr><td colSpan={6}><div className="empty">Aucun contact</div></td></tr>
-              ) : contacts.map(c => (
-                <tr key={c.id} className={selected?.id === c.id ? 'selected' : ''} onClick={() => openDetail(c)}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{c.company || `${c.first_name || ''} ${c.last_name || ''}`.trim() || '—'}</div>
-                    {c.company && <div style={{ fontSize: 11, color: '#6A7280' }}>{`${c.first_name || ''} ${c.last_name || ''}`.trim()}</div>}
-                  </td>
-                  <td><span className="badge" style={{ background: TYPE_COLORS[c.type] + '20', color: TYPE_COLORS[c.type] }}>{TYPE_LABELS[c.type]}</span></td>
-                  <td style={{ color: '#6A7280', fontSize: 12 }}>{c.email || '—'}</td>
-                  <td style={{ color: '#6A7280', fontSize: 12 }}>{c.city || '—'}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>{fmt(c.total_orders || 0)}</td>
-                  <td onClick={e => e.stopPropagation()}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}>✏️</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="sc-head">
+        <div>
+          <div className="sc-title">{isSupplier ? 'Fournisseurs' : filter === 'client' ? 'Clients' : 'Contacts'}</div>
+          <div className="sc-sub">{contacts.length} fiche{contacts.length > 1 ? 's' : ''}</div>
         </div>
-
-        {/* Panneau détail */}
-        {selected && (
-          <div className="c-detail">
-            <div className="detail-header">
-              <div className="detail-avatar">{initials(selected)}</div>
-              <div className="detail-name">{selected.company || `${selected.first_name || ''} ${selected.last_name || ''}`.trim()}</div>
-              <div className="detail-email">{selected.email}</div>
-              {selected.phone && <div style={{ fontSize: 12, color: '#6A7280', marginTop: 2 }}>{selected.phone}</div>}
-              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => openEdit(selected)}>✏️ Éditer</button>
-                <button className="btn btn-danger btn-sm" onClick={() => deleteContact(selected.id)}>🗑</button>
-              </div>
-            </div>
-
-            <div className="detail-section">
-              <div className="detail-section-title">Informations</div>
-              {selected.company && <div className="detail-row"><span style={{ color: '#6A7280' }}>Société</span><span>{selected.company}</span></div>}
-              {selected.siret && <div className="detail-row"><span style={{ color: '#6A7280' }}>SIRET</span><span className="mono" style={{ fontSize: 11 }}>{selected.siret}</span></div>}
-              {selected.address && <div className="detail-row"><span style={{ color: '#6A7280' }}>Adresse</span><span style={{ textAlign: 'right', maxWidth: 200, fontSize: 12 }}>{selected.address}, {selected.city}</span></div>}
-              {selected.mobile && <div className="detail-row"><span style={{ color: '#6A7280' }}>Mobile</span><span>{selected.mobile}</span></div>}
-            </div>
-
-            {detail && (
-              <>
-                <div className="detail-section">
-                  <div className="detail-section-title">Statistiques</div>
-                  <div className="detail-row"><span style={{ color: '#6A7280' }}>Commandes</span><span className="mono">{detail.orders.length}</span></div>
-                  <div className="detail-row"><span style={{ color: '#6A7280' }}>CA total</span><span className="mono">{fmt(detail.orders.reduce((s: number, o: any) => s + o.total, 0))}</span></div>
-                  {detail.purchases.length > 0 && <>
-                    <div className="detail-row"><span style={{ color: '#6A7280' }}>Achats</span><span className="mono">{detail.purchases.length}</span></div>
-                    <div className="detail-row"><span style={{ color: '#6A7280' }}>Total achats</span><span className="mono">{fmt(detail.purchases.reduce((s: number, p: any) => s + p.total, 0))}</span></div>
-                  </>}
-                </div>
-
-                {detail.orders.length > 0 && (
-                  <div className="detail-section">
-                    <div className="detail-section-title">Dernières commandes</div>
-                    {detail.orders.slice(0, 5).map((o: any) => (
-                      <div key={o.id} className="detail-row">
-                        <span style={{ fontSize: 12 }}>{o.order_number}</span>
-                        <span className="mono" style={{ fontSize: 12 }}>{fmt(o.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {detail.purchases.length > 0 && (
-                  <div className="detail-section">
-                    <div className="detail-section-title">Derniers achats</div>
-                    {detail.purchases.slice(0, 5).map((p: any) => (
-                      <div key={p.id} className="detail-row">
-                        <span style={{ fontSize: 12 }}>{p.number}</span>
-                        <span className="mono" style={{ fontSize: 12 }}>{fmt(p.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {selected.notes && (
-              <div className="detail-section">
-                <div className="detail-section-title">Notes</div>
-                <div style={{ fontSize: 13, color: '#3E4550', fontStyle: 'italic' }}>{selected.notes}</div>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="sc-actions">
+          <input className="sc-input" style={{ height: 32, width: 220, background: '#F7F4EF' }}
+                 placeholder="Rechercher…" value={search} onChange={e => setSearch(e.target.value)} />
+          <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>Exporter</button>
+          <button className="sc-btn sc-btn-primary" onClick={() => { setForm({ ...EMPTY, type: filter || 'client' }); setShowModal(true); }}>
+            <span className="ms">person_add</span>Ajouter
+          </button>
+        </div>
       </div>
 
-      {/* Modal création/édition */}
-      {showModal && isEditing && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal">
-            <div className="modal-header">
-              <span className="modal-title">{form.id ? 'Éditer le contact' : 'Nouveau contact'}</span>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>✕</button>
+      {loading && <div className="sc-empty">Chargement…</div>}
+      {!loading && contacts.length === 0 && <div className="sc-empty">Aucun contact.</div>}
+
+      {/* ── Fournisseurs : grille de cartes ─────────────── */}
+      {!loading && isSupplier && contacts.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 10 }}>
+          {contacts.map(c => (
+            <button key={c.id} className="sc-card" onClick={() => openDetail(c)}
+                    style={{ textAlign: 'left', cursor: 'pointer', padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={thumbStyle(fullName(c), 34)}>{initials(fullName(c))}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {fullName(c)}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted }}>{c.country || '—'}</div>
+                </div>
+                <span className="sc-badge" style={{
+                  background: c.is_active === false ? BADGE.gray.bg : BADGE.green.bg,
+                  color: c.is_active === false ? BADGE.gray.fg : BADGE.green.fg,
+                }}>{c.is_active === false ? 'Inactif' : 'Actif'}</span>
+              </div>
+              <div style={{ padding: '9px 15px', borderTop: `1px solid ${T.borderFaint}`, fontSize: 11.5, color: T.text2b }}>
+                {c.email || '—'}{c.phone || c.mobile ? ` · ${c.phone || c.mobile}` : ''}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', borderTop: `1px solid ${T.borderFaint}`, background: T.surfaceAlt }}>
+                {[
+                  { l: 'Délai', v: c.delivery_days ? `${c.delivery_days} j` : '—' },
+                  { l: 'Commandes', v: String(c.total_orders || 0) },
+                  { l: 'Encours', v: eur(c.total_purchases || 0) },
+                ].map(x => (
+                  <div key={x.l} style={{ padding: '9px 10px', textAlign: 'center' }}>
+                    <div className="sc-num" style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{x.v}</div>
+                    <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: .8 }}>{x.l}</div>
+                  </div>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Clients : table ─────────────────────────────── */}
+      {!loading && !isSupplier && contacts.length > 0 && (
+        <div className="sc-card" style={{ overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="sc-table" style={{ minWidth: 720 }}>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th style={{ width: 200 }}>Email</th>
+                  <th style={{ width: 120 }}>Ville</th>
+                  <th style={{ width: 70, textAlign: 'center' }}>Cmd</th>
+                  <th className="sc-right" style={{ width: 110 }}>Total dépensé</th>
+                  <th style={{ width: 110 }}>Inscrit le</th>
+                  <th style={{ width: 100 }}>Segment</th>
+                  <th style={{ width: 44 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {contacts.map(c => {
+                  const seg = segmentOf(c);
+                  return (
+                    <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => openDetail(c)}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                            background: 'color-mix(in srgb, var(--accent) 10%, transparent)', color: 'var(--accent)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700,
+                          }}>{initials(fullName(c))}</div>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: T.ink }}>{fullName(c)}</span>
+                        </div>
+                      </td>
+                      <td style={{ color: T.text2b, wordBreak: 'break-all' }}>{c.email || '—'}</td>
+                      <td>{c.city || '—'}</td>
+                      <td className="sc-num" style={{ textAlign: 'center' }}>{c.total_orders || 0}</td>
+                      <td className="sc-num sc-right" style={{ fontWeight: 600 }}>{eur(c.total_purchases || 0)}</td>
+                      <td style={{ fontSize: 11.5, color: T.muted }}>
+                        {c.created_at ? new Date(c.created_at).toLocaleDateString('fr-FR') : '—'}
+                      </td>
+                      <td><span className="sc-badge" style={{ background: BADGE[seg.tone].bg, color: BADGE[seg.tone].fg }}>{seg.label}</span></td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button className="sc-iconbtn" onClick={() => { setForm(c); setShowModal(true); }} aria-label="Modifier">
+                          <span className="ms">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Fiche détail ────────────────────────────────── */}
+      {detail && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.45)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 20px', overflowY: 'auto' }}
+             onClick={e => { if (e.target === e.currentTarget) setDetail(null); }}>
+          <div className="sc-card" style={{ width: '100%', maxWidth: 560, margin: 'auto' }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="sc-card-title">{fullName(detail.contact)}</span>
+              <button className="sc-iconbtn" onClick={() => setDetail(null)} aria-label="Fermer"><span className="ms">close</span></button>
             </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Type *</label>
-                <select className="form-control" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                  <option value="client">Client</option>
-                  <option value="supplier">Fournisseur</option>
-                  <option value="both">Client & Fournisseur</option>
-                </select>
+            <div style={{ padding: 18 }}>
+              <div style={{ fontSize: 12.5, color: T.text2b, lineHeight: 1.7 }}>
+                {detail.contact.email && <div>{detail.contact.email}</div>}
+                {(detail.contact.phone || detail.contact.mobile) && <div>{detail.contact.phone || detail.contact.mobile}</div>}
+                {detail.contact.address && <div>{detail.contact.address}</div>}
+                {(detail.contact.zip || detail.contact.city) && <div>{[detail.contact.zip, detail.contact.city].filter(Boolean).join(' ')}</div>}
+                {detail.contact.country && <div>{detail.contact.country}</div>}
+                {detail.contact.siret && <div className="sc-num">SIRET {detail.contact.siret}</div>}
               </div>
-              <div className="form-group"><label className="form-label">Société</label><input className="form-control" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} /></div>
-              <div className="grid-2">
-                <div className="form-group"><label className="form-label">Prénom</label><input className="form-control" value={form.first_name || ''} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Nom</label><input className="form-control" value={form.last_name || ''} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Email</label><input className="form-control" type="email" value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Téléphone</label><input className="form-control" value={form.phone || ''} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Mobile</label><input className="form-control" value={form.mobile || ''} onChange={e => setForm(f => ({ ...f, mobile: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">SIRET</label><input className="form-control" value={form.siret || ''} onChange={e => setForm(f => ({ ...f, siret: e.target.value }))} /></div>
-              </div>
-              <div className="form-group"><label className="form-label">Adresse</label><input className="form-control" value={form.address || ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
-              <div className="grid-3">
-                <div className="form-group"><label className="form-label">Ville</label><input className="form-control" value={form.city || ''} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Code postal</label><input className="form-control" value={form.zip || ''} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Pays</label><select className="form-control" value={form.country || 'France'} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}>{COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-              </div>
-              <div className="form-group"><label className="form-label">Notes</label><textarea className="form-control" value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
+              {detail.contact.notes && (
+                <div style={{ marginTop: 12, padding: '10px 12px', background: T.surfaceAlt, borderRadius: 7, fontSize: 12, fontStyle: 'italic', color: T.text2b }}>
+                  {detail.contact.notes}
+                </div>
+              )}
+              {detail.orders.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div className="sc-label">Commandes ({detail.orders.length})</div>
+                  {detail.orders.slice(0, 8).map((o: any) => (
+                    <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: `1px solid ${T.borderFaint}` }}>
+                      <span className="sc-num">{o.order_number}</span>
+                      <span className="sc-num">{eur(o.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={save}>💾 Sauvegarder</button>
+            <div style={{ padding: '13px 18px', borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="sc-btn sc-btn-danger" onClick={() => remove(detail.contact)}>
+                <span className="ms">delete</span>Supprimer
+              </button>
+              <button className="sc-btn sc-btn-secondary" onClick={() => { setForm(detail.contact); setDetail(null); setShowModal(true); }}>
+                <span className="ms">edit</span>Modifier
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {toast && <div className="toast">{toast}</div>}
+      {/* ── Formulaire ──────────────────────────────────── */}
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.45)', zIndex: 210, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 20px', overflowY: 'auto' }}
+             onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}>
+          <div className="sc-card" style={{ width: '100%', maxWidth: 560, margin: 'auto' }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.border}` }}>
+              <span className="sc-card-title">{form.id ? 'Modifier le contact' : 'Nouveau contact'}</span>
+            </div>
+            <div style={{ padding: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+              <div>
+                <label className="sc-label">Type</label>
+                <select className="sc-input sc-select" value={form.type || 'client'} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                  <option value="client">Client</option>
+                  <option value="supplier">Fournisseur</option>
+                  <option value="both">Les deux</option>
+                </select>
+              </div>
+              <div><label className="sc-label">Société</label><input className="sc-input" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} /></div>
+              <div><label className="sc-label">Prénom</label><input className="sc-input" value={form.first_name || ''} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} /></div>
+              <div><label className="sc-label">Nom</label><input className="sc-input" value={form.last_name || ''} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} /></div>
+              <div><label className="sc-label">Email</label><input className="sc-input" type="email" value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
+              <div><label className="sc-label">Téléphone</label><input className="sc-input" value={form.phone || ''} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
+              <div style={{ gridColumn: '1 / -1' }}><label className="sc-label">Adresse</label><input className="sc-input" value={form.address || ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
+              <div><label className="sc-label">Code postal</label><input className="sc-input" value={form.zip || ''} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} /></div>
+              <div><label className="sc-label">Ville</label><input className="sc-input" value={form.city || ''} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} /></div>
+              <div>
+                <label className="sc-label">Pays</label>
+                <select className="sc-input sc-select" value={form.country || 'France'} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}>
+                  {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div><label className="sc-label">SIRET</label><input className="sc-input sc-num" value={form.siret || ''} onChange={e => setForm(f => ({ ...f, siret: e.target.value }))} /></div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="sc-label">Notes</label>
+                <textarea className="sc-input sc-textarea" rows={3} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+            <div style={{ padding: '13px 18px', borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="sc-btn sc-btn-secondary" onClick={() => setShowModal(false)}>Annuler</button>
+              <button className="sc-btn sc-btn-green" onClick={save} disabled={saving}>
+                <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300 }}>
+          {toast}
+        </div>
+      )}
     </>
   );
 }
-export default function ContactsPage() { return <Suspense><ContactsInner /></Suspense>; }
+
+export default function ContactsPage() {
+  return <Suspense fallback={<div className="sc-empty">Chargement…</div>}><ContactsInner /></Suspense>;
+}

@@ -1,96 +1,245 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { adminFetch } from '@/lib/auth-client';
+import { T, thumbStyle, initials } from '@/lib/admin-theme';
 
-type Category = { id:string; slug:string; emoji:string; name_sv:string; name_fr:string; name_en:string; sort_order:number; is_active:boolean; };
-const EMOJIS = ['🌶️','🍟','🍬','🥐','🎄','🫖','🫐','🌾','🍯','🌻','📦','🧂','🫙','🍫','🥜','🌰','🍵','🧁'];
+/* ═══════════════════════════════════════════════════════════════
+   ÉCRAN 6 — CATÉGORIES
+   Handoff §6 : table réordonnable (poignée, vignette + nom, nom SV,
+   URL en mono, nombre de produits en pastille, interrupteur de
+   visibilité, menu). Le glisser-déposer change réellement l'ordre
+   d'affichage en boutique (persisté via sort_order).
+   ═══════════════════════════════════════════════════════════════ */
+
+type Category = {
+  id: string; slug: string; emoji: string;
+  name_sv: string; name_fr: string; name_en: string;
+  sort_order: number; is_active: boolean;
+};
+
+const slugify = (v: string) =>
+  v.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+   .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export default function CategoriesPage() {
-  const [cats, setCats]         = useState<Category[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [cats, setCats] = useState<Category[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving]     = useState(false);
-  const [toast, setToast]       = useState('');
-  const [form, setForm]         = useState({ slug:'', emoji:'📦', name_fr:'', name_sv:'', name_en:'' });
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+  const [editing, setEditing] = useState<Category | null>(null);
+  const [drag, setDrag] = useState<string | null>(null);
+  const [form, setForm] = useState({ slug: '', emoji: '', name_fr: '', name_sv: '', name_en: '' });
 
   useEffect(() => { load(); }, []);
 
+  const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3000); };
+
   async function load() {
     setLoading(true);
-    const res = await fetch('/api/categories');
-    const data = await res.json();
-    setCats(data.categories || []);
-    setLoading(false);
+    try {
+      const [c, p] = await Promise.all([
+        fetch('/api/categories').then(r => r.json()).catch(() => ({})),
+        adminFetch('/api/products?limit=1000').then(r => r.json()).catch(() => ({})),
+      ]);
+      const list: Category[] = (c.categories || []).slice()
+        .sort((a: Category, b: Category) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      setCats(list);
+      const n: Record<string, number> = {};
+      for (const prod of (p.products || [])) {
+        if (prod.category_id) n[prod.category_id] = (n[prod.category_id] || 0) + 1;
+      }
+      setCounts(n);
+    } finally { setLoading(false); }
   }
-  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 2800); }
-  function setF(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
-  function handleNameFr(v: string) {
-    setForm(f => ({ ...f, name_fr: v, slug: v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }));
-  }
-  async function handleCreate(e: React.FormEvent) {
+
+  async function createCategory(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const token = localStorage.getItem('sd_admin_token');
-    const res = await fetch('/api/categories', { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`}, body: JSON.stringify({ ...form, name_sv: form.name_sv||form.name_fr, name_en: form.name_en||form.name_fr }) });
-    if (res.ok) { showToast('✅ Catégorie créée !'); setForm({ slug:'', emoji:'📦', name_fr:'', name_sv:'', name_en:'' }); setShowForm(false); load(); }
-    else { const d = await res.json(); showToast('❌ ' + (d.error||'Erreur')); }
-    setSaving(false);
+    try {
+      const res = await adminFetch('/api/categories', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...form,
+          emoji: form.emoji || '',
+          name_sv: form.name_sv || form.name_fr,
+          name_en: form.name_en || form.name_fr,
+          sort_order: cats.length,
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Erreur'); }
+      say('Catégorie créée');
+      setForm({ slug: '', emoji: '', name_fr: '', name_sv: '', name_en: '' });
+      setShowForm(false);
+      load();
+    } catch (e: any) { say(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function patch(id: string, payload: Partial<Category>) {
+    setCats(cs => cs.map(c => c.id === id ? { ...c, ...payload } as Category : c));
+    const res = await adminFetch(`/api/categories/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) { say('Enregistrement impossible'); load(); }
+  }
+
+  async function remove(c: Category) {
+    if (!window.confirm(`Supprimer la catégorie « ${c.name_fr} » ?`)) return;
+    const res = await adminFetch(`/api/categories/${c.id}`, { method: 'DELETE' });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { say(d.error || 'Suppression impossible'); return; }
+    setCats(cs => cs.filter(x => x.id !== c.id));
+    say('Catégorie supprimée');
+  }
+
+  /* ── Glisser-déposer : réordonne puis persiste les sort_order ── */
+  function onDrop(targetId: string) {
+    if (!drag || drag === targetId) { setDrag(null); return; }
+    const from = cats.findIndex(c => c.id === drag);
+    const to = cats.findIndex(c => c.id === targetId);
+    if (from < 0 || to < 0) { setDrag(null); return; }
+    const next = [...cats];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setCats(next);
+    setDrag(null);
+    // Persistance : uniquement les lignes dont l'ordre a réellement changé
+    next.forEach((c, i) => {
+      if (c.sort_order !== i) {
+        adminFetch(`/api/categories/${c.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sort_order: i }),
+        }).catch(() => {});
+      }
+    });
+    say('Ordre mis à jour');
   }
 
   return (
     <>
-      <div className="topbar">
-        <div className="topbar-title">Catégories <span style={{fontWeight:400,color:'var(--dust)',fontSize:14}}>({cats.length})</span></div>
-        <div className="topbar-actions"><button className="btn btn-primary btn-sm" onClick={() => setShowForm(!showForm)}>{showForm ? '✕ Annuler' : '+ Nouvelle catégorie'}</button></div>
+      <div className="sc-head">
+        <div>
+          <div className="sc-title">Catégories</div>
+          <div className="sc-sub">
+            {cats.length} catégorie{cats.length > 1 ? 's' : ''} · glisse une ligne pour changer l’ordre en boutique
+          </div>
+        </div>
+        <div className="sc-actions">
+          <button className="sc-btn sc-btn-primary" onClick={() => setShowForm(v => !v)}>
+            <span className="ms">{showForm ? 'close' : 'add'}</span>{showForm ? 'Annuler' : 'Nouvelle catégorie'}
+          </button>
+        </div>
       </div>
-      <div className="page-content">
-        {showForm && (
-          <div className="card" style={{marginBottom:28,border:'2px solid var(--moss)'}}>
-            <div className="card-header" style={{background:'var(--moss-pale)'}}><span className="card-title">Nouvelle catégorie</span></div>
-            <div className="card-body">
-              <form onSubmit={handleCreate}>
-                <div className="form-group">
-                  <label className="form-label">Emoji</label>
-                  <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}>
-                    {EMOJIS.map(e => <button key={e} type="button" onClick={() => setF('emoji',e)} style={{padding:'6px 10px',fontSize:20,borderRadius:6,border:'2px solid',borderColor:form.emoji===e?'var(--moss)':'var(--linen)',background:form.emoji===e?'var(--moss-pale)':'white',cursor:'pointer'}}>{e}</button>)}
-                  </div>
-                  <input className="form-control" value={form.emoji} onChange={e => setF('emoji',e.target.value)} style={{maxWidth:200}} placeholder="Emoji custom" />
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
-                  <div className="form-group"><label className="form-label">Nom FR <span className="req">*</span></label><input className="form-control" required value={form.name_fr} onChange={e => handleNameFr(e.target.value)} placeholder="Épices & Aromates" /></div>
-                  <div className="form-group"><label className="form-label">Slug (auto)</label><input className="form-control" value={form.slug} onChange={e => setF('slug',e.target.value)} /><p className="form-hint">Identifiant unique URL</p></div>
-                  <div className="form-group"><label className="form-label">Nom SV</label><input className="form-control" value={form.name_sv} onChange={e => setF('name_sv',e.target.value)} /></div>
-                  <div className="form-group" style={{marginBottom:0}}><label className="form-label">Nom EN</label><input className="form-control" value={form.name_en} onChange={e => setF('name_en',e.target.value)} /></div>
-                </div>
-                <div style={{marginTop:20}}><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? '⏳ Création…' : '💾 Créer'}</button></div>
-              </form>
+
+      {showForm && (
+        <form className="sc-card" style={{ padding: 15, marginBottom: 12 }} onSubmit={createCategory}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
+            <div>
+              <label className="sc-label">Nom FR *</label>
+              <input className="sc-input" required value={form.name_fr}
+                     onChange={e => setForm(f => ({ ...f, name_fr: e.target.value, slug: slugify(e.target.value) }))}
+                     placeholder="Épices & aromates" />
+            </div>
+            <div>
+              <label className="sc-label">Nom SV</label>
+              <input className="sc-input" value={form.name_sv} onChange={e => setForm(f => ({ ...f, name_sv: e.target.value }))} placeholder="Kryddor" />
+            </div>
+            <div>
+              <label className="sc-label">Nom EN</label>
+              <input className="sc-input" value={form.name_en} onChange={e => setForm(f => ({ ...f, name_en: e.target.value }))} placeholder="Spices" />
+            </div>
+            <div>
+              <label className="sc-label">URL (slug)</label>
+              <input className="sc-input sc-num" value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))} />
             </div>
           </div>
-        )}
-        {loading ? <div style={{textAlign:'center',padding:60,color:'var(--dust)'}}>Chargement…</div> : (
-          <div className="card">
-            <div style={{overflowX:'auto'}}>
-              <table className="data-table">
-                <thead><tr><th>Emoji</th><th>Slug</th><th>FR</th><th>SV</th><th>EN</th><th>Ordre</th><th>Statut</th></tr></thead>
-                <tbody>
-                  {cats.map(c => (
-                    <tr key={c.id}>
-                      <td style={{fontSize:24,textAlign:'center'}}>{c.emoji}</td>
-                      <td><code style={{fontSize:11,background:'var(--cream)',padding:'2px 6px',borderRadius:3}}>{c.slug}</code></td>
-                      <td><strong>{c.name_fr}</strong></td>
-                      <td style={{color:'var(--dust)'}}>{c.name_sv}</td>
-                      <td style={{color:'var(--dust)'}}>{c.name_en}</td>
-                      <td style={{color:'var(--dust)'}}>{c.sort_order}</td>
-                      <td><span className={`badge ${c.is_active ? 'badge-active' : 'badge-inactive'}`}>{c.is_active ? 'Active' : 'Inactive'}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <button type="button" className="sc-btn sc-btn-secondary" onClick={() => setShowForm(false)}>Annuler</button>
+            <button type="submit" className="sc-btn sc-btn-green" disabled={saving}>
+              <span className="ms">save</span>{saving ? 'Création…' : 'Créer'}
+            </button>
           </div>
-        )}
-        <div className="card" style={{marginTop:24,background:'var(--cream)'}}><div className="card-body"><p style={{fontSize:13,color:'var(--dust)'}}>💡 <strong>Les slugs</strong> sont utilisés dans les URLs du front (<code>boutique.html?cat=epices</code>). Ne pas modifier sans mettre à jour le front simultanément.</p></div></div>
-      </div>
-      {toast && <div className="toast-container"><div className={`toast ${toast.startsWith('✅')?'success':toast.startsWith('❌')?'error':''}`}>{toast}</div></div>}
+        </form>
+      )}
+
+      {loading && <div className="sc-empty">Chargement…</div>}
+      {!loading && cats.length === 0 && <div className="sc-empty">Aucune catégorie.</div>}
+
+      {!loading && cats.length > 0 && (
+        <div className="sc-card" style={{ overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="sc-table" style={{ minWidth: 680 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 34 }} />
+                  <th>Catégorie</th>
+                  <th style={{ width: 150 }}>Nom SV</th>
+                  <th style={{ width: 180 }}>URL</th>
+                  <th style={{ width: 90 }}>Produits</th>
+                  <th style={{ width: 90 }}>Visible</th>
+                  <th style={{ width: 50 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {cats.map(c => (
+                  <tr key={c.id}
+                      draggable
+                      onDragStart={() => setDrag(c.id)}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={() => onDrop(c.id)}
+                      style={{ opacity: drag === c.id ? .45 : 1, cursor: 'grab' }}>
+                    <td><span className="ms" style={{ fontSize: 17, color: T.muted3 }}>drag_indicator</span></td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={thumbStyle(c.name_fr, 28)}>{c.emoji || initials(c.name_fr, 1)}</div>
+                        {editing?.id === c.id ? (
+                          <input className="sc-input" autoFocus defaultValue={c.name_fr}
+                                 style={{ height: 28 }}
+                                 onBlur={e => { patch(c.id, { name_fr: e.target.value }); setEditing(null); }}
+                                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+                        ) : (
+                          <button onClick={() => setEditing(c)}
+                                  style={{ border: 'none', background: 'none', cursor: 'text', fontSize: 13, fontWeight: 500, color: T.ink, padding: 0 }}>
+                            {c.name_fr}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ color: T.text2b }}>{c.name_sv || '—'}</td>
+                    <td className="sc-num" style={{ fontSize: 11.5, color: T.muted }}>/{c.slug}</td>
+                    <td>
+                      <span style={{
+                        minWidth: 22, height: 18, padding: '0 7px', borderRadius: 9, fontSize: 10.5, fontWeight: 700,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        background: '#EFEBE4', color: '#857C71',
+                      }}>{counts[c.id] || 0}</span>
+                    </td>
+                    <td>
+                      <button className="sc-switch" role="switch" aria-checked={c.is_active !== false}
+                              onClick={() => patch(c.id, { is_active: !(c.is_active !== false) })}
+                              aria-label={`Visibilité de ${c.name_fr}`} />
+                    </td>
+                    <td>
+                      <button className="sc-iconbtn" onClick={() => remove(c)} aria-label={`Supprimer ${c.name_fr}`}>
+                        <span className="ms">delete</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 200 }}>
+          {toast}
+        </div>
+      )}
     </>
   );
 }

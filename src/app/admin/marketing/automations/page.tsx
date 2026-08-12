@@ -1,47 +1,62 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
+import { T, BADGE } from '@/lib/admin-theme';
+
+/* ═══════════════════════════════════════════════════════════════
+   ÉCRAN 13 — AUTOMATIONS
+   Handoff §13 : cartes avec icône dans un carré accent 36 px, nom +
+   statistiques, mini-flux « déclencheur → délai → action » (trois
+   pastilles séparées par des flèches), interrupteur d'activation.
+   ═══════════════════════════════════════════════════════════════ */
 
 type Automation = {
   id: string; name: string; type: string; status: string;
   delay_hours: number; subject?: string; custom_html?: string; sent_count: number;
 };
 
-const AUTOMATION_PRESETS = [
+type Preset = {
+  type: string; icon: string; name: string; desc: string;
+  delayLabel: string; defaultDelay: number; defaultSubject: string;
+  trigger: string; action: string;
+};
+
+const PRESETS: Preset[] = [
   {
-    type: 'welcome',
-    icon: '👋',
-    name: 'Email de bienvenue',
-    desc: 'Envoyé automatiquement après la première commande d\'un nouveau client.',
-    delayLabel: 'Délai après 1ère commande',
-    defaultDelay: 24,
-    defaultSubject: 'Bienvenue ! Merci pour votre première commande 🎉',
-    color: '#0ea5e9',
-    bg: '#f0f9ff',
+    type: 'welcome', icon: 'waving_hand', name: 'Email de bienvenue',
+    desc: 'Envoyé après la première commande d’un nouveau client.',
+    delayLabel: 'Délai après 1ʳᵉ commande', defaultDelay: 24,
+    defaultSubject: 'Bienvenue ! Merci pour votre première commande',
+    trigger: '1ʳᵉ commande', action: 'Email de bienvenue',
   },
   {
-    type: 'win_back',
-    icon: '💌',
-    name: 'Réactivation clients',
-    desc: 'Relance automatique les clients inactifs depuis longtemps.',
-    delayLabel: 'Inactif depuis (jours)',
-    defaultDelay: 2160,
-    defaultSubject: 'On vous manque… Revenez nous voir ! 💌',
-    color: '#8b5cf6',
-    bg: '#f5f3ff',
+    type: 'win_back', icon: 'mail', name: 'Réactivation clients',
+    desc: 'Relance les clients inactifs depuis longtemps.',
+    delayLabel: 'Inactif depuis (heures)', defaultDelay: 2160,
+    defaultSubject: 'On vous manque… Revenez nous voir !',
+    trigger: 'Client inactif', action: 'Email de relance',
   },
   {
-    type: 'post_purchase',
-    icon: '⭐',
-    name: 'Demande d\'avis',
-    desc: 'Demande un avis au client après la livraison de sa commande.',
-    delayLabel: 'Délai après livraison',
-    defaultDelay: 168,
-    defaultSubject: 'Comment s\'est passée votre commande ? ⭐',
-    color: '#f59e0b',
-    bg: '#fffbeb',
+    type: 'post_purchase', icon: 'reviews', name: 'Demande d’avis',
+    desc: 'Demande un avis après la livraison de la commande.',
+    delayLabel: 'Délai après livraison', defaultDelay: 168,
+    defaultSubject: 'Comment s’est passée votre commande ?',
+    trigger: 'Commande livrée', action: 'Demande d’avis',
   },
 ];
+
+const fmtDelay = (h: number) => {
+  if (!h) return 'immédiat';
+  if (h < 24) return `${h} h`;
+  const d = Math.round(h / 24);
+  return d >= 30 ? `${Math.round(d / 30)} mois` : `${d} j`;
+};
+
+const Pill = ({ children }: { children: React.ReactNode }) => (
+  <span style={{ background: '#F7F4EF', borderRadius: 6, padding: '4px 9px', fontSize: 11, color: T.text2b, whiteSpace: 'nowrap' }}>
+    {children}
+  </span>
+);
 
 export default function AutomationsPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
@@ -52,246 +67,194 @@ export default function AutomationsPage() {
   const [lastRun, setLastRun] = useState('');
   const [running, setRunning] = useState(false);
 
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
+  const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
 
   useEffect(() => { load(); }, []);
 
   async function load() {
     setLoading(true);
-    const res = await adminFetch('/api/marketing/automations');
-    const d = await res.json();
-    setAutomations(d.automations || []);
-    setLoading(false);
+    try {
+      const d = await adminFetch('/api/marketing/automations').then(r => r.json());
+      setAutomations(d.automations || []);
+    } finally { setLoading(false); }
   }
 
-  async function toggle(auto: Automation) {
-    const newStatus = auto.status === 'active' ? 'paused' : 'active';
-    await adminFetch('/api/marketing/automations', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: auto.id, status: newStatus }),
-    });
-    setAutomations(prev => prev.map(a => a.id === auto.id ? { ...a, status: newStatus } : a));
-    showToast(newStatus === 'active' ? '▶️ Automation activée' : '⏸️ Automation mise en pause');
-  }
-
-  async function activate(preset: typeof AUTOMATION_PRESETS[0]) {
-    const existing = automations.find(a => a.type === preset.type);
-    if (existing) { showToast('⚠️ Cette automation existe déjà'); return; }
+  async function toggle(a: Automation) {
+    const status = a.status === 'active' ? 'paused' : 'active';
+    setAutomations(prev => prev.map(x => x.id === a.id ? { ...x, status } : x));
     const res = await adminFetch('/api/marketing/automations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: a.id, status }),
+    });
+    if (!res.ok) { say('Changement impossible'); load(); return; }
+    say(status === 'active' ? 'Automation activée' : 'Automation en pause');
+  }
+
+  async function activate(p: Preset) {
+    if (automations.find(a => a.type === p.type)) { say('Cette automation existe déjà'); return; }
+    const res = await adminFetch('/api/marketing/automations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: preset.name,
-        type: preset.type,
-        delay_hours: preset.defaultDelay,
-        subject: preset.defaultSubject,
-        status: 'active',
+        name: p.name, type: p.type, delay_hours: p.defaultDelay,
+        subject: p.defaultSubject, status: 'active',
       }),
     });
-    if (res.ok) { await load(); showToast('✅ Automation créée et activée !'); }
+    if (res.ok) { await load(); say('Automation créée et activée'); }
+    else say('Création impossible');
   }
 
   async function saveEdit() {
     if (!editId) return;
     await adminFetch('/api/marketing/automations', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: editId, ...editData }),
     });
     setEditId(null);
     await load();
-    showToast('✅ Automation mise à jour');
+    say('Automation mise à jour');
   }
 
-  async function deleteAuto(id: string) {
-    if (!confirm('Supprimer cette automation ?')) return;
+  async function remove(id: string) {
+    if (!window.confirm('Supprimer cette automation ?')) return;
     await adminFetch(`/api/marketing/automations?id=${id}`, { method: 'DELETE' });
     await load();
-    showToast('🗑️ Automation supprimée');
+    say('Automation supprimée');
   }
 
   async function runNow() {
     setRunning(true);
-    const res = await fetch('/api/cron/marketing');
-    const d = await res.json();
-    setRunning(false);
-    setLastRun(`${d.sent || 0} email(s) envoyé(s) • ${new Date().toLocaleTimeString('fr-FR')}`);
-    showToast(`✅ Cron exécuté : ${d.sent || 0} email(s) envoyé(s)`);
+    try {
+      const d = await fetch('/api/cron/marketing').then(r => r.json());
+      setLastRun(`${d.sent || 0} email(s) · ${new Date().toLocaleTimeString('fr-FR')}`);
+      say(`Cron exécuté : ${d.sent || 0} email(s) envoyé(s)`);
+    } finally { setRunning(false); }
   }
 
-  const getAutoForType = (type: string) => automations.find(a => a.type === type);
+  const presetOf = (type: string) => PRESETS.find(p => p.type === type);
+  const inactive = PRESETS.filter(p => !automations.find(a => a.type === p.type));
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 860 }}>
-      {toast && (
-        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: '#1e293b', color: '#fff', padding: '12px 20px', borderRadius: 8, fontSize: 14, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
-          {toast}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+    <>
+      <div className="sc-head">
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1e293b', margin: 0 }}>🤖 Automations Email</h1>
-          <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>Les emails partent automatiquement toutes les heures selon les règles configurées.</p>
+          <div className="sc-title">Automations</div>
+          <div className="sc-sub">
+            {automations.filter(a => a.status === 'active').length} séquence(s) active(s)
+            {lastRun ? ` · dernier envoi : ${lastRun}` : ''}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {lastRun && <span style={{ fontSize: 12, color: '#64748b' }}>Dernier run : {lastRun}</span>}
-          <button
-            onClick={runNow}
-            disabled={running}
-            style={{ padding: '9px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', background: running ? '#94a3b8' : '#6366f1', color: '#fff', fontSize: 13, fontWeight: 600 }}
-          >
-            {running ? '⏳ En cours…' : '▶️ Lancer maintenant'}
+        <div className="sc-actions">
+          <button className="sc-btn sc-btn-secondary" onClick={runNow} disabled={running}>
+            <span className="ms">bolt</span>{running ? 'Exécution…' : 'Exécuter maintenant'}
           </button>
         </div>
       </div>
 
-      {/* ABANDONED CART — toujours actif */}
-      <div style={{ background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: 20, marginBottom: 16, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <div style={{ fontSize: 36 }}>🛒</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <strong style={{ fontSize: 16, color: '#166534' }}>Panier abandonné</strong>
-            <span style={{ background: '#16a34a', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>TOUJOURS ACTIF</span>
-          </div>
-          <p style={{ fontSize: 13, color: '#15803d', margin: '0 0 8px' }}>Séquence de 3 emails automatiques pour récupérer les paniers abandonnés.</p>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {[
-              { step: 'J+1', label: '20h après — Rappel doux' },
-              { step: 'J+3', label: '60h après — Relance' },
-              { step: 'J+7', label: '144h après — Code promo RETOUR10 (-10%)' },
-            ].map(s => (
-              <div key={s.step} style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 6, padding: '6px 12px', fontSize: 12 }}>
-                <strong>{s.step}</strong> — {s.label}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {loading && <div className="sc-empty">Chargement…</div>}
 
-      {/* PRESET CARDS */}
-      {AUTOMATION_PRESETS.map(preset => {
-        const existing = getAutoForType(preset.type);
-        return (
-          <div key={preset.type} style={{
-            background: existing ? preset.bg : '#fff',
-            border: `2px solid ${existing?.status === 'active' ? preset.color : '#e2e8f0'}`,
-            borderRadius: 12, padding: 20, marginBottom: 16,
-            display: 'flex', gap: 16, alignItems: 'flex-start',
-          }}>
-            <div style={{ fontSize: 36 }}>{preset.icon}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <strong style={{ fontSize: 16, color: '#1e293b' }}>{preset.name}</strong>
-                {existing && (
-                  <span style={{
-                    background: existing.status === 'active' ? preset.color : '#94a3b8',
-                    color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700,
+      {!loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {automations.map(a => {
+            const p = presetOf(a.type);
+            const on = a.status === 'active';
+            const isEditing = editId === a.id;
+            return (
+              <div key={a.id} className="sc-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '13px 15px', flexWrap: 'wrap' }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+                    background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+                    color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    {existing.status === 'active' ? '▶ ACTIF' : '⏸ EN PAUSE'}
-                  </span>
-                )}
-                {existing && <span style={{ fontSize: 12, color: '#64748b' }}>{existing.sent_count} envoyé(s)</span>}
-              </div>
-              <p style={{ fontSize: 13, color: '#475569', margin: '0 0 10px' }}>{preset.desc}</p>
+                    <span className="ms" style={{ fontSize: 19 }}>{p?.icon || 'smart_toy'}</span>
+                  </div>
 
-              {existing && (
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                  <strong>{preset.delayLabel} :</strong> {preset.type === 'win_back' ? `${Math.round(existing.delay_hours / 24)} jours` : `${existing.delay_hours}h`}
-                  {existing.subject && <> · <strong>Objet :</strong> {existing.subject}</>}
-                </div>
-              )}
+                  <div style={{ minWidth: 150, flex: '1 1 160px' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{a.name}</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>
+                      {a.sent_count || 0} envoi{(a.sent_count || 0) > 1 ? 's' : ''} · {p?.desc || ''}
+                    </div>
+                  </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                {!existing ? (
-                  <button
-                    onClick={() => activate(preset)}
-                    style={{ padding: '7px 16px', borderRadius: 7, border: 'none', cursor: 'pointer', background: preset.color, color: '#fff', fontSize: 12, fontWeight: 700 }}
-                  >
-                    ➕ Activer
+                  {/* Mini-flux déclencheur → délai → action */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Pill>{p?.trigger || 'Déclencheur'}</Pill>
+                    <span className="ms" style={{ fontSize: 15, color: T.muted3 }}>arrow_forward</span>
+                    <Pill>{fmtDelay(a.delay_hours)}</Pill>
+                    <span className="ms" style={{ fontSize: 15, color: T.muted3 }}>arrow_forward</span>
+                    <Pill>{p?.action || 'Email'}</Pill>
+                  </div>
+
+                  <span style={{ flex: 1 }} />
+
+                  <span className="sc-badge" style={{
+                    background: on ? BADGE.green.bg : BADGE.gray.bg,
+                    color: on ? BADGE.green.fg : BADGE.gray.fg,
+                  }}>{on ? 'Active' : 'En pause'}</span>
+
+                  <button className="sc-switch" role="switch" aria-checked={on}
+                          onClick={() => toggle(a)} aria-label={`Activer ${a.name}`} />
+
+                  <button className="sc-iconbtn" onClick={() => { setEditId(isEditing ? null : a.id); setEditData({ delay_hours: a.delay_hours, subject: a.subject }); }}
+                          aria-label="Modifier"><span className="ms">{isEditing ? 'expand_less' : 'edit'}</span></button>
+                  <button className="sc-iconbtn" onClick={() => remove(a.id)} aria-label="Supprimer">
+                    <span className="ms">delete</span>
                   </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => toggle(existing)}
-                      style={{ padding: '7px 14px', borderRadius: 7, border: `1px solid ${preset.color}`, cursor: 'pointer', background: 'transparent', color: preset.color, fontSize: 12, fontWeight: 600 }}
-                    >
-                      {existing.status === 'active' ? '⏸ Mettre en pause' : '▶ Réactiver'}
-                    </button>
-                    <button
-                      onClick={() => { setEditId(existing.id); setEditData({ subject: existing.subject, delay_hours: existing.delay_hours, custom_html: existing.custom_html }); }}
-                      style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #d1d5db', cursor: 'pointer', background: '#fff', color: '#374151', fontSize: 12, fontWeight: 600 }}
-                    >
-                      ✏️ Modifier
-                    </button>
-                    <button
-                      onClick={() => deleteAuto(existing.id)}
-                      style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #fca5a5', cursor: 'pointer', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 600 }}
-                    >
-                      🗑️
-                    </button>
-                  </>
+                </div>
+
+                {isEditing && (
+                  <div style={{ padding: '13px 15px', borderTop: `1px solid ${T.borderFaint}`, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+                    <div>
+                      <label className="sc-label">{p?.delayLabel || 'Délai (heures)'}</label>
+                      <input className="sc-input sc-num" type="number" min="0" value={editData.delay_hours ?? ''}
+                             onChange={e => setEditData(d => ({ ...d, delay_hours: parseInt(e.target.value) || 0 }))} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label className="sc-label">Objet de l’email</label>
+                      <input className="sc-input" value={editData.subject ?? ''}
+                             onChange={e => setEditData(d => ({ ...d, subject: e.target.value }))} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <button className="sc-btn sc-btn-secondary" onClick={() => setEditId(null)}>Annuler</button>
+                      <button className="sc-btn sc-btn-green" onClick={saveEdit}><span className="ms">save</span>Enregistrer</button>
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
 
-      {/* MODAL ÉDITION */}
-      {editId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 540, maxWidth: '90vw' }}>
-            <h3 style={{ margin: '0 0 20px', fontSize: 17, fontWeight: 700 }}>✏️ Modifier l'automation</h3>
-
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 5 }}>Objet de l'email</label>
-              <input
-                value={editData.subject || ''}
-                onChange={e => setEditData(p => ({ ...p, subject: e.target.value }))}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 7, fontSize: 14 }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 5 }}>Délai (heures)</label>
-              <input
-                type="number"
-                value={editData.delay_hours || 24}
-                onChange={e => setEditData(p => ({ ...p, delay_hours: parseInt(e.target.value) || 24 }))}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 7, fontSize: 14 }}
-              />
-              <p style={{ fontSize: 11, color: '#94a3b8', margin: '4px 0 0' }}>win_back : entrez des heures (ex: 2160 = 90 jours)</p>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 5 }}>
-                Template HTML personnalisé <span style={{ fontWeight: 400 }}>(optionnel — laissez vide pour le modèle par défaut)</span>
-              </label>
-              <textarea
-                value={editData.custom_html || ''}
-                onChange={e => setEditData(p => ({ ...p, custom_html: e.target.value }))}
-                rows={4}
-                placeholder="<h1>Titre</h1><p>Contenu HTML…</p>"
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 7, fontSize: 13, fontFamily: 'monospace' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setEditId(null)} style={{ padding: '9px 18px', borderRadius: 7, border: '1px solid #d1d5db', cursor: 'pointer', background: '#fff', fontSize: 13 }}>Annuler</button>
-              <button onClick={saveEdit} style={{ padding: '9px 18px', borderRadius: 7, border: 'none', cursor: 'pointer', background: '#6366f1', color: '#fff', fontSize: 13, fontWeight: 600 }}>💾 Sauvegarder</button>
-            </div>
-          </div>
+          {inactive.length > 0 && (
+            <>
+              <div className="sc-label" style={{ marginTop: 8 }}>Séquences disponibles</div>
+              {inactive.map(p => (
+                <div key={p.type} className="sc-card" style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '13px 15px', opacity: .78 }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+                    background: T.borderFaint2, color: T.muted,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span className="ms" style={{ fontSize: 19 }}>{p.icon}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>{p.desc}</div>
+                  </div>
+                  <button className="sc-btn sc-btn-secondary" onClick={() => activate(p)}>
+                    <span className="ms">add</span>Activer
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
 
-      {/* INFO CRON */}
-      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, marginTop: 24, fontSize: 13, color: '#475569' }}>
-        <strong>ℹ️ Comment ça marche ?</strong><br />
-        Le cron job s'exécute <strong>toutes les heures</strong> automatiquement via Vercel. Il vérifie les paniers abandonnés, les nouvelles commandes et les clients inactifs, puis envoie les emails appropriés.
-        Vous pouvez aussi cliquer sur <strong>"Lancer maintenant"</strong> pour tester immédiatement.
-      </div>
-    </div>
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 200 }}>
+          {toast}
+        </div>
+      )}
+    </>
   );
 }
