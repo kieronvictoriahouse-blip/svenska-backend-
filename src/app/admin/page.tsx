@@ -1,155 +1,295 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { MODULES } from '@/lib/admin-nav';
+import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
+import { T, BADGE, ORDER_STATUS, thumbStyle, initials, eur, num, stockColor } from '@/lib/admin-theme';
 
-type Stats = {
-  products: number; orders: number; contacts: number;
-  pending_orders: number; low_stock: number; revenue_month: number; abandoned: number;
+/* ═══════════════════════════════════════════════════════════════
+   ÉCRAN 1 — TABLEAU DE BORD
+   Handoff « Redesign du back office », section « 1. Tableau de bord ».
+   Toutes les données proviennent de Supabase ; aucune valeur figée.
+   ═══════════════════════════════════════════════════════════════ */
+
+type Order = {
+  id: string; order_number: string; status: string; total: number;
+  customer_name?: string; created_at: string; is_test?: boolean;
+  lines?: any; refunded_amount?: number; refunds?: any[];
+};
+type Product = {
+  id: string; name_fr: string; price: number; cost_price?: number;
+  stock?: number; track_stock?: boolean; low_stock_threshold?: number;
+  image_url?: string; sort_order?: number;
 };
 
-const QUICK = [
-  { href: '/admin/produits/nouveau', icon: '➕', label: 'Nouveau produit' },
-  { href: '/admin/commandes',        icon: '🛒', label: 'Commandes' },
-  { href: '/admin/home-cms',         icon: '✏️', label: 'Modifier la home' },
-  { href: '/admin/medias',           icon: '📸', label: 'Photos' },
-];
+const PAID = ['paid', 'confirmed', 'shipped', 'delivered'];
+const r2 = (n: number) => Math.round((n || 0) * 100) / 100;
+
+/** Remboursements non répercutés dans les montants de la commande.
+ *  Même règle que la page Commandes — cf. flag `order_modified`. */
+function pendingRefund(o: Order): number {
+  const hist = Array.isArray(o.refunds) ? o.refunds : [];
+  if (!hist.length) return r2(Number(o.refunded_amount) || 0);
+  return r2(hist.filter((r: any) => !r.order_modified).reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0));
+}
 
 export default function AdminHome() {
-  const [stats, setStats] = useState<Stats>({
-    products: 0, orders: 0, contacts: 0, pending_orders: 0, low_stock: 0, revenue_month: 0, abandoned: 0,
-  });
-  const [siteName, setSiteName] = useState('');
-  const [greeting, setGreeting] = useState('Bonjour');
+  const router = useRouter();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [contacts, setContacts] = useState<number>(0);
+  const [firstName, setFirstName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [syncedAt] = useState(() => new Date());
 
   useEffect(() => {
-    const h = new Date().getHours();
-    setGreeting(h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir');
-    loadStats();
+    const mail = localStorage.getItem('sd_admin_email') || '';
+    setFirstName(mail.split('@')[0].split(/[._-]/)[0].replace(/^\w/, c => c.toUpperCase()) || 'toi');
+    (async () => {
+      try {
+        const [o, p, c] = await Promise.all([
+          adminFetch('/api/orders').then(r => r.json()).catch(() => ({})),
+          adminFetch('/api/products?limit=1000').then(r => r.json()).catch(() => ({})),
+          adminFetch('/api/contacts').then(r => r.json()).catch(() => ({})),
+        ]);
+        setOrders(o.orders || []);
+        setProducts(p.products || []);
+        setContacts((c.contacts || []).length);
+      } finally { setLoading(false); }
+    })();
   }, []);
 
-  async function loadStats() {
-    try {
-      const [p, o, c, s, ab, wl] = await Promise.all([
-        fetch('/api/products?limit=500').then(r => r.json()).catch(() => ({})),
-        fetch('/api/orders').then(r => r.json()).catch(() => ({})),
-        fetch('/api/contacts').then(r => r.json()).catch(() => ({})),
-        fetch('/api/stock').then(r => r.json()).catch(() => ({})),
-        adminFetch('/api/marketing?tab=abandoned').then(r => r.json()).catch(() => ({})),
-        fetch('/api/white-label').then(r => r.ok ? r.json() : null).catch(() => null),
-      ]);
-      const orders = o.orders || [];
-      const now = new Date();
-      const monthRevenue = orders
-        .filter((x: any) => x.status !== 'cancelled' && new Date(x.created_at).getMonth() === now.getMonth() && new Date(x.created_at).getFullYear() === now.getFullYear())
-        .reduce((sum: number, x: any) => sum + (x.total || 0), 0);
-      setStats({
-        products: (p.products || []).length,
-        orders: orders.length,
-        contacts: (c.contacts || []).length,
-        pending_orders: orders.filter((x: any) => x.status === 'pending').length,
-        low_stock: (s.products || []).filter((x: any) => x.track_stock && x.stock <= x.stock_alert).length,
-        revenue_month: monthRevenue,
-        abandoned: (ab.carts || []).filter((x: any) => !x.recovered).length,
-      });
-      if (wl?.config?.site_name) setSiteName(wl.config.site_name);
-    } catch (e) {}
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Bonjour' : hour < 18 ? 'Bon après-midi' : 'Bonsoir';
+
+  /* ── Agrégats ──────────────────────────────────────────── */
+  const real = orders.filter(o => !o.is_test);
+  const paidOrders = real.filter(o => PAID.includes(o.status));
+
+  const now = new Date();
+  const inMonth = (d: string, delta = 0) => {
+    const x = new Date(d);
+    const ref = new Date(now.getFullYear(), now.getMonth() - delta, 1);
+    return x.getMonth() === ref.getMonth() && x.getFullYear() === ref.getFullYear();
+  };
+  const netOf = (o: Order) => r2((Number(o.total) || 0) - pendingRefund(o));
+
+  const caMonth = r2(paidOrders.filter(o => inMonth(o.created_at)).reduce((s, o) => s + netOf(o), 0));
+  const caPrev  = r2(paidOrders.filter(o => inMonth(o.created_at, 1)).reduce((s, o) => s + netOf(o), 0));
+  const ordersMonth = paidOrders.filter(o => inMonth(o.created_at)).length;
+  const ordersPrev  = paidOrders.filter(o => inMonth(o.created_at, 1)).length;
+  const avgCart = paidOrders.length ? r2(paidOrders.reduce((s, o) => s + netOf(o), 0) / paidOrders.length) : 0;
+  const avgPrev = ordersPrev ? r2(paidOrders.filter(o => inMonth(o.created_at, 1)).reduce((s, o) => s + netOf(o), 0) / ordersPrev) : 0;
+
+  const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
+
+  /** Sparkline : CA net par jour sur les 12 derniers jours, normalisé 0-100. */
+  const spark = (pick: (o: Order) => number) => {
+    const days: number[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      days.push(paidOrders.filter(o => String(o.created_at).slice(0, 10) === key).reduce((s, o) => s + pick(o), 0));
+    }
+    const max = Math.max(...days, 1);
+    return days.map(v => Math.round((v / max) * 100));
+  };
+  const sparkCA = spark(netOf);
+  const sparkCount = spark(() => 1);
+
+  const KPIS = [
+    { label: 'CA ce mois',   value: eur(caMonth),  delta: pct(caMonth, caPrev),       bars: sparkCA },
+    { label: 'Commandes',    value: num(ordersMonth), delta: ordersMonth - ordersPrev, bars: sparkCount, raw: true },
+    { label: 'Panier moyen', value: eur(avgCart),  delta: pct(avgCart, avgPrev),      bars: sparkCA },
+    { label: 'Contacts',     value: num(contacts), delta: null,                        bars: sparkCount },
+  ];
+
+  /* ── Stock ─────────────────────────────────────────────── */
+  const tracked = products.filter(p => p.track_stock === true && typeof p.stock === 'number');
+  const threshOf = (p: Product) => Number(p.low_stock_threshold) || 12;
+  const outOfStock = tracked.filter(p => (p.stock || 0) <= 0);
+  const lowStock = tracked.filter(p => (p.stock || 0) > 0 && (p.stock || 0) <= threshOf(p));
+  const toRestock = [...outOfStock, ...lowStock].slice(0, 5);
+  const toProcess = real.filter(o => ['paid', 'confirmed'].includes(o.status)).length;
+
+  /* ── Top ventes 30 j ───────────────────────────────────── */
+  const since = new Date(now); since.setDate(since.getDate() - 30);
+  const sales: Record<string, { name: string; qty: number }> = {};
+  for (const o of paidOrders) {
+    if (new Date(o.created_at) < since) continue;
+    let lines: any[] = [];
+    try { lines = typeof o.lines === 'string' ? JSON.parse(o.lines) : (o.lines || []); } catch { lines = []; }
+    for (const l of lines) {
+      const key = l.product_id || l.name || 'x';
+      const name = l.name_fr || l.name || l.desc || 'Article';
+      sales[key] = sales[key] || { name, qty: 0 };
+      sales[key].qty += Number(l.qty) || 1;
+    }
   }
+  const top = Object.values(sales).sort((a, b) => b.qty - a.qty).slice(0, 5);
+  const topMax = Math.max(...top.map(t => t.qty), 1);
 
-  const email = typeof window !== 'undefined' ? (localStorage.getItem('sd_admin_email') || '') : '';
-  const firstName = email.split('@')[0] || 'Admin';
-  const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  const recent = [...real]
+    .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
+    .slice(0, 6);
 
-  const ALERTS = [
-    stats.pending_orders > 0 && { label: `${stats.pending_orders} commande(s) en attente`, color: '#F59E0B', href: '/admin/commandes' },
-    stats.low_stock > 0 && { label: `${stats.low_stock} produit(s) en stock faible`, color: '#EF4444', href: '/admin/stock' },
-    stats.abandoned > 0 && { label: `${stats.abandoned} panier(s) abandonné(s)`, color: '#8B5CF6', href: '/admin/marketing?tab=cart' },
-  ].filter(Boolean) as { label: string; color: string; href: string }[];
+  const dateLabel = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const syncMin = Math.max(0, Math.round((Date.now() - +syncedAt) / 60000));
 
-  const css = `
-    .hub { padding: 28px; max-width: 1120px; margin: 0 auto; }
-    .hub-header { margin-bottom: 22px; }
-    .hub-title { font-family: 'Cormorant Garamond', serif; font-size: 34px; font-weight: 600; color: #1C2028; line-height: 1.1; }
-    .hub-title em { font-style: italic; color: #7B4F7B; }
-    .hub-sub { font-size: 13px; color: #8B7E72; margin-top: 4px; }
-    .hub-quick { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 24px; }
-    .hub-quick a { display: inline-flex; align-items: center; gap: 7px; background: #1C2028; color: #fff;
-      border-radius: 24px; padding: 8px 16px; font-size: 12.5px; font-weight: 600; text-decoration: none; transition: opacity .15s; }
-    .hub-quick a:hover { opacity: .85; }
-    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-    .kpi { background: #fff; border: 1px solid #E8E4DE; border-radius: 12px; padding: 16px 20px; }
-    .kpi-num { font-size: 26px; font-weight: 800; color: #1C2028; line-height: 1; }
-    .kpi-label { font-size: 11px; color: #8B7E72; margin-top: 5px; text-transform: uppercase; letter-spacing: .5px; }
-    .alerts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
-    .alert { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 20px;
-      font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; text-decoration: none; }
-    .hub-section { margin-top: 22px; }
-    .hub-section-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700;
-      letter-spacing: 1.5px; text-transform: uppercase; color: #8B7E72; margin-bottom: 12px; }
-    .hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-    .hub-card { background: #fff; border: 1px solid #E8E4DE; border-radius: 12px; padding: 16px 18px;
-      text-decoration: none; display: flex; align-items: center; gap: 13px; transition: transform .15s, box-shadow .15s, border-color .15s; }
-    .hub-card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,0.10); border-color: transparent; }
-    .hub-card-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
-      font-size: 21px; flex-shrink: 0; }
-    .hub-card-label { font-size: 14px; font-weight: 700; color: #1C2028; }
-    .hub-card-desc { font-size: 11px; color: #8B7E72; margin-top: 2px; line-height: 1.4; }
-    @media(max-width: 900px) { .kpi-row { grid-template-columns: 1fr 1fr; } .hub { padding: 18px; } }
-    @media(max-width: 500px) { .hub-grid { grid-template-columns: 1fr 1fr; } }
-  `;
+  const alerts = [
+    toProcess > 0 && { tone: BADGE.amber,  icon: 'pending_actions', text: `${toProcess} commande${toProcess > 1 ? 's' : ''} à traiter`, href: '/admin/commandes' },
+    lowStock.length > 0 && { tone: BADGE.orange, icon: 'warning', text: `${lowStock.length} produit${lowStock.length > 1 ? 's' : ''} sous le seuil`, href: '/admin/stock' },
+    outOfStock.length > 0 && { tone: BADGE.red, icon: 'error', text: `${outOfStock.length} rupture${outOfStock.length > 1 ? 's' : ''}${outOfStock[0] ? ' · ' + outOfStock[0].name_fr : ''}`, href: '/admin/stock' },
+  ].filter(Boolean) as Array<{ tone: { bg: string; fg: string }; icon: string; text: string; href: string }>;
 
   return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="hub">
-        <div className="hub-header">
-          <div className="hub-title">{greeting}, <em>{firstName}</em></div>
-          <div className="hub-sub">{siteName ? `${siteName} · ` : ''}Back-office · {stats.products} produits · {stats.contacts} contacts</div>
-        </div>
+    <div style={{ maxWidth: 1500, margin: '0 auto', padding: '2px 2px 40px' }}>
 
-        <div className="hub-quick">
-          {QUICK.map(q => (
-            <Link key={q.href} href={q.href}><span>{q.icon}</span> {q.label}</Link>
+      {/* ── Salutation + actions ───────────────────────────── */}
+      <div className="sc-head">
+        <div>
+          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 31, fontWeight: 600, lineHeight: 1.05, color: T.ink }}>
+            {greeting}, <em style={{ color: 'var(--accent)' }}>{firstName}</em>
+          </div>
+          <div style={{ fontSize: 12, color: T.text3, marginTop: 3 }}>
+            {dateLabel} · {products.length} produit{products.length > 1 ? 's' : ''} · dernière synchro il y a {syncMin} min
+          </div>
+        </div>
+        <div className="sc-actions">
+          <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>Nouveau produit</Link>
+          <Link href="/admin/home-cms" className="sc-btn sc-btn-secondary"><span className="ms">edit_note</span>Modifier la home</Link>
+          <Link href="/admin/medias" className="sc-btn sc-btn-secondary"><span className="ms">photo_library</span>Photos</Link>
+        </div>
+      </div>
+
+      {/* ── KPI ────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 10 }}>
+        {KPIS.map(k => {
+          const up = (k.delta ?? 0) >= 0;
+          return (
+            <div key={k.label} className="sc-card" style={{ padding: '13px 15px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: T.muted }}>{k.label}</span>
+                {k.delta !== null && (
+                  <span className="sc-badge" style={{ background: up ? BADGE.green.bg : BADGE.amber.bg, color: up ? BADGE.green.fg : BADGE.amber.fg }}>
+                    {up ? '+' : ''}{k.raw ? k.delta : `${k.delta} %`}
+                  </span>
+                )}
+              </div>
+              <div className="sc-num" style={{ fontSize: 25, fontWeight: 700, letterSpacing: -.5, margin: '6px 0 8px', color: T.ink }}>{k.value}</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 20 }}>
+                {k.bars.map((v, i) => (
+                  <div key={i} style={{ flex: 1, height: `${Math.max(12, v)}%`, borderRadius: 2, background: 'var(--accent)', opacity: 0.35 + v / 160 }} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Alertes ────────────────────────────────────────── */}
+      {alerts.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {alerts.map((a, i) => (
+            <Link key={i} href={a.href} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 20,
+              background: a.tone.bg, color: a.tone.fg, border: `1px solid ${a.tone.fg}22`,
+              fontSize: 12, fontWeight: 500, textDecoration: 'none',
+            }}>
+              <span className="ms" style={{ fontSize: 16 }}>{a.icon}</span>
+              {a.text}
+              <span className="ms" style={{ fontSize: 15 }}>arrow_forward</span>
+            </Link>
           ))}
         </div>
+      )}
 
-        <div className="kpi-row">
-          <div className="kpi"><div className="kpi-num">{fmt(stats.revenue_month)}</div><div className="kpi-label">CA ce mois</div></div>
-          <div className="kpi"><div className="kpi-num">{stats.orders}</div><div className="kpi-label">Commandes</div></div>
-          <div className="kpi"><div className="kpi-num">{stats.contacts}</div><div className="kpi-label">Contacts</div></div>
-          <div className="kpi"><div className="kpi-num">{stats.products}</div><div className="kpi-label">Produits</div></div>
+      {/* ── Deux colonnes ──────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+
+        {/* Commandes récentes */}
+        <div className="sc-card" style={{ flex: '2 1 460px', minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
+            <span className="sc-card-title">Commandes récentes</span>
+            <Link href="/admin/commandes" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>Tout voir →</Link>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="sc-table" style={{ minWidth: 520 }}>
+              <tbody>
+                {loading && <tr><td colSpan={5}><div className="sc-empty">Chargement…</div></td></tr>}
+                {!loading && recent.length === 0 && <tr><td colSpan={5}><div className="sc-empty">Aucune commande</div></td></tr>}
+                {recent.map(o => {
+                  const s = ORDER_STATUS[o.status] || { label: o.status, tone: 'gray' as const };
+                  return (
+                    <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => router.push('/admin/commandes')}>
+                      <td className="sc-num" style={{ fontWeight: 600, color: T.ink }}>{o.order_number}</td>
+                      <td>{o.customer_name || '—'}</td>
+                      <td style={{ fontSize: 11.5, color: T.muted }}>
+                        {new Date(o.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                      </td>
+                      <td className="sc-num sc-right" style={{ fontWeight: 600, color: T.ink }}>{eur(netOf(o))}</td>
+                      <td className="sc-right">
+                        <span className="sc-badge" style={{ background: BADGE[s.tone].bg, color: BADGE[s.tone].fg }}>{s.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {ALERTS.length > 0 && (
-          <div className="alerts">
-            {ALERTS.map((a, i) => (
-              <Link key={i} href={a.href} className="alert" style={{ background: a.color + '15', color: a.color, borderColor: a.color + '30' }}>
-                ⚠️ {a.label}
-              </Link>
-            ))}
-          </div>
-        )}
+        {/* Colonne droite */}
+        <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-        {MODULES.map(mod => (
-          <div key={mod.key} className="hub-section">
-            <div className="hub-section-title" style={{ color: mod.color }}>
-              <span>{mod.icon}</span> {mod.label}
+          <div className="sc-card">
+            <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
+              <span className="sc-card-title">Stock à réapprovisionner</span>
             </div>
-            <div className="hub-grid">
-              {mod.nav.map(item => (
-                <Link key={item.href} href={item.href} className="hub-card">
-                  <div className="hub-card-icon" style={{ background: mod.color + '18' }}>{item.icon}</div>
-                  <div>
-                    <div className="hub-card-label">{item.label}</div>
-                    {item.desc && <div className="hub-card-desc">{item.desc}</div>}
+            <div style={{ padding: '4px 0' }}>
+              {toRestock.length === 0 && <div className="sc-empty" style={{ padding: '24px 12px' }}>Aucune alerte de stock</div>}
+              {toRestock.map(p => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 15px' }}>
+                  {p.image_url
+                    ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 26)} />
+                    : <div style={thumbStyle(p.name_fr, 26)}>{initials(p.name_fr, 1)}</div>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name_fr}</div>
                   </div>
-                </Link>
+                  <span className="sc-badge sc-num" style={{
+                    background: (p.stock || 0) <= 0 ? BADGE.red.bg : BADGE.orange.bg,
+                    color: (p.stock || 0) <= 0 ? BADGE.red.fg : BADGE.orange.fg,
+                  }}>{p.stock || 0}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ borderTop: `1px solid ${T.borderFaint}`, padding: '9px 15px', background: T.surfaceAlt }}>
+              <Link href="/admin/achats" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>Créer une commande d’achat →</Link>
+            </div>
+          </div>
+
+          <div className="sc-card">
+            <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
+              <span className="sc-card-title">Top ventes · 30 j</span>
+            </div>
+            <div style={{ padding: '8px 15px 12px' }}>
+              {top.length === 0 && <div className="sc-empty" style={{ padding: '24px 0' }}>Pas encore de ventes</div>}
+              {top.map((t, i) => (
+                <div key={i} style={{ marginBottom: 9 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: T.text2b, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                    <span className="sc-num" style={{ fontSize: 12, fontWeight: 600, color: T.ink }}>{t.qty}</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: T.borderFaint2 }}>
+                    <div style={{ height: '100%', width: `${(t.qty / topMax) * 100}%`, borderRadius: 2, background: 'var(--accent)' }} />
+                  </div>
+                </div>
               ))}
             </div>
           </div>
-        ))}
+
+        </div>
       </div>
-    </>
+    </div>
   );
 }

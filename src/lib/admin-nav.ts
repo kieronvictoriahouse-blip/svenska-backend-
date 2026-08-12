@@ -1,143 +1,142 @@
 // ─────────────────────────────────────────────────────────────
 //  SOURCE DE VÉRITÉ UNIQUE DE LA NAVIGATION DU BACK-OFFICE
-//  Consommée par : le layout (sidebar) ET l'accueil (launcher/hub).
+//  Structure et libellés repris du handoff « Redesign du back office » :
+//  8 groupes, icônes Material Symbols Rounded, aucun emoji.
+//  Consommée par : le shell (sidebar + barre d'onglets mobile) ET le hub.
 //  Ne plus jamais redéfinir la nav ailleurs.
 // ─────────────────────────────────────────────────────────────
 
+export type NavBadge = 'stock' | 'orders' | 'receptions';
+
 export type NavItem = {
   href: string;
+  /** Ligature Material Symbols Rounded (pas d'emoji). */
   icon: string;
   label: string;
-  desc?: string; // sous-titre affiché sur les cartes de l'accueil
+  /** Sous-titre affiché sur les cartes du hub. */
+  desc?: string;
+  /** Compteur dynamique à afficher en pastille. */
+  badge?: NavBadge;
+  /** Item hors maquette, conservé pour ne pas perdre l'accès à une page existante. */
+  extra?: boolean;
 };
 
-export type NavModule = {
-  key: string;
+export type NavGroup = {
+  /** Vide pour le premier groupe (sans libellé, cf. handoff). */
   label: string;
-  icon: string;
-  color: string;
-  /** Préfixes de chemin qui font qu'on est "dans" ce module (détection sidebar). */
-  paths: string[];
-  nav: NavItem[];
+  items: NavItem[];
 };
 
-export const MODULES: NavModule[] = [
+export const NAV: NavGroup[] = [
   {
-    key: 'boutique',
+    label: '',
+    items: [
+      { href: '/admin', icon: 'space_dashboard', label: 'Tableau de bord', desc: 'Vue d’ensemble de la boutique' },
+    ],
+  },
+  {
     label: 'Boutique',
-    icon: '🛍️',
-    color: '#7B4F7B',
-    paths: ['/admin/produits', '/admin/categories', '/admin/stock', '/admin/commandes', '/admin/import'],
-    nav: [
-      { href: '/admin/produits',             icon: '📦', label: 'Produits',    desc: 'Gérer le catalogue' },
-      { href: '/admin/categories',           icon: '🗂️', label: 'Catégories',  desc: 'Organiser les rayons' },
-      { href: '/admin/stock',                icon: '🔢', label: 'Stocks',      desc: 'Niveaux & alertes' },
-      { href: '/admin/commandes',            icon: '🛒', label: 'Commandes',   desc: 'Suivi des ventes' },
-      { href: '/admin/produits/suggestions', icon: '💡', label: 'Suggestions', desc: 'Idées clients' },
-      { href: '/admin/import',               icon: '📥', label: 'Import URL',  desc: 'Ajouter depuis un lien' },
+    items: [
+      { href: '/admin/produits',   icon: 'inventory_2',  label: 'Produits',   desc: 'Gérer le catalogue' },
+      { href: '/admin/categories', icon: 'category',     label: 'Catégories', desc: 'Organiser les rayons' },
+      { href: '/admin/stock',      icon: 'inventory',    label: 'Stocks',     desc: 'Niveaux & alertes', badge: 'stock' },
+      { href: '/admin/commandes',  icon: 'receipt_long', label: 'Commandes',  desc: 'Suivi des ventes',  badge: 'orders' },
+      // Hors maquette — conservés pour ne pas perdre l'accès à ces écrans.
+      { href: '/admin/produits/suggestions', icon: 'lightbulb', label: 'Suggestions', desc: 'Idées clients',        extra: true },
+      { href: '/admin/import',              icon: 'upload',    label: 'Import URL',  desc: 'Ajouter depuis un lien', extra: true },
     ],
   },
   {
-    key: 'achats',
     label: 'Achats',
-    icon: '📬',
-    color: '#1A6B55',
-    paths: ['/admin/achats', '/admin/receptions'],
-    nav: [
-      { href: '/admin/achats',     icon: '🛍️', label: 'Commandes achat', desc: 'Passer des commandes' },
-      { href: '/admin/receptions', icon: '📬', label: 'Réceptions',       desc: 'Recevoir & stocker' },
+    items: [
+      { href: '/admin/achats',     icon: 'shopping_basket', label: "Commandes d'achat", desc: 'Passer des commandes' },
+      { href: '/admin/receptions', icon: 'local_shipping',  label: 'Réceptions',        desc: 'Recevoir & stocker', badge: 'receptions' },
     ],
   },
   {
-    key: 'finance',
     label: 'Finance',
-    icon: '💰',
-    color: '#1C4E80',
-    paths: ['/admin/gestion', '/admin/comptabilite', '/admin/factures'],
-    nav: [
-      { href: '/admin/gestion',      icon: '🧾', label: 'Facturation',  desc: 'Factures, marges, transport' },
-      { href: '/admin/comptabilite', icon: '📊', label: 'Comptabilité', desc: 'CA, recettes, cotisations' },
+    items: [
+      { href: '/admin/gestion',      icon: 'request_quote',   label: 'Facturation',  desc: 'Factures, marges, transport' },
+      { href: '/admin/comptabilite', icon: 'account_balance', label: 'Comptabilité', desc: 'CA, recettes, cotisations' },
     ],
   },
   {
-    key: 'marketing',
     label: 'Marketing',
-    icon: '📣',
-    color: '#7B2D8B',
-    paths: ['/admin/marketing'],
-    nav: [
-      { href: '/admin/marketing',             icon: '📧', label: 'Campagnes',      desc: 'Emails & envois' },
-      { href: '/admin/marketing/automations', icon: '🤖', label: 'Automations',    desc: 'Séquences automatiques' },
-      { href: '/admin/marketing?tab=promo',   icon: '🎟️', label: 'Codes promo',    desc: 'Réductions & offres' },
-      { href: '/admin/marketing?tab=cart',    icon: '🛒', label: 'Abandon panier', desc: 'Relances automatiques' },
+    items: [
+      { href: '/admin/marketing',             icon: 'campaign',            label: 'Campagnes',   desc: 'Emails & envois' },
+      { href: '/admin/marketing?tab=promo',   icon: 'confirmation_number', label: 'Codes promo', desc: 'Réductions & offres' },
+      { href: '/admin/marketing/automations', icon: 'smart_toy',           label: 'Automations', desc: 'Séquences automatiques' },
+      { href: '/admin/marketing?tab=cart',    icon: 'shopping_cart',       label: 'Abandon panier', desc: 'Relances automatiques', extra: true },
     ],
   },
   {
-    key: 'contenu',
     label: 'Contenu',
-    icon: '🖼️',
-    color: '#8B5E3C',
-    paths: ['/admin/home-cms', '/admin/homepage', '/admin/medias', '/admin/pages'],
-    nav: [
-      { href: '/admin/home-cms', icon: '🏠', label: "Page d'accueil", desc: 'Textes & sections de la home' },
-      { href: '/admin/pages',    icon: '📄', label: 'Pages',          desc: 'CGV, mentions, pages libres' },
-      { href: '/admin/medias',   icon: '🖼️', label: 'Médiathèque',    desc: 'Photos & fichiers' },
+    items: [
+      { href: '/admin/home-cms', icon: 'home',      label: "Page d'accueil", desc: 'Sections & textes de la home' },
+      { href: '/admin/pages',    icon: 'article',   label: 'Pages',          desc: 'CGV, mentions, pages libres' },
+      { href: '/admin/medias',   icon: 'perm_media', label: 'Médiathèque',   desc: 'Photos & fichiers' },
     ],
   },
   {
-    key: 'contacts',
     label: 'Contacts',
-    icon: '👥',
-    color: '#5B3427',
-    paths: ['/admin/contacts'],
-    nav: [
-      { href: '/admin/contacts?type=client',   icon: '👤', label: 'Clients',      desc: "Carnet d'adresses clients" },
-      { href: '/admin/contacts?type=supplier', icon: '🏭', label: 'Fournisseurs', desc: 'Gestion fournisseurs' },
+    items: [
+      { href: '/admin/contacts?type=client',   icon: 'group',   label: 'Clients',      desc: "Carnet d'adresses clients" },
+      { href: '/admin/contacts?type=supplier', icon: 'factory', label: 'Fournisseurs', desc: 'Gestion fournisseurs' },
     ],
   },
   {
-    key: 'config',
-    label: 'Configuration',
-    icon: '⚙️',
-    color: '#424242',
-    paths: ['/admin/white-label'],
-    nav: [
-      { href: '/admin/white-label',            icon: '🎨', label: 'White Label',    desc: 'Couleurs, polices, logo' },
-      { href: '/admin/white-label?tab=import', icon: '📥', label: 'Import données', desc: 'CSV articles / clients' },
+    label: 'Réglages',
+    items: [
+      { href: '/admin/white-label', icon: 'palette', label: 'White label', desc: 'Couleurs, polices, logo' },
+      { href: '/admin/apps',        icon: 'tune',    label: 'Paramètres',  desc: 'Boutique, livraison, TVA, emails' },
     ],
   },
 ];
 
-/** Trouve le module correspondant à un chemin (préfixe). */
-export function findModule(pathname: string): NavModule | null {
-  return MODULES.find(m => m.paths.some(p => pathname.startsWith(p))) || null;
-}
+/** Barre d'onglets mobile (58 px) — 5 entrées, cf. handoff. */
+export const MOBILE_TABS: Array<{ href: string; icon: string; label: string; badge?: NavBadge; menu?: boolean }> = [
+  { href: '/admin',           icon: 'space_dashboard', label: 'Accueil' },
+  { href: '/admin/produits',  icon: 'inventory_2',     label: 'Produits' },
+  { href: '/admin/commandes', icon: 'receipt_long',    label: 'Commandes', badge: 'orders' },
+  { href: '/admin/stock',     icon: 'inventory',       label: 'Stocks',    badge: 'stock' },
+  { href: '#menu',            icon: 'menu',            label: 'Menu', menu: true },
+];
 
-/** Pages plein écran : elles gèrent leur propre mise en page, pas de sidebar/padding du shell. */
+/** Tous les items, à plat — pratique pour le hub et la palette de commandes. */
+export const ALL_ITEMS: NavItem[] = NAV.flatMap(g => g.items);
+
+/** Pages plein écran : elles gèrent leur propre mise en page. */
 export function isFullBleed(pathname: string): boolean {
-  return pathname.startsWith('/admin/marketing/editor') || pathname.startsWith('/admin/gestion');
+  return pathname.startsWith('/admin/marketing/editor');
 }
 
 /**
- * État actif d'un item de nav, en tenant compte des variantes en ?tab= / ?type=
- * (corrige le bug "plusieurs liens actifs à la fois").
+ * État actif d'un item, en tenant compte des variantes ?tab= / ?type=.
+ * Évite le bug « plusieurs liens actifs à la fois ».
  */
 export function isNavItemActive(item: NavItem, pathname: string, search: string, siblings: NavItem[]): boolean {
   const [ipath, iquery] = item.href.split('?');
+
+  // Le tableau de bord ne doit s'activer que sur /admin exactement.
+  if (ipath === '/admin') return pathname === '/admin';
+
   if (!pathname.startsWith(ipath)) return false;
+
   const params = new URLSearchParams(search || '');
   if (iquery) {
     const [k, v] = iquery.split('=');
     if (params.get(k) !== v) return false;
   }
-  // Un frère avec un chemin plus spécifique qui matche → c'est lui l'actif, pas celui-ci.
+
+  // Un frère au chemin plus spécifique qui matche → c'est lui l'actif.
   const moreSpecificSibling = siblings.some(s => {
     if (s === item) return false;
     const sp = s.href.split('?')[0];
     return sp.length > ipath.length && pathname.startsWith(sp);
   });
   if (moreSpecificSibling) return false;
-  // Item "de base" (sans query) : il cède à un frère de même chemin dont le ?param= matche l'URL.
+
+  // Item « de base » : il cède à un frère de même chemin dont le ?param= matche.
   if (!iquery) {
     const querySiblingMatches = siblings.some(s => {
       if (s === item) return false;
@@ -149,4 +148,13 @@ export function isNavItemActive(item: NavItem, pathname: string, search: string,
     if (querySiblingMatches) return false;
   }
   return true;
+}
+
+/** Item actif, tous groupes confondus (pour le titre de page / la barre mobile). */
+export function findActiveItem(pathname: string, search: string): NavItem | null {
+  for (const g of NAV) {
+    const hit = g.items.find(it => isNavItemActive(it, pathname, search, g.items));
+    if (hit) return hit;
+  }
+  return null;
 }
