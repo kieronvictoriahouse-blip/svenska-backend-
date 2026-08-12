@@ -52,6 +52,9 @@ function MarketingInner() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
+  /** Un seuil France est-il réellement renseigné ? (vide = opération sans effet en FR) */
+  const shipFrOk = ship.ship_promo_threshold !== '' && !Number.isNaN(Number(ship.ship_promo_threshold));
+
   /** Reproduit `isShipPromoActive` de @/lib/shipping pour l'aperçu admin */
   const shipPromoLive = (() => {
     if (!ship.ship_promo_active) return false;
@@ -87,7 +90,11 @@ function MarketingInner() {
         }),
       });
       if (!res.ok) { showToast('❌ Erreur enregistrement'); return; }
-      showToast(shipPromoLive ? '✅ Opération en cours sur la boutique' : '✅ Opération enregistrée');
+      showToast(
+        !shipPromoLive ? "✅ Opération enregistrée (hors période aujourd'hui)"
+        : !shipFrOk    ? '⚠️ Enregistré, mais sans seuil France : rien ne change pour la France'
+        :                `✅ En cours : livraison offerte dès ${fmt(Number(ship.ship_promo_threshold))}`
+      );
     } catch (e: any) {
       showToast(`❌ ${e.message}`);
     } finally {
@@ -420,6 +427,11 @@ function MarketingInner() {
                     </div>
                   </div>
 
+                  {!shipFrOk && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
+                      ⚠️ Seuil France vide : l'opération ne changera rien pour tes clients français, le seuil de {fmt(baseThreshold)} restera appliqué.
+                    </div>
+                  )}
                   {Number(ship.ship_promo_threshold) >= baseThreshold && ship.ship_promo_threshold !== '' && (
                     <div style={{ marginTop: 10, fontSize: 12, color: '#B45309', fontWeight: 600 }}>
                       ⚠️ Ce seuil ({fmt(Number(ship.ship_promo_threshold))}) n'est pas plus avantageux que le seuil habituel ({fmt(baseThreshold)}).
@@ -429,12 +441,14 @@ function MarketingInner() {
               )}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: shipPromoLive ? '#065F46' : '#6A7280' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: shipPromoLive && shipFrOk ? '#065F46' : shipPromoLive ? '#B45309' : '#6A7280' }}>
                   {!ship.ship_promo_active
                     ? '○ Inactive — seuil habituel appliqué'
-                    : shipPromoLive
-                      ? `● En cours : livraison offerte dès ${fmt(Number(ship.ship_promo_threshold) || 0)} en France`
-                      : '◐ Activée mais hors période — le seuil habituel s\'applique aujourd\'hui'}
+                    : !shipPromoLive
+                      ? "◐ Activée mais hors période — le seuil habituel s'applique aujourd'hui"
+                      : shipFrOk
+                        ? `● En cours : livraison offerte dès ${fmt(Number(ship.ship_promo_threshold))} en France`
+                        : `◐ En cours mais sans effet en France — seuil habituel ${fmt(baseThreshold)} maintenu`}
                 </div>
                 <button className="btn btn-primary" onClick={saveShipPromo} disabled={savingShip}>
                   {savingShip ? '⏳…' : '💾 Enregistrer l\'opération'}
