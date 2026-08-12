@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang } from '@/lib/admin-i18n';
 import { resolveShipping } from '@/lib/shipping';
+// Thème importé sous alias :  est déjà pris par le dictionnaire de traductions.
+import { T as TH, BADGE, ORDER_STATUS, thumbStyle, initials } from '@/lib/admin-theme';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -138,6 +140,9 @@ export default function CommandesPage() {
   const [applyingPromo, setApplyingPromo] = useState(false);
   // Config boutique : seuil de franco + opération « livraison offerte » en cours
   const [wlConfig, setWlConfig] = useState<any>(null);
+  // Master-detail : sous 900 px la liste et le detail s'empilent (handoff §4)
+  const [mobile, setMobile] = useState(false);
+  const [mobDetail, setMobDetail] = useState(false);
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
@@ -147,6 +152,12 @@ export default function CommandesPage() {
   useEffect(() => {
     setLang(getAdminLang());
     return subscribeAdminLang(setLang);
+  }, []);
+
+  useEffect(() => {
+    const r = () => setMobile(window.innerWidth < 900);
+    r(); window.addEventListener('resize', r);
+    return () => window.removeEventListener('resize', r);
   }, []);
 
   useEffect(() => { load(); loadCosts(); }, [filter, search]);
@@ -721,792 +732,660 @@ export default function CommandesPage() {
     ? marginsWithData.reduce((s, m) => s + m.pct!, 0) / marginsWithData.length
     : null;
 
+  /* ═══════════════════════════════════════════════════════════════
+     ÉCRAN 4 — COMMANDES (handoff §4)
+     Master-detail : liste 300 px + détail, empilés sous 900 px.
+     Toute la logique ci-dessus est celle de l'écran précédent, reprise
+     telle quelle : remboursement partiel, Mondial Relay, marge,
+     lien de paiement, avoirs, commande manuelle.
+     ═══════════════════════════════════════════════════════════════ */
+
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
-    .o-wrap { font-family:'Jost',sans-serif; }
-    .o-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
-    .o-title { font-family:'Cormorant Garamond',serif; font-size:30px; font-weight:600; color:#1C2028; }
-    .o-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:24px; }
-    .o-stat { background:#fff; border:1px solid #D8CEBC; border-radius:6px; padding:16px 18px; }
-    .o-stat-num { font-family:'DM Mono',monospace; font-size:22px; font-weight:500; color:#1C2028; }
-    .o-stat-label { font-size:11px; color:#6A7280; margin-top:3px; letter-spacing:0.5px; text-transform:uppercase; }
-    .o-toolbar { display:flex; gap:10px; margin-bottom:16px; align-items:center; flex-wrap:wrap; }
-    .o-search { flex:1; min-width:200px; padding:8px 12px; border:1px solid #D8CEBC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; outline:none; }
-    .o-filter { padding:8px 12px; border:1px solid #D8CEBC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; background:#fff; outline:none; }
-    .o-table { width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid #D8CEBC; border-radius:6px; overflow:hidden; }
-    .o-table th { padding:10px 14px; text-align:left; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:#6A7280; background:#FDFAF5; border-bottom:1px solid #D8CEBC; }
-    .o-table td { padding:12px 14px; border-bottom:1px solid #F0EBE1; vertical-align:middle; }
-    .o-table tr:last-child td { border-bottom:none; }
-    .o-table tr:hover td { background:#FDFAF5; cursor:pointer; }
-    .o-badge { display:inline-flex; align-items:center; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:600; }
-    .o-modal-overlay { position:fixed; inset:0; background:rgba(28,32,40,0.5); z-index:200; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
-    .o-modal { background:#fff; border-radius:6px; width:100%; max-width:640px; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,0.2); }
-    .o-modal-header { padding:16px 20px; border-bottom:1px solid #D8CEBC; display:flex; align-items:center; justify-content:space-between; }
-    .o-modal-title { font-size:16px; font-weight:600; }
-    .o-modal-body { padding:20px; max-height:80vh; overflow-y:auto; }
-    .o-modal-footer { padding:14px 20px; border-top:1px solid #D8CEBC; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
-    .btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; font-weight:500; cursor:pointer; border:none; }
-    .btn-primary { background:#3E5238; color:#fff; } .btn-primary:hover { background:#587050; }
-    .btn-secondary { background:#F6F1E9; color:#3E4550; border:1px solid #D8CEBC; } .btn-secondary:hover { background:#D8CEBC; }
-    .btn-info { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
-    .btn-sm { padding:4px 10px; font-size:11px; }
-    .form-group { margin-bottom:12px; }
-    .form-label { display:block; font-size:11px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:#6A7280; margin-bottom:4px; }
-    .form-control { width:100%; padding:8px 10px; border:1px solid #D8CEBC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; outline:none; }
-    .form-control:focus { border-color:#7A9468; }
-    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    .mono { font-family:'DM Mono',monospace; }
-    .toast { position:fixed; bottom:24px; right:24px; background:#1C2028; color:#fff; padding:10px 18px; border-radius:6px; font-size:13px; z-index:999; }
-    .empty { padding:60px; text-align:center; color:#6A7280; font-style:italic; font-size:14px; }
-    .detail-row { display:flex; justify-content:space-between; padding:6px 0; font-size:13px; border-bottom:1px solid #F0EBE1; }
-    .detail-row:last-child { border-bottom:none; }
-    .tracking-box { background:#F0F9FF; border:1px solid #BAE6FD; border-radius:6px; padding:14px 16px; margin-top:16px; }
-    .tracking-row { display:flex; gap:8px; align-items:center; margin-top:8px; }
-    .lang-toggle { display:flex; gap:4px; }
-    .lang-btn { padding:4px 10px; font-size:11px; border:1px solid #D8CEBC; border-radius:4px; cursor:pointer; background:#fff; font-family:'Jost',sans-serif; }
-    .lang-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
-    .test-badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:4px; font-size:9px; font-weight:700; letter-spacing:1px; background:#FEF9C3; color:#854D0E; border:1px solid #FDE68A; margin-left:6px; }
-    .btn-warning { background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
-    .btn-warning:hover { background:#FDE68A; }
-    .btn-teal { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
-    .btn-teal:hover { background:#D1FAE5; }
-    .btn-violet { background:#EDE9FE; color:#5B21B6; border:1px solid #DDD6FE; }
-    .btn-violet:hover { background:#DDD6FE; }
-    .payment-link-box { background:#F0F9FF; border:1px solid #BAE6FD; border-radius:6px; padding:14px 16px; margin-top:12px; }
-    .payment-link-url { font-family:'DM Mono',monospace; font-size:11px; color:#0C4A6E; word-break:break-all; background:#E0F2FE; padding:6px 8px; border-radius:4px; margin-bottom:8px; }
-    .picker-overlay { position:fixed; inset:0; background:rgba(28,32,40,0.6); z-index:300; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
-    .picker-modal { background:#fff; border-radius:6px; width:100%; max-width:560px; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,0.25); }
-    .picker-body { padding:4px 20px 16px; max-height:55vh; overflow-y:auto; }
-    .picker-search { width:100%; padding:8px 12px; border:1px solid #D8CEBC; border-radius:6px; font-family:'Jost',sans-serif; font-size:13px; outline:none; box-sizing:border-box; margin-bottom:4px; }
-    .picker-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid #F0EBE1; }
+    .o-modal-overlay { position:fixed; inset:0; background:rgba(21,24,30,.45); backdrop-filter:blur(2px); z-index:200; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
+    .o-modal { background:#fff; border:1px solid ${TH.border}; border-radius:10px; width:100%; max-width:640px; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,.2); }
+    .o-modal-header { padding:14px 18px; border-bottom:1px solid ${TH.border}; display:flex; align-items:center; justify-content:space-between; }
+    .o-modal-body { padding:18px; max-height:76vh; overflow-y:auto; }
+    .o-modal-footer { padding:13px 18px; border-top:1px solid ${TH.border}; display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+    .picker-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid ${TH.borderFaint}; }
     .picker-item:last-child { border-bottom:none; }
-    .picker-item-img { width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid #D8CEBC; flex-shrink:0; }
-    .picker-item-noimg { width:44px; height:44px; border-radius:6px; border:1px solid #D8CEBC; background:#F0EBE1; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; }
-    .picker-item-info { flex:1; min-width:0; }
-    .picker-item-name { font-size:13px; font-weight:600; color:#1C2028; margin-bottom:3px; }
-    .picker-item-price { font-size:12px; color:#6A7280; font-family:'DM Mono',monospace; }
-    .picker-variants { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
-    .picker-variant-btn { padding:2px 8px; border-radius:4px; font-size:11px; border:1px solid #D8CEBC; background:#fff; cursor:pointer; font-family:'Jost',sans-serif; }
-    .picker-variant-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
-    .picker-qty { display:flex; align-items:center; gap:4px; margin-top:6px; }
-    .picker-qty-btn { width:22px; height:22px; border-radius:4px; border:1px solid #D8CEBC; background:#F6F1E9; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; line-height:1; }
-    .picker-qty-val { font-family:'DM Mono',monospace; font-size:13px; min-width:20px; text-align:center; }
-    .delivery-btn-row { display:flex; gap:6px; margin-bottom:4px; flex-wrap:wrap; }
-    .delivery-btn { flex:1; padding:8px 10px; border-radius:6px; border:1px solid #D8CEBC; background:#F6F1E9; cursor:pointer; font-family:'Jost',sans-serif; font-size:12px; font-weight:500; text-align:center; min-width:80px; }
-    .delivery-btn.active { background:#3E5238; color:#fff; border-color:#3E5238; }
-    .selected-lines { margin-bottom:4px; }
-    .selected-line { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#FDFAF5; border:1px solid #D8CEBC; border-radius:6px; margin-bottom:4px; font-size:13px; }
+    .picker-qty-btn { width:22px; height:22px; border-radius:5px; border:1px solid ${TH.borderField}; background:#F7F4EF; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; line-height:1; }
+    .delivery-btn { flex:1; padding:8px 10px; border-radius:7px; border:1px solid ${TH.borderField}; background:#fff; cursor:pointer; font-size:12px; font-weight:500; text-align:center; min-width:80px; }
+    .delivery-btn.active { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
+    .o-row { display:flex; justify-content:space-between; gap:10px; padding:6px 0; font-size:12.5px; color:${TH.text2b}; }
+    .o-row + .o-row { border-top:1px solid ${TH.borderFaint}; }
   `;
+
+  const badgeOf = (status: string) => {
+    const s = ORDER_STATUS[status] || { label: ts(status), tone: 'gray' as const };
+    return <span className="sc-badge" style={{ background: BADGE[s.tone].bg, color: BADGE[s.tone].fg }}>{s.label}</span>;
+  };
+
+  const linesOf = (o: Order) => orderLinesOf(o);
+  const netOf = (o: Order) => Math.round(((o.total || 0) - pendingRefundAdj(o).amount) * 100) / 100;
+
+  /* Chips-compteurs de l'en-tête */
+  const COUNTS: Array<[string, string]> = [
+    ['', 'Toutes'], ['paid', 'À traiter'], ['confirmed', 'Confirmées'],
+    ['shipped', 'Expédiées'], ['delivered', 'Livrées'],
+  ];
+  const countFor = (k: string) => k ? visibleOrders.filter(o => o.status === k).length : visibleOrders.length;
+
+  /* Jalons de la timeline de suivi */
+  const TRACK_STEPS: Array<{ key: string; label: string }> = [
+    { key: 'pending',   label: 'Commande reçue' },
+    { key: 'paid',      label: 'Paiement confirmé' },
+    { key: 'confirmed', label: 'Préparation' },
+    { key: 'shipped',   label: 'Expédiée' },
+    { key: 'delivered', label: 'Livrée' },
+  ];
+  const stepIndex = (s: string) => Math.max(0, TRACK_STEPS.findIndex(x => x.key === s));
+
+  const showList = !mobile || !mobDetail;
+  const showDetail = !mobile || mobDetail;
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="o-wrap">
-        <div className="o-header">
+
+      {/* ── En-tête collant ─────────────────────────────── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 20, background: '#fff',
+        margin: '-16px -18px 0', padding: '14px 18px 10px',
+        borderBottom: `1px solid ${TH.border}`,
+      }}>
+        <div className="sc-head" style={{ marginBottom: 10 }}>
           <div>
-            <div className="o-title">{t('title')}</div>
-            <div style={{ fontSize: 13, color: '#6A7280', marginTop: 4 }}>{orders.length} {t('title').toLowerCase()}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="lang-toggle">
-              {(['fr','en','sv'] as AdminLang[]).map(l => (
-                <button key={l} className={`lang-btn ${lang === l ? 'active' : ''}`}
-                  onClick={() => { setLang(l); setAdminLang(l); }}>
-                  {l.toUpperCase()}
-                </button>
-              ))}
+            <div className="sc-title">{t('title')}</div>
+            <div className="sc-sub">
+              {visibleOrders.length} commande{visibleOrders.length > 1 ? 's' : ''} · {fmt(totalRevenue)} encaissés
+              {pendingCount > 0 ? ` · ${pendingCount} en attente de paiement` : ''}
             </div>
-            <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>{t('newOrder')}</button>
           </div>
-        </div>
-
-        <div className="o-stats">
-          <div className="o-stat"><div className="o-stat-num mono">{realOrders.length}</div><div className="o-stat-label">{t('totalOrders')}</div></div>
-          <div className="o-stat"><div className="o-stat-num mono" style={{ color: '#F59E0B' }}>{pendingCount}</div><div className="o-stat-label">{t('pending')}</div></div>
-          <div className="o-stat"><div className="o-stat-num mono">{fmt(totalRevenue)}</div><div className="o-stat-label">{t('revenue')}</div></div>
-          <div className="o-stat"><div className="o-stat-num mono">{realOrders.length > 0 ? fmt(totalRevenue / (realOrders.filter(o => o.status !== 'cancelled').length || 1)) : '0,00 €'}</div><div className="o-stat-label">{t('avgCart')}</div></div>
-          <div className="o-stat">
-            <div className="o-stat-num mono" style={{ color: avgMarginPct !== null ? (avgMarginPct >= 40 ? '#10B981' : avgMarginPct >= 20 ? '#F59E0B' : '#EF4444') : '#6A7280' }}>
-              {marginsWithData.length > 0 ? fmt(totalMargin) : '—'}
-            </div>
-            <div className="o-stat-label">Marge réelle totale</div>
-            {avgMarginPct !== null && (
-              <div style={{ fontSize: 11, color: avgMarginPct >= 40 ? '#10B981' : avgMarginPct >= 20 ? '#F59E0B' : '#EF4444', marginTop: 2, fontFamily: 'DM Mono,monospace' }}>
-                moy. {avgMarginPct.toFixed(1)}%
-              </div>
+          <div className="sc-actions">
+            {testCount > 0 && (
+              <button className={`sc-chip${showTestOrders ? ' on' : ''}`} onClick={() => setShowTestOrders(v => !v)}>
+                <span className="ms" style={{ fontSize: 15 }}>science</span>Tests ({testCount})
+              </button>
             )}
+            {abandonedCount > 0 && (
+              <button className={`sc-chip${showAbandoned ? ' on' : ''}`} onClick={() => setShowAbandoned(v => !v)}>
+                <span className="ms" style={{ fontSize: 15 }}>shopping_cart</span>Abandonnés ({abandonedCount})
+              </button>
+            )}
+            <button className="sc-btn sc-btn-primary" onClick={() => setShowNewModal(true)}>
+              <span className="ms">add</span>{t('newOrder')}
+            </button>
           </div>
         </div>
 
-        <div className="o-toolbar">
-          <input className="o-search" placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} />
-          <select className="o-filter" value={filter} onChange={e => setFilter(e.target.value)}>
-            <option value="">{t('allStatuses')}</option>
-            {Object.keys(T_ORDER_STATUS).map(k => <option key={k} value={k}>{ts(k)}</option>)}
-          </select>
-          {testCount > 0 && (
-            <button
-              className={`btn btn-sm ${showTestOrders ? 'btn-warning' : 'btn-secondary'}`}
-              onClick={() => setShowTestOrders(v => !v)}
-            >
-              🧪 {showTestOrders ? `Masquer tests (${testCount})` : `Tests (${testCount})`}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input className="sc-input" style={{ height: 32, flex: '1 1 200px', maxWidth: 280, background: '#F7F4EF' }}
+                 placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} />
+          {COUNTS.map(([k, label]) => (
+            <button key={k} className={`sc-chip${filter === k ? ' on' : ''}`} onClick={() => setFilter(k)}>
+              {label}
+              <span style={{
+                minWidth: 18, height: 16, padding: '0 5px', borderRadius: 8, fontSize: 10, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                background: filter === k ? 'rgba(255,255,255,.2)' : '#EFEBE4',
+                color: filter === k ? '#fff' : '#857C71',
+              }}>{countFor(k)}</span>
             </button>
-          )}
-          {abandonedCount > 0 && (
-            <button
-              className={`btn btn-sm ${showAbandoned ? 'btn-warning' : 'btn-secondary'}`}
-              onClick={() => setShowAbandoned(v => !v)}
-            >
-              🛒 {showAbandoned ? `Masquer abandonnées (${abandonedCount})` : `Abandonnées (${abandonedCount})`}
-            </button>
-          )}
+          ))}
         </div>
+      </div>
 
-        <table className="o-table">
-          <thead><tr>
-            <th>{t('colOrder')}</th><th>{t('colClient')}</th><th>{t('colDate')}</th>
-            <th>{t('colTotal')}</th><th>Marge réelle</th><th>{tc('status')}</th><th>{tc('actions')}</th>
-          </tr></thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6}><div className="empty">{tc('loading')}</div></td></tr>
-            ) : visibleOrders.length === 0 ? (
-              <tr><td colSpan={6}><div className="empty">{tc('noData')}</div></td></tr>
-            ) : visibleOrders.map(o => (
-              <tr key={o.id} onClick={() => { setSelected(o); setTrackingInput(o.tracking_number || ''); setTransportInput(o.transport_cost_real ? String(o.transport_cost_real) : ''); setPackagingInput(o.packaging_cost ? String(o.packaging_cost) : ''); setShowModal(true); setTestConfirm(false); setRefundConfirm(false); }}
-                style={o.is_test ? { opacity: 0.6 } : {}}>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span className="mono" style={{ fontSize: 12 }}>{o.order_number}</span>
-                    {o.is_test && <span className="test-badge">TEST</span>}
-                    {o.exclude_from_stats && !o.is_test && <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: 1, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' }}>HORS STATS</span>}
+      {/* ── Master-detail ───────────────────────────────── */}
+      <div style={{ display: 'flex', margin: '0 -18px', minHeight: 'calc(100vh - 190px)' }}>
+
+        {/* Liste */}
+        {showList && (
+          <div style={{
+            width: mobile ? '100%' : 300, flexShrink: 0,
+            background: TH.sidebarBg, borderRight: mobile ? 'none' : `1px solid ${TH.border}`,
+            overflowY: 'auto',
+          }}>
+            {loading && <div className="sc-empty">Chargement…</div>}
+            {!loading && visibleOrders.length === 0 && <div className="sc-empty">Aucune commande</div>}
+            {visibleOrders.map(o => {
+              const on = selected?.id === o.id;
+              const n = linesOf(o).length;
+              return (
+                <button key={o.id}
+                  onClick={() => {
+                    setSelected(o);
+                    setTrackingInput(o.tracking_number || '');
+                    setTransportInput(o.transport_cost_real ? String(o.transport_cost_real) : '');
+                    setPackagingInput(o.packaging_cost ? String(o.packaging_cost) : '');
+                    setTestConfirm(false); setRefundConfirm(false);
+                    if (mobile) setMobDetail(true);
+                  }}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+                    padding: '10px 14px', border: 'none',
+                    borderBottom: `1px solid ${TH.borderFaint}`,
+                    borderLeft: on ? '3px solid var(--accent)' : '3px solid transparent',
+                    background: on ? '#fff' : 'transparent',
+                  }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 600, color: TH.ink }}>{o.order_number}</span>
+                    {o.is_test && <span className="sc-badge" style={{ background: BADGE.amber.bg, color: BADGE.amber.fg }}>test</span>}
+                    <span style={{ flex: 1 }} />
+                    <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 600 }}>{fmt(netOf(o))}</span>
                   </div>
-                  {o.delivery_mode === 'pickup' && <div style={{ fontSize: 10, color: '#7C3AED', marginTop: 2, fontWeight: 600 }}>🏪 {t('clickCollect')}</div>}
-                  {o.tracking_number && <div style={{ fontSize: 10, color: '#0EA5E9', marginTop: 2 }}>📦 {o.tracking_number}</div>}
-                </td>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{o.customer_name}</div>
-                  <div style={{ fontSize: 11, color: '#6A7280' }}>{o.customer_email}</div>
-                </td>
-                <td style={{ color: '#6A7280' }}>{fmtDate(o.created_at)}</td>
-                <td>
-                  <span className="mono" style={{ fontWeight: 600 }}>{fmt(o.total)}</span>
-                  {o.promo_code && <div style={{ fontSize: 10, color: '#16A34A', fontWeight: 600, marginTop: 2 }}>🎟️ {o.promo_code}</div>}
-                </td>
-                <td>{(() => {
-                  const { margin, pct } = calcMargin(o);
-                  if (margin === null) return <span style={{ color: '#9CA3AF', fontSize: 11 }}>—</span>;
-                  const color = pct! >= 40 ? '#10B981' : pct! >= 20 ? '#F59E0B' : '#EF4444';
-                  return <span className="mono" style={{ color, fontWeight: 600, fontSize: 12 }}>{fmt(margin)}<br/><span style={{ fontSize: 10, opacity: 0.8 }}>{pct!.toFixed(0)}%</span></span>;
-                })()}</td>
-                <td>
-                  <span className="o-badge" style={{ background: (STATUS_COLORS[o.status] || '#6A7280') + '20', color: STATUS_COLORS[o.status] || '#6A7280' }}>
-                    {ts(o.status)}
-                  </span>
-                </td>
-                <td onClick={e => e.stopPropagation()}>
-                  <select className="o-filter btn-sm" value={o.status} onChange={e => updateStatus(o.id, e.target.value)} style={{ fontSize: 11, padding: '4px 8px' }}>
-                    {Object.keys(T_ORDER_STATUS).map(k => <option key={k} value={k}>{ts(k)}</option>)}
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* Detail Modal */}
-        {showModal && selected && (
-          <div className="o-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setRefundConfirm(false); } }}>
-            <div className="o-modal">
-              <div className="o-modal-header">
-                <span className="o-modal-title">{selected.order_number}</span>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setShowModal(false); setRefundConfirm(false); }}>✕</button>
-              </div>
-              <div className="o-modal-body">
-                <div className="grid-2" style={{ marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: '#6A7280', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>{tc('client')}</div>
-                    <div style={{ fontWeight: 600 }}>{selected.customer_name}</div>
-                    <div style={{ fontSize: 13, color: '#6A7280' }}>{selected.customer_email}</div>
-                    {(selected.shipping_address || selected.customer_address) &&
-                      <div style={{ fontSize: 12, color: '#6A7280', marginTop: 4, whiteSpace: 'pre-line' }}>
-                        {toAddrStr(selected.shipping_address || selected.customer_address).replace(/,\s*/g, '\n')}
-                      </div>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                    <span style={{ fontSize: 11.5, color: TH.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                      {o.customer_name || '—'}
+                    </span>
+                    {badgeOf(o.status)}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: '#6A7280', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>{t('details')}</div>
-                    <div style={{ fontSize: 13 }}>{tc('date')} : {fmtDate(selected.created_at)}</div>
-                    {selected.source && <div style={{ fontSize: 13 }}>{t('source')} : {selected.source}</div>}
-                    <div style={{ marginTop: 6 }}>
-                      <span className="o-badge" style={{ background: (STATUS_COLORS[selected.status] || '#6A7280') + '20', color: STATUS_COLORS[selected.status] || '#6A7280' }}>
-                        {ts(selected.status)}
-                      </span>
-                    </div>
+                  <div style={{ fontSize: 10.5, color: TH.muted, marginTop: 2 }}>
+                    {n} art. · {fmtDate(o.created_at)}
+                    {o.delivery_mode === 'pickup' ? ' · Click & Collect' : ''}
                   </div>
-                </div>
-
-                <div style={{ background: '#FDFAF5', border: '1px solid #D8CEBC', borderRadius: 6, marginBottom: 16 }}>
-                  <div style={{ padding: '10px 14px', borderBottom: '1px solid #D8CEBC', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: '#6A7280' }}>{t('orderLines')}</div>
-                  {(typeof selected.lines === 'string' ? JSON.parse(selected.lines) : selected.lines || []).map((l: any, i: number) => {
-                    const imgUrl = l.image_url || (l.product_id && imageMap[l.product_id]) || null;
-                    return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid #F0EBE1' }}>
-                        {imgUrl
-                          ? <img src={imgUrl} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid #D8CEBC', flexShrink: 0 }} />
-                          : <div style={{ width: 44, height: 44, borderRadius: 6, border: '1px solid #D8CEBC', background: '#F0EBE1', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>📦</div>
-                        }
-                        <span style={{ flex: 1, fontSize: 13 }}>{l.desc || l.name || l.name_fr || '—'} <strong>× {l.qty}</strong></span>
-                        <span className="mono" style={{ fontSize: 13 }}>{fmt((l.qty || 1) * (l.price || 0))}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <div style={{ minWidth: 220 }}>
-                    <div className="detail-row"><span>{tc('subtotal')}</span><span className="mono">{fmt(selected.subtotal)}</span></div>
-                    {selected.promo_code && (
-                      <div className="detail-row" style={{ color: '#16A34A' }}>
-                        <span>🎟️ {selected.promo_code}</span>
-                        <span className="mono">−{fmt(selected.discount || 0)}</span>
-                      </div>
-                    )}
-                    <div className="detail-row"><span>{tc('shipping')}</span><span className="mono">{selected.shipping > 0 ? fmt(selected.shipping) : tc('free')}</span></div>
-                    <div className="detail-row" style={{ fontWeight: 700, fontSize: 15, borderTop: '2px solid #1C2028', marginTop: 4, paddingTop: 8 }}>
-                      <span>{tc('total')}</span><span className="mono">{fmt(selected.total)}</span>
-                    </div>
-                    {(selected.refunded_amount || 0) > 0 && (() => {
-                      // Si la commande a été réécrite, `total` est déjà net : on n'affiche
-                      // le remboursement qu'à titre informatif.
-                      const pending = pendingRefundAdj(selected).amount;
-                      return (
-                        <>
-                          <div className="detail-row" style={{ color: '#B45309' }}>
-                            <span>↩️ {t('refunded')}</span><span className="mono">−{fmt(selected.refunded_amount || 0)}</span>
-                          </div>
-                          {pending > 0 && (
-                            <div className="detail-row" style={{ fontWeight: 700, color: '#065F46' }}>
-                              <span>{t('netCollected')}</span>
-                              <span className="mono">{fmt((selected.total || 0) - pending)}</span>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-
-                    {/* Coûts réels */}
-                    <div style={{ marginTop: 10, padding: '10px 12px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 6 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#92400E', marginBottom: 8 }}>💸 Coûts réels (marge)</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, color: '#78350F' }}>🚚 Transport réel</span>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                          <input
-                            type="number" min="0" step="0.01"
-                            value={transportInput}
-                            onChange={e => setTransportInput(e.target.value)}
-                            onBlur={saveCosts}
-                            placeholder="0.00"
-                            className="mono"
-                            style={{ width: 75, padding: '3px 6px', borderRadius: 4, border: '1px solid #FCD34D', fontSize: 12, textAlign: 'right', background: '#FFFBEB' }}
-                          />
-                          <span style={{ fontSize: 11, color: '#92400E' }}>€</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: '#78350F' }}>📦 Emballage</span>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                          <input
-                            type="number" min="0" step="0.01"
-                            value={packagingInput}
-                            onChange={e => setPackagingInput(e.target.value)}
-                            onBlur={saveCosts}
-                            placeholder="0.00"
-                            className="mono"
-                            style={{ width: 75, padding: '3px 6px', borderRadius: 4, border: '1px solid #FCD34D', fontSize: 12, textAlign: 'right', background: '#FFFBEB' }}
-                          />
-                          <span style={{ fontSize: 11, color: '#92400E' }}>€</span>
-                        </div>
-                      </div>
-                      {savingCosts && <div style={{ fontSize: 10, color: '#92400E', marginTop: 4, textAlign: 'right' }}>⏳ Sauvegarde…</div>}
-                    </div>
-
-                    {(() => {
-                      const { margin, pct, stripeFee, urssaf, transportReal, packagingCost, shippingCollected } = calcMargin(selected);
-                      if (margin === null) return null;
-                      const color = pct! >= 40 ? '#10B981' : pct! >= 20 ? '#F59E0B' : '#EF4444';
-                      const netTransport = transportReal - shippingCollected;
-                      return (
-                        <div style={{ marginTop: 8, background: color + '15', border: `1px solid ${color}40`, borderRadius: 6, padding: '10px 12px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color }}>Marge réelle</span>
-                            <span className="mono" style={{ fontSize: 15, fontWeight: 800, color }}>{fmt(margin)} ({pct!.toFixed(1)}%)</span>
-                          </div>
-                          <div style={{ borderTop: '1px solid ' + color + '30', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            {stripeFee > 0 && (
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
-                                <span>Stripe (~1,5% + 0,25€)</span>
-                                <span className="mono">−{fmt(stripeFee)}</span>
-                              </div>
-                            )}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
-                              <span>URSSAF (12,3% du CA)</span>
-                              <span className="mono">−{fmt(urssaf)}</span>
-                            </div>
-                            {transportReal > 0 && (
-                              <>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
-                                  <span>🚚 Transport réel</span>
-                                  <span className="mono">−{fmt(transportReal)}</span>
-                                </div>
-                                {shippingCollected > 0 && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#10B981' }}>
-                                    <span>✅ Port perçu client</span>
-                                    <span className="mono">+{fmt(shippingCollected)}</span>
-                                  </div>
-                                )}
-                                {shippingCollected === 0 && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#F59E0B', fontStyle: 'italic' }}>
-                                    <span>Livraison offerte (+50€) — transport à 100% à charge</span>
-                                    <span />
-                                  </div>
-                                )}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, color: netTransport <= 0 ? '#10B981' : '#6B7280', borderTop: '1px dashed #e5e7eb', paddingTop: 3, marginTop: 1 }}>
-                                  <span>= Net transport</span>
-                                  <span className="mono">{netTransport <= 0 ? '+' : '−'}{fmt(Math.abs(netTransport))}</span>
-                                </div>
-                              </>
-                            )}
-                            {packagingCost > 0 && (
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280' }}>
-                                <span>📦 Emballage</span>
-                                <span className="mono">−{fmt(packagingCost)}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {selected.notes && <div style={{ marginTop: 12, padding: '10px 14px', background: '#F6F1E9', borderRadius: 6, fontSize: 12, fontStyle: 'italic', color: '#3E4550' }}>{selected.notes}</div>}
-
-                {/* ── Modifier la commande & rembourser la différence ─────────── */}
-                {['paid', 'confirmed', 'shipped', 'delivered'].includes(selected.status) && !selected.is_test && (() => {
-                  const lines = orderLinesOf(selected);
-                  const { credit, shipping, net, amount, remaining } = partialTotals(selected);
-                  const overMax = amount > remaining + 0.005;
-                  return (
-                    <div style={{ marginTop: 16, background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#9A3412' }}>
-                          ✂️ {t('partialRefund')}
-                        </div>
-                        <button
-                          className="btn btn-sm"
-                          style={{ background: '#FFEDD5', color: '#9A3412', border: '1px solid #FED7AA' }}
-                          onClick={() => { setShowPartialPanel(v => !v); setPartialConfirm(false); }}
-                        >
-                          {showPartialPanel ? '▲ Fermer' : '▼ Retirer des articles / rembourser'}
-                        </button>
-                      </div>
-
-                      {(selected.refunded_amount || 0) > 0 && (
-                        <div style={{ fontSize: 12, color: '#9A3412', marginTop: 8 }}>
-                          Déjà remboursé : <span className="mono" style={{ fontWeight: 700 }}>{fmt(selected.refunded_amount || 0)}</span>
-                          {' · '}reste remboursable : <span className="mono" style={{ fontWeight: 700 }}>{fmt(remaining)}</span>
-                        </div>
-                      )}
-
-                      {showPartialPanel && (
-                        <div style={{ marginTop: 12 }}>
-                          {/* Sélection des articles à retirer */}
-                          <div className="form-label" style={{ color: '#9A3412' }}>Articles à retirer / créditer</div>
-                          <div style={{ background: '#fff', border: '1px solid #FED7AA', borderRadius: 6, padding: '2px 10px' }}>
-                            {lines.length === 0 && <div style={{ fontSize: 12, color: '#9A3412', padding: '8px 0' }}>Aucune ligne</div>}
-                            {lines.map((l: any, i: number) => {
-                              const maxQty = Number(l.qty) || 1;
-                              const sel = partialItems[i] || 0;
-                              return (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < lines.length - 1 ? '1px solid #FFEDD5' : 'none' }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={sel > 0}
-                                    onChange={e => setPartialItems(s => {
-                                      const n = { ...s };
-                                      if (e.target.checked) n[i] = maxQty; else delete n[i];
-                                      return n;
-                                    })}
-                                    style={{ cursor: 'pointer' }}
-                                  />
-                                  <span style={{ flex: 1, fontSize: 13 }}>
-                                    {l.name_fr || l.name || l.desc || '—'}
-                                    <span style={{ color: '#9A3412', fontSize: 11 }}> (× {maxQty} — {fmt(l.price || 0)}/u)</span>
-                                  </span>
-                                  {sel > 0 && maxQty > 1 && (
-                                    <input
-                                      type="number" min={1} max={maxQty} value={sel}
-                                      onChange={e => {
-                                        const q = Math.max(1, Math.min(maxQty, parseInt(e.target.value) || 1));
-                                        setPartialItems(s => ({ ...s, [i]: q }));
-                                      }}
-                                      className="mono"
-                                      style={{ width: 52, padding: '3px 6px', borderRadius: 4, border: '1px solid #FDBA74', fontSize: 12, textAlign: 'right' }}
-                                    />
-                                  )}
-                                  <span className="mono" style={{ fontSize: 13, minWidth: 74, textAlign: 'right', fontWeight: sel > 0 ? 700 : 400, color: sel > 0 ? '#9A3412' : '#9CA3AF' }}>
-                                    {fmt((l.price || 0) * (sel > 0 ? sel : maxQty))}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Frais de port à facturer */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
-                            <span style={{ fontSize: 13, color: '#7C2D12' }}>🚚 Frais de port à facturer au client</span>
-                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                              <input
-                                type="number" min="0" step="0.01"
-                                value={partialShipping}
-                                onChange={e => { setPartialShipping(e.target.value); setPartialConfirm(false); }}
-                                placeholder="0.00"
-                                className="mono"
-                                style={{ width: 80, padding: '4px 8px', borderRadius: 4, border: '1px solid #FDBA74', fontSize: 13, textAlign: 'right', background: '#fff' }}
-                              />
-                              <span style={{ fontSize: 12, color: '#9A3412' }}>€</span>
-                            </div>
-                          </div>
-
-                          {/* Calcul */}
-                          <div style={{ marginTop: 12, background: '#fff', border: '1px solid #FED7AA', borderRadius: 6, padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7C2D12', padding: '2px 0' }}>
-                              <span>Crédit articles retirés</span><span className="mono">+{fmt(credit)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7C2D12', padding: '2px 0' }}>
-                              <span>Frais de port facturés</span><span className="mono">−{fmt(shipping)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #FED7AA', marginTop: 6, paddingTop: 8 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: '#9A3412' }}>💶 À rembourser au client</span>
-                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                <input
-                                  type="number" min="0" step="0.01"
-                                  value={partialOverride !== '' ? partialOverride : (net > 0 ? net.toFixed(2) : '0.00')}
-                                  onChange={e => { setPartialOverride(e.target.value); setPartialConfirm(false); }}
-                                  className="mono"
-                                  style={{ width: 90, padding: '5px 8px', borderRadius: 4, border: `1px solid ${overMax ? '#EF4444' : '#FDBA74'}`, fontSize: 14, fontWeight: 700, textAlign: 'right', color: '#9A3412', background: '#FFFBEB' }}
-                                />
-                                <span style={{ fontSize: 13, color: '#9A3412', fontWeight: 700 }}>€</span>
-                              </div>
-                            </div>
-                            {partialOverride !== '' && Math.abs(amount - net) > 0.005 && (
-                              <div style={{ fontSize: 11, color: '#B45309', marginTop: 6, fontStyle: 'italic' }}>
-                                Montant forcé (calcul : {fmt(net)}) — un ajustement commercial sera ajouté à l'avoir.
-                              </div>
-                            )}
-                            {overMax && (
-                              <div style={{ fontSize: 11, color: '#B91C1C', marginTop: 6, fontWeight: 600 }}>
-                                ⚠️ Maximum remboursable : {fmt(remaining)}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Motif */}
-                          <div style={{ marginTop: 10 }}>
-                            <input
-                              className="form-control"
-                              style={{ fontSize: 13, background: '#fff', borderColor: '#FED7AA' }}
-                              placeholder="Motif (visible sur l'avoir et l'email client) — ex : fromage retiré, commande expédiée"
-                              value={partialReason}
-                              onChange={e => setPartialReason(e.target.value)}
-                            />
-                          </div>
-
-                          {/* Options */}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 10, fontSize: 12, color: '#7C2D12' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                              <input type="checkbox" checked={partialModifyOrder} onChange={e => setPartialModifyOrder(e.target.checked)} />
-                              Retirer ces articles de la commande et y ajouter les frais de port
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                              <input type="checkbox" checked={partialRestock} onChange={e => setPartialRestock(e.target.checked)} />
-                              Remettre les articles retirés en stock
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                              <input type="checkbox" checked={partialNotify} onChange={e => setPartialNotify(e.target.checked)} />
-                              Notifier le client par email
-                            </label>
-                            {selected.delivery_mode === 'pickup' && (
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                <input type="checkbox" checked={partialSwitchDelivery} onChange={e => setPartialSwitchDelivery(e.target.checked)} />
-                                Passer la commande de Click &amp; Collect à expédition
-                              </label>
-                            )}
-                          </div>
-
-                          <button
-                            className="btn btn-sm"
-                            onClick={handlePartialRefund}
-                            disabled={refunding || !(amount > 0) || overMax}
-                            style={{
-                              marginTop: 12, width: '100%', justifyContent: 'center',
-                              background: partialConfirm ? '#EA580C' : '#FFEDD5',
-                              color: partialConfirm ? '#fff' : '#9A3412',
-                              border: '1px solid #FDBA74',
-                              padding: '9px 16px', fontSize: 13, fontWeight: 700,
-                              opacity: (!(amount > 0) || overMax) ? 0.5 : 1,
-                              cursor: refunding || !(amount > 0) || overMax ? 'not-allowed' : 'pointer',
-                            }}
-                          >
-                            {refunding
-                              ? '⏳ Remboursement Stripe…'
-                              : partialConfirm
-                                ? `⚠️ Confirmer : rembourser ${fmt(amount)} sur Stripe ?`
-                                : `💶 Rembourser ${fmt(amount)} au client`}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Lien de paiement */}
-                {!['paid','confirmed','shipped','delivered','refunded','cancelled'].includes(selected.status) && (
-                  <div className="payment-link-box">
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1', marginBottom: 10 }}>
-                      💳 Lien de paiement Stripe
-                    </div>
-                    {selected.payment_link_url ? (
-                      <>
-                        <div className="payment-link-url">{selected.payment_link_url}</div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <button className="btn btn-sm btn-info" onClick={() => { navigator.clipboard?.writeText(selected.payment_link_url!); showToast('✅ Lien copié !'); }}>
-                            📋 Copier le lien
-                          </button>
-                          <button className="btn btn-sm btn-info" onClick={() => sendPaymentLink(true)} disabled={sendingPaymentLink}>
-                            {sendingPaymentLink ? '⏳…' : '📧 Renvoyer par email'}
-                          </button>
-                        </div>
-                        {selected.payment_link_sent_at && (
-                          <div style={{ fontSize: 10, color: '#6A7280', marginTop: 6 }}>
-                            Dernier envoi : {new Date(selected.payment_link_sent_at).toLocaleString('fr-FR')}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button className="btn btn-sm btn-info" onClick={() => sendPaymentLink(false)} disabled={sendingPaymentLink}>
-                          {sendingPaymentLink ? '⏳…' : '🔗 Générer le lien'}
-                        </button>
-                        {selected.customer_email && (
-                          <button className="btn btn-sm btn-info" onClick={() => sendPaymentLink(true)} disabled={sendingPaymentLink}>
-                            {sendingPaymentLink ? '⏳…' : '📧 Générer + envoyer par email'}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Tracking / Pickup */}
-                {selected.delivery_mode === 'pickup' ? (
-                  <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 6, padding: '14px 16px', marginTop: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#7C3AED' }}>🏪 {t('clickCollect')}</div>
-                    <div style={{ fontSize: 13, color: '#5B21B6', marginTop: 6 }}>{t('pickupReady')}</div>
-                  </div>
-                ) : (
-                  <div className="tracking-box">
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1' }}>{t('tracking')}</div>
-                    {selected.tracking_number && (
-                      <div style={{ fontSize: 14, fontFamily: 'DM Mono,monospace', color: '#0C4A6E', marginTop: 6, marginBottom: 8 }}>
-                        {selected.tracking_number}
-                      </div>
-                    )}
-                    <div className="tracking-row">
-                      <input
-                        className="form-control"
-                        style={{ flex: 1 }}
-                        placeholder={t('trackingPlaceholder')}
-                        value={trackingInput}
-                        onChange={e => setTrackingInput(e.target.value)}
-                      />
-                      <button className="btn btn-info btn-sm" onClick={saveTracking} disabled={savingTracking}>
-                        {savingTracking ? '…' : '💾'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Status */}
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: '#6A7280', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>{t('changeStatus')}</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {Object.keys(T_ORDER_STATUS).map(k => (
-                      <button key={k} className={`btn btn-sm ${selected.status === k ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => updateStatus(selected.id, k)}>
-                        {ts(k)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Mondial Relay */}
-                {!['refunded', 'cancelled'].includes(selected.status) && (
-                  <>
-                  {(selected.logspher_label_url || selected.logspher_error) && (
-                    <div style={{ background: selected.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${selected.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 8, padding: '12px 16px', marginTop: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: selected.logspher_label_url ? '#166534' : '#9A3412', marginBottom: 8 }}>
-                        📦 Étiquette {selected.logspher_carrier_name || 'LogSpher'}
-                      </div>
-                      {selected.logspher_label_url ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#166534' }}>✅ {selected.logspher_tracking}</span>
-                          <a href={selected.logspher_label_url} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#0369A1', fontWeight: 600, textDecoration: 'none', padding: '4px 10px', background: '#DBEAFE', borderRadius: 4 }}>⬇️ Télécharger étiquette PDF</a>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: 12, color: '#9A3412' }}>⚠️ {selected.logspher_error}</div>
-                      )}
-                    </div>
-                  )}
-                  <div className="tracking-box" style={{ background: '#F0F9FF', borderColor: '#BAE6FD', marginTop: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1', marginBottom: 10 }}>
-                      🚚 Expédition Mondial Relay
-                    </div>
-                    {mrResult && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#065F46' }}>✅ {mrResult.tracking}</span>
-                        {mrResult.labelUrl && (
-                          <a href={mrResult.labelUrl} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#0369A1', fontWeight: 600, textDecoration: 'none' }}>⬇️ Étiquette PDF</a>
-                        )}
-                      </div>
-                    )}
-                    {selected.relay_point_name && (
-                      <div style={{ fontSize: 12, color: '#0C4A6E', marginBottom: 8, fontWeight: 600 }}>
-                        📍 {selected.relay_point_name} — {selected.relay_point_address}
-                      </div>
-                    )}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 90px', gap: 8 }}>
-                      <div>
-                        <div className="form-label">Point relais livraison</div>
-                        <input className="form-control" style={{ fontSize: 12 }} value={mrLivRel} onChange={e => setMrLivRel(e.target.value)} placeholder="Code relais (ex: 022546)" />
-                      </div>
-                      <div>
-                        <div className="form-label">Relais de dépôt</div>
-                        <input className="form-control" style={{ fontSize: 12 }} value={mrColRel} onChange={e => setMrColRel(e.target.value)} placeholder="Votre relais dépôt" />
-                      </div>
-                      <div>
-                        <div className="form-label">Poids (g)</div>
-                        <input type="number" className="form-control mono" style={{ fontSize: 12 }} value={mrWeight} min={1} onChange={e => setMrWeight(e.target.value)} />
-                      </div>
-                    </div>
-                    <button
-                      onClick={createMrLabel}
-                      disabled={mrLoading || !mrLivRel || !mrColRel}
-                      style={{
-                        marginTop: 10,
-                        background: mrLoading || !mrLivRel || !mrColRel ? '#93C5FD' : '#0369A1',
-                        color: '#fff', border: 'none', borderRadius: 6,
-                        padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                        cursor: mrLoading || !mrLivRel || !mrColRel ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      {mrLoading ? '⏳ Création…' : '📦 Créer l\'étiquette'}
-                    </button>
-                  </div>
-                  </>
-                )}
-              </div>
-              <div className="o-modal-footer">
-                {!selected.is_test && (
-                  <button
-                    className="btn btn-sm btn-warning"
-                    onClick={handleMarkTest}
-                    disabled={markingTest}
-                    title="Exclut la commande des stats ET de la comptabilité"
-                  >
-                    {markingTest ? '⏳…' : testConfirm ? t('markTestConfirm') : `🧪 ${t('markTest')}`}
-                  </button>
-                )}
-                {!selected.is_test && (
-                  <button
-                    className="btn btn-sm"
-                    onClick={toggleExcludeStats}
-                    disabled={togglingStats}
-                    title="Exclut des stats de marge uniquement — la compta reste intacte"
-                    style={{
-                      background: selected.exclude_from_stats ? '#EDE9FE' : '#F5F3FF',
-                      color: '#5B21B6', border: '1px solid #DDD6FE',
-                    }}
-                  >
-                    {togglingStats ? '⏳…' : selected.exclude_from_stats ? '📊 Réintégrer stats' : '📊 Hors stats'}
-                  </button>
-                )}
-                {['paid', 'confirmed', 'shipped'].includes(selected.status) && !selected.is_test && (
-                  <button
-                    className="btn btn-sm"
-                    style={{
-                      background: refundConfirm ? '#EF4444' : '#FEE2E2',
-                      color: refundConfirm ? '#fff' : '#991B1B',
-                      border: '1px solid #FECACA',
-                    }}
-                    onClick={handleRefund}
-                    disabled={refunding}
-                  >
-                    {refunding ? '⏳ Remboursement…' : refundConfirm ? t('refundConfirm') : `🔄 ${t('refund')}`}
-                  </button>
-                )}
-                {selected.customer_email && (
-                  <button className="btn btn-sm btn-violet" onClick={createCustomerAccount} disabled={creatingAccount}
-                    title="Crée le compte client et lui envoie un email avec son lien d'accès">
-                    {creatingAccount ? '⏳…' : '👤 Créer compte client'}
-                  </button>
-                )}
-                <a
-                  href={`/admin/factures/${selected.id}`}
-                  target="_blank"
-                  rel="noopener"
-                  className="btn btn-info"
-                  style={{ textDecoration: 'none' }}
-                >
-                  🧾 Facture
-                </a>
-                <a
-                  href={`/api/invoices/${selected.id}/pdf`}
-                  download
-                  className="btn btn-sm"
-                  style={{ textDecoration: 'none', background: '#ECFDF5', color: '#065F46', border: '1px solid #6EE7B7' }}
-                >
-                  ⬇️ PDF
-                </a>
-                {avoirId && (
-                  <a
-                    href={`/admin/factures/${avoirId}`}
-                    target="_blank"
-                    rel="noopener"
-                    className="btn btn-sm"
-                    style={{ textDecoration: 'none', background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' }}
-                  >
-                    ↩️ Avoir
-                  </a>
-                )}
-                {avoirId && (
-                  <a
-                    href={`/api/invoices/${avoirId}/pdf`}
-                    download
-                    className="btn btn-sm"
-                    style={{ textDecoration: 'none', background: '#F5F3FF', color: '#5B21B6', border: '1px solid #DDD6FE' }}
-                  >
-                    ⬇️ PDF avoir
-                  </a>
-                )}
-                <button className="btn btn-secondary" onClick={() => printDeliveryNote(selected)}>📄 {t('deliveryNote')}</button>
-                <button className="btn btn-secondary" onClick={() => { setShowModal(false); setRefundConfirm(false); }}>{tc('cancel')}</button>
-              </div>
-            </div>
+                </button>
+              );
+            })}
           </div>
         )}
 
-        {/* New Order Modal */}
+        {/* Détail */}
+        {showDetail && (
+          <div style={{ flex: 1, minWidth: 0, padding: '14px 18px 90px', overflowY: 'auto' }}>
+            {!selected && <div className="sc-empty">Sélectionne une commande dans la liste.</div>}
+            {selected && (() => {
+              const o = selected;
+              const lines = linesOf(o);
+              const adj = pendingRefundAdj(o);
+              const { margin, pct, stripeFee, urssaf, transportReal, packagingCost, shippingCollected } = calcMargin(o);
+              const idx = stepIndex(o.status);
+              const isDead = ['refunded', 'cancelled'].includes(o.status);
+
+              return (
+                <>
+                  {mobile && (
+                    <button className="sc-btn sc-btn-secondary" style={{ marginBottom: 12 }} onClick={() => setMobDetail(false)}>
+                      <span className="ms">arrow_back</span>Toutes les commandes
+                    </button>
+                  )}
+
+                  {/* En-tête du détail */}
+                  <div className="sc-head" style={{ marginBottom: 12 }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="sc-title">Commande {o.order_number}</span>
+                        {badgeOf(o.status)}
+                      </div>
+                      <div className="sc-sub">
+                        {fmtDate(o.created_at)}
+                        {o.source ? ` · ${o.source}` : ''}
+                        {o.delivery_mode === 'pickup' ? ' · Click & Collect'
+                          : o.delivery_mode === 'mondial_relay' ? ' · Point relais' : ' · Livraison'}
+                      </div>
+                    </div>
+                    <div className="sc-actions">
+                      <a className="sc-btn sc-btn-secondary" href={`/admin/documents/bon-de-livraison/${o.id}`} target="_blank" rel="noopener">
+                        <span className="ms">local_shipping</span>Bon de livraison
+                      </a>
+                      <a className="sc-btn sc-btn-secondary" href={`/admin/documents/facture/${o.id}`} target="_blank" rel="noopener">
+                        <span className="ms">print</span>Facture
+                      </a>
+                      {['paid', 'confirmed'].includes(o.status) && (
+                        <button className="sc-btn sc-btn-primary" onClick={() => updateStatus(o.id, 'shipped')}>
+                          <span className="ms">send</span>Marquer expédiée
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+                    {/* ══ Colonne principale ══ */}
+                    <div style={{ flex: '2 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                      {/* Articles */}
+                      <div className="sc-card">
+                        <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
+                          <span className="sc-card-title">{t('orderLines')}</span>
+                        </div>
+                        <div>
+                          {lines.map((l: any, i: number) => {
+                            const img = l.image_url || (l.product_id && imageMap[l.product_id]) || null;
+                            return (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 15px', borderBottom: `1px solid ${TH.borderFaint}` }}>
+                                {img ? <img src={img} alt="" style={thumbStyle(l.name || 'x', 32)} />
+                                     : <div style={thumbStyle(l.name || 'x', 32)}>{initials(l.name || l.desc || '?', 1)}</div>}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 12.5, color: TH.ink }}>{l.desc || l.name || l.name_fr || '—'}</div>
+                                  <div className="sc-num" style={{ fontSize: 10.5, color: TH.muted }}>
+                                    {l.qty} × {fmt(l.price || 0)}
+                                  </div>
+                                </div>
+                                <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 600 }}>{fmt((l.qty || 1) * (l.price || 0))}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{ padding: '10px 15px', background: TH.surfaceAlt }}>
+                          <div className="o-row"><span>{tc('subtotal')}</span><span className="sc-num">{fmt(o.subtotal)}</span></div>
+                          {o.promo_code && (
+                            <div className="o-row" style={{ color: TH.green }}>
+                              <span>{o.promo_code}</span><span className="sc-num">−{fmt(o.discount || 0)}</span>
+                            </div>
+                          )}
+                          <div className="o-row"><span>{tc('shipping')}</span><span className="sc-num">{o.shipping > 0 ? fmt(o.shipping) : tc('free')}</span></div>
+                          <div className="o-row"><span>TVA</span><span className="sc-num">Non applicable</span></div>
+                          <div className="o-row" style={{ fontSize: 15, fontWeight: 700, color: TH.ink, borderTop: `2px solid ${TH.ink}`, marginTop: 4, paddingTop: 8 }}>
+                            <span>{tc('total')}</span><span className="sc-num">{fmt(o.total)}</span>
+                          </div>
+                          {(o.refunded_amount || 0) > 0 && (
+                            <>
+                              <div className="o-row" style={{ color: '#B45309' }}>
+                                <span>{t('refunded')}</span><span className="sc-num">−{fmt(o.refunded_amount || 0)}</span>
+                              </div>
+                              {adj.amount > 0 && (
+                                <div className="o-row" style={{ fontWeight: 700, color: TH.green }}>
+                                  <span>{t('netCollected')}</span><span className="sc-num">{fmt(netOf(o))}</span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Coûts réels + marge */}
+                      <div className="sc-card">
+                        <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span className="sc-card-title">Coûts réels & marge</span>
+                          {savingCosts && <span style={{ fontSize: 10.5, color: TH.muted }}>Enregistrement…</span>}
+                        </div>
+                        <div style={{ padding: '13px 15px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                            <div>
+                              <label className="sc-label">Transport réel</label>
+                              <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="0.00"
+                                     value={transportInput} onChange={e => setTransportInput(e.target.value)} onBlur={saveCosts} />
+                            </div>
+                            <div>
+                              <label className="sc-label">Emballage</label>
+                              <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="0.00"
+                                     value={packagingInput} onChange={e => setPackagingInput(e.target.value)} onBlur={saveCosts} />
+                            </div>
+                          </div>
+                          {margin === null ? (
+                            <div style={{ fontSize: 12, color: TH.muted, fontStyle: 'italic' }}>
+                              Marge indisponible : renseigne les coûts d’achat des produits.
+                            </div>
+                          ) : (() => {
+                            const color = pct! >= 40 ? TH.green : pct! >= 20 ? '#C97A2B' : TH.red;
+                            const netTransport = transportReal - shippingCollected;
+                            return (
+                              <div style={{ background: color + '15', border: `1px solid ${color}40`, borderRadius: 8, padding: '11px 13px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color }}>Marge réelle</span>
+                                  <span className="sc-num" style={{ fontSize: 15, fontWeight: 800, color }}>{fmt(margin)} ({pct!.toFixed(1)} %)</span>
+                                </div>
+                                <div style={{ borderTop: `1px solid ${color}30`, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: TH.text2b }}>
+                                  {stripeFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Stripe (~1,5 % + 0,25 €)</span><span className="sc-num">−{fmt(stripeFee)}</span></div>}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>URSSAF (12,3 % du CA)</span><span className="sc-num">−{fmt(urssaf)}</span></div>
+                                  {transportReal > 0 && (
+                                    <>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Transport réel</span><span className="sc-num">−{fmt(transportReal)}</span></div>
+                                      {shippingCollected > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: TH.green }}><span>Port perçu client</span><span className="sc-num">+{fmt(shippingCollected)}</span></div>}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: netTransport <= 0 ? TH.green : TH.text2b, borderTop: '1px dashed #e5e7eb', paddingTop: 3 }}>
+                                        <span>= Net transport</span><span className="sc-num">{netTransport <= 0 ? '+' : '−'}{fmt(Math.abs(netTransport))}</span>
+                                      </div>
+                                    </>
+                                  )}
+                                  {packagingCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Emballage</span><span className="sc-num">−{fmt(packagingCost)}</span></div>}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Remboursement partiel — panneau complet conservé */}
+                      {['paid', 'confirmed', 'shipped', 'delivered'].includes(o.status) && !o.is_test && (() => {
+                        const { credit, shipping, net, amount, remaining } = partialTotals(o);
+                        const overMax = amount > remaining + 0.005;
+                        return (
+                          <div className="sc-card" style={{ borderColor: '#FED7AA', background: '#FFF7ED' }}>
+                            <div style={{ padding: '12px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: '#9A3412' }}>
+                                {t('partialRefund')}
+                              </span>
+                              <button className="sc-btn sc-btn-secondary" onClick={() => { setShowPartialPanel(v => !v); setPartialConfirm(false); }}>
+                                {showPartialPanel ? 'Fermer' : 'Retirer des articles / rembourser'}
+                              </button>
+                            </div>
+                            {(o.refunded_amount || 0) > 0 && (
+                              <div style={{ fontSize: 12, color: '#9A3412', padding: '0 15px 10px' }}>
+                                Déjà remboursé <span className="sc-num" style={{ fontWeight: 700 }}>{fmt(o.refunded_amount || 0)}</span>
+                                {' · '}reste <span className="sc-num" style={{ fontWeight: 700 }}>{fmt(remaining)}</span>
+                              </div>
+                            )}
+                            {showPartialPanel && (
+                              <div style={{ padding: '0 15px 15px' }}>
+                                <label className="sc-label" style={{ color: '#9A3412' }}>Articles à retirer / créditer</label>
+                                <div style={{ background: '#fff', border: '1px solid #FED7AA', borderRadius: 7, padding: '2px 10px' }}>
+                                  {lines.map((l: any, i: number) => {
+                                    const maxQty = Number(l.qty) || 1;
+                                    const q = partialItems[i] || 0;
+                                    return (
+                                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < lines.length - 1 ? '1px solid #FFEDD5' : 'none' }}>
+                                        <input type="checkbox" checked={q > 0}
+                                               onChange={e => setPartialItems(s => { const n = { ...s }; if (e.target.checked) n[i] = maxQty; else delete n[i]; return n; })} />
+                                        <span style={{ flex: 1, fontSize: 12.5 }}>
+                                          {l.name_fr || l.name || l.desc || '—'}
+                                          <span style={{ color: '#9A3412', fontSize: 10.5 }}> (× {maxQty} — {fmt(l.price || 0)}/u)</span>
+                                        </span>
+                                        {q > 0 && maxQty > 1 && (
+                                          <input type="number" min={1} max={maxQty} value={q} className="sc-num"
+                                                 onChange={e => setPartialItems(s => ({ ...s, [i]: Math.max(1, Math.min(maxQty, parseInt(e.target.value) || 1)) }))}
+                                                 style={{ width: 52, padding: '3px 6px', borderRadius: 5, border: '1px solid #FDBA74', fontSize: 12, textAlign: 'right' }} />
+                                        )}
+                                        <span className="sc-num" style={{ fontSize: 12.5, minWidth: 72, textAlign: 'right', fontWeight: q > 0 ? 700 : 400, color: q > 0 ? '#9A3412' : TH.muted3 }}>
+                                          {fmt((l.price || 0) * (q > 0 ? q : maxQty))}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
+                                  <span style={{ fontSize: 12.5, color: '#7C2D12' }}>Frais de port à facturer au client</span>
+                                  <input className="sc-num" type="number" min="0" step="0.01" placeholder="0.00" value={partialShipping}
+                                         onChange={e => { setPartialShipping(e.target.value); setPartialConfirm(false); }}
+                                         style={{ width: 82, padding: '5px 8px', borderRadius: 5, border: '1px solid #FDBA74', fontSize: 12.5, textAlign: 'right' }} />
+                                </div>
+
+                                <div style={{ marginTop: 12, background: '#fff', border: '1px solid #FED7AA', borderRadius: 7, padding: '10px 12px' }}>
+                                  <div className="o-row" style={{ color: '#7C2D12' }}><span>Crédit articles retirés</span><span className="sc-num">+{fmt(credit)}</span></div>
+                                  <div className="o-row" style={{ color: '#7C2D12' }}><span>Frais de port facturés</span><span className="sc-num">−{fmt(shipping)}</span></div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #FED7AA', marginTop: 6, paddingTop: 8 }}>
+                                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#9A3412' }}>À rembourser au client</span>
+                                    <input className="sc-num" type="number" min="0" step="0.01"
+                                           value={partialOverride !== '' ? partialOverride : (net > 0 ? net.toFixed(2) : '0.00')}
+                                           onChange={e => { setPartialOverride(e.target.value); setPartialConfirm(false); }}
+                                           style={{ width: 94, padding: '5px 8px', borderRadius: 5, border: `1px solid ${overMax ? TH.red : '#FDBA74'}`, fontSize: 14, fontWeight: 700, textAlign: 'right', color: '#9A3412', background: '#FFFBEB' }} />
+                                  </div>
+                                  {overMax && <div style={{ fontSize: 11, color: TH.red, marginTop: 6, fontWeight: 600 }}>Maximum remboursable : {fmt(remaining)}</div>}
+                                </div>
+
+                                <input className="sc-input" style={{ marginTop: 10 }} placeholder="Motif (visible sur l’avoir et l’email client)"
+                                       value={partialReason} onChange={e => setPartialReason(e.target.value)} />
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, fontSize: 12, color: '#7C2D12' }}>
+                                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={partialModifyOrder} onChange={e => setPartialModifyOrder(e.target.checked)} />
+                                    Retirer ces articles de la commande et y ajouter les frais de port
+                                  </label>
+                                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={partialRestock} onChange={e => setPartialRestock(e.target.checked)} />
+                                    Remettre les articles retirés en stock
+                                  </label>
+                                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={partialNotify} onChange={e => setPartialNotify(e.target.checked)} />
+                                    Notifier le client par email
+                                  </label>
+                                  {o.delivery_mode === 'pickup' && (
+                                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={partialSwitchDelivery} onChange={e => setPartialSwitchDelivery(e.target.checked)} />
+                                      Passer la commande de Click &amp; Collect à expédition
+                                    </label>
+                                  )}
+                                </div>
+
+                                <button className="sc-btn" onClick={handlePartialRefund} disabled={refunding || !(amount > 0) || overMax}
+                                  style={{
+                                    marginTop: 12, width: '100%', justifyContent: 'center',
+                                    background: partialConfirm ? '#EA580C' : '#FFEDD5', color: partialConfirm ? '#fff' : '#9A3412',
+                                    border: '1px solid #FDBA74', fontWeight: 700,
+                                    opacity: (!(amount > 0) || overMax) ? .5 : 1,
+                                  }}>
+                                  {refunding ? 'Remboursement Stripe…' : partialConfirm ? `Confirmer : rembourser ${fmt(amount)} ?` : `Rembourser ${fmt(amount)} au client`}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Lien de paiement */}
+                      {!['paid', 'confirmed', 'shipped', 'delivered', 'refunded', 'cancelled'].includes(o.status) && (
+                        <div className="sc-card">
+                          <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
+                            <span className="sc-card-title">Lien de paiement Stripe</span>
+                          </div>
+                          <div style={{ padding: '13px 15px' }}>
+                            {o.payment_link_url && (
+                              <div className="sc-num" style={{ fontSize: 11, color: '#0C4A6E', wordBreak: 'break-all', background: '#F0F9FF', padding: '6px 8px', borderRadius: 5, marginBottom: 8 }}>
+                                {o.payment_link_url}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {o.payment_link_url && (
+                                <button className="sc-btn sc-btn-secondary" onClick={() => { navigator.clipboard?.writeText(o.payment_link_url!); showToast('Lien copié'); }}>
+                                  <span className="ms">content_copy</span>Copier
+                                </button>
+                              )}
+                              <button className="sc-btn sc-btn-secondary" onClick={() => sendPaymentLink(false)} disabled={sendingPaymentLink}>
+                                <span className="ms">link</span>{o.payment_link_url ? 'Régénérer' : 'Générer le lien'}
+                              </button>
+                              <button className="sc-btn sc-btn-secondary" onClick={() => sendPaymentLink(true)} disabled={sendingPaymentLink}>
+                                <span className="ms">mail</span>Envoyer par email
+                              </button>
+                            </div>
+                            {o.payment_link_sent_at && (
+                              <div style={{ fontSize: 10.5, color: TH.muted, marginTop: 6 }}>Envoyé le {fmtDate(o.payment_link_sent_at)}</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Expédition Mondial Relay */}
+                      {!isDead && (
+                        <div className="sc-card">
+                          <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
+                            <span className="sc-card-title">Expédition</span>
+                          </div>
+                          <div style={{ padding: '13px 15px' }}>
+                            {(o.logspher_label_url || o.logspher_error) && (
+                              <div style={{ background: o.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${o.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
+                                {o.logspher_label_url
+                                  ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">Télécharger le PDF</a></>
+                                  : <>Erreur LogSpher : {o.logspher_error}</>}
+                              </div>
+                            )}
+                            {mrResult && (
+                              <div style={{ background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 7, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: '#065F46' }}>
+                                {mrResult.tracking}{mrResult.labelUrl ? <> · <a href={mrResult.labelUrl} target="_blank" rel="noopener">Étiquette PDF</a></> : null}
+                              </div>
+                            )}
+                            {o.relay_point_name && (
+                              <div style={{ fontSize: 12, color: TH.text2b, marginBottom: 8 }}>
+                                Point relais : {o.relay_point_name} — {o.relay_point_address}
+                              </div>
+                            )}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>
+                              <div>
+                                <label className="sc-label">Relais livraison</label>
+                                <input className="sc-input" value={mrLivRel} onChange={e => setMrLivRel(e.target.value)} placeholder="Code relais" />
+                              </div>
+                              <div>
+                                <label className="sc-label">Relais de dépôt</label>
+                                <input className="sc-input" value={mrColRel} onChange={e => setMrColRel(e.target.value)} placeholder="Votre relais" />
+                              </div>
+                              <div>
+                                <label className="sc-label">Poids (g)</label>
+                                <input className="sc-input sc-num" type="number" min={1} value={mrWeight} onChange={e => setMrWeight(e.target.value)} />
+                              </div>
+                            </div>
+                            <button className="sc-btn sc-btn-secondary" style={{ marginTop: 10 }}
+                                    onClick={createMrLabel} disabled={mrLoading || !mrLivRel || !mrColRel}>
+                              <span className="ms">local_shipping</span>{mrLoading ? 'Création…' : 'Créer l’étiquette'}
+                            </button>
+
+                            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${TH.borderFaint}` }}>
+                              <label className="sc-label">{t('tracking')}</label>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <input className="sc-input" value={trackingInput} onChange={e => setTrackingInput(e.target.value)} placeholder={t('trackingPlaceholder')} />
+                                <button className="sc-btn sc-btn-secondary" onClick={saveTracking} disabled={savingTracking}>
+                                  {savingTracking ? '…' : t('trackingSave')}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ══ Colonne latérale ══ */}
+                    <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                      {/* Client */}
+                      <div className="sc-card">
+                        <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
+                          <span className="sc-card-title">{tc('client')}</span>
+                        </div>
+                        <div style={{ padding: '13px 15px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                            <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'color-mix(in srgb, var(--accent) 10%, transparent)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
+                              {initials(o.customer_name || '?')}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: TH.ink }}>{o.customer_name || '—'}</div>
+                              <div style={{ fontSize: 11, color: TH.muted, wordBreak: 'break-all' }}>{o.customer_email}</div>
+                            </div>
+                          </div>
+                          {(o.shipping_address || o.customer_address) && (
+                            <div style={{ fontSize: 12, color: TH.text2b, whiteSpace: 'pre-line', lineHeight: 1.6 }}>
+                              {toAddrStr(o.shipping_address || o.customer_address).replace(/,\s*/g, '\n')}
+                            </div>
+                          )}
+                          {o.customer_phone && <div style={{ fontSize: 12, color: TH.text2b, marginTop: 4 }}>{o.customer_phone}</div>}
+                          {(() => {
+                            const his = realOrders.filter(x => x.customer_email && x.customer_email === o.customer_email);
+                            const sum = his.reduce((s, x) => s + netOf(x), 0);
+                            return his.length > 1 ? (
+                              <div style={{ fontSize: 11, color: TH.muted, marginTop: 10, paddingTop: 8, borderTop: `1px solid ${TH.borderFaint}` }}>
+                                {his.length} commandes · {fmt(sum)} cumulés
+                              </div>
+                            ) : null;
+                          })()}
+                          {o.customer_email && (
+                            <button className="sc-btn sc-btn-secondary" style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
+                                    onClick={createCustomerAccount} disabled={creatingAccount}>
+                              <span className="ms">person_add</span>{creatingAccount ? '…' : 'Créer compte client'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Suivi */}
+                      <div className="sc-card">
+                        <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
+                          <span className="sc-card-title">Suivi</span>
+                        </div>
+                        <div style={{ padding: '13px 15px' }}>
+                          {isDead ? (
+                            <div style={{ fontSize: 12, color: TH.muted }}>Commande {ts(o.status).toLowerCase()}.</div>
+                          ) : TRACK_STEPS.map((s, i) => {
+                            const done = i <= idx;
+                            return (
+                              <div key={s.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                  <div style={{ width: 9, height: 9, borderRadius: '50%', background: done ? 'var(--accent)' : '#DCD6CC', marginTop: 4 }} />
+                                  {i < TRACK_STEPS.length - 1 && <div style={{ width: 1, height: 22, background: done ? 'var(--accent)' : '#DCD6CC' }} />}
+                                </div>
+                                <div style={{ paddingBottom: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: done ? 600 : 400, color: done ? TH.ink : TH.muted }}>{s.label}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div style={{ marginTop: 8, paddingTop: 10, borderTop: `1px solid ${TH.borderFaint}` }}>
+                            <label className="sc-label">{t('changeStatus')}</label>
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                              {Object.keys(T_ORDER_STATUS).filter(k => k !== 'abandoned').map(k => (
+                                <button key={k} className={`sc-chip${o.status === k ? ' on' : ''}`}
+                                        style={{ height: 26, fontSize: 11, padding: '0 9px' }}
+                                        onClick={() => updateStatus(o.id, k)}>{ts(k)}</button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Documents & actions */}
+                      <div className="sc-card">
+                        <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
+                          <span className="sc-card-title">Documents & actions</span>
+                        </div>
+                        <div style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/admin/factures/${o.id}`} target="_blank" rel="noopener">
+                            <span className="ms">receipt_long</span>Facture (éditeur)
+                          </a>
+                          <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/api/invoices/${o.id}/pdf`} download>
+                            <span className="ms">picture_as_pdf</span>PDF facture
+                          </a>
+                          {avoirId && (
+                            <>
+                              <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/admin/factures/${avoirId}`} target="_blank" rel="noopener">
+                                <span className="ms">undo</span>Avoir
+                              </a>
+                              <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/api/invoices/${avoirId}/pdf`} download>
+                                <span className="ms">picture_as_pdf</span>PDF avoir
+                              </a>
+                            </>
+                          )}
+                          <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => printDeliveryNote(o)}>
+                            <span className="ms">description</span>{t('deliveryNote')}
+                          </button>
+
+                          <div style={{ borderTop: `1px solid ${TH.borderFaint}`, margin: '4px 0' }} />
+
+                          {!o.is_test && (
+                            <>
+                              <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }}
+                                      onClick={handleMarkTest} disabled={markingTest}
+                                      title="Exclut la commande des stats ET de la comptabilité">
+                                <span className="ms">science</span>
+                                {markingTest ? '…' : testConfirm ? t('markTestConfirm') : t('markTest')}
+                              </button>
+                              <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }}
+                                      onClick={toggleExcludeStats} disabled={togglingStats}
+                                      title="Exclut des stats de marge uniquement — la compta reste intacte">
+                                <span className="ms">query_stats</span>
+                                {togglingStats ? '…' : o.exclude_from_stats ? 'Réintégrer aux stats' : 'Hors stats'}
+                              </button>
+                            </>
+                          )}
+                          {['paid', 'confirmed', 'shipped'].includes(o.status) && !o.is_test && (
+                            <button className="sc-btn sc-btn-danger" style={{ justifyContent: 'flex-start' }}
+                                    onClick={handleRefund} disabled={refunding}>
+                              <span className="ms">undo</span>
+                              {refunding ? 'Remboursement…' : refundConfirm ? t('refundConfirm') : t('refund')}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {o.notes && (
+                        <div className="sc-card" style={{ padding: '12px 15px', fontSize: 12, fontStyle: 'italic', color: TH.text2b }}>
+                          {o.notes}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+
         {showNewModal && (() => {
           const pickerLines = Object.entries(pickerSelections).filter(([, s]) => s.qty > 0).map(([pid, s]) => {
             const p = productList.find(x => x.id === pid);
@@ -1748,8 +1627,12 @@ export default function CommandesPage() {
             </div>
           </div>
         )}
-      </div>
-      {toast && <div className="toast">{toast}</div>}
+
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: TH.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300 }}>
+          {toast}
+        </div>
+      )}
     </>
   );
 }
