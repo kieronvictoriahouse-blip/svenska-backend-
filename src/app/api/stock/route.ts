@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { adjustStock } from '@/lib/stock';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (searchParams.get('history') === '1') {
     const { data, error } = await supabaseAdmin
       .from('stock_movements')
-      .select('id, product_id, quantity, type, reason, created_at, products(name_fr)')
+      .select('id, product_id, quantity, type, delta, qty_before, qty_after, reason, reference, note, order_id, created_at, products(name_fr)')
       .order('created_at', { ascending: false })
       .limit(300);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -33,33 +34,31 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
   const { id, stock, stock_alert, track_stock, reason } = body;
   
-  // Get current stock for movement
+  // Les seuils et le suivi ne touchent pas aux quantités : mise à jour directe.
+  const { error: metaErr } = await supabaseAdmin.from('products')
+    .update({ stock_alert, track_stock })
+    .eq('id', id);
+  if (metaErr) return NextResponse.json({ error: metaErr.message, details: (metaErr as any).details }, { status: 500 });
+
+  /* La quantité, elle, passe par adjustStock : c'est le seul point du
+     code autorisé à bouger products.stock, et il journalise le delta
+     avec la photo avant/après. Une saisie manuelle laisse donc la même
+     trace qu'une vente ou une réception. */
   const { data: current } = await supabaseAdmin.from('products').select('stock').eq('id', id).single();
-  const diff = stock - (current?.stock || 0);
-  
-  // Update product stock
-  const { data: updated, error } = await supabaseAdmin.from('products')
-    .update({ stock, stock_alert, track_stock })
-    .eq('id', id)
-    .select('id, stock, stock_alert, track_stock')
-    .single();
-  if (error) return NextResponse.json({ error: error.message, details: (error as any).details }, { status: 500 });
-
-  // Vérification post-update — détecte les triggers qui resetteraient la valeur
-  const { data: verify } = await supabaseAdmin.from('products')
-    .select('id, stock, track_stock')
-    .eq('id', id)
-    .single();
-
-  // Log movement
+  const diff = (Number(stock) || 0) - (Number(current?.stock) || 0);
   if (diff !== 0) {
-    await supabaseAdmin.from('stock_movements').insert({
-      product_id: id,
-      quantity: diff,
-      type: diff > 0 ? 'in' : 'out',
-      reason: reason || 'Ajustement manuel',
-    });
+    try {
+      await adjustStock(id, diff, { reason: reason || 'manual', note: reason || 'Ajustement manuel' });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || 'Ajustement impossible' }, { status: 500 });
+    }
   }
 
-  return NextResponse.json({ success: true, updated, verify });
+  // Relecture — détecte un trigger qui resetterait la valeur.
+  const { data: verify } = await supabaseAdmin.from('products')
+    .select('id, stock, stock_alert, track_stock')
+    .eq('id', id)
+    .single();
+
+  return NextResponse.json({ success: true, updated: verify, verify });
 }
