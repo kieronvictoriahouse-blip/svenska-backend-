@@ -31,7 +31,7 @@ Identité de marque :
 - Nom : Swedish Cravings
 - Tagline : Bringing Sweden to your table
 - Site : https://swedishcravings.fr
-- Email contact : contact@swedishcravings.fr
+- Email contact : hej@swedishcravings.fr
 - Ton : chaleureux, lettre d'un ami, gourmand, voyage culinaire, jamais agressif/commercial
 - Ornements : · ✦ · et · · · (espacés avec letter-spacing)
 
@@ -190,7 +190,7 @@ TEMPLATE HTML COMPLET DE RÉFÉRENCE — Copie ce template tel quel et remplace 
       <p style="color:#A99282;font-size:14px;letter-spacing:6px;margin:0 0 14px;">· ✦ ·</p>
       <p style="color:rgba(255,255,255,0.55);font-size:12px;line-height:1.9;margin:0;font-family:Georgia,serif;">
         <strong style="color:rgba(255,255,255,0.85);letter-spacing:2px;">SWEDISH CRAVINGS</strong><br>
-        <a href="https://swedishcravings.fr" style="color:rgba(255,255,255,0.85);text-decoration:none;border-bottom:1px solid rgba(169,146,130,0.5);">swedishcravings.fr</a> · <a href="mailto:contact@swedishcravings.fr" style="color:rgba(255,255,255,0.85);text-decoration:none;border-bottom:1px solid rgba(169,146,130,0.5);">contact@swedishcravings.fr</a>
+        <a href="https://swedishcravings.fr" style="color:rgba(255,255,255,0.85);text-decoration:none;border-bottom:1px solid rgba(169,146,130,0.5);">swedishcravings.fr</a> · <a href="mailto:hej@swedishcravings.fr" style="color:rgba(255,255,255,0.85);text-decoration:none;border-bottom:1px solid rgba(169,146,130,0.5);">hej@swedishcravings.fr</a>
       </p>
       <p style="color:rgba(255,255,255,0.35);font-size:10px;letter-spacing:1px;margin:14px 0 0;font-style:italic;font-family:Georgia,serif;">Vous recevez cet email car vous avez passé commande chez nous.<br>Merci pour votre confiance.</p>
     </td></tr>

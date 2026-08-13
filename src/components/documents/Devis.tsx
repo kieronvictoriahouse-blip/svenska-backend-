@@ -89,7 +89,7 @@ export default function Devis({ d }: { d: DevisData }) {
           </div>
           <div style={{ fontSize: 11.5, color: D.soft, marginTop: 5, lineHeight: 1.6 }}>
             Faire précéder la signature de la mention « Bon pour accord », dater et retourner
-            par email à {d.replyTo || 'contact@swedishcravings.fr'}.
+            par email à {d.replyTo || 'hej@swedishcravings.fr'}.
           </div>
         </div>
       )}

@@ -231,7 +231,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     ...splitAddress(wl.address || SIEGE),
     `SIREN : ${fmtSiren(wl.siret || SIREN_RAW)}`,
     `RCS ${RCS_CITY}`,
-    wl.email || 'contact@swedishcravings.fr',
+    wl.email || 'hej@swedishcravings.fr',
   ].filter(Boolean);
 
   const clientName = inv.client_name || inv.customer_name || '—';
@@ -374,7 +374,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     M, ruleY + PX(13), { size: PX(9.5), color: D.soft2, width: CW * 0.64, lineGap: PX(9.5) * 0.65 },
   );
   text(
-    `${wl.email || 'contact@swedishcravings.fr'}${wl.phone ? '  ·  ' + wl.phone : ''}\n` +
+    `${wl.email || 'hej@swedishcravings.fr'}${wl.phone ? '  ·  ' + wl.phone : ''}\n` +
     String(wl.front_url || 'https://www.swedishcravings.fr').replace(/^https?:\/\//, ''),
     M + CW * 0.64, ruleY + PX(13),
     { size: PX(9.5), color: D.soft2, width: CW * 0.36, align: 'right', lineGap: PX(9.5) * 0.65 },

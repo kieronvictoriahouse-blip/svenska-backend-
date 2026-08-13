@@ -69,8 +69,8 @@ export async function GET(req: NextRequest) {
   const v = verifyChoice(token);
   if (!v.ok) {
     const msg = v.raison === 'expire'
-      ? 'Ce lien a expiré. Écrivez-nous à <a href="mailto:contact@swedishcravings.fr" style="color:#44573D;">contact@swedishcravings.fr</a> et nous reprenons la main tout de suite.'
-      : 'Ce lien n’est pas valide. Vérifiez que vous l’avez ouvert entièrement depuis votre email, ou écrivez-nous à <a href="mailto:contact@swedishcravings.fr" style="color:#44573D;">contact@swedishcravings.fr</a>.';
+      ? 'Ce lien a expiré. Écrivez-nous à <a href="mailto:hej@swedishcravings.fr" style="color:#44573D;">hej@swedishcravings.fr</a> et nous reprenons la main tout de suite.'
+      : 'Ce lien n’est pas valide. Vérifiez que vous l’avez ouvert entièrement depuis votre email, ou écrivez-nous à <a href="mailto:hej@swedishcravings.fr" style="color:#44573D;">hej@swedishcravings.fr</a>.';
     return page('Lien inutilisable', msg, 'ko');
   }
 

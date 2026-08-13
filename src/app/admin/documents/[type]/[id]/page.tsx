@@ -117,7 +117,7 @@ export default function DocumentPrintPage() {
   ].filter(Boolean).join(' · ');
 
   const mailbox = type === 'bon-de-commande' ? 'achats' : type === 'bon-de-retour' ? 'retours' : null;
-  const baseMail = doc.seller_email || cfg.email || 'contact@swedishcravings.fr';
+  const baseMail = doc.seller_email || cfg.email || 'hej@swedishcravings.fr';
   const mail = mailbox ? baseMail.replace(/^[^@]+/, mailbox) : baseMail;
   const contactLine1 = [mail, doc.seller_phone || cfg.phone].filter(Boolean).join(' · ');
   const contactLine2 = String(cfg.front_url || 'https://www.swedishcravings.fr').replace(/^https?:\/\//, '');
