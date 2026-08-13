@@ -168,6 +168,19 @@ des onglets dédiés par domaine, avec des sous-onglets liés à l'intérieur.
 **Non fait — à cadrer avec toi avant de coder**, parce que le découpage change
 la structure de l'URL et donc les entrées de navigation.
 
+### 19. Bon de commande fournisseur : deux rendus concurrents
+L'écran Achats propose à la fois `/api/purchase-orders/[id]/pdf` (ancien
+générateur pdfkit, bouton « PDF ») et `/admin/documents/bon-de-commande/<id>`
+(nouveau modèle A4). Même situation que la facture avant correction : le PDF
+téléchargé et le PDF envoyé au fournisseur ne ressemblent pas au document de
+la maquette. À porter comme `lib/invoice-pdf.ts`.
+
+### 20. Poids des articles manquant sur 19 produits
+Le bon de livraison reconstitue le poids du colis depuis `products.weight`.
+19 produits sur 57 n'ont pas de poids exploitable : sur ces commandes le total
+est affiché précédé de `~`. À compléter sur les fiches produit pour obtenir un
+poids juste (utile aussi pour l'affranchissement).
+
 ---
 
 ## ✅ Réglé
@@ -184,3 +197,6 @@ la structure de l'URL et donc les entrées de navigation.
   Achats (modales), Pages (éditeur).
 - Champ EAN sur la fiche produit, « Créer par scan » depuis la liste produits,
   session d'inventaire scannée, écran de préparation de commande.
+- Facture PDF portée au nouveau modèle, polices Jost et Cormorant embarquées.
+- Statut « payée » sur les factures : source corrigée + 25 factures reprises.
+- Stock : journal unique, cron de surveillance, 9 produits réalignés.

@@ -34,6 +34,21 @@ const TITLES: Record<string, string> = {
   'bon-de-livraison': 'Bon de livraison', 'devis': 'Devis', 'bon-de-retour': 'Bon de retour',
 };
 
+/** « 24 g », « 250 ml », « 1,2 kg » → grammes. Le ml est compte comme 1 g. */
+const grammes = (w: any): number => {
+  const m = String(w || '').replace(',', '.').match(/([\d.]+)\s*(kg|g|l|ml|cl)?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  if (!n) return 0;
+  switch ((m[2] || 'g').toLowerCase()) {
+    case 'kg': case 'l': return n * 1000;
+    case 'cl': return n * 10;
+    default:   return n;
+  }
+};
+
+const fmtPoids = (g: number) => (g >= 1000 ? `${(g / 1000).toFixed(2).replace('.', ',')} kg` : `${Math.round(g)} g`);
+
 const splitAddress = (v: any): string[] => {
   if (!v) return [];
   if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean);
@@ -50,6 +65,7 @@ export default function DocumentPrintPage() {
 
   const [doc, setDoc] = useState<any>(null);
   const [cfg, setCfg] = useState<any>({});
+  const [catalogue, setCatalogue] = useState<any[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -66,6 +82,12 @@ export default function DocumentPrintPage() {
         if (res?.error) { setError(res.error); return; }
         setDoc(res.invoice || res.order);
         setCfg(wl?.config || {});
+        /* Le poids du colis n'est stocke nulle part : on le reconstitue
+           depuis le poids unitaire des articles du catalogue. */
+        if (type === 'bon-de-livraison') {
+          adminFetch('/api/products?limit=1000').then(r => r.json())
+            .then(d => setCatalogue(d.products || [])).catch(() => {});
+        }
       } catch (e: any) {
         setError(e?.message || 'Chargement impossible');
       }
@@ -196,6 +218,18 @@ export default function DocumentPrintPage() {
 
   /* ══════════ BON DE LIVRAISON ══════════ */
   if (type === 'bon-de-livraison') {
+    // Poids articles + 80 g d'emballage, arrondi a la dizaine de grammes.
+    let brut = 0, incomplet = false;
+    for (const l of productLines) {
+      const p = catalogue.find((c: any) => c.id === l.product_id);
+      const g = grammes(p?.weight);
+      if (!g) incomplet = true;                 // article sans poids renseigne
+      brut += g * (Number(l.qty) || 1);
+    }
+    const poidsColis = brut > 0 ? Math.round((brut + 80) / 10) * 10 : 0;
+    /* Un tiers du catalogue n'a pas de poids : afficher un total sec
+       laisserait croire a une pesee. Le « environ » dit ce qu'il vaut. */
+    const poidsTexte = poidsColis > 0 ? (incomplet ? '~ ' : '') + fmtPoids(poidsColis) : '—';
     return wrap(<BonDeLivraison d={{
       number: `BL-${String(doc.order_number || '').replace(/^SD-/, '')}`,
       shippedAt: doc.updated_at || doc.created_at,
@@ -209,8 +243,8 @@ export default function DocumentPrintPage() {
       },
       lines: lines.map(l => ({ ...l, ordered: l.qty, shipped: l.qty })),
       parcels: '1 / 1',
-      weight: doc.parcel_weight || '—',
-      format: doc.parcel_format || '—',
+      weight: poidsTexte,
+      format: doc.parcel_format || 'Colis standard',
       ...legals,
     }} />);
   }
