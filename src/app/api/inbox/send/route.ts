@@ -24,7 +24,23 @@ function signature(): string {
 export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  const { to, cc, subject, html, inReplyTo, signer = true } = await req.json().catch(() => ({}));
+  const { to, cc, subject, html, inReplyTo, signer = true, attachments = [] } =
+    await req.json().catch(() => ({}));
+
+  /* Les pièces jointes arrivent en base64 depuis le navigateur. On borne
+     la taille : au-delà, le message est refusé par la plupart des serveurs
+     et l'échec arriverait après l'envoi, donc trop tard pour le dire. */
+  const PJ_MAX = 8 * 1024 * 1024;
+  const pieces = (Array.isArray(attachments) ? attachments : []).slice(0, 10).map((a: any) => ({
+    filename: String(a.filename || 'piece-jointe'),
+    content: Buffer.from(String(a.content || ''), 'base64'),
+  }));
+  const poids = pieces.reduce((s, p) => s + p.content.length, 0);
+  if (poids > PJ_MAX) {
+    return NextResponse.json({
+      error: `Pièces jointes trop lourdes (${Math.round(poids / 1024 / 1024)} Mo) — 8 Mo maximum`,
+    }, { status: 400 });
+  }
   const destinataires = String(to || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
   if (!destinataires.length) return NextResponse.json({ error: 'Destinataire manquant' }, { status: 400 });
   if (!String(subject || '').trim()) return NextResponse.json({ error: 'Objet manquant' }, { status: 400 });
@@ -55,6 +71,7 @@ export async function POST(req: NextRequest) {
       cc: cc || undefined,
       subject,
       html: corps,
+      ...(pieces.length ? { attachments: pieces } : {}),
       ...(inReplyTo ? { inReplyTo, references: inReplyTo } : {}),
     });
     const brut: Buffer = await new Promise((res, rej) =>

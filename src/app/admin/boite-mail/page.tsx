@@ -84,6 +84,11 @@ export default function BoiteMailPage() {
      auquel on repond, pour que le fil reste correct chez le destinataire. */
   const [redac, setRedac] = useState<null | { to: string; cc: string; subject: string; corps: string; repond?: string }>(null);
   const [envoi, setEnvoi] = useState(false);
+  const [pj, setPj] = useState<Array<{ filename: string; content: string; taille: number }>>([]);
+
+  /* Dossiers reels du serveur. Ouvrir un dossier jamais releve doit le
+     remplir : sinon il apparait vide alors qu'il ne l'est pas. */
+  const [dossiersServeur, setDossiersServeur] = useState<any[]>([]);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
   const etroit = w < 1320;
@@ -107,6 +112,39 @@ export default function BoiteMailPage() {
     finally { setChargement(false); }
   }
   useEffect(() => { charger(); /* eslint-disable-next-line */ }, [vue, filtre]);
+
+  useEffect(() => {
+    adminFetch('/api/inbox/folders').then(r => r.json())
+      .then(d => setDossiersServeur(d.dossiers || []))
+      .catch(() => { /* IMAP injoignable : on reste sur les vues de base */ });
+  }, []);
+
+  async function ouvrirDossier(d: any) {
+    setVue(d.path); setOuvert(null);
+    if (d.enCache === 0) {
+      setChargement(true);
+      try {
+        await adminFetch('/api/inbox/folders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder: d.path }),
+        });
+        setDossiersServeur(ds => ds.map(x => (x.path === d.path ? { ...x, enCache: 1 } : x)));
+      } catch { say('Dossier illisible'); }
+      charger();
+    }
+  }
+
+  async function ajouterPj(files: FileList | null) {
+    for (const f of Array.from(files || [])) {
+      const b64: string = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result).split(',')[1] || '');
+        r.onerror = rej;
+        r.readAsDataURL(f);
+      });
+      setPj(p => [...p, { filename: f.name, content: b64, taille: f.size }]);
+    }
+  }
 
   async function relever() {
     setSynchro(true);
@@ -186,12 +224,13 @@ export default function BoiteMailPage() {
           // Le champ est un textarea : les retours à la ligne deviennent des <br />.
           html: redac.corps.split('\n').join('<br />'),
           inReplyTo: redac.repond,
+          attachments: pj.map(p => ({ filename: p.filename, content: p.content })),
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Envoi impossible');
       say('Message envoyé');
-      setRedac(null);
+      setRedac(null); setPj([]);
     } catch (e: any) { say(e.message); }
     finally { setEnvoi(false); }
   }
@@ -238,6 +277,35 @@ export default function BoiteMailPage() {
             </button>
           );
         })}
+
+        {dossiersServeur.filter(d => d.role !== 'inbox').length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ padding: '0 13px 6px', fontSize: 8.5, letterSpacing: 2.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600 }}>
+              Dossiers
+            </div>
+            {dossiersServeur.filter(d => d.role !== 'inbox').map(d => {
+              const actif = vue === d.path;
+              const icone = d.role === 'sent' ? 'send' : d.role === 'drafts' ? 'drafts'
+                : d.role === 'trash' ? 'delete' : d.role === 'junk' ? 'report'
+                : d.role === 'archive' ? 'archive' : 'folder';
+              return (
+                <button key={d.path} onClick={() => ouvrirDossier(d)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 16px)', margin: '0 8px 2px',
+                          padding: '7px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                          background: actif ? C.accentFond : 'transparent',
+                          color: actif ? C.accent : C.t2, fontWeight: actif ? 600 : 400, fontSize: 12.5,
+                        }}>
+                  <span className="ms" style={{ fontSize: 19, fontVariationSettings: actif ? "'wght' 400" : "'wght' 300" }}>{icone}</span>
+                  <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.nom}</span>
+                  {d.enCache > 0 && (
+                    <span className="sc-num" style={{ fontSize: 10, color: actif ? C.accent : C.t5 }}>{d.enCache}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div style={{ padding: '10px 13px', borderTop: `1px solid ${C.ligneFaible}`, fontSize: 10.5, color: C.t4 }}>
@@ -470,13 +538,32 @@ export default function BoiteMailPage() {
                       fontSize: 14, lineHeight: 1.72, color: C.corps, fontFamily: 'inherit',
                     }} />
 
+          {pj.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 15px 10px' }}>
+              {pj.map((p, i) => (
+                <span key={i} className="sc-chip" style={{ fontSize: 11 }}>
+                  <span className="ms" style={{ fontSize: 14 }}>attach_file</span>
+                  {p.filename} · {Math.round(p.taille / 1024)} ko
+                  <button onClick={() => setPj(l => l.filter((_, j) => j !== i))}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, marginLeft: 4, lineHeight: 1 }}>
+                    <span className="ms" style={{ fontSize: 14, color: C.t4 }}>close</span>
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', background: '#FBF9F6', borderTop: `1px solid ${C.border}` }}>
             <button className="sc-btn" onClick={envoyer} disabled={envoi}
                     style={{ background: C.vert, color: '#fff', border: 'none' }}>
               <span className="ms">send</span>{envoi ? 'Envoi…' : 'Envoyer'}
             </button>
+            <label className="sc-btn sc-btn-secondary" style={{ cursor: 'pointer', padding: '6px 11px', fontSize: 11.5 }}>
+              <span className="ms">attach_file</span>Joindre
+              <input type="file" multiple hidden onChange={e => { ajouterPj(e.target.files); e.currentTarget.value = ''; }} />
+            </label>
             <span style={{ flex: 1, fontSize: 11, color: C.t4 }}>
-              La signature Swedish Cravings est ajoutée automatiquement.
+              Signature ajoutée automatiquement · 8 Mo de pièces jointes au maximum.
             </span>
             <button className="sc-iconbtn" title="Abandonner" onClick={() => setRedac(null)}>
               <span className="ms" style={{ color: '#B03A2E' }}>delete</span>
