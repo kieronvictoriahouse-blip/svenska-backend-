@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { adminFetch } from '@/lib/auth-client';
+import { adminFetch, downloadAuth } from '@/lib/auth-client';
 
 /* ═══════════════════════════════════════════════════════════════
    BOÎTE MAIL — hej@swedishcravings.fr
@@ -507,9 +507,13 @@ export default function BoiteMailPage() {
             {!!ouvert.attachments?.length && (
               <div style={{ padding: '13px 22px', borderTop: `1px solid ${C.ligne}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {ouvert.attachments.map((a: any, i: number) => (
-                  <span key={i} className="sc-chip" style={{ fontSize: 11 }}>
-                    <span className="ms" style={{ fontSize: 14 }}>attach_file</span>{a.filename}
-                  </span>
+                  <button key={i} className="sc-chip" style={{ fontSize: 11, cursor: 'pointer', border: 'none' }}
+                          title={`${Math.round((a.size || 0) / 1024)} ko`}
+                          onClick={() => downloadAuth(`/api/inbox/attachment?id=${ouvert.id}&i=${i}`, a.filename || 'piece-jointe')
+                            .catch(e => say(e.message))}>
+                    <span className="ms" style={{ fontSize: 14 }}>download</span>
+                    {a.filename} · {Math.round((a.size || 0) / 1024)} ko
+                  </button>
                 ))}
               </div>
             )}

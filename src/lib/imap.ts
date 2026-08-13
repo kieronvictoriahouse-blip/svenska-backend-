@@ -281,3 +281,34 @@ export async function appendToSent(raw: string | Buffer): Promise<void> {
     try { await c.logout(); } catch { /* ignore */ }
   }
 }
+
+/**
+ * Récupère une pièce jointe.
+ *
+ * Le cache ne garde que le nom et la taille des fichiers, pas leur
+ * contenu : stocker des pièces jointes en base ferait grossir la table
+ * sans limite. On va donc les chercher sur le serveur à la demande.
+ */
+export async function fetchAttachment(
+  folder: string, uid: number, index: number,
+): Promise<{ filename: string; type: string; content: Buffer } | null> {
+  const c = client();
+  try {
+    await c.connect();
+    const lock = await c.getMailboxLock(folder);
+    try {
+      const msg = await c.fetchOne(String(uid), { source: true }, { uid: true });
+      if (!msg || !msg.source) return null;
+      const parsed = await simpleParser(msg.source as Buffer);
+      const a: any = (parsed.attachments || [])[index];
+      if (!a) return null;
+      return {
+        filename: a.filename || `piece-jointe-${index + 1}`,
+        type: a.contentType || 'application/octet-stream',
+        content: a.content as Buffer,
+      };
+    } finally { lock.release(); }
+  } finally {
+    try { await c.logout(); } catch { /* ignore */ }
+  }
+}
