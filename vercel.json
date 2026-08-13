@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/stock-audit",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/inbox",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

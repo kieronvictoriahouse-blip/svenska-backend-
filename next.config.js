@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['pdfkit', 'sharp'],
+    serverComponentsExternalPackages: ['pdfkit', 'sharp', 'imapflow', 'mailparser'],
     /* Les polices et le monogramme sont lus depuis le disque au moment de
        générer un PDF. Le traceur de Next ne les voit pas (aucun import ne
        les référence), il faut donc les inclure explicitement dans le
