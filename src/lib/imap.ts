@@ -312,3 +312,36 @@ export async function fetchAttachment(
     try { await c.logout(); } catch { /* ignore */ }
   }
 }
+
+/**
+ * Dépose un brouillon dans le dossier Drafts et retourne son UID.
+ *
+ * L'UID sert à supprimer la version précédente au réenregistrement :
+ * sans ça, chaque sauvegarde laisserait une copie de plus et le dossier
+ * se remplirait de doublons du même message en cours d'écriture.
+ */
+export async function appendToDrafts(raw: string | Buffer): Promise<{ uid: number | null; folder: string }> {
+  const roles = await resolveFolders();
+  const c = client();
+  try {
+    await c.connect();
+    const res: any = await c.append(roles.drafts, raw, ['\Draft', '\Seen']);
+    return { uid: Number(res?.uid) || null, folder: roles.drafts };
+  } finally {
+    try { await c.logout(); } catch { /* ignore */ }
+  }
+}
+
+/** Supprime définitivement un message d'un dossier (ancienne version d'un brouillon). */
+export async function deleteMessage(folder: string, uid: number): Promise<void> {
+  const c = client();
+  try {
+    await c.connect();
+    const lock = await c.getMailboxLock(folder);
+    try {
+      await c.messageDelete({ uid: String(uid) }, { uid: true });
+    } finally { lock.release(); }
+  } finally {
+    try { await c.logout(); } catch { /* ignore */ }
+  }
+}

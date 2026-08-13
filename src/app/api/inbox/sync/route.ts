@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { syncFolder, resolveFolders } from '@/lib/imap';
+import { viderFileProgrammee } from '@/lib/mail-send';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -18,8 +19,14 @@ export async function POST(req: NextRequest) {
   for (const dossier of ['INBOX', roles.sent]) {
     resultats.push(await syncFolder(dossier));
   }
+  /* On profite du passage pour expedier ce qui est du : le cron
+     quotidien ne suffit pas a tenir une heure d'envoi. */
+  let programmes = { envoyes: 0, echecs: [] as any[] };
+  try { programmes = await viderFileProgrammee(); }
+  catch (e) { console.error('[inbox/sync] file programmee', e); }
+
   const erreurs = resultats.filter(r => r.erreur);
-  return NextResponse.json({ ok: !erreurs.length, resultats });
+  return NextResponse.json({ ok: !erreurs.length, resultats, programmes });
 }
 
 /** État de la dernière relève, pour le libellé « il y a 3 min ». */

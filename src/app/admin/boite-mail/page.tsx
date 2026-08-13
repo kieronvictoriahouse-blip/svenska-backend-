@@ -1,104 +1,67 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { adminFetch, downloadAuth } from '@/lib/auth-client';
+import Redaction, { Brouillon } from './Redaction';
+import {
+  C, COULEUR_ETIQ, couleurDe, initiales, quand, depuis,
+  Msg, ItemNav, GroupeNav, LigneMessage, Vide,
+} from './ui';
 
 /* ═══════════════════════════════════════════════════════════════
    BOÎTE MAIL — hej@swedishcravings.fr
 
    Trois panneaux : dossiers 228 px · liste 392 px (340 sous 1320 px)
-   · lecture. Les seuils sont calculés en JS et non en media query,
-   comme le demande le handoff : la largeur sert aussi à décider de la
-   bascule mobile, qu'une media query ne saurait pas exposer au reste
-   de la logique.
+   · lecture. Les seuils sont calculés en JS comme le demande le
+   handoff, mais **alignés sur ceux du shell** : bascule mobile à
+   900 px, et la hauteur réserve la topbar (48 px) plus la barre
+   d'onglets (58 px) quand elle est là. Les deux désaccordés faisaient
+   déborder l'écran sur téléphone.
 
-   Le cache local répond tout de suite ; « Envoyer / recevoir » va
-   chercher le nouveau. Le plan Vercel n'autorisant qu'un cron par
-   jour, cette relève manuelle est le mode normal.
+   La liste est paginée : recharger un dossier entier à chaque
+   changement de filtre ne tenait que tant que la boîte était petite.
    ═══════════════════════════════════════════════════════════════ */
-
-const C = {
-  ink: '#1C2028', sidebar: '#FCFAF7', lecture: '#F1EEE9', surface: '#FFFFFF',
-  border: '#E7E1D8', ligne: '#F1EDE7', ligneFaible: '#F6F3EE', champ: '#E1DBD2',
-  t1: '#1C2028', corps: '#3A3630', t2: '#5A5248', t3: '#6E6459',
-  t4: '#8B7E72', t5: '#9C9184', t6: '#A79C8E',
-  accent: '#7B4F7B', accentFond: '#7B4F7B14', accentBord: '#7B4F7B66',
-  selFond: '#F3EDF3', selBord: '#E3D6E3', selTexte: '#5E3B5E',
-  etoile: '#C9A227', vert: '#3E5238',
-};
-
-const COULEUR_ETIQ: Record<string, string> = {
-  Clients: '#7B4F7B', Fournisseurs: '#1C4E80', Logistique: '#3E5238',
-  'Comptabilité': '#8A5B08', Marketing: '#A6501F',
-};
-const couleurDe = (l?: string | null) => (l && COULEUR_ETIQ[l]) || '#857C71';
-
-const initiales = (s?: string | null) =>
-  String(s || '?').trim().split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
-
-function quand(iso?: string) {
-  if (!iso) return '';
-  const d = new Date(iso), now = new Date();
-  const memeJour = d.toDateString() === now.toDateString();
-  if (memeJour) return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  const an = d.getFullYear() === now.getFullYear();
-  return d.toLocaleDateString('fr-FR', an ? { day: '2-digit', month: 'short' } : { day: '2-digit', month: '2-digit', year: '2-digit' });
-}
-
-function depuis(iso?: string | null) {
-  if (!iso) return 'jamais';
-  const m = Math.floor((Date.now() - +new Date(iso)) / 60000);
-  if (m < 1) return "à l'instant";
-  if (m < 60) return `il y a ${m} min`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `il y a ${h} h` : `il y a ${Math.floor(h / 24)} j`;
-}
-
-type Msg = {
-  id: string; folder: string; uid: number; from_name?: string; from_email?: string;
-  subject?: string; preview?: string; seen: boolean; flagged: boolean;
-  label?: string | null; attachments?: any[]; sent_at?: string;
-  body_html?: string; body_text?: string; to_emails?: string[];
-};
 
 const VUES = [
   { id: 'INBOX', icone: 'inbox', label: 'Réception', compteur: 'nonLus' },
   { id: 'unread', icone: 'mark_email_unread', label: 'Non lus', compteur: 'nonLus' },
   { id: 'starred', icone: 'star', label: 'Suivis', compteur: 'suivis' },
+  { id: 'drafts', icone: 'drafts', label: 'Brouillons', compteur: 'brouillons' },
+  { id: 'scheduled', icone: 'schedule_send', label: 'Programmés', compteur: 'programmes' },
 ];
+
+const TAILLE = 50;
 
 export default function BoiteMailPage() {
   const [vue, setVue] = useState('INBOX');
   const [filtre, setFiltre] = useState('tous');
+  const [etiquette, setEtiquette] = useState('');
   const [q, setQ] = useState('');
+  const [recherche, setRecherche] = useState('');
+
   const [messages, setMessages] = useState<Msg[]>([]);
-  const [compteurs, setCompteurs] = useState<any>({ nonLus: 0, suivis: 0 });
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [compteurs, setCompteurs] = useState<any>({ nonLus: 0, suivis: 0, brouillons: 0, programmes: 0 });
   const [etat, setEtat] = useState<any[]>([]);
+  const [dossiers, setDossiers] = useState<any[]>([]);
+  const [brouillons, setBrouillons] = useState<any[]>([]);
+  const [programmes, setProgrammes] = useState<any[]>([]);
+
   const [ouvert, setOuvert] = useState<Msg | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [redac, setRedac] = useState<Brouillon | null>(null);
+
+  const [carnet, setCarnet] = useState<any[]>([]);
+  const [modeles, setModeles] = useState<any[]>([]);
   const [chargement, setChargement] = useState(true);
   const [synchro, setSynchro] = useState(false);
   const [toast, setToast] = useState('');
   const [w, setW] = useState(1400);
 
-  /* Fenetre de redaction : null = fermee. `repond` porte le Message-ID
-     auquel on repond, pour que le fil reste correct chez le destinataire. */
-  const [redac, setRedac] = useState<null | { to: string; cc: string; subject: string; corps: string; repond?: string }>(null);
-  const [envoi, setEnvoi] = useState(false);
-  const [pj, setPj] = useState<Array<{ filename: string; content: string; taille: number }>>([]);
-
-  /* Dossiers reels du serveur. Ouvrir un dossier jamais releve doit le
-     remplir : sinon il apparait vide alors qu'il ne l'est pas. */
-  const [dossiersServeur, setDossiersServeur] = useState<any[]>([]);
-
-  /* Carnet d'adresses et modeles : charges une fois, pour ne rien
-     retaper qu'on a deja quelque part. */
-  const [carnet, setCarnet] = useState<any[]>([]);
-  const [etiquette, setEtiquette] = useState('');
-  const [modeles, setModeles] = useState<any[]>([]);
-
-  const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
+  const say = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); }, []);
+  const mobile = w < 900;                 // même seuil que le shell
   const etroit = w < 1320;
-  const mobile = w < 1000;
+  const virtuelle = vue === 'drafts' || vue === 'scheduled';
 
   useEffect(() => {
     const r = () => setW(window.innerWidth);
@@ -106,28 +69,51 @@ export default function BoiteMailPage() {
     return () => window.removeEventListener('resize', r);
   }, []);
 
-  async function charger() {
+  const charger = useCallback(async (p = 0, ajouter = false) => {
     setChargement(true);
     try {
-      const p = new URLSearchParams({ vue, filtre, ...(q ? { q } : {}), ...(etiquette ? { etiquette } : {}) });
-      const d = await adminFetch(`/api/inbox?${p}`).then(r => r.json());
-      setMessages(d.messages || []);
-      setCompteurs(d.compteurs || {});
-      setEtat(d.etat || []);
+      if (vue === 'drafts') {
+        const d = await adminFetch('/api/inbox/drafts').then(r => r.json());
+        setBrouillons(d.brouillons || []);
+      } else if (vue === 'scheduled') {
+        const d = await adminFetch('/api/inbox/scheduled').then(r => r.json());
+        setProgrammes(d.programmes || []);
+      } else {
+        const params = new URLSearchParams({
+          vue, filtre, page: String(p), taille: String(TAILLE),
+          ...(recherche ? { q: recherche } : {}), ...(etiquette ? { etiquette } : {}),
+        });
+        const d = await adminFetch(`/api/inbox?${params}`).then(r => r.json());
+        setMessages(ms => (ajouter ? [...ms, ...(d.messages || [])] : (d.messages || [])));
+        setTotal(d.total || 0);
+        setPage(d.page || 0);
+        setCompteurs(d.compteurs || {});
+        setEtat(d.etat || []);
+      }
     } catch { say('Chargement impossible'); }
     finally { setChargement(false); }
-  }
-  useEffect(() => { charger(); /* eslint-disable-next-line */ }, [vue, filtre, etiquette]);
+  }, [vue, filtre, recherche, etiquette, say]);
+
+  useEffect(() => { setSel(new Set()); charger(0); }, [charger]);
 
   useEffect(() => {
-    adminFetch('/api/inbox/contacts').then(r => r.json())
-      .then(d => setCarnet(d.carnet || [])).catch(() => {});
-    adminFetch('/api/email-templates').then(r => r.json())
-      .then(d => setModeles(d.templates || [])).catch(() => {});
-    adminFetch('/api/inbox/folders').then(r => r.json())
-      .then(d => setDossiersServeur(d.dossiers || []))
-      .catch(() => { /* IMAP injoignable : on reste sur les vues de base */ });
+    adminFetch('/api/inbox/contacts').then(r => r.json()).then(d => setCarnet(d.carnet || [])).catch(() => {});
+    adminFetch('/api/email-templates').then(r => r.json()).then(d => setModeles(d.templates || [])).catch(() => {});
+    adminFetch('/api/inbox/folders').then(r => r.json()).then(d => setDossiers(d.dossiers || [])).catch(() => {});
   }, []);
+
+  async function relever() {
+    setSynchro(true);
+    try {
+      const d = await adminFetch('/api/inbox/sync', { method: 'POST' }).then(r => r.json());
+      const n = (d.resultats || []).reduce((s: number, r: any) => s + (r.nouveaux || 0), 0);
+      const err = (d.resultats || []).find((r: any) => r.erreur);
+      const prog = d.programmes?.envoyes ? ` · ${d.programmes.envoyes} envoi(s) programmé(s) parti(s)` : '';
+      say(err ? `Erreur : ${err.erreur}` : `Boîte synchronisée · ${n} message(s)${prog}`);
+      charger(0);
+    } catch (e: any) { say(e.message); }
+    finally { setSynchro(false); }
+  }
 
   async function ouvrirDossier(d: any) {
     setVue(d.path); setOuvert(null);
@@ -138,50 +124,10 @@ export default function BoiteMailPage() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folder: d.path }),
         });
-        setDossiersServeur(ds => ds.map(x => (x.path === d.path ? { ...x, enCache: 1 } : x)));
+        setDossiers(ds => ds.map(x => (x.path === d.path ? { ...x, enCache: 1 } : x)));
       } catch { say('Dossier illisible'); }
-      charger();
+      charger(0);
     }
-  }
-
-  /* Insere un modele dans le corps. On previsualise avec les donnees
-     d'exemple : le rendu final avec les vraies valeurs se fait a
-     l'envoi des emails automatiques, pas ici. */
-  async function inserer(key: string) {
-    const t = modeles.find(m => m.key === key);
-    if (!t || !redac) return;
-    try {
-      const html = await adminFetch('/api/email-templates', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html: t.html }),
-      }).then(r => r.text());
-      setRedac({ ...redac, corps: html, subject: redac.subject || t.label });
-      say(`Modele « ${t.label} » insere — relis avant d'envoyer`);
-    } catch { say('Modele illisible'); }
-  }
-
-  async function ajouterPj(files: FileList | null) {
-    for (const f of Array.from(files || [])) {
-      const b64: string = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result).split(',')[1] || '');
-        r.onerror = rej;
-        r.readAsDataURL(f);
-      });
-      setPj(p => [...p, { filename: f.name, content: b64, taille: f.size }]);
-    }
-  }
-
-  async function relever() {
-    setSynchro(true);
-    try {
-      const d = await adminFetch('/api/inbox/sync', { method: 'POST' }).then(r => r.json());
-      const n = (d.resultats || []).reduce((s: number, r: any) => s + (r.nouveaux || 0), 0);
-      const err = (d.resultats || []).find((r: any) => r.erreur);
-      say(err ? `Erreur : ${err.erreur}` : `Boîte synchronisée · ${n} message(s)`);
-      await charger();
-    } catch (e: any) { say(e.message); }
-    finally { setSynchro(false); }
   }
 
   async function ouvrir(m: Msg) {
@@ -194,82 +140,81 @@ export default function BoiteMailPage() {
       if (d.message) {
         setOuvert(d.message);
         setMessages(ms => ms.map(x => (x.id === m.id ? { ...x, seen: true } : x)));
-        setCompteurs((c: any) => ({ ...c, nonLus: Math.max(0, c.nonLus - (m.seen ? 0 : 1)) }));
+        if (!m.seen) setCompteurs((c: any) => ({ ...c, nonLus: Math.max(0, c.nonLus - 1) }));
       }
     } catch { say('Message illisible'); }
   }
 
-  async function agir(action: string, ids?: string[]) {
+  async function agir(action: string, ids?: string[], label?: string) {
     const liste = ids || Array.from(sel);
     if (!liste.length) return;
-    // Optimiste : le cache local reflète le geste tout de suite, IMAP suit.
+    // Optimiste : le geste se voit tout de suite, IMAP suit derrière.
     setMessages(ms => ms.map(m => {
       if (!liste.includes(m.id)) return m;
       if (action === 'lu') return { ...m, seen: true };
       if (action === 'non-lu') return { ...m, seen: false };
       if (action === 'etoile') return { ...m, flagged: !m.flagged };
+      if (action === 'etiquette') return { ...m, label: label || null };
       return m;
     }));
-    if (action === 'corbeille') setMessages(ms => ms.filter(m => !liste.includes(m.id)));
+    if (action === 'corbeille') {
+      setMessages(ms => ms.filter(m => !liste.includes(m.id)));
+      if (ouvert && liste.includes(ouvert.id)) setOuvert(null);
+    }
     setSel(new Set());
     try {
       await adminFetch('/api/inbox', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: liste, action }),
+        body: JSON.stringify({ ids: liste, action, label }),
       });
-    } catch { say('Action non enregistrée'); charger(); }
+    } catch { say('Action non enregistrée'); charger(0); }
   }
 
-  function nouveau() { setRedac({ to: '', cc: '', subject: '', corps: '' }); }
+  async function annulerProgramme(id: string) {
+    try {
+      const res = await adminFetch(`/api/inbox/scheduled?id=${id}`, { method: 'DELETE' });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      say('Envoi annulé');
+      charger(0);
+    } catch (e: any) { say(e.message); }
+  }
+
+  async function supprimerBrouillon(id: string) {
+    await adminFetch(`/api/inbox/drafts?id=${id}`, { method: 'DELETE' });
+    setBrouillons(b => b.filter(x => x.id !== id));
+    say('Brouillon supprimé');
+  }
 
   function repondre(m: Msg, tous = false) {
     const cc = tous ? (m.to_emails || []).filter(e => e && e !== 'hej@swedishcravings.fr').join(', ') : '';
+    const re = /^re\s*:/i.test(m.subject || '');
     setRedac({
-      to: m.from_email || '', cc,
-      subject: /^re\s*:/i.test(m.subject || '') ? (m.subject || '') : `Re : ${m.subject || ''}`,
-      corps: '', repond: (m as any).message_id || undefined,
+      to: m.from_email || '', cc, subject: re ? (m.subject || '') : `Re : ${m.subject || ''}`,
+      corps: '', repond: m.message_id || undefined,
     });
   }
 
   function transferer(m: Msg) {
+    const tr = /^tr\s*:/i.test(m.subject || '');
     setRedac({
-      to: '', cc: '',
-      subject: /^tr\s*:/i.test(m.subject || '') ? (m.subject || '') : `Tr : ${m.subject || ''}`,
-      corps: `<br /><br />---------- Message transféré ----------<br />De : ${m.from_email}<br />Objet : ${m.subject}<br /><br />${m.body_html || m.body_text || ''}`,
+      to: '', cc: '', subject: tr ? (m.subject || '') : `Tr : ${m.subject || ''}`,
+      corps: `\n\n---------- Message transféré ----------\nDe : ${m.from_email}\nObjet : ${m.subject}\n\n${m.body_text || ''}`,
     });
   }
 
-  async function envoyer() {
-    if (!redac) return;
-    setEnvoi(true);
-    try {
-      const res = await adminFetch('/api/inbox/send', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: redac.to, cc: redac.cc, subject: redac.subject,
-          // Le champ est un textarea : les retours à la ligne deviennent des <br />.
-          html: redac.corps.split('\n').join('<br />'),
-          inReplyTo: redac.repond,
-          attachments: pj.map(p => ({ filename: p.filename, content: p.content })),
-        }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'Envoi impossible');
-      say('Message envoyé');
-      setRedac(null); setPj([]);
-    } catch (e: any) { say(e.message); }
-    finally { setEnvoi(false); }
-  }
-
-  const nonLusListe = useMemo(() => messages.filter(m => !m.seen).length, [messages]);
   const inbox = etat.find(e => e.folder === 'INBOX');
+  /* Hauteur disponible : la page vit dans .sc-main, sous une topbar de
+     48 px, avec 16 px de padding haut, et la barre d'onglets en bas
+     sur mobile. La marge négative annule le padding de .sc-screen. */
+  const hauteur = `calc(100vh - ${48 + 16 + (mobile ? 58 : 0)}px)`;
 
-  /* ── Colonne dossiers ─────────────────────────────────── */
-  const dossiers = (
+  /* ── Colonne 1 : dossiers ─────────────────────────────── */
+  const colDossiers = (
     <div style={{ width: 228, flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, borderBottom: `1px solid ${C.ligneFaible}` }}>
         <button className="sc-btn" style={{ width: '100%', height: 38, justifyContent: 'center', background: C.ink, color: '#fff', border: 'none' }}
-                onClick={nouveau}>
+                onClick={() => setRedac({ to: '', cc: '', subject: '', corps: '' })}>
           <span className="ms">edit</span>Nouveau message
         </button>
         <button className="sc-btn sc-btn-secondary" onClick={relever} disabled={synchro}
@@ -280,201 +225,172 @@ export default function BoiteMailPage() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', paddingTop: 8 }}>
-        {VUES.map(v => {
-          const actif = vue === v.id;
-          const n = compteurs[v.compteur] || 0;
-          return (
-            <button key={v.id} onClick={() => { setVue(v.id); setOuvert(null); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 16px)', margin: '0 8px 2px',
-                      padding: '7px 13px 7px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                      background: actif ? C.accentFond : 'transparent',
-                      color: actif ? C.accent : C.t2, fontWeight: actif ? 600 : 400, fontSize: 12.5,
-                    }}>
-              <span className="ms" style={{ fontSize: 19, fontVariationSettings: actif ? "'wght' 400" : "'wght' 300" }}>{v.icone}</span>
-              <span style={{ flex: 1, textAlign: 'left' }}>{v.label}</span>
-              {n > 0 && (
-                <span className="sc-num" style={{
-                  minWidth: 19, height: 17, borderRadius: 9, display: 'inline-flex', alignItems: 'center',
-                  justifyContent: 'center', fontSize: 10, fontWeight: 700, padding: '0 5px',
-                  background: actif ? C.accent : '#EFEBE4', color: actif ? '#fff' : '#857C71',
-                }}>{n}</span>
-              )}
-            </button>
-          );
-        })}
+        {VUES.map(v => (
+          <ItemNav key={v.id} icone={v.icone} label={v.label} actif={vue === v.id} pastille
+                   compteur={compteurs[v.compteur] || 0}
+                   onClick={() => { setVue(v.id); setOuvert(null); }} />
+        ))}
 
-        {dossiersServeur.filter(d => d.role !== 'inbox').length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ padding: '0 13px 6px', fontSize: 8.5, letterSpacing: 2.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600 }}>
-              Dossiers
-            </div>
-            {dossiersServeur.filter(d => d.role !== 'inbox').map(d => {
-              const actif = vue === d.path;
-              const icone = d.role === 'sent' ? 'send' : d.role === 'drafts' ? 'drafts'
-                : d.role === 'trash' ? 'delete' : d.role === 'junk' ? 'report'
-                : d.role === 'archive' ? 'archive' : 'folder';
-              return (
-                <button key={d.path} onClick={() => ouvrirDossier(d)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 16px)', margin: '0 8px 2px',
-                          padding: '7px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                          background: actif ? C.accentFond : 'transparent',
-                          color: actif ? C.accent : C.t2, fontWeight: actif ? 600 : 400, fontSize: 12.5,
-                        }}>
-                  <span className="ms" style={{ fontSize: 19, fontVariationSettings: actif ? "'wght' 400" : "'wght' 300" }}>{icone}</span>
-                  <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.nom}</span>
-                  {d.enCache > 0 && (
-                    <span className="sc-num" style={{ fontSize: 10, color: actif ? C.accent : C.t5 }}>{d.enCache}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+        {dossiers.filter(d => d.role !== 'inbox').length > 0 && (
+          <GroupeNav titre="Dossiers">
+            {dossiers.filter(d => d.role !== 'inbox').map(d => (
+              <ItemNav key={d.path}
+                       icone={d.role === 'sent' ? 'send' : d.role === 'drafts' ? 'drafts'
+                         : d.role === 'trash' ? 'delete' : d.role === 'junk' ? 'report'
+                         : d.role === 'archive' ? 'archive' : 'folder'}
+                       label={d.nom} actif={vue === d.path} compteur={d.enCache}
+                       onClick={() => ouvrirDossier(d)} />
+            ))}
+          </GroupeNav>
         )}
 
-        <div style={{ marginTop: 12 }}>
-          <div style={{ padding: '0 13px 6px', fontSize: 8.5, letterSpacing: 2.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600 }}>
-            Étiquettes
-          </div>
-          {Object.keys(COULEUR_ETIQ).map(l => {
-            const actif = etiquette === l;
-            return (
-              <button key={l} onClick={() => { setEtiquette(actif ? '' : l); setOuvert(null); }}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 16px)', margin: '0 8px 2px',
-                        padding: '6px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                        background: actif ? C.accentFond : 'transparent',
-                        color: actif ? C.accent : C.t2, fontWeight: actif ? 600 : 400, fontSize: 12.5,
-                      }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: COULEUR_ETIQ[l], flexShrink: 0 }} />
-                <span style={{ flex: 1, textAlign: 'left' }}>{l}</span>
-              </button>
-            );
-          })}
-        </div>
+        <GroupeNav titre="Étiquettes">
+          {Object.keys(COULEUR_ETIQ).map(l => (
+            <ItemNav key={l} icone="label" carre={COULEUR_ETIQ[l]} label={l}
+                     actif={etiquette === l}
+                     onClick={() => { setEtiquette(etiquette === l ? '' : l); setOuvert(null); }} />
+          ))}
+        </GroupeNav>
       </div>
 
       <div style={{ padding: '10px 13px', borderTop: `1px solid ${C.ligneFaible}`, fontSize: 10.5, color: C.t4 }}>
-        <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: inbox?.last_error ? '#B03A2E' : '#3E7A4E', marginRight: 6 }} />
+        <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: inbox?.last_error ? C.rouge : '#3E7A4E', marginRight: 6 }} />
         {inbox?.last_error ? 'IMAP en erreur' : 'IMAP connecté'} · hej@swedishcravings.fr
       </div>
     </div>
   );
 
-  /* ── Colonne liste ────────────────────────────────────── */
-  const liste = (
+  /* ── Colonne 2 : liste ────────────────────────────────── */
+  const colListe = (
     <div style={{ width: mobile ? '100%' : (etroit ? 340 : 392), flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ flexShrink: 0, background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '11px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>
-              {VUES.find(v => v.id === vue)?.label || vue}
-            </div>
-            <div style={{ fontSize: 11, color: C.t4 }}>
-              {messages.length} message{messages.length > 1 ? 's' : ''}
-              {nonLusListe > 0 ? ` · ${nonLusListe} non lu${nonLusListe > 1 ? 's' : ''}` : ' · tout est lu'}
-            </div>
-          </div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>
+          {VUES.find(v => v.id === vue)?.label || dossiers.find(d => d.path === vue)?.nom || vue}
+          {etiquette && <span style={{ fontSize: 11.5, fontWeight: 400, color: couleurDe(etiquette) }}> · {etiquette}</span>}
+        </div>
+        <div style={{ fontSize: 11, color: C.t4 }}>
+          {virtuelle
+            ? `${(vue === 'drafts' ? brouillons : programmes).length} élément(s)`
+            : `${total} message${total > 1 ? 's' : ''}${messages.length < total ? ` · ${messages.length} affichés` : ''}`}
         </div>
 
-        <div style={{ position: 'relative', marginTop: 9 }}>
-          <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
-          <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
-                 onKeyDown={e => e.key === 'Enter' && charger()}
-                 placeholder="Rechercher" style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12 }} />
-        </div>
+        {!virtuelle && (
+          <>
+            <div style={{ position: 'relative', marginTop: 9 }}>
+              <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
+              <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
+                     onKeyDown={e => e.key === 'Enter' && setRecherche(q)}
+                     placeholder="Rechercher puis Entrée" style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12 }} />
+            </div>
 
-        <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-          {[['tous', 'Tous'], ['non-lus', `Non lus${compteurs.nonLus ? ` ${compteurs.nonLus}` : ''}`], ['pieces-jointes', 'Avec pièce jointe']].map(([id, lab]) => (
-            <button key={id} onClick={() => setFiltre(id)}
-                    style={{
-                      border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 6,
-                      padding: '4px 9px', fontSize: 11.5,
-                      background: filtre === id ? C.ink : 'transparent',
-                      color: filtre === id ? '#fff' : C.t3, fontWeight: filtre === id ? 600 : 400,
-                    }}>{lab}</button>
-          ))}
-        </div>
+            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+              {[['tous', 'Tous'], ['non-lus', 'Non lus'], ['pieces-jointes', 'Pièce jointe']].map(([id, lab]) => (
+                <button key={id} onClick={() => setFiltre(id)}
+                        style={{
+                          border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 6,
+                          padding: '4px 9px', fontSize: 11.5,
+                          background: filtre === id ? C.ink : 'transparent',
+                          color: filtre === id ? '#fff' : C.t3, fontWeight: filtre === id ? 600 : 400,
+                        }}>{lab}</button>
+              ))}
+            </div>
+          </>
+        )}
 
         {sel.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8, background: C.selFond, border: `1px solid ${C.selBord}`, borderRadius: 7, padding: '6px 9px' }}>
             <span style={{ flex: 1, fontSize: 11.5, color: C.selTexte, fontWeight: 600 }}>{sel.size} sélectionné{sel.size > 1 ? 's' : ''}</span>
             <button className="sc-iconbtn" title="Marquer lu" onClick={() => agir('lu')}><span className="ms">mark_email_read</span></button>
             <button className="sc-iconbtn" title="Marquer non lu" onClick={() => agir('non-lu')}><span className="ms">mark_email_unread</span></button>
-            <button className="sc-iconbtn" title="Corbeille" onClick={() => agir('corbeille')}><span className="ms" style={{ color: '#B03A2E' }}>delete</span></button>
+            <button className="sc-iconbtn" title="Corbeille" onClick={() => agir('corbeille')}><span className="ms" style={{ color: C.rouge }}>delete</span></button>
             <button className="sc-iconbtn" title="Annuler" onClick={() => setSel(new Set())}><span className="ms">close</span></button>
           </div>
         )}
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {chargement ? (
+        {vue === 'drafts' ? (
+          brouillons.length === 0 ? <Vide icone="drafts" texte="Aucun brouillon" /> :
+            brouillons.map(b => (
+              <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}`, cursor: 'pointer' }}
+                   onClick={() => setRedac({
+                     id: b.id, to: b.to_emails || '', cc: b.cc_emails || '', subject: b.subject || '',
+                     corps: (b.body || '').split('<br />').join('\n'), repond: b.in_reply_to || undefined,
+                   })}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{b.subject || '(sans objet)'}</div>
+                  <div style={{ fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {b.to_emails || 'sans destinataire'} · modifié {depuis(b.updated_at)}
+                  </div>
+                </div>
+                <button className="sc-iconbtn" onClick={e => { e.stopPropagation(); supprimerBrouillon(b.id); }}>
+                  <span className="ms" style={{ color: C.rouge }}>delete</span>
+                </button>
+              </div>
+            ))
+        ) : vue === 'scheduled' ? (
+          programmes.length === 0 ? <Vide icone="schedule_send" texte="Aucun envoi programmé" /> :
+            programmes.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{s.subject}</div>
+                  <div style={{ fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.to_emails} · {new Date(s.send_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  {s.last_error && <div style={{ fontSize: 10.5, color: C.rouge }}>{s.last_error}</div>}
+                </div>
+                <span className="sc-badge" style={{
+                  background: s.status === 'sent' ? '#E9F0E6' : s.status === 'failed' ? '#FBE7E4' : s.status === 'cancelled' ? '#F1EDE7' : '#FBF0DA',
+                  color: s.status === 'sent' ? '#3E5238' : s.status === 'failed' ? '#B03A2E' : s.status === 'cancelled' ? '#857C71' : '#8A5B08',
+                }}>
+                  {s.status === 'sent' ? 'Envoyé' : s.status === 'failed' ? 'Échec'
+                    : s.status === 'cancelled' ? 'Annulé' : s.status === 'sending' ? 'En cours' : 'En attente'}
+                </span>
+                {s.status === 'pending' && (
+                  <button className="sc-iconbtn" title="Annuler" onClick={() => annulerProgramme(s.id)}>
+                    <span className="ms" style={{ color: C.rouge }}>cancel</span>
+                  </button>
+                )}
+              </div>
+            ))
+        ) : chargement && messages.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', fontSize: 12.5, color: C.t4 }}>Chargement…</div>
         ) : messages.length === 0 ? (
-          <div style={{ padding: '54px 20px', textAlign: 'center', color: C.t4 }}>
-            <span className="ms" style={{ fontSize: 34, color: C.t6, display: 'block', marginBottom: 8 }}>inbox</span>
-            <div style={{ fontSize: 12.5 }}>Aucun message</div>
-          </div>
-        ) : messages.map(m => {
-          const actif = ouvert?.id === m.id;
-          const coche = sel.has(m.id);
-          return (
-            <div key={m.id} onClick={() => ouvrir(m)}
-                 style={{
-                   display: 'flex', gap: 11, padding: '11px 14px', cursor: 'pointer',
-                   borderBottom: `1px solid ${C.ligne}`,
-                   borderLeft: `3px solid ${actif ? C.accent : (!m.seen ? C.accentBord : 'transparent')}`,
-                   background: actif || !m.seen ? C.surface : 'transparent',
-                 }}>
-              <div onClick={e => { e.stopPropagation(); setSel(s => { const n = new Set(s); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; }); }}
-                   style={{
-                     width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: 'flex', alignItems: 'center',
-                     justifyContent: 'center', fontSize: 11, fontWeight: 600,
-                     background: coche ? C.accent : `${couleurDe(m.label)}1A`,
-                     color: coche ? '#fff' : couleurDe(m.label),
-                   }}>
-                {coche ? <span className="ms" style={{ fontSize: 17 }}>check</span> : initiales(m.from_name || m.from_email)}
-              </div>
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: m.seen ? 500 : 700, color: C.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {m.from_name || m.from_email}
-                  </span>
-                  <span className="sc-num" style={{ fontSize: 10.5, color: C.t5, flexShrink: 0 }}>{quand(m.sent_at)}</span>
-                </div>
-                <div style={{ fontSize: 12.5, fontWeight: m.seen ? 400 : 600, color: C.t2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-                  {m.subject}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {m.preview}
-                  </span>
-                  {!!m.attachments?.length && <span className="ms" style={{ fontSize: 15, color: C.t5 }}>attach_file</span>}
-                  <button onClick={e => { e.stopPropagation(); agir('etoile', [m.id]); }}
-                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, lineHeight: 1 }}>
-                    <span className="ms" style={{ fontSize: 16, color: m.flagged ? C.etoile : C.t6, fontVariationSettings: m.flagged ? "'FILL' 1" : "'FILL' 0" }}>star</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+          <Vide icone="inbox" texte="Aucun message" />
+        ) : (
+          <>
+            {messages.map(m => (
+              <LigneMessage key={m.id} m={m} actif={ouvert?.id === m.id} coche={sel.has(m.id)}
+                            onOuvrir={() => ouvrir(m)}
+                            onCocher={() => setSel(s => {
+                              const n = new Set(s);
+                              if (n.has(m.id)) n.delete(m.id); else n.add(m.id);
+                              return n;
+                            })}
+                            onEtoile={() => agir('etoile', [m.id])} />
+            ))}
+            {messages.length < total && (
+              <button className="sc-btn sc-btn-secondary" onClick={() => charger(page + 1, true)} disabled={chargement}
+                      style={{ width: 'calc(100% - 28px)', margin: '12px 14px', justifyContent: 'center' }}>
+                {chargement ? 'Chargement…' : `Charger ${Math.min(TAILLE, total - messages.length)} de plus`}
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 
-  /* ── Colonne lecture ──────────────────────────────────── */
-  const lecture = (
+  /* ── Colonne 3 : lecture ──────────────────────────────── */
+  const colLecture = (
     <div style={{ flex: 1, minWidth: 0, background: C.lecture, height: '100%', overflowY: 'auto' }}>
       {!ouvert ? (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: C.t4 }}>
-          <span className="ms" style={{ fontSize: 44, color: C.t6 }}>drafts</span>
+          <span className="ms" style={{ fontSize: 44, color: C.t6 }}>mail</span>
           <div style={{ fontSize: 13, marginTop: 10 }}>Sélectionne un message</div>
         </div>
       ) : (
-        <div style={{ padding: mobile ? 16 : 26 }}>
+        <div style={{ padding: mobile ? 14 : 26 }}>
           {mobile && (
             <button className="sc-btn sc-btn-secondary" style={{ marginBottom: 12 }} onClick={() => setOuvert(null)}>
               <span className="ms">arrow_back</span>Retour
@@ -485,55 +401,40 @@ export default function BoiteMailPage() {
               <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 26, fontWeight: 600, color: C.t1, lineHeight: 1.2 }}>
                 {ouvert.subject}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 13, flexWrap: 'wrap' }}>
                 <div style={{
                   width: 34, height: 34, borderRadius: 17, flexShrink: 0, display: 'flex', alignItems: 'center',
                   justifyContent: 'center', fontSize: 12, fontWeight: 600,
                   background: `${couleurDe(ouvert.label)}1A`, color: couleurDe(ouvert.label),
                 }}>{initiales(ouvert.from_name || ouvert.from_email)}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 120 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{ouvert.from_name || ouvert.from_email}</div>
-                  <div style={{ fontSize: 11.5, color: C.t4 }}>{ouvert.from_email}</div>
+                  <div style={{ fontSize: 11.5, color: C.t4 }}>{ouvert.from_email} · {quand(ouvert.sent_at)}</div>
                 </div>
-                <span className="sc-num" style={{ fontSize: 11.5, color: C.t4 }}>
-                  {ouvert.sent_at && new Date(ouvert.sent_at).toLocaleString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
-                </span>
-                <select value={ouvert.label || ''} className="sc-input"
-                        style={{ height: 28, fontSize: 11, maxWidth: 132 }}
-                        onChange={e => {
-                          const l = e.target.value;
-                          setOuvert({ ...ouvert, label: l || null });
-                          setMessages(ms => ms.map(x => (x.id === ouvert.id ? { ...x, label: l || null } : x)));
-                          adminFetch('/api/inbox', {
-                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ids: [ouvert.id], action: 'etiquette', label: l }),
-                          }).catch(() => say('Étiquette non enregistrée'));
-                        }}>
+
+                <select value={ouvert.label || ''} className="sc-input" style={{ height: 28, fontSize: 11, maxWidth: 130 }}
+                        onChange={e => { const l = e.target.value; setOuvert({ ...ouvert, label: l || null }); agir('etiquette', [ouvert.id], l); }}>
                   <option value="">Sans étiquette</option>
                   {Object.keys(COULEUR_ETIQ).map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
                 <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }} onClick={() => repondre(ouvert)}>
                   <span className="ms">reply</span>Répondre
                 </button>
-                <button className="sc-iconbtn" title="Répondre à tous" onClick={() => repondre(ouvert, true)}>
-                  <span className="ms">reply_all</span>
-                </button>
-                <button className="sc-iconbtn" title="Transférer" onClick={() => transferer(ouvert)}>
-                  <span className="ms">forward</span>
-                </button>
+                <button className="sc-iconbtn" title="Répondre à tous" onClick={() => repondre(ouvert, true)}><span className="ms">reply_all</span></button>
+                <button className="sc-iconbtn" title="Transférer" onClick={() => transferer(ouvert)}><span className="ms">forward</span></button>
                 <button className="sc-iconbtn" title="Suivre" onClick={() => agir('etoile', [ouvert.id])}>
                   <span className="ms" style={{ color: ouvert.flagged ? C.etoile : C.t6, fontVariationSettings: ouvert.flagged ? "'FILL' 1" : "'FILL' 0" }}>star</span>
                 </button>
-                <button className="sc-iconbtn" title="Supprimer" onClick={() => { agir('corbeille', [ouvert.id]); setOuvert(null); }}>
-                  <span className="ms" style={{ color: '#B03A2E' }}>delete</span>
+                <button className="sc-iconbtn" title="Supprimer" onClick={() => agir('corbeille', [ouvert.id])}>
+                  <span className="ms" style={{ color: C.rouge }}>delete</span>
                 </button>
               </div>
             </div>
 
-            {/* Le HTML d'un email est isolé : il ne doit pas déteindre sur le back-office. */}
+            {/* Le HTML d'un message reçu est du code tiers : iframe sandbox. */}
             {ouvert.body_html ? (
               <iframe srcDoc={ouvert.body_html} title="Message" sandbox=""
-                      style={{ width: '100%', height: 620, border: 'none', background: '#fff' }} />
+                      style={{ width: '100%', height: mobile ? 420 : 620, border: 'none', background: '#fff' }} />
             ) : (
               <div style={{ padding: '20px 22px', fontSize: 14, lineHeight: 1.72, color: C.corps, whiteSpace: 'pre-wrap' }}>
                 {ouvert.body_text || '(message vide)'}
@@ -544,9 +445,7 @@ export default function BoiteMailPage() {
               <div style={{ padding: '13px 22px', borderTop: `1px solid ${C.ligne}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {ouvert.attachments.map((a: any, i: number) => (
                   <button key={i} className="sc-chip" style={{ fontSize: 11, cursor: 'pointer', border: 'none' }}
-                          title={`${Math.round((a.size || 0) / 1024)} ko`}
-                          onClick={() => downloadAuth(`/api/inbox/attachment?id=${ouvert.id}&i=${i}`, a.filename || 'piece-jointe')
-                            .catch(e => say(e.message))}>
+                          onClick={() => downloadAuth(`/api/inbox/attachment?id=${ouvert.id}&i=${i}`, a.filename || 'piece-jointe').catch(e => say(e.message))}>
                     <span className="ms" style={{ fontSize: 14 }}>download</span>
                     {a.filename} · {Math.round((a.size || 0) / 1024)} ko
                   </button>
@@ -562,102 +461,25 @@ export default function BoiteMailPage() {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: '@keyframes sc-spin { to { transform: rotate(360deg) } }' }} />
-      <div style={{ display: 'flex', height: 'calc(100vh - 90px)', margin: '-16px -18px', overflow: 'hidden', border: `1px solid ${C.border}` }}>
-        {!mobile && dossiers}
-        {(!mobile || !ouvert) && liste}
-        {(!mobile || ouvert) && lecture}
+      <div style={{
+        display: 'flex', height: hauteur, margin: '-16px -18px -90px',
+        overflow: 'hidden', border: `1px solid ${C.border}`,
+      }}>
+        {!mobile && colDossiers}
+        {(!mobile || !ouvert) && colListe}
+        {(!mobile || ouvert) && colLecture}
       </div>
 
-      {/* Fenetre de redaction — 660 x 640, en surimpression */}
       {redac && (
-        <div style={{
-          position: 'fixed', right: 24, bottom: 24, width: mobile ? 'calc(100vw - 32px)' : 660,
-          height: mobile ? '80vh' : 640, background: C.surface, border: `1px solid ${C.border}`,
-          borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,.22)', zIndex: 250,
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 15px', background: C.ink, color: '#fff' }}>
-            <span className="ms" style={{ fontSize: 18 }}>edit</span>
-            <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600 }}>
-              {redac.repond ? 'Répondre' : 'Nouveau message'}
-            </span>
-            <button onClick={() => setRedac(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#fff', lineHeight: 1 }}>
-              <span className="ms">close</span>
-            </button>
-          </div>
-
-          {/* Carnet : clients, fournisseurs et adresses deja vues */}
-          <datalist id="sc-carnet">
-            {carnet.map(c => (
-              <option key={c.email} value={c.email}>{c.nom ? `${c.nom} · ${c.type}` : c.type}</option>
-            ))}
-          </datalist>
-
-          <div style={{ padding: '0 15px' }}>
-            {[['to', 'À'], ['cc', 'Cc'], ['subject', 'Objet']].map(([k, lab]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.ligne}`, padding: '9px 0' }}>
-                <span style={{ width: 44, fontSize: 11.5, color: C.t4, flexShrink: 0 }}>{lab}</span>
-                <input value={(redac as any)[k]} onChange={e => setRedac({ ...redac, [k]: e.target.value })}
-                       list={k === 'subject' ? undefined : 'sc-carnet'}
-                       style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, color: C.t1, fontFamily: 'inherit' }} />
-              </div>
-            ))}
-          </div>
-
-          <textarea value={redac.corps} onChange={e => setRedac({ ...redac, corps: e.target.value })}
-                    placeholder="Écris ton message…"
-                    style={{
-                      flex: 1, border: 'none', outline: 'none', resize: 'none', padding: '14px 15px',
-                      fontSize: 14, lineHeight: 1.72, color: C.corps, fontFamily: 'inherit',
-                    }} />
-
-          {pj.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 15px 10px' }}>
-              {pj.map((p, i) => (
-                <span key={i} className="sc-chip" style={{ fontSize: 11 }}>
-                  <span className="ms" style={{ fontSize: 14 }}>attach_file</span>
-                  {p.filename} · {Math.round(p.taille / 1024)} ko
-                  <button onClick={() => setPj(l => l.filter((_, j) => j !== i))}
-                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, marginLeft: 4, lineHeight: 1 }}>
-                    <span className="ms" style={{ fontSize: 14, color: C.t4 }}>close</span>
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', background: '#FBF9F6', borderTop: `1px solid ${C.border}` }}>
-            <button className="sc-btn" onClick={envoyer} disabled={envoi}
-                    style={{ background: C.vert, color: '#fff', border: 'none' }}>
-              <span className="ms">send</span>{envoi ? 'Envoi…' : 'Envoyer'}
-            </button>
-            <select onChange={e => { inserer(e.target.value); e.currentTarget.value = ''; }}
-                    defaultValue=""
-                    className="sc-input" style={{ height: 30, fontSize: 11.5, maxWidth: 168 }}>
-              <option value="">Insérer un modèle…</option>
-              {modeles.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-            </select>
-            <label className="sc-btn sc-btn-secondary" style={{ cursor: 'pointer', padding: '6px 11px', fontSize: 11.5 }}>
-              <span className="ms">attach_file</span>Joindre
-              <input type="file" multiple hidden onChange={e => { ajouterPj(e.target.files); e.currentTarget.value = ''; }} />
-            </label>
-            <span style={{ flex: 1, fontSize: 11, color: C.t4 }}>
-              Signature ajoutée automatiquement.{' '}
-              <a href="/admin/ruptures" target="_blank" rel="noopener" style={{ color: C.accent }}>
-                Proposer un remplacement
-              </a>
-            </span>
-            <button className="sc-iconbtn" title="Abandonner" onClick={() => setRedac(null)}>
-              <span className="ms" style={{ color: '#B03A2E' }}>delete</span>
-            </button>
-          </div>
-        </div>
+        <Redaction valeur={redac} carnet={carnet} modeles={modeles} mobile={mobile} say={say}
+                   onChange={setRedac} onFermer={() => setRedac(null)}
+                   onEnvoye={() => { setRedac(null); charger(0); }} />
       )}
 
       {toast && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: C.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
+          position: 'fixed', bottom: mobile ? 70 : 24, right: 24, background: C.ink, color: '#fff',
+          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300, maxWidth: 'calc(100vw - 48px)',
         }}>{toast}</div>
       )}
     </>
