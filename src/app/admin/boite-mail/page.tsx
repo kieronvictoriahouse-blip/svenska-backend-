@@ -90,6 +90,11 @@ export default function BoiteMailPage() {
      remplir : sinon il apparait vide alors qu'il ne l'est pas. */
   const [dossiersServeur, setDossiersServeur] = useState<any[]>([]);
 
+  /* Carnet d'adresses et modeles : charges une fois, pour ne rien
+     retaper qu'on a deja quelque part. */
+  const [carnet, setCarnet] = useState<any[]>([]);
+  const [modeles, setModeles] = useState<any[]>([]);
+
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
   const etroit = w < 1320;
   const mobile = w < 1000;
@@ -114,6 +119,10 @@ export default function BoiteMailPage() {
   useEffect(() => { charger(); /* eslint-disable-next-line */ }, [vue, filtre]);
 
   useEffect(() => {
+    adminFetch('/api/inbox/contacts').then(r => r.json())
+      .then(d => setCarnet(d.carnet || [])).catch(() => {});
+    adminFetch('/api/email-templates').then(r => r.json())
+      .then(d => setModeles(d.templates || [])).catch(() => {});
     adminFetch('/api/inbox/folders').then(r => r.json())
       .then(d => setDossiersServeur(d.dossiers || []))
       .catch(() => { /* IMAP injoignable : on reste sur les vues de base */ });
@@ -132,6 +141,22 @@ export default function BoiteMailPage() {
       } catch { say('Dossier illisible'); }
       charger();
     }
+  }
+
+  /* Insere un modele dans le corps. On previsualise avec les donnees
+     d'exemple : le rendu final avec les vraies valeurs se fait a
+     l'envoi des emails automatiques, pas ici. */
+  async function inserer(key: string) {
+    const t = modeles.find(m => m.key === key);
+    if (!t || !redac) return;
+    try {
+      const html = await adminFetch('/api/email-templates', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: t.html }),
+      }).then(r => r.text());
+      setRedac({ ...redac, corps: html, subject: redac.subject || t.label });
+      say(`Modele « ${t.label} » insere — relis avant d'envoyer`);
+    } catch { say('Modele illisible'); }
   }
 
   async function ajouterPj(files: FileList | null) {
@@ -521,11 +546,19 @@ export default function BoiteMailPage() {
             </button>
           </div>
 
+          {/* Carnet : clients, fournisseurs et adresses deja vues */}
+          <datalist id="sc-carnet">
+            {carnet.map(c => (
+              <option key={c.email} value={c.email}>{c.nom ? `${c.nom} · ${c.type}` : c.type}</option>
+            ))}
+          </datalist>
+
           <div style={{ padding: '0 15px' }}>
             {[['to', 'À'], ['cc', 'Cc'], ['subject', 'Objet']].map(([k, lab]) => (
               <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.ligne}`, padding: '9px 0' }}>
                 <span style={{ width: 44, fontSize: 11.5, color: C.t4, flexShrink: 0 }}>{lab}</span>
                 <input value={(redac as any)[k]} onChange={e => setRedac({ ...redac, [k]: e.target.value })}
+                       list={k === 'subject' ? undefined : 'sc-carnet'}
                        style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, color: C.t1, fontFamily: 'inherit' }} />
               </div>
             ))}
@@ -558,12 +591,21 @@ export default function BoiteMailPage() {
                     style={{ background: C.vert, color: '#fff', border: 'none' }}>
               <span className="ms">send</span>{envoi ? 'Envoi…' : 'Envoyer'}
             </button>
+            <select onChange={e => { inserer(e.target.value); e.currentTarget.value = ''; }}
+                    defaultValue=""
+                    className="sc-input" style={{ height: 30, fontSize: 11.5, maxWidth: 168 }}>
+              <option value="">Insérer un modèle…</option>
+              {modeles.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
             <label className="sc-btn sc-btn-secondary" style={{ cursor: 'pointer', padding: '6px 11px', fontSize: 11.5 }}>
               <span className="ms">attach_file</span>Joindre
               <input type="file" multiple hidden onChange={e => { ajouterPj(e.target.files); e.currentTarget.value = ''; }} />
             </label>
             <span style={{ flex: 1, fontSize: 11, color: C.t4 }}>
-              Signature ajoutée automatiquement · 8 Mo de pièces jointes au maximum.
+              Signature ajoutée automatiquement.{' '}
+              <a href="/admin/ruptures" target="_blank" rel="noopener" style={{ color: C.accent }}>
+                Proposer un remplacement
+              </a>
             </span>
             <button className="sc-iconbtn" title="Abandonner" onClick={() => setRedac(null)}>
               <span className="ms" style={{ color: '#B03A2E' }}>delete</span>

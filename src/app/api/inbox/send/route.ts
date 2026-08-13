@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { appendToSent } from '@/lib/imap';
+import { getWhiteLabelConfig } from '@/lib/email-send';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -11,14 +12,31 @@ const DE = process.env.IMAP_USER || 'hej@swedishcravings.fr';
 
 /* Signature reprise de l'identite des documents : Cormorant sur le nom,
    filet vert, comme les factures et les emails clients. */
-function signature(): string {
-  return `<div style="margin-top:26px;padding-top:14px;border-top:1px solid #D8CFAF;font-family:Arial,Helvetica,sans-serif">
-  <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;color:#44573D;letter-spacing:.04em">Swedish Cravings</div>
-  <div style="font-size:11.5px;color:#8B7E72;line-height:1.7;padding-top:4px">
-    ${DE} · <a href="https://www.swedishcravings.fr" style="color:#8B7E72">swedishcravings.fr</a><br />
-    Épicerie suédoise · EI Victoria Vallet
-  </div>
-</div>`;
+function signature(cfg: Record<string, any>): string {
+  const site = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr';
+  const logo = `${site.replace(/\/$/, '')}/emails/sc-monogramme.png`;
+  const tel = cfg.phone ? ` · ${cfg.phone}` : '';
+  /* Meme identite que les factures et les emails clients : monogramme,
+     wordmark en Cormorant, filet vert. En tables et en styles inline —
+     une signature traverse des clients de messagerie, pas un navigateur. */
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px;border-top:1px solid #D8CFAF;padding-top:16px">
+  <tr>
+    <td valign="top" style="padding-right:16px">
+      <img src="${logo}" width="42" height="63" alt="Swedish Cravings" style="display:block;width:42px;height:63px;border:0" />
+    </td>
+    <td valign="top" style="font-family:Arial,Helvetica,sans-serif">
+      <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;letter-spacing:.16em;color:#44573D;text-transform:uppercase">Swedish Cravings</div>
+      <div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#A0977F;padding-top:4px">Bringing Sweden to your table</div>
+      <div style="font-size:11.5px;line-height:1.75;color:#5F5A4E;padding-top:9px">
+        <a href="mailto:${DE}" style="color:#5F5A4E;text-decoration:none">${DE}</a>${tel}<br />
+        <a href="${site}" style="color:#44573D;text-decoration:none">${site.replace(/^https?:\/\//, '')}</a>
+      </div>
+      <div style="font-size:10px;color:#948B79;padding-top:8px">
+        EI Victoria Vallet · SIREN 105 003 537 · TVA non applicable, art. 293 B du CGI
+      </div>
+    </td>
+  </tr>
+</table>`;
 }
 
 export async function POST(req: NextRequest) {
@@ -58,7 +76,8 @@ export async function POST(req: NextRequest) {
     auth: { user: DE, pass },
   });
 
-  const corps = `${html || ''}${signer ? signature() : ''}`;
+  const cfg = await getWhiteLabelConfig();
+  const corps = `${html || ''}${signer ? signature(cfg) : ''}`;
 
   try {
     /* On compose le message nous-memes : nodemailer ne rend pas la source
