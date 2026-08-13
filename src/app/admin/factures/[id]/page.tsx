@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
@@ -72,7 +73,7 @@ export default function FacturePage() {
     if (!invoice) return;
     setDownloading(true);
     try {
-      const res = await fetch(`/api/invoices/${id}/pdf`);
+      const res = await adminFetch(`/api/invoices/${id}/pdf`);
       if (!res.ok) { alert('Erreur génération PDF'); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

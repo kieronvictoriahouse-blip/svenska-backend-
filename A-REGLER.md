@@ -200,3 +200,10 @@ poids juste (utile aussi pour l'affranchissement).
 - Facture PDF portée au nouveau modèle, polices Jost et Cormorant embarquées.
 - Statut « payée » sur les factures : source corrigée + 25 factures reprises.
 - Stock : journal unique, cron de surveillance, 9 produits réalignés.
+- Audit d'authentification des API refait le 13/08 : `/api/contacts` et
+  `/api/orders/[id]` etaient deja fermees (la note precedente etait perimee).
+  `/api/invoices/[id]` et son PDF ne l'etaient pas — une facture porte nom,
+  adresse et montants, elle etait lisible par simple identifiant. Ferme.
+  Consequence traitee : les liens `<a href download>` n'envoient pas le jeton,
+  ils passent desormais par `downloadAuth()` (fetch authentifie + blob).
+- Ecran /admin/ruptures et email d'avoir branches.

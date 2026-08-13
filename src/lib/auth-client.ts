@@ -51,3 +51,25 @@ export async function adminFetch(url: string, options: RequestInit = {}): Promis
   }
   return res;
 }
+
+/**
+ * Télécharge un fichier d'une route protégée.
+ *
+ * Un `<a href download>` n'envoie pas l'en-tête d'autorisation : depuis que
+ * les routes de facture sont fermées, il repartirait avec un 401. On passe
+ * donc par un fetch authentifié puis un blob local.
+ */
+export async function downloadAuth(url: string, filename: string): Promise<void> {
+  const res = await adminFetch(url);
+  if (!res.ok) throw new Error(`Téléchargement impossible (${res.status})`);
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Laisse au navigateur le temps de démarrer le téléchargement.
+  setTimeout(() => URL.revokeObjectURL(href), 10000);
+}

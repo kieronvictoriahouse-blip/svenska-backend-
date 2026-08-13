@@ -1,4 +1,5 @@
 'use client';
+import { downloadAuth } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang } from '@/lib/admin-i18n';
@@ -1327,17 +1328,17 @@ export default function CommandesPage() {
                           <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/admin/factures/${o.id}`} target="_blank" rel="noopener">
                             <span className="ms">receipt_long</span>Facture (éditeur)
                           </a>
-                          <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/api/invoices/${o.id}/pdf`} download>
+                          <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => downloadAuth(`/api/invoices/${o.id}/pdf`, `facture-${o.order_number}.pdf`).catch((e: any) => showToast(e.message))}>
                             <span className="ms">picture_as_pdf</span>PDF facture
-                          </a>
+                          </button>
                           {avoirId && (
                             <>
                               <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/admin/factures/${avoirId}`} target="_blank" rel="noopener">
                                 <span className="ms">undo</span>Avoir
                               </a>
-                              <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/api/invoices/${avoirId}/pdf`} download>
+                              <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => downloadAuth(`/api/invoices/${avoirId}/pdf`, `avoir-${o.order_number}.pdf`).catch((e: any) => showToast(e.message))}>
                                 <span className="ms">picture_as_pdf</span>PDF avoir
-                              </a>
+                              </button>
                             </>
                           )}
                           <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => printDeliveryNote(o)}>

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  // Une facture porte le nom, l'adresse et les montants du client :
+  // elle ne doit jamais etre lisible par simple identifiant.
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const id = params.id;
 
   // Chercher par id ou par order_id
@@ -31,6 +35,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  // Une facture porte le nom, l'adresse et les montants du client :
+  // elle ne doit jamais etre lisible par simple identifiant.
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const allowed = ['status', 'note', 'date'];
   const payload: Record<string, unknown> = {};
