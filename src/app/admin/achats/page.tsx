@@ -1,4 +1,5 @@
 'use client';
+import { T as TH, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, AdminLang } from '@/lib/admin-i18n';
 
@@ -378,167 +379,245 @@ export default function AchatsPage() {
     .urgency-attention { background:#E0F2FE; color:#0284C7; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:700; }
   `;
 
+  /* ═══════════════════════════════════════════════════════════════
+     ÉCRAN 7 — COMMANDES D'ACHAT
+     Handoff §7 : 4 KPI puis table N° · Fournisseur · Émise le ·
+     Lignes · Total HT · Statut · Réception.
+     Le panneau de suggestions de réappro est propre à ce back-office
+     et conservé : c'est lui qui déclenche les commandes.
+     ═══════════════════════════════════════════════════════════════ */
+
+  const receivedCount = orders.filter(o => o.status === 'received').length;
+  const avgDelay = (() => {
+    const done = orders.filter(o => o.status === 'received' && o.expected_date && o.created_at);
+    if (!done.length) return null;
+    const days = done.map(o => Math.max(0, Math.round(
+      (+new Date(o.expected_date!) - +new Date(o.created_at!)) / 86400000)));
+    return Math.round((days.reduce((s, d) => s + d, 0) / days.length) * 10) / 10;
+  })();
+  const linesCount = (o: any) => {
+    try { const l = typeof o.lines === 'string' ? JSON.parse(o.lines) : (o.lines || []); return l.length; }
+    catch { return 0; }
+  };
+
+  const A_KPIS = [
+    { label: t('inProgress'),   value: String(pendingCount),   tone: BADGE.amber },
+    { label: t('totalEngaged'), value: fmt(totalOrders),       tone: null },
+    { label: 'Délai moyen',     value: avgDelay != null ? `${avgDelay} j` : '—', tone: null },
+    { label: 'Suggestions',     value: String(suggestions.length), tone: suggestions.length ? BADGE.orange : null },
+  ];
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="a-wrap">
-        <div className="a-header">
-          <div>
-            <div className="a-title">🛍️ {t('title')}</div>
-            <div style={{ fontSize: 13, color: '#6A7280', marginTop: 4 }}>{orders.length} {t('title').toLowerCase()}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="lang-toggle">
-              {(['fr','en','sv'] as AdminLang[]).map(l => (
-                <button key={l} className={`lang-btn ${lang === l ? 'active' : ''}`}
-                  onClick={() => { setLang(l); setAdminLang(l); }}>
-                  {l.toUpperCase()}
-                </button>
-              ))}
-            </div>
-            <button className="btn btn-primary" onClick={() => {
-              setForm({ status: 'draft', supplier_id: '', expected_date: '', notes: '', lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] });
-              setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
-              setEditingOrder(null); setShowModal(true);
-            }}>{t('newBtn')}</button>
+
+      <div className="sc-head">
+        <div>
+          <div className="sc-title">{t('title')}</div>
+          <div className="sc-sub">
+            {orders.length} commande(s) d’achat · {receivedCount} reçue(s)
           </div>
         </div>
-
-        <div className="a-stats">
-          <div className="a-stat"><div className="a-stat-num mono">{fmt(totalOrders)}</div><div className="a-stat-label">{t('totalEngaged')}</div></div>
-          <div className="a-stat"><div className="a-stat-num" style={{ color: '#F59E0B' }}>{pendingCount}</div><div className="a-stat-label">{t('inProgress')}</div></div>
-          <div className="a-stat"><div className="a-stat-num">{orders.filter(o => o.status === 'received').length}</div><div className="a-stat-label">{t('received')}</div></div>
+        <div className="sc-actions">
+          <div style={{ display: 'flex', gap: 4 }}>
+            {(['fr', 'en', 'sv'] as AdminLang[]).map(l => (
+              <button key={l} className={`sc-chip${lang === l ? ' on' : ''}`}
+                      style={{ height: 32, padding: '0 10px', fontSize: 11 }}
+                      onClick={() => { setLang(l); setAdminLang(l); }}>{l.toUpperCase()}</button>
+            ))}
+          </div>
+          <select className="sc-input sc-select" style={{ width: 160, height: 32 }}
+                  value={filter} onChange={e => setFilter(e.target.value)}>
+            <option value="">{t('allStatuses')}</option>
+            {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
+          </select>
+          <button className="sc-btn sc-btn-primary" onClick={() => {
+            setForm({ status: 'draft', supplier_id: '', expected_date: '', notes: '', lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] });
+            setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
+            setEditingOrder(null); setShowModal(true);
+          }}>
+            <span className="ms">add</span>{t('newBtn')}
+          </button>
         </div>
+      </div>
 
-        {/* Suggestions d'achat */}
-        {suggestions.length > 0 && (
-          <div className="sugg-panel">
-            <div className="sugg-header" onClick={() => setShowSuggestions(s => !s)}>
-              <div className="sugg-title">
-                💡 Suggestions d'achat
-                <span style={{ background: '#FEE2E2', color: '#EF4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
-                  {suggestions.filter(s => s.urgency === 'rupture').length} rupture{suggestions.filter(s => s.urgency === 'rupture').length > 1 ? 's' : ''}
-                </span>
-                <span style={{ background: '#FEF3C7', color: '#F59E0B', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
-                  {suggestions.filter(s => s.urgency === 'faible').length} faible{suggestions.filter(s => s.urgency === 'faible').length > 1 ? 's' : ''}
-                </span>
-              </div>
-              <span style={{ fontSize: 12, color: '#6A7280' }}>{showSuggestions ? '▲ Réduire' : '▼ Afficher'}</span>
+      {/* KPI */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+        {A_KPIS.map(k => (
+          <div key={k.label} className="sc-card" style={{ padding: '13px 15px' }}>
+            <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: k.tone ? k.tone.fg : TH.muted }}>
+              {k.label}
             </div>
-            {showSuggestions && (
-              <table className="sugg-table">
+            <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: k.tone ? k.tone.fg : TH.ink }}>
+              {k.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Suggestions de réappro */}
+      {suggestions.length > 0 && (
+        <div className="sc-card" style={{ marginBottom: 12, overflow: 'hidden' }}>
+          <button onClick={() => setShowSuggestions(s => !s)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '12px 15px', border: 'none', background: '#FFF7ED', cursor: 'pointer', textAlign: 'left' }}>
+            <span className="ms" style={{ fontSize: 18, color: BADGE.orange.fg }}>trending_up</span>
+            <span className="sc-card-title">Suggestions de réapprovisionnement</span>
+            <span className="sc-badge" style={{ background: BADGE.red.bg, color: BADGE.red.fg }}>
+              {suggestions.filter(s => s.urgency === 'rupture').length} rupture(s)
+            </span>
+            <span className="sc-badge" style={{ background: BADGE.orange.bg, color: BADGE.orange.fg }}>
+              {suggestions.filter(s => s.urgency === 'faible').length} faible(s)
+            </span>
+            <span style={{ flex: 1 }} />
+            <span className="ms" style={{ fontSize: 18, color: TH.muted }}>{showSuggestions ? 'expand_less' : 'expand_more'}</span>
+          </button>
+
+          {showSuggestions && (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="sc-table" style={{ minWidth: 760 }}>
                 <thead>
                   <tr>
                     <th>Produit</th>
-                    <th>Urgence</th>
-                    <th style={{ textAlign: 'right' }}>Stock actuel</th>
-                    <th style={{ textAlign: 'right' }}>Ventes 90j</th>
-                    <th style={{ textAlign: 'right' }}>Vitesse / jour</th>
-                    <th style={{ textAlign: 'right' }}>Jours restants</th>
-                    <th style={{ textAlign: 'right' }}>Qté suggérée</th>
-                    <th></th>
+                    <th style={{ width: 110 }}>Urgence</th>
+                    <th className="sc-right" style={{ width: 100 }}>Stock</th>
+                    <th className="sc-right" style={{ width: 90 }}>Ventes 90 j</th>
+                    <th className="sc-right" style={{ width: 90 }}>Par jour</th>
+                    <th className="sc-right" style={{ width: 90 }}>Autonomie</th>
+                    <th className="sc-right" style={{ width: 90 }}>Qté</th>
+                    <th style={{ width: 110 }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {suggestions.map(s => (
-                    <tr key={s.id}>
-                      <td style={{ fontWeight: 500, color: '#1C2028' }}>{s.name_fr}</td>
-                      <td>
-                        {s.urgency === 'rupture' && <span className="urgency-rupture">🔴 Rupture</span>}
-                        {s.urgency === 'faible'  && <span className="urgency-faible">⚠️ Faible</span>}
-                        {s.urgency === 'attention' && <span className="urgency-attention">🔵 Attention</span>}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: s.stock <= 0 ? '#EF4444' : s.stock <= (s.stock_alert ?? 5) ? '#F59E0B' : '#1C2028', fontWeight: 600 }}>
-                        {s.stock}
-                        {s.onOrder > 0 && <div style={{ fontSize: 10, color: '#2563EB', fontWeight: 500 }}>+{s.onOrder} en commande</div>}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{s.sold30}</td>
-                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#6A7280' }}>
-                        {s.velocity > 0 ? s.velocity.toFixed(2) : '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: s.daysLeft <= 14 ? '#EF4444' : '#6A7280' }}>
-                        {s.velocity > 0 ? (s.daysLeft >= 999 ? '∞' : `${s.daysLeft}j`) : '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 700, color: '#3E5238' }}>
-                        {s.suggested > 0 ? `+${s.suggested}` : '—'}
-                      </td>
-                      <td>
-                        <button className="btn btn-secondary btn-sm" onClick={() => {
-                          setForm(f => ({
-                            ...f,
-                            lines: [...f.lines.filter(l => l.product_id), {
-                              product_id: s.id,
-                              name: s.name_fr,
-                              qty: s.suggested > 0 ? s.suggested : 10,
-                              unit_cost: s.cost_price || 0,
-                              unit_cost_eur: s.cost_price || 0,
-                              total: (s.suggested > 0 ? s.suggested : 10) * (s.cost_price || 0),
-                            }],
-                          }));
-                          setCurrency('EUR'); setExchangeRate(1);
-                          setEditingOrder(null); setShowModal(true);
+                  {suggestions.map(s => {
+                    const tone = s.urgency === 'rupture' ? BADGE.red
+                      : s.urgency === 'faible' ? BADGE.orange : BADGE.blue;
+                    const label = s.urgency === 'rupture' ? 'Rupture'
+                      : s.urgency === 'faible' ? 'Faible' : 'Attention';
+                    return (
+                      <tr key={s.id}>
+                        <td style={{ fontSize: 13, fontWeight: 500, color: TH.ink }}>{s.name_fr}</td>
+                        <td><span className="sc-badge" style={{ background: tone.bg, color: tone.fg }}>{label}</span></td>
+                        <td className="sc-num sc-right" style={{
+                          fontWeight: 600,
+                          color: s.stock <= 0 ? TH.red : s.stock <= (s.stock_alert ?? 5) ? '#C97A2B' : TH.ink,
                         }}>
-                          + Commander
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {s.stock}
+                          {s.onOrder > 0 && <div style={{ fontSize: 10, color: TH.blue, fontWeight: 500 }}>+{s.onOrder} en commande</div>}
+                        </td>
+                        <td className="sc-num sc-right">{s.sold30}</td>
+                        <td className="sc-num sc-right" style={{ color: TH.muted }}>{s.velocity > 0 ? s.velocity.toFixed(2) : '—'}</td>
+                        <td className="sc-num sc-right" style={{ color: s.daysLeft <= 14 ? TH.red : TH.muted }}>
+                          {s.velocity > 0 ? (s.daysLeft >= 999 ? '∞' : `${s.daysLeft} j`) : '—'}
+                        </td>
+                        <td className="sc-num sc-right" style={{ fontWeight: 700, color: TH.green }}>
+                          {s.suggested > 0 ? `+${s.suggested}` : '—'}
+                        </td>
+                        <td>
+                          <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => {
+                            setForm(f => ({
+                              ...f,
+                              lines: [...f.lines.filter(l => l.product_id), {
+                                product_id: s.id,
+                                name: s.name_fr,
+                                qty: s.suggested > 0 ? s.suggested : 10,
+                                unit_cost: s.cost_price || 0,
+                                unit_cost_eur: s.cost_price || 0,
+                                total: (s.suggested > 0 ? s.suggested : 10) * (s.cost_price || 0),
+                              }],
+                            }));
+                            setCurrency('EUR'); setExchangeRate(1);
+                            setEditingOrder(null); setShowModal(true);
+                          }}>
+                            <span className="ms" style={{ fontSize: 15 }}>add</span>Commander
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-            )}
-          </div>
-        )}
-
-        <div className="a-toolbar">
-          <select className="a-select" value={filter} onChange={e => setFilter(e.target.value)}>
-            <option value="">{t('allStatuses')}</option>
-            {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v[L] || v.fr}</option>)}
-          </select>
+            </div>
+          )}
         </div>
+      )}
 
-        <table className="a-table">
-          <thead><tr>
-            <th>{t('colNum')}</th><th>{t('colSupplier')}</th><th>{t('colExpected')}</th>
-            <th>{t('colTotal')}</th><th>{tc('status')}</th><th>{tc('actions')}</th>
-          </tr></thead>
-          <tbody>
-            {loading ? <tr><td colSpan={6}><div className="empty">{tc('loading')}</div></td></tr>
-            : orders.length === 0 ? <tr><td colSpan={6}><div className="empty">{tc('noData')}</div></td></tr>
-            : orders.map(o => {
-              const st = STATUSES[o.status as keyof typeof STATUSES] || { label: o.status, color: '#6A7280', fr: o.status, en: o.status, sv: o.status };
-              const supplier = o.contacts;
-              const name = supplier?.company || `${supplier?.first_name || ''} ${supplier?.last_name || ''}`.trim() || o.supplier_name || '—';
-              return (
-                <tr key={o.id}>
-                  <td className="mono" style={{ fontSize: 12 }}>
-                    {o.number}
-                    {o.currency && o.currency !== 'EUR' && (
-                      <div style={{ fontSize: 10, color: '#0369A1' }}>{o.currency}{o.exchange_rate ? ` × ${o.exchange_rate}` : ''}</div>
-                    )}
-                  </td>
-                  <td><strong>{name}</strong></td>
-                  <td style={{ color: '#6A7280' }}>{fmtDate(o.expected_date)}</td>
-                  <td className="mono" style={{ fontWeight: 600 }}>{fmt(o.total)}</td>
-                  <td><span className="badge" style={{ background: st.color + '20', color: st.color }}>{st[L] || st.fr}</span></td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      <select className="a-select btn-sm" value={o.status} onChange={e => updateStatus(o.id, e.target.value)} style={{ fontSize: 11, padding: '4px 8px' }}>
-                        {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v[L] || v.fr}</option>)}
-                      </select>
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(o)} title={t('editTitle')}>✏️</button>
-                      <button className="btn btn-info btn-sm" onClick={() => openSendModal(o)} title="PDF / Envoyer">📄 PDF</button>
-                      {['confirmed', 'partial'].includes(o.status) && (
-                        <button className="btn btn-warning btn-sm" onClick={() => openReception(o)}>{t('reception')}</button>
+      {/* Table des commandes d'achat */}
+      <div className="sc-card" style={{ overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="sc-table" style={{ minWidth: 800 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 130 }}>{t('colNum')}</th>
+                <th>{t('colSupplier')}</th>
+                <th style={{ width: 110 }}>{t('colExpected')}</th>
+                <th className="sc-right" style={{ width: 70 }}>Lignes</th>
+                <th className="sc-right" style={{ width: 110 }}>{t('colTotal')}</th>
+                <th style={{ width: 130 }}>{tc('status')}</th>
+                <th style={{ width: 210 }}>{tc('actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan={7}><div className="sc-empty">{tc('loading')}</div></td></tr>}
+              {!loading && orders.length === 0 && <tr><td colSpan={7}><div className="sc-empty">{tc('noData')}</div></td></tr>}
+              {!loading && orders.map(o => {
+                const st: any = STATUSES[o.status as keyof typeof STATUSES] || { color: '#6A7280', fr: o.status };
+                const sup = o.contacts;
+                const name = sup?.company || `${sup?.first_name || ''} ${sup?.last_name || ''}`.trim() || o.supplier_name || '—';
+                return (
+                  <tr key={o.id}>
+                    <td className="sc-num" style={{ fontSize: 12, fontWeight: 600, color: TH.ink }}>
+                      {o.number}
+                      {o.currency && o.currency !== 'EUR' && (
+                        <div style={{ fontSize: 10, color: TH.blue, fontWeight: 400 }}>
+                          {o.currency}{o.exchange_rate ? ` × ${o.exchange_rate}` : ''}
+                        </div>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <div style={thumbStyle(name, 26)}>{initials(name)}</div>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: TH.ink }}>{name}</span>
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(o.expected_date)}</td>
+                    <td className="sc-num sc-right">{linesCount(o)}</td>
+                    <td className="sc-num sc-right" style={{ fontWeight: 600 }}>{fmt(o.total)}</td>
+                    <td>
+                      <span className="sc-badge" style={{ background: st.color + '20', color: st.color }}>
+                        {st[L] || st.fr}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <select className="sc-input sc-select" style={{ height: 26, width: 108, fontSize: 11, padding: '0 6px' }}
+                                value={o.status} onChange={e => updateStatus(o.id, e.target.value)}>
+                          {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
+                        </select>
+                        <a className="sc-iconbtn" href={`/admin/documents/bon-de-commande/${o.id}`} target="_blank" rel="noopener" title="Bon de commande A4">
+                          <span className="ms">print</span>
+                        </a>
+                        <button className="sc-iconbtn" onClick={() => openEdit(o)} title={t('editTitle')}>
+                          <span className="ms">edit</span>
+                        </button>
+                        <button className="sc-iconbtn" onClick={() => openSendModal(o)} title="PDF / Envoyer">
+                          <span className="ms">send</span>
+                        </button>
+                        {['confirmed', 'partial'].includes(o.status) && (
+                          <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
+                                  onClick={() => openReception(o)}>
+                            <span className="ms" style={{ fontSize: 15 }}>local_shipping</span>{t('reception')}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-        {/* Modal nouvelle/édition commande */}
         {showModal && (
           <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setEditingOrder(null); } }}>
             <div className="modal">
@@ -758,8 +837,11 @@ export default function AchatsPage() {
             </div>
           </div>
         )}
-      </div>
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: TH.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300 }}>
+          {toast}
+        </div>
+      )}
     </>
   );
 }

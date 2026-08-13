@@ -1,4 +1,5 @@
 'use client';
+import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -413,41 +414,68 @@ export default function GestionPage() {
     transport: 'Répartition transport', params: 'Paramètres',
   };
 
+  const G_TABS: Array<[string, string]> = [
+    ['dashboard', "Vue d'ensemble"],
+    ['factures', 'Factures clients'],
+    ['marges', 'Calcul des marges'],
+    ['transport', 'Répartition transport'],
+    ['params', 'Paramètres'],
+  ];
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="g-shell">
-        {/* SIDEBAR */}
-        <div className="g-sidebar">
-          <div className="g-logo">
-            <span className="g-logo-main">Svenska</span>
-            <span className="g-logo-tag">Gestion</span>
-          </div>
-          <nav className="g-nav">
-            {NAV.map(n => (
-              <button key={n.id} className={`g-link${page === n.id ? ' active' : ''}`} onClick={() => setPage(n.id as any)}>
-                <span>{n.icon}</span>
-                {n.label}
-                {n.count !== undefined && <span style={{ marginLeft: 'auto', background: 'var(--copper)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8 }}>{n.count}</span>}
-              </button>
-            ))}
-          </nav>
-          <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-mono)' }}>
-            v2.0 · Supabase
+
+      <div className="sc-head">
+        <div>
+          <div className="sc-title">Facturation</div>
+          <div className="sc-sub">
+            {invoices.length} facture(s) · {fmt(pending)} en attente d'encaissement
           </div>
         </div>
+        <div className="sc-actions">
+          {page === 'factures' && (
+            <button className="sc-btn sc-btn-primary" onClick={openNewInvoice}>
+              <span className="ms">add</span>Nouvelle facture
+            </button>
+          )}
+          {page === 'marges' && (
+            <button className="sc-btn sc-btn-secondary" onClick={openNewProduct}>
+              <span className="ms">calculate</span>Simulation manuelle
+            </button>
+          )}
+          {page === 'params' && (
+            <button className="sc-btn sc-btn-green" onClick={saveParamsToDb}>
+              <span className="ms">save</span>Sauvegarder
+            </button>
+          )}
+          <a className="sc-btn sc-btn-secondary" href="/admin/achats">
+            <span className="ms">shopping_basket</span>Achats
+          </a>
+        </div>
+      </div>
 
-        {/* MAIN */}
-        <div className="g-main">
-          <div className="g-topbar">
-            <span className="g-topbar-title">{PAGE_TITLES[page]}</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {page === 'factures' && <button className="btn btn-primary btn-sm" onClick={openNewInvoice}>+ Nouvelle facture</button>}
-              {page === 'achats' && <a href="/admin/achats" className="btn btn-primary btn-sm">→ Module Achats</a>}
-              {page === 'marges' && <button className="btn btn-secondary btn-sm" onClick={openNewProduct}>+ Simulation manuelle</button>}
-              {page === 'params' && <button className="btn btn-primary btn-sm" onClick={saveParamsToDb}>💾 Sauvegarder</button>}
-            </div>
-          </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}`, overflowX: 'auto' }}>
+        {G_TABS.map(([k, l]) => {
+          const on = page === k;
+          return (
+            <button key={k} onClick={() => setPage(k as any)}
+              style={{
+                border: 'none', background: 'none', cursor: 'pointer', padding: '9px 13px', fontSize: 12.5,
+                whiteSpace: 'nowrap', fontWeight: on ? 600 : 400,
+                color: on ? 'var(--accent)' : TH.text2,
+                boxShadow: on ? 'inset 0 -2px 0 var(--accent)' : undefined,
+              }}>
+              {l}
+              {k === 'factures' && invoices.length > 0 && (
+                <span style={{ marginLeft: 6, background: '#EFEBE4', color: '#857C71', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 8 }}>
+                  {invoices.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
           <div className="g-content">
 
@@ -771,8 +799,6 @@ export default function GestionPage() {
             )}
 
           </div>
-        </div>
-      </div>
 
       {/* ── MODAL FACTURE ── */}
       {showInvoiceModal && (
