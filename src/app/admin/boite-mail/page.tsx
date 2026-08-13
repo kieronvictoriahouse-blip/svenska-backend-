@@ -93,6 +93,7 @@ export default function BoiteMailPage() {
   /* Carnet d'adresses et modeles : charges une fois, pour ne rien
      retaper qu'on a deja quelque part. */
   const [carnet, setCarnet] = useState<any[]>([]);
+  const [etiquette, setEtiquette] = useState('');
   const [modeles, setModeles] = useState<any[]>([]);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
@@ -108,7 +109,7 @@ export default function BoiteMailPage() {
   async function charger() {
     setChargement(true);
     try {
-      const p = new URLSearchParams({ vue, filtre, ...(q ? { q } : {}) });
+      const p = new URLSearchParams({ vue, filtre, ...(q ? { q } : {}), ...(etiquette ? { etiquette } : {}) });
       const d = await adminFetch(`/api/inbox?${p}`).then(r => r.json());
       setMessages(d.messages || []);
       setCompteurs(d.compteurs || {});
@@ -116,7 +117,7 @@ export default function BoiteMailPage() {
     } catch { say('Chargement impossible'); }
     finally { setChargement(false); }
   }
-  useEffect(() => { charger(); /* eslint-disable-next-line */ }, [vue, filtre]);
+  useEffect(() => { charger(); /* eslint-disable-next-line */ }, [vue, filtre, etiquette]);
 
   useEffect(() => {
     adminFetch('/api/inbox/contacts').then(r => r.json())
@@ -331,6 +332,27 @@ export default function BoiteMailPage() {
             })}
           </div>
         )}
+
+        <div style={{ marginTop: 12 }}>
+          <div style={{ padding: '0 13px 6px', fontSize: 8.5, letterSpacing: 2.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600 }}>
+            Étiquettes
+          </div>
+          {Object.keys(COULEUR_ETIQ).map(l => {
+            const actif = etiquette === l;
+            return (
+              <button key={l} onClick={() => { setEtiquette(actif ? '' : l); setOuvert(null); }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 16px)', margin: '0 8px 2px',
+                        padding: '6px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        background: actif ? C.accentFond : 'transparent',
+                        color: actif ? C.accent : C.t2, fontWeight: actif ? 600 : 400, fontSize: 12.5,
+                      }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: COULEUR_ETIQ[l], flexShrink: 0 }} />
+                <span style={{ flex: 1, textAlign: 'left' }}>{l}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{ padding: '10px 13px', borderTop: `1px solid ${C.ligneFaible}`, fontSize: 10.5, color: C.t4 }}>
@@ -476,6 +498,20 @@ export default function BoiteMailPage() {
                 <span className="sc-num" style={{ fontSize: 11.5, color: C.t4 }}>
                   {ouvert.sent_at && new Date(ouvert.sent_at).toLocaleString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
                 </span>
+                <select value={ouvert.label || ''} className="sc-input"
+                        style={{ height: 28, fontSize: 11, maxWidth: 132 }}
+                        onChange={e => {
+                          const l = e.target.value;
+                          setOuvert({ ...ouvert, label: l || null });
+                          setMessages(ms => ms.map(x => (x.id === ouvert.id ? { ...x, label: l || null } : x)));
+                          adminFetch('/api/inbox', {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ids: [ouvert.id], action: 'etiquette', label: l }),
+                          }).catch(() => say('Étiquette non enregistrée'));
+                        }}>
+                  <option value="">Sans étiquette</option>
+                  {Object.keys(COULEUR_ETIQ).map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
                 <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }} onClick={() => repondre(ouvert)}>
                   <span className="ms">reply</span>Répondre
                 </button>

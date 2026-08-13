@@ -23,6 +23,8 @@ export async function GET(req: NextRequest) {
   else req_ = req_.eq('folder', vue);
 
   if (filtre === 'non-lus') req_ = req_.eq('seen', false);
+  const etiq = p.get('etiquette');
+  if (etiq) req_ = req_.eq('label', etiq);
   if (q) req_ = req_.or(`subject.ilike.%${q}%,from_email.ilike.%${q}%,preview.ilike.%${q}%`);
 
   const { data, error } = await req_;
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
 /** Étoile, lu/non lu, corbeille. */
 export async function PUT(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-  const { ids, action } = await req.json().catch(() => ({}));
+  const { ids, action, label } = await req.json().catch(() => ({}));
   const liste: string[] = Array.isArray(ids) ? ids : [ids].filter(Boolean);
   if (!liste.length) return NextResponse.json({ error: 'Aucun message' }, { status: 400 });
 
@@ -83,6 +85,12 @@ export async function PUT(req: NextRequest) {
         const on = !m.flagged;
         await supabaseAdmin.from('inbox_messages').update({ flagged: on }).eq('id', m.id);
         await setFlag(m.folder, m.uid, '\\Flagged', on);
+      } else if (action === 'etiquette') {
+        /* L'etiquette est un classement local, pas un flag IMAP : IONOS
+           n'expose pas de mots-cles utilisateur fiables. Elle ne remonte
+           donc pas au serveur, et c'est assume. */
+        await supabaseAdmin.from('inbox_messages')
+          .update({ label: label || null }).eq('id', m.id);
       } else if (action === 'corbeille' && roles) {
         await moveMessage(m.folder, m.uid, roles.trash);
       }
