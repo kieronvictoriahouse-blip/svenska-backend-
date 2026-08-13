@@ -80,6 +80,11 @@ export default function BoiteMailPage() {
   const [toast, setToast] = useState('');
   const [w, setW] = useState(1400);
 
+  /* Fenetre de redaction : null = fermee. `repond` porte le Message-ID
+     auquel on repond, pour que le fil reste correct chez le destinataire. */
+  const [redac, setRedac] = useState<null | { to: string; cc: string; subject: string; corps: string; repond?: string }>(null);
+  const [envoi, setEnvoi] = useState(false);
+
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
   const etroit = w < 1320;
   const mobile = w < 1000;
@@ -151,6 +156,46 @@ export default function BoiteMailPage() {
     } catch { say('Action non enregistrée'); charger(); }
   }
 
+  function nouveau() { setRedac({ to: '', cc: '', subject: '', corps: '' }); }
+
+  function repondre(m: Msg, tous = false) {
+    const cc = tous ? (m.to_emails || []).filter(e => e && e !== 'hej@swedishcravings.fr').join(', ') : '';
+    setRedac({
+      to: m.from_email || '', cc,
+      subject: /^re\s*:/i.test(m.subject || '') ? (m.subject || '') : `Re : ${m.subject || ''}`,
+      corps: '', repond: (m as any).message_id || undefined,
+    });
+  }
+
+  function transferer(m: Msg) {
+    setRedac({
+      to: '', cc: '',
+      subject: /^tr\s*:/i.test(m.subject || '') ? (m.subject || '') : `Tr : ${m.subject || ''}`,
+      corps: `<br /><br />---------- Message transféré ----------<br />De : ${m.from_email}<br />Objet : ${m.subject}<br /><br />${m.body_html || m.body_text || ''}`,
+    });
+  }
+
+  async function envoyer() {
+    if (!redac) return;
+    setEnvoi(true);
+    try {
+      const res = await adminFetch('/api/inbox/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: redac.to, cc: redac.cc, subject: redac.subject,
+          // Le champ est un textarea : les retours à la ligne deviennent des <br />.
+          html: redac.corps.split('\n').join('<br />'),
+          inReplyTo: redac.repond,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Envoi impossible');
+      say('Message envoyé');
+      setRedac(null);
+    } catch (e: any) { say(e.message); }
+    finally { setEnvoi(false); }
+  }
+
   const nonLusListe = useMemo(() => messages.filter(m => !m.seen).length, [messages]);
   const inbox = etat.find(e => e.folder === 'INBOX');
 
@@ -159,7 +204,7 @@ export default function BoiteMailPage() {
     <div style={{ width: 228, flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, borderBottom: `1px solid ${C.ligneFaible}` }}>
         <button className="sc-btn" style={{ width: '100%', height: 38, justifyContent: 'center', background: C.ink, color: '#fff', border: 'none' }}
-                onClick={() => say('La rédaction arrive à l’étape suivante')}>
+                onClick={nouveau}>
           <span className="ms">edit</span>Nouveau message
         </button>
         <button className="sc-btn sc-btn-secondary" onClick={relever} disabled={synchro}
@@ -338,6 +383,15 @@ export default function BoiteMailPage() {
                 <span className="sc-num" style={{ fontSize: 11.5, color: C.t4 }}>
                   {ouvert.sent_at && new Date(ouvert.sent_at).toLocaleString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
                 </span>
+                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }} onClick={() => repondre(ouvert)}>
+                  <span className="ms">reply</span>Répondre
+                </button>
+                <button className="sc-iconbtn" title="Répondre à tous" onClick={() => repondre(ouvert, true)}>
+                  <span className="ms">reply_all</span>
+                </button>
+                <button className="sc-iconbtn" title="Transférer" onClick={() => transferer(ouvert)}>
+                  <span className="ms">forward</span>
+                </button>
                 <button className="sc-iconbtn" title="Suivre" onClick={() => agir('etoile', [ouvert.id])}>
                   <span className="ms" style={{ color: ouvert.flagged ? C.etoile : C.t6, fontVariationSettings: ouvert.flagged ? "'FILL' 1" : "'FILL' 0" }}>star</span>
                 </button>
@@ -380,6 +434,56 @@ export default function BoiteMailPage() {
         {(!mobile || !ouvert) && liste}
         {(!mobile || ouvert) && lecture}
       </div>
+
+      {/* Fenetre de redaction — 660 x 640, en surimpression */}
+      {redac && (
+        <div style={{
+          position: 'fixed', right: 24, bottom: 24, width: mobile ? 'calc(100vw - 32px)' : 660,
+          height: mobile ? '80vh' : 640, background: C.surface, border: `1px solid ${C.border}`,
+          borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,.22)', zIndex: 250,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 15px', background: C.ink, color: '#fff' }}>
+            <span className="ms" style={{ fontSize: 18 }}>edit</span>
+            <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600 }}>
+              {redac.repond ? 'Répondre' : 'Nouveau message'}
+            </span>
+            <button onClick={() => setRedac(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#fff', lineHeight: 1 }}>
+              <span className="ms">close</span>
+            </button>
+          </div>
+
+          <div style={{ padding: '0 15px' }}>
+            {[['to', 'À'], ['cc', 'Cc'], ['subject', 'Objet']].map(([k, lab]) => (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.ligne}`, padding: '9px 0' }}>
+                <span style={{ width: 44, fontSize: 11.5, color: C.t4, flexShrink: 0 }}>{lab}</span>
+                <input value={(redac as any)[k]} onChange={e => setRedac({ ...redac, [k]: e.target.value })}
+                       style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, color: C.t1, fontFamily: 'inherit' }} />
+              </div>
+            ))}
+          </div>
+
+          <textarea value={redac.corps} onChange={e => setRedac({ ...redac, corps: e.target.value })}
+                    placeholder="Écris ton message…"
+                    style={{
+                      flex: 1, border: 'none', outline: 'none', resize: 'none', padding: '14px 15px',
+                      fontSize: 14, lineHeight: 1.72, color: C.corps, fontFamily: 'inherit',
+                    }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', background: '#FBF9F6', borderTop: `1px solid ${C.border}` }}>
+            <button className="sc-btn" onClick={envoyer} disabled={envoi}
+                    style={{ background: C.vert, color: '#fff', border: 'none' }}>
+              <span className="ms">send</span>{envoi ? 'Envoi…' : 'Envoyer'}
+            </button>
+            <span style={{ flex: 1, fontSize: 11, color: C.t4 }}>
+              La signature Swedish Cravings est ajoutée automatiquement.
+            </span>
+            <button className="sc-iconbtn" title="Abandonner" onClick={() => setRedac(null)}>
+              <span className="ms" style={{ color: '#B03A2E' }}>delete</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div style={{

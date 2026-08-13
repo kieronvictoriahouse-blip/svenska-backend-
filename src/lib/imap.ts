@@ -263,3 +263,21 @@ export async function moveMessage(folder: string, uid: number, dest: string) {
     try { await c.logout(); } catch { /* ignore */ }
   }
 }
+
+/**
+ * Dépose une copie du message envoyé dans le dossier Envoyés.
+ *
+ * L'envoi passe par SMTP, qui ne laisse aucune trace côté IMAP : sans
+ * cet APPEND, un message parti du back-office serait invisible dans le
+ * webmail et dans la boîte elle-même après la relève suivante.
+ */
+export async function appendToSent(raw: string | Buffer): Promise<void> {
+  const roles = await resolveFolders();
+  const c = client();
+  try {
+    await c.connect();
+    await c.append(roles.sent, raw, ['\Seen']);
+  } finally {
+    try { await c.logout(); } catch { /* ignore */ }
+  }
+}
