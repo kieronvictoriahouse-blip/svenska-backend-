@@ -1,10 +1,15 @@
 'use client';
 import { useState } from 'react';
-
+import { adminFetch } from '@/lib/auth-client';
+import { T } from '@/lib/admin-theme';
 
 type Category = { id: string; name_fr: string; slug: string };
 
-const LANG_FLAGS: Record<string, string> = { sv: '🇸🇪', fr: '🇫🇷', en: '🇬🇧' };
+const LANGS: Array<{ code: 'fr' | 'sv' | 'en'; label: string }> = [
+  { code: 'fr', label: 'Français' },
+  { code: 'sv', label: 'Svenska' },
+  { code: 'en', label: 'English' },
+];
 const isWebpUrl = (u: string) => /\.webp(\?|$)/i.test(u);
 
 export default function ImportPage() {
@@ -24,6 +29,7 @@ export default function ImportPage() {
   function get(key: string): string { return product?.[`${key}_${lang}`] || ''; }
   function set(key: string, val: string) { setProduct((p: any) => ({ ...p, [`${key}_${lang}`]: val })); }
 
+  /* Certaines URLs d'images renvoient 404 : on bascule silencieusement sur la suivante. */
   function handleMainImgError() {
     if (!product?.image_urls) return;
     const urls: string[] = product.image_urls;
@@ -36,10 +42,9 @@ export default function ImportPage() {
     if (!url.trim()) return;
     setLoading(true); setError(''); setProduct(null);
     try {
-      const token = localStorage.getItem('sd_admin_token');
-      const res = await fetch('/api/scrape', {
+      const res = await adminFetch('/api/scrape', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim() }),
       });
       const data = await res.json();
@@ -60,7 +65,6 @@ export default function ImportPage() {
     if (!product) return;
     setSaving(true);
     try {
-      const token = localStorage.getItem('sd_admin_token');
       const body = {
         category_id: categoryId || null,
         name_sv: product.name_sv || '', name_fr: product.name_fr || '', name_en: product.name_en || '',
@@ -72,7 +76,7 @@ export default function ImportPage() {
         usage_sv: product.usage_sv || '', usage_fr: product.usage_fr || '', usage_en: product.usage_en || '',
         nutrition: product.nutrition || {},
         price: product.price || 0,
-        weight: product.weight ? product.weight.replace(/^\d+\s*[xX×]\s*/,'').trim() || null : null,
+        weight: product.weight ? product.weight.replace(/^\d+\s*[xX×]\s*/, '').trim() || null : null,
         origin_sv: product.origin_sv || '', origin_fr: product.origin_fr || '', origin_en: product.origin_en || '',
         image_url: selectedImg || null,
         extra_images: Array.from(extraImgs).filter(u => u !== selectedImg),
@@ -83,13 +87,13 @@ export default function ImportPage() {
         rating: 4.5,
         reviews_count: 0,
       };
-      const res = await fetch('/api/products', {
+      const res = await adminFetch('/api/products', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error('Erreur lors de la sauvegarde');
-      showToast(`✅ "${product.name_fr}" ajouté au catalogue !`);
+      showToast(`« ${product.name_fr} » ajouté au catalogue`);
       setProduct(null); setUrl('');
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
@@ -98,183 +102,218 @@ export default function ImportPage() {
   const p = product;
   const nutri = p?.nutrition || {};
 
-  return (
-    <div style={{ maxWidth: 960, margin: '0 auto' }}>
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1C2028', color: '#fff', padding: '12px 20px', borderRadius: 10, fontWeight: 600, fontSize: 14, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}>
-          {toast}
-        </div>
-      )}
+  const css = `
+    .im-grid { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; align-items:start; }
+    @media (max-width: 1000px) { .im-grid { grid-template-columns:1fr; } }
+    .im-card { background:#fff; border:1px solid ${T.border}; border-radius:10px; overflow:hidden; }
+    .im-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 15px; border-bottom:1px solid ${T.border}; }
+    .im-head-title { display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; color:${T.ink}; }
+    .im-body { padding:14px 15px; display:flex; flex-direction:column; gap:12px; }
+    .im-label { display:block; font-size:11px; font-weight:600; color:${T.text2b}; margin-bottom:5px; }
+    .im-row { display:grid; gap:10px; }
+    .im-hint { font-size:10.5px; color:${T.muted}; margin-top:4px; line-height:1.45; }
+    .im-eyebrow { font-size:9.5px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:${T.muted}; margin-bottom:7px; }
+    .im-lang { display:flex; gap:4px; border-bottom:1px solid ${T.border}; margin-bottom:12px; }
+    .im-lang button { border:none; background:none; cursor:pointer; padding:9px 14px; font-size:12.5px; color:${T.text2}; font-family:inherit; }
+    .im-lang button.active { color:var(--accent); font-weight:600; box-shadow:inset 0 -2px 0 var(--accent); }
+    .im-thumb { position:relative; width:62px; height:62px; border-radius:7px; background:${T.surfaceAlt}; flex-shrink:0; border:1.5px solid ${T.border}; }
+    .im-thumb.sel { border-color:var(--accent); }
+    .im-nutri { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .im-nutri td { padding:6px 0; border-bottom:1px solid ${T.borderFaint}; color:${T.text2b}; }
+    .im-nutri tr:last-child td { border-bottom:none; }
+  `;
 
-      <div className="topbar">
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <div className="page-title">📥 Import automatique</div>
-          <div className="page-subtitle">URL → Claude extrait tout → tu valides → produit live.</div>
+          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>Import depuis une URL</div>
+          <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
+            Colle un lien produit : la fiche est extraite et traduite, tu valides avant publication.
+          </div>
         </div>
       </div>
 
-      {/* URL input */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-header"><span className="card-title">🔗 URL du produit</span></div>
-        <div style={{ padding: '20px 24px', display: 'flex', gap: 12 }}>
-          <input className="form-control" style={{ flex: 1 }}
-            placeholder="https://www.estrella.se/produkter/hot-holiday-dippmix/"
-            value={url} onChange={e => setUrl(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && analyse()} />
-          <button className="btn btn-primary" onClick={analyse} disabled={loading || !url.trim()} style={{ whiteSpace: 'nowrap', minWidth: 180 }}>
-            {loading ? '⏳ Analyse...' : '🤖 Analyser avec Claude'}
-          </button>
-        </div>
-        {error && <div style={{ padding: '0 24px 16px', color: '#C62828', fontSize: 13 }}>⚠️ {error}</div>}
-        <div style={{ padding: '0 24px 16px', fontSize: 12, color: '#8B7E72' }}>
-          Compatible : Estrella, ICA, Waitrose, M&amp;S, Ankorstore, et tout site e-commerce standard.
+      {/* Barre d'analyse */}
+      <div className="im-card" style={{ marginBottom: 12 }}>
+        <div className="im-body" style={{ gap: 9 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', flex: '1 1 320px', minWidth: 0 }}>
+              <span className="ms" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 17, color: T.muted }}>link</span>
+              <input className="sc-input" style={{ width: '100%', paddingLeft: 32 }}
+                     placeholder="https://www.estrella.se/produkter/hot-holiday-dippmix/"
+                     value={url} onChange={e => setUrl(e.target.value)}
+                     onKeyDown={e => e.key === 'Enter' && analyse()} />
+            </div>
+            <button className="sc-btn sc-btn-primary" onClick={analyse} disabled={loading || !url.trim()}
+                    style={{ whiteSpace: 'nowrap' }}>
+              <span className="ms">auto_awesome</span>{loading ? 'Analyse…' : 'Analyser la page'}
+            </button>
+          </div>
+
+          {error && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FBE7E4',
+              border: '1px solid #EBD5D1', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#8C3A2E',
+            }}>
+              <span className="ms" style={{ fontSize: 17 }}>error</span>{error}
+            </div>
+          )}
+
+          <div className="im-hint">
+            Compatible Estrella, ICA, Waitrose, M&amp;S, Ankorstore et la plupart des sites e-commerce.
+          </div>
         </div>
       </div>
 
       {loading && (
-        <div style={{ textAlign: 'center', padding: 80, color: '#8B7E72' }}>
-          <div style={{ fontSize: 56, marginBottom: 16 }}>🤖</div>
-          <p style={{ fontSize: 15, marginBottom: 6 }}>Claude analyse la page...</p>
-          <p style={{ fontSize: 13 }}>Extraction, traduction FR/EN/SV, détection allergènes &amp; nutrition</p>
+        <div className="im-card">
+          <div style={{ padding: '54px 20px', textAlign: 'center' }}>
+            <span className="ms" style={{ fontSize: 34, color: T.borderField, display: 'block', marginBottom: 10 }}>auto_awesome</span>
+            <div style={{ fontSize: 13, color: T.text2b }}>Analyse de la page en cours…</div>
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4 }}>
+              Extraction, traduction FR / SV / EN, détection des allergènes et de la nutrition
+            </div>
+          </div>
         </div>
       )}
 
       {p && !loading && (
         <>
-          {/* Lang tabs */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 20, alignItems: 'center' }}>
-            {(['fr', 'sv', 'en'] as const).map(l => (
-              <button key={l} onClick={() => setLang(l)}
-                style={{ padding: '8px 22px', border: '1px solid', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-                  background: lang === l ? '#7B4F7B' : '#fff',
-                  color: lang === l ? '#fff' : '#5A5248',
-                  borderColor: lang === l ? '#7B4F7B' : '#E8E4DE' }}>
-                {LANG_FLAGS[l]} {l.toUpperCase()}
+          {/* Langue d'édition — les 3 versions sont enregistrées ensemble */}
+          <div className="im-lang">
+            {LANGS.map(l => (
+              <button key={l.code} className={lang === l.code ? 'active' : ''} onClick={() => setLang(l.code)}>
+                {l.label}
               </button>
             ))}
-            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#8B7E72' }}>Édite dans les 3 langues</span>
+            <span style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 11, color: T.muted }}>
+              Les trois langues sont enregistrées ensemble
+            </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 370px', gap: 20, alignItems: 'start' }}>
+          <div className="im-grid">
+            {/* ── Colonne principale ─────────────────────────── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
-            {/* LEFT */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="im-card">
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>badge</span>Identité produit</span></div>
+                <div className="im-body">
+                  <div className="im-row" style={{ gridTemplateColumns: '58px minmax(0,1fr) minmax(0,1fr)', alignItems: 'end' }}>
+                    <div>
+                      <label className="im-label">Emoji</label>
+                      <input className="sc-input" style={{ width: '100%', textAlign: 'center', fontSize: 18, padding: 0 }}
+                             value={p.emoji || ''} onChange={e => setProduct({ ...p, emoji: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="im-label">Nom</label>
+                      <input className="sc-input" style={{ width: '100%' }} value={get('name')} onChange={e => set('name', e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="im-label">Marque</label>
+                      <input className="sc-input" style={{ width: '100%' }} value={p.brand || ''} onChange={e => setProduct({ ...p, brand: e.target.value })} />
+                    </div>
+                  </div>
 
-              {/* Identité */}
-              <div className="card">
-                <div className="card-header"><span className="card-title">📝 Identité produit</span></div>
-                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', gap: 10, alignItems: 'end' }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Emoji</label>
-                      <input className="form-control" style={{ textAlign: 'center', fontSize: 22, padding: '6px 4px' }}
-                        value={p.emoji || ''} onChange={e => setProduct({ ...p, emoji: e.target.value })} />
+                  <div>
+                    <label className="im-label">Accroche</label>
+                    <input className="sc-input" style={{ width: '100%' }} value={get('subtitle')} onChange={e => set('subtitle', e.target.value)} />
+                  </div>
+
+                  <div>
+                    <label className="im-label">Description</label>
+                    <textarea className="sc-input" rows={4} style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
+                              value={get('desc')} onChange={e => set('desc', e.target.value)} />
+                  </div>
+
+                  <div className="im-row" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
+                    <div>
+                      <label className="im-label">Prix de vente (€)</label>
+                      <input className="sc-input sc-num" type="number" step="0.01" style={{ width: '100%' }}
+                             value={p.price || 0} onChange={e => setProduct({ ...p, price: parseFloat(e.target.value) })} />
                     </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">{LANG_FLAGS[lang]} Nom</label>
-                      <input className="form-control" value={get('name')} onChange={e => set('name', e.target.value)} />
+                    <div>
+                      <label className="im-label">Poids / format</label>
+                      <input className="sc-input" style={{ width: '100%' }} placeholder="24 g, 250 ml…"
+                             value={p.weight || ''} onChange={e => setProduct({ ...p, weight: e.target.value })} />
                     </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Marque</label>
-                      <input className="form-control" value={p.brand || ''} onChange={e => setProduct({ ...p, brand: e.target.value })} />
+                    <div>
+                      <label className="im-label">Origine</label>
+                      <input className="sc-input" style={{ width: '100%' }} value={get('origin')} onChange={e => set('origin', e.target.value)} />
                     </div>
                   </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">{LANG_FLAGS[lang]} Accroche</label>
-                    <input className="form-control" value={get('subtitle')} onChange={e => set('subtitle', e.target.value)} />
-                  </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">{LANG_FLAGS[lang]} Description</label>
-                    <textarea className="form-control" rows={4} value={get('desc')} onChange={e => set('desc', e.target.value)} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Prix (€)</label>
-                      <input className="form-control" type="number" step="0.01" value={p.price || 0}
-                        onChange={e => setProduct({ ...p, price: parseFloat(e.target.value) })} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">Poids / Format</label>
-                      <input className="form-control" placeholder="24g, 250ml..." value={p.weight || ''}
-                        onChange={e => setProduct({ ...p, weight: e.target.value })} />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label">{LANG_FLAGS[lang]} Origine</label>
-                      <input className="form-control" value={get('origin')} onChange={e => set('origin', e.target.value)} />
-                    </div>
-                  </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">Catégorie</label>
-                    <select className="form-control" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
-                      <option value="">— Choisir —</option>
+
+                  <div>
+                    <label className="im-label">Catégorie</label>
+                    <select className="sc-input" style={{ width: '100%' }} value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+                      <option value="">— Choisir une catégorie —</option>
                       {categories.map(c => <option key={c.id} value={c.id}>{c.name_fr}</option>)}
                     </select>
                   </div>
                 </div>
               </div>
 
-              {/* Ingrédients & Allergènes */}
-              <div className="card">
-                <div className="card-header"><span className="card-title">🧪 Ingrédients &amp; Allergènes</span></div>
-                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">{LANG_FLAGS[lang]} Ingrédients</label>
-                    <textarea className="form-control" rows={4} value={get('ingredients')} onChange={e => set('ingredients', e.target.value)}
-                      placeholder="Salt, maltodextrin, onion powder..." />
+              <div className="im-card">
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>science</span>Ingrédients &amp; allergènes</span></div>
+                <div className="im-body">
+                  <div>
+                    <label className="im-label">Ingrédients</label>
+                    <textarea className="sc-input" rows={4} style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
+                              value={get('ingredients')} onChange={e => set('ingredients', e.target.value)}
+                              placeholder="Sel, maltodextrine, poudre d'oignon…" />
                   </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">{LANG_FLAGS[lang]} Allergènes</label>
-                    <input className="form-control" value={get('allergens')} onChange={e => set('allergens', e.target.value)}
-                      placeholder="Contient : gluten, lait..." />
+                  <div>
+                    <label className="im-label">Allergènes</label>
+                    <input className="sc-input" style={{ width: '100%' }} value={get('allergens')} onChange={e => set('allergens', e.target.value)}
+                           placeholder="Contient : gluten, lait…" />
                   </div>
                   {p.labels?.length > 0 && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {p.labels.map((l: string) => (
-                        <span key={l} style={{ background: '#E8F5E9', color: '#2E7D32', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
-                          ✓ {l}
-                        </span>
+                        <span key={l} className="sc-chip">{l}</span>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Conservation & Usage */}
-              <div className="card">
-                <div className="card-header"><span className="card-title">📦 Conservation &amp; Utilisation</span></div>
-                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">{LANG_FLAGS[lang]} Conservation</label>
-                    <input className="form-control" value={get('storage')} onChange={e => set('storage', e.target.value)}
-                      placeholder="Conserver à l'abri de la chaleur..." />
+              <div className="im-card">
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>package_2</span>Conservation &amp; utilisation</span></div>
+                <div className="im-body">
+                  <div>
+                    <label className="im-label">Conservation</label>
+                    <input className="sc-input" style={{ width: '100%' }} value={get('storage')} onChange={e => set('storage', e.target.value)}
+                           placeholder="Conserver à l'abri de la chaleur…" />
                   </div>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">{LANG_FLAGS[lang]} Suggestions d&apos;utilisation</label>
-                    <textarea className="form-control" rows={3} value={get('usage')} onChange={e => set('usage', e.target.value)}
-                      placeholder="Parfait avec des chips, en trempette..." />
+                  <div>
+                    <label className="im-label">Suggestions d&rsquo;utilisation</label>
+                    <textarea className="sc-input" rows={3} style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
+                              value={get('usage')} onChange={e => set('usage', e.target.value)}
+                              placeholder="Parfait avec des chips, en trempette…" />
                   </div>
                 </div>
               </div>
 
-              {/* Nutrition */}
               {Object.values(nutri).some((v: any) => v) && (
-                <div className="card">
-                  <div className="card-header">
-                    <span className="card-title">📊 Valeurs nutritionnelles</span>
-                    {nutri.portion && <span style={{ fontSize: 12, color: '#8B7E72' }}>pour {nutri.portion}</span>}
+                <div className="im-card">
+                  <div className="im-head">
+                    <span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>monitoring</span>Valeurs nutritionnelles</span>
+                    {nutri.portion && <span style={{ fontSize: 11, color: T.muted }}>pour {nutri.portion}</span>}
                   </div>
-                  <div style={{ padding: '0 20px 16px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <div className="im-body">
+                    <table className="im-nutri">
                       <tbody>
                         {[
-                          ['Énergie', nutri.energie], ['Graisses', nutri.graisses],
-                          ['dont Saturées', nutri.dont_satures], ['Glucides', nutri.glucides],
-                          ['dont Sucres', nutri.dont_sucres], ['Fibres', nutri.fibres],
+                          ['Énergie', nutri.energie], ['Matières grasses', nutri.graisses],
+                          ['dont saturées', nutri.dont_satures], ['Glucides', nutri.glucides],
+                          ['dont sucres', nutri.dont_sucres], ['Fibres', nutri.fibres],
                           ['Protéines', nutri.proteines], ['Sel', nutri.sel],
                         ].filter(([, v]) => v).map(([label, val]) => (
-                          <tr key={label as string} style={{ borderBottom: '1px solid #F0EDE8' }}>
-                            <td style={{ padding: '8px 12px', color: '#5A5248' }}>{label}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{val}</td>
+                          <tr key={label as string}>
+                            <td>{label}</td>
+                            <td className="sc-num" style={{ textAlign: 'right', fontWeight: 600, color: T.ink }}>{val}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -283,107 +322,118 @@ export default function ImportPage() {
                 </div>
               )}
 
-              {/* Flags */}
-              <div className="card">
-                <div style={{ padding: '16px 20px', display: 'flex', gap: 32 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={!!p.is_new} onChange={e => setProduct({ ...p, is_new: e.target.checked })} />
-                    Nouveauté
+              <div className="im-card">
+                <div className="im-body" style={{ flexDirection: 'row', gap: 26, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: T.text2b, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!p.is_new} onChange={e => setProduct({ ...p, is_new: e.target.checked })}
+                           style={{ accentColor: 'var(--accent)' }} />
+                    Marquer comme nouveauté
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={!!p.is_bestseller} onChange={e => setProduct({ ...p, is_bestseller: e.target.checked })} />
-                    Best-seller
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: T.text2b, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!p.is_bestseller} onChange={e => setProduct({ ...p, is_bestseller: e.target.checked })}
+                           style={{ accentColor: 'var(--accent)' }} />
+                    Marquer comme best-seller
                   </label>
                 </div>
               </div>
             </div>
 
-            {/* RIGHT — image + actions */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div className="card">
-                <div className="card-header"><span className="card-title">🖼️ Images</span></div>
-                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-                  {/* Image principale */}
+            {/* ── Colonne latérale : images + validation ─────── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+              <div className="im-card">
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>image</span>Images</span></div>
+                <div className="im-body">
                   <div>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: '#5A5248', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Image principale</p>
-                    <div style={{ marginBottom: 10, background: '#F8F5F0', borderRadius: 8, padding: 12, textAlign: 'center', minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div className="im-eyebrow">Image principale</div>
+                    <div style={{
+                      background: T.surfaceAlt, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12,
+                      minHeight: 138, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+                    }}>
                       {selectedImg
-                        ? <img src={selectedImg} alt="" onError={handleMainImgError} style={{ maxHeight: 140, maxWidth: '100%', objectFit: 'contain', borderRadius: 6 }} />
-                        : <span style={{ color: '#A09688', fontSize: 13 }}>Aucune image sélectionnée</span>}
+                        ? <img src={selectedImg} alt="" onError={handleMainImgError}
+                               style={{ maxHeight: 130, maxWidth: '100%', objectFit: 'contain' }} />
+                        : <span style={{ fontSize: 12, color: T.muted }}>Aucune image sélectionnée</span>}
                     </div>
-                    <input className="form-control" placeholder="https://..." value={selectedImg} onChange={e => setSelectedImg(e.target.value)} style={{ fontSize: 12, borderColor: isWebpUrl(selectedImg) ? '#E65100' : undefined }} />
+                    <input className="sc-input" placeholder="https://…" value={selectedImg}
+                           onChange={e => setSelectedImg(e.target.value)}
+                           style={{ width: '100%', fontSize: 11.5, borderColor: isWebpUrl(selectedImg) ? '#D08A3E' : undefined }} />
                     {isWebpUrl(selectedImg) && (
-                      <p style={{ fontSize: 11, color: '#E65100', marginTop: 4 }}>⚠️ Image WebP — peut être recadrée en carré par le CDN. Cliquez sur une autre vignette si disponible.</p>
+                      <div className="im-hint" style={{ color: '#8A5B08' }}>
+                        Image WebP — le CDN peut la recadrer au carré. Choisis une autre vignette si possible.
+                      </div>
                     )}
                   </div>
 
-                  {/* Sélecteur depuis images trouvées */}
                   {p.image_urls?.length > 0 && (
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: '#5A5248', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
-                        Images trouvées — cliquer pour définir comme principale
-                      </p>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <div className="im-eyebrow">Images trouvées sur la page</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                         {p.image_urls.slice(0, 12).map((u: string, i: number) => (
-                          <div key={i}
-                            style={{ position: 'relative', width: 64, height: 64, border: `2px solid ${selectedImg === u ? '#7B4F7B' : '#E8E4DE'}`, borderRadius: 6, overflow: 'visible', background: '#F8F5F0', flexShrink: 0 }}>
+                          <div key={i} className={`im-thumb${selectedImg === u ? ' sel' : ''}`}>
                             <img src={u} alt="" onClick={() => setSelectedImg(u)}
-                              style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', borderRadius: 4 }}
-                              onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }} />
+                                 style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', borderRadius: 5 }}
+                                 onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }} />
                             {isWebpUrl(u) && (
-                              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(180,80,0,0.75)', fontSize: 7, color: '#fff', textAlign: 'center', borderBottomLeftRadius: 4, borderBottomRightRadius: 4, pointerEvents: 'none' }}>WebP</div>
+                              <div style={{
+                                position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(138,91,8,.78)',
+                                fontSize: 7, letterSpacing: .4, color: '#fff', textAlign: 'center', pointerEvents: 'none',
+                              }}>WEBP</div>
                             )}
-                            {selectedImg !== u && (
-                              <div style={{ position: 'absolute', top: -6, right: -6 }}>
-                                <input type="checkbox"
-                                  checked={extraImgs.has(u)}
-                                  onChange={() => {
-                                    setExtraImgs(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(u)) next.delete(u); else next.add(u);
-                                      return next;
-                                    });
-                                  }}
-                                  title="Ajouter à la galerie"
-                                  style={{ width: 16, height: 16, accentColor: '#7B4F7B', cursor: 'pointer' }}
-                                />
-                              </div>
-                            )}
-                            {selectedImg === u && (
-                              <div style={{ position: 'absolute', top: -6, right: -6, background: '#7B4F7B', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff' }}>★</div>
+                            {selectedImg === u ? (
+                              <span className="ms" style={{
+                                position: 'absolute', top: -7, right: -7, fontSize: 16, color: '#fff',
+                                background: 'var(--accent)', borderRadius: '50%', padding: 1,
+                              }}>star</span>
+                            ) : (
+                              <input type="checkbox" checked={extraImgs.has(u)} title="Ajouter à la galerie"
+                                     onChange={() => setExtraImgs(prev => {
+                                       const next = new Set(prev);
+                                       if (next.has(u)) next.delete(u); else next.add(u);
+                                       return next;
+                                     })}
+                                     style={{ position: 'absolute', top: -6, right: -6, width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }} />
                             )}
                           </div>
                         ))}
                       </div>
-                      <p style={{ fontSize: 11, color: '#A09688', marginTop: 6 }}>
-                        ★ = principale · ☑ = galerie ({extraImgs.size} sélectionnée{extraImgs.size > 1 ? 's' : ''})
-                      </p>
+                      <div className="im-hint">
+                        Clic sur une vignette = image principale · case cochée = ajoutée à la galerie
+                        {extraImgs.size > 0 ? ` (${extraImgs.size})` : ''}
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="card">
-                <div style={{ padding: '12px 20px' }}>
-                  <a href={p.source_url} target="_blank" rel="noopener" style={{ fontSize: 11, color: '#7B4F7B', wordBreak: 'break-all' }}>
-                    🔗 {p.source_url}
+              <div className="im-card">
+                <div style={{ padding: '11px 15px' }}>
+                  <div className="im-eyebrow" style={{ marginBottom: 4 }}>Source</div>
+                  <a href={p.source_url} target="_blank" rel="noopener noreferrer"
+                     style={{ fontSize: 11, color: 'var(--accent)', wordBreak: 'break-all', textDecoration: 'none' }}>
+                    {p.source_url}
                   </a>
                 </div>
               </div>
 
-              <button className="btn btn-primary" onClick={addToShop} disabled={saving}
-                style={{ padding: '16px 24px', fontSize: 14, letterSpacing: 1.5, justifyContent: 'center' }}>
-                {saving ? '⏳ Ajout...' : '✅ Ajouter au catalogue'}
+              <button className="sc-btn sc-btn-primary" onClick={addToShop} disabled={saving}
+                      style={{ justifyContent: 'center', padding: '11px 18px' }}>
+                <span className="ms">check_circle</span>{saving ? 'Ajout en cours…' : 'Ajouter au catalogue'}
               </button>
-              <button className="btn btn-ghost" onClick={() => { setProduct(null); setUrl(''); }}
-                style={{ justifyContent: 'center', fontSize: 13 }}>
+              <button className="sc-btn sc-btn-secondary" onClick={() => { setProduct(null); setUrl(''); }}
+                      style={{ justifyContent: 'center' }}>
                 Annuler
               </button>
             </div>
           </div>
         </>
       )}
-    </div>
+
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff',
+          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
+        }}>{toast}</div>
+      )}
+    </>
   );
 }

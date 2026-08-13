@@ -152,6 +152,22 @@ dépôts. Avant un push :
 gh auth switch --user kieronvictoriahouse-blip
 ```
 
+### 17. `/admin/homepage` est un écran orphelin
+La route existe encore mais n'est référencée nulle part : aucun lien, aucune
+entrée de navigation. Elle a été remplacée par `/admin/home-cms`. Elle porte
+encore l'ancien design et ses propres appels d'écriture — donc un second
+chemin de modification de la page d'accueil, non maintenu. À supprimer après
+vérification que `home-cms` couvre bien les trois sections (`hero`,
+`featured_band`, `fredagsmys_band`).
+
+### 18. Onglets Marketing à restructurer
+Ton retour : « c'est pouri ». L'écran empile campagnes, codes promo et abandon
+panier dans un seul jeu d'onglets à plat, et la navigation propose quatre
+entrées qui pointent toutes sur la même page avec un `?tab=`. Ce qu'il faut :
+des onglets dédiés par domaine, avec des sous-onglets liés à l'intérieur.
+**Non fait — à cadrer avec toi avant de coder**, parce que le découpage change
+la structure de l'URL et donc les entrées de navigation.
+
 ---
 
 ## ✅ Réglé
@@ -163,3 +179,8 @@ gh auth switch --user kieronvictoriahouse-blip
   `stripe_session_id` dit si de l'argent a bougé.
 - `/api/marketing` et ses sous-routes fermées.
 - Déclarations URSSAF mai, juin, juillet 2026 faites.
+- Écrans repassés au nouveau design : Suggestions, Import URL (les deux étapes :
+  saisie de l'URL et création de l'article), Création d'article, Facturation,
+  Achats (modales), Pages (éditeur).
+- Champ EAN sur la fiche produit, « Créer par scan » depuis la liste produits,
+  session d'inventaire scannée, écran de préparation de commande.

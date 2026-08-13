@@ -1,6 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { T } from '@/lib/admin-theme';
+import BarcodeScanner from './BarcodeScanner';
 
 /* ═══════════════════════════════════════════════════════════════
    FORMULAIRE PRODUIT — écran 3 du handoff (« Fiche produit »).
@@ -23,6 +24,7 @@ type Nutrition = {
 
 type ProductFormData = {
   category_id: string;
+  ean: string;
   name_sv: string; name_fr: string; name_en: string;
   subtitle_sv: string; subtitle_fr: string; subtitle_en: string;
   desc_sv: string; desc_fr: string; desc_en: string;
@@ -52,7 +54,7 @@ type ProductFormData = {
 };
 
 const EMPTY: ProductFormData = {
-  category_id: '', name_sv: '', name_fr: '', name_en: '',
+  category_id: '', ean: '', name_sv: '', name_fr: '', name_en: '',
   subtitle_sv: '', subtitle_fr: '', subtitle_en: '',
   desc_sv: '', desc_fr: '', desc_en: '',
   price: '', cost_price: '', weight: '',
@@ -140,6 +142,8 @@ export default function ProductForm({
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [newExtraUrl, setNewExtraUrl] = useState('');
+  const [scanOpen, setScanOpen] = useState(false);
+  const [eanMsg, setEanMsg] = useState('');
   const [asStatus, setAsStatus] = useState<AutoSaveStatus>('idle');
   const fileRef = useRef<HTMLInputElement>(null);
   const asTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,6 +163,7 @@ export default function ProductForm({
       tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
       badge:         f.badge || null,
       category_id:   f.category_id || null,
+      ean:           f.ean?.trim() || null,
       stock:         f.track_stock && f.stock !== '' ? parseInt(f.stock) : null,
       reorder_qty:   f.reorder_qty !== '' ? parseInt(f.reorder_qty) : null,
       variants: f.variants
@@ -536,6 +541,65 @@ export default function ProductForm({
                            onChange={e => set('reorder_qty', e.target.value)} placeholder="10" />
                   </Field>
                 </>
+              )}
+            </Card>
+          )}
+
+          {show('general') && (
+            <Card title="Code-barres">
+              <Field label="EAN 13" hint="Scanne l’article en magasin : nom, marque et poids sont pré-remplis depuis Open Food Facts.">
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input className="sc-input sc-num" value={form.ean || ''} inputMode="numeric"
+                         placeholder="7310865004703"
+                         onChange={e => set('ean', e.target.value.replace(/[^0-9]/g, ''))} />
+                  <button type="button" className="sc-btn sc-btn-primary" onClick={() => setScanOpen(v => !v)}>
+                    <span className="ms">barcode_scanner</span>{scanOpen ? 'Fermer' : 'Scanner'}
+                  </button>
+                </div>
+              </Field>
+
+              {scanOpen && (
+                <div style={{ marginBottom: 12 }}>
+                  <BarcodeScanner
+                    compact
+                    label="Vise le code-barres de l’article"
+                    onScan={async code => {
+                      set('ean', code);
+                      setEanMsg('Recherche…');
+                      try {
+                        const d = await fetch(`/api/scan?ean=${encodeURIComponent(code)}`, {
+                          headers: { Authorization: `Bearer ${localStorage.getItem('sd_admin_token') || ''}` },
+                        }).then(r => r.json());
+                        if (d.found && d.product && d.product.id !== initialData?.id) {
+                          setEanMsg(`Ce code est déjà utilisé par « ${d.product.name_fr} ».`);
+                        } else if (d.suggestion) {
+                          // Ne jamais écraser une saisie existante : on ne comble que les vides.
+                          if (!form.name_fr && d.suggestion.name) set('name_fr', d.suggestion.name);
+                          if (!form.weight && d.suggestion.weight) set('weight', d.suggestion.weight);
+                          if (!form.image_url && d.suggestion.image_url) set('image_url', d.suggestion.image_url);
+                          setEanMsg('Fiche pré-remplie depuis Open Food Facts.');
+                        } else {
+                          setEanMsg('Code enregistré — produit inconnu des bases publiques.');
+                        }
+                      } catch { setEanMsg('Code enregistré.'); }
+                      setScanOpen(false);
+                    }}
+                  />
+                </div>
+              )}
+
+              {eanMsg && <div style={{ fontSize: 11, color: T.text2b, marginBottom: 10 }}>{eanMsg}</div>}
+
+              {/* Aperçu du code-barres : barres de 1 à 4 px dérivées du chiffre */}
+              {form.ean && form.ean.length >= 8 && (
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 26, marginTop: 4 }}>
+                  {form.ean.split('').map((d, i) => (
+                    <span key={i} style={{
+                      width: (Number(d) % 4) + 1, height: '100%',
+                      background: T.ink, opacity: i % 2 ? .55 : 1,
+                    }} />
+                  ))}
+                </div>
               )}
             </Card>
           )}

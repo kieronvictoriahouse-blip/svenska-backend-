@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials, eur, num, stockColor } from '@/lib/admin-theme';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 5 — STOCKS
@@ -29,6 +30,13 @@ export default function StockPage() {
   const [toast, setToast] = useState('');
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const timers = useRef<Record<string, any>>({});
+
+  /* Session d'inventaire par scan (handoff v2, 2.3).
+     La deduplication se fait dans la mise a jour fonctionnelle : un double
+     bip sur la meme reference incremente la ligne, il n'en cree jamais deux. */
+  const [invOpen, setInvOpen] = useState(false);
+  const [inv, setInv] = useState<Record<string, number>>({});
+  const [invBusy, setInvBusy] = useState(false);
 
   useEffect(() => { load(); return () => Object.values(timers.current).forEach(clearTimeout); }, []);
 
@@ -72,6 +80,44 @@ export default function StockPage() {
         setSaving(s => { const n = new Set(s); n.delete(p.id); return n; });
       }
     }, 700);
+  }
+
+  async function onInvScan(code: string) {
+    let p: any = products.find(x => (x as any).ean === code);
+    if (!p) {
+      try {
+        const d = await adminFetch(`/api/scan?ean=${encodeURIComponent(code)}`).then(r => r.json());
+        if (d.found && d.product) p = d.product;
+      } catch { /* hors ligne : message ci-dessous */ }
+    }
+    if (!p) { say(`Code ${code} inconnu - renseigne l'EAN sur la fiche produit`); return; }
+    const id = p.id;
+    setInv(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+  }
+
+  async function applyInventory() {
+    const entries = Object.entries(inv);
+    if (!entries.length) return;
+    setInvBusy(true);
+    try {
+      const res = await adminFetch('/api/stock/movement', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: 'inventory',
+          reference: `INV-${new Date().toISOString().slice(0, 10)}`,
+          items: entries.map(([product_id, counted]) => ({ product_id, counted })),
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Erreur');
+      setProducts(ps => ps.map(p => {
+        const hit = (d.applied || []).find((a: any) => a.product_id === p.id);
+        return hit ? { ...p, stock: hit.after } : p;
+      }));
+      say(`${(d.applied || []).length} reference(s) ajustee(s)`);
+      setInv({}); setInvOpen(false);
+    } catch (e: any) { say(e.message); }
+    finally { setInvBusy(false); }
   }
 
   const tracked = useMemo(() => products.filter(p => p.track_stock === true), [products]);
@@ -120,11 +166,90 @@ export default function StockPage() {
         </div>
         <div className="sc-actions">
           <Link href="/admin/achats" className="sc-btn sc-btn-secondary"><span className="ms">shopping_basket</span>Commande d’achat</Link>
+          <button className="sc-btn" onClick={() => setInvOpen(v => !v)}
+                  style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
+            <span className="ms">barcode_scanner</span>Inventaire par scan
+          </button>
           <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>Exporter CSV</button>
         </div>
       </div>
+      {/* Session d'inventaire par scan */}
+      {invOpen && (
+        <div className="sc-card" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
+            <span className="ms" style={{ fontSize: 19, color: '#6E4470' }}>inventory</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>Session d&rsquo;inventaire</div>
+              <div style={{ fontSize: 11, color: '#6E4470' }}>
+                {Object.keys(inv).length} r&eacute;f&eacute;rence(s) compt&eacute;e(s) &middot; scanne chaque produit puis corrige la quantit&eacute;
+              </div>
+            </div>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInv({})}>Vider</button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInvOpen(false)}>Fermer</button>
+          </div>
 
-      {/* ── 4 cartes de synthèse ────────────────────────── */}
+          <div style={{ display: 'flex', gap: 12, padding: 15, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ width: 220, flexShrink: 0 }}>
+              <BarcodeScanner compact onScan={onInvScan} label="Scanne un produit" />
+            </div>
+
+            <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+              {Object.keys(inv).length === 0 ? (
+                <div style={{
+                  border: `1px dashed ${T.borderField}`, borderRadius: 9, padding: '28px 18px',
+                  textAlign: 'center', fontSize: 12, color: T.muted,
+                }}>
+                  Aucun article compt&eacute; pour l&rsquo;instant. Scanne un premier produit pour d&eacute;marrer la session.
+                </div>
+              ) : (
+                Object.entries(inv).map(([id, counted]) => {
+                  const p = products.find(x => x.id === id);
+                  if (!p) return null;
+                  const theo = p.stock ?? 0;
+                  const gap = counted - theo;
+                  return (
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: `1px solid ${T.borderFaint}` }}>
+                      {p.image_url
+                        ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 28)} />
+                        : <div style={thumbStyle(p.name_fr, 28)}>{initials(p.name_fr, 1)}</div>}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, color: T.ink }}>{p.name_fr}</div>
+                        <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{refOf(p)} &middot; th&eacute;orique {theo}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
+                                onClick={() => setInv(s => ({ ...s, [id]: Math.max(0, (s[id] || 0) - 1) }))} aria-label="Moins">
+                          <span className="ms">remove</span>
+                        </button>
+                        <span className="sc-num" style={{ fontSize: 13, fontWeight: 700, minWidth: 26, textAlign: 'center' }}>{counted}</span>
+                        <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
+                                onClick={() => setInv(s => ({ ...s, [id]: (s[id] || 0) + 1 }))} aria-label="Plus">
+                          <span className="ms">add</span>
+                        </button>
+                      </div>
+                      <span className="sc-num" style={{
+                        minWidth: 44, textAlign: 'right', fontSize: 12.5, fontWeight: 600,
+                        color: gap === 0 ? T.muted : gap > 0 ? T.blue : T.red,
+                      }}>{gap > 0 ? `+${gap}` : gap}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11.5, color: T.muted, flex: 1 }}>
+              Les &eacute;carts cr&eacute;ent un mouvement de stock dat&eacute; et sign&eacute;.
+            </span>
+            <button className="sc-btn sc-btn-green" onClick={applyInventory} disabled={invBusy || !Object.keys(inv).length}>
+              <span className="ms">check_circle</span>{invBusy ? 'Ajustement...' : 'Ajuster le stock'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4 cartes de synthese */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
         {CARDS.map(c => (
           <div key={c.label} style={{

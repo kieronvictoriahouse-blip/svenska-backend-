@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import BarcodeScanner from '@/components/BarcodeScanner';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone, thumbStyle, initials, eur, stockColor } from '@/lib/admin-theme';
 
@@ -43,6 +45,11 @@ export default function ProduitsPage() {
   const [stat, setStat] = useState('');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
+
+  /* Creation par scan : la page /produits/nouveau redirige d'elle-meme
+     vers la fiche si l'EAN est deja au catalogue. */
+  const [scanOpen, setScanOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [mobile, setMobile] = useState(false);
   const [showCosts, setShowCosts] = useState(true);
@@ -208,10 +215,34 @@ export default function ProduitsPage() {
             <button className="sc-btn sc-btn-secondary" onClick={rehost} disabled={busy} title="Rapatrier les images externes dans le Storage">
               <span className="ms">cloud_upload</span>Images
             </button>
+            <button className="sc-btn" onClick={() => setScanOpen(v => !v)}
+                    style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
+              <span className="ms">barcode_scanner</span>Créer par scan
+            </button>
             <Link href="/admin/import" className="sc-btn sc-btn-secondary"><span className="ms">upload</span>Importer</Link>
             <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>Nouveau</Link>
           </div>
         </div>
+
+        {/* Creation par scan */}
+        {scanOpen && (
+          <div className="sc-card" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
+              <span className="ms" style={{ fontSize: 19, color: '#6E4470' }}>barcode_scanner</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>Cr&eacute;er un article par scan</div>
+                <div style={{ fontSize: 11, color: '#6E4470' }}>
+                  Si le code est d&eacute;j&agrave; au catalogue, sa fiche s&rsquo;ouvre au lieu de cr&eacute;er un doublon.
+                </div>
+              </div>
+              <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setScanOpen(false)}>Fermer</button>
+            </div>
+            <div style={{ padding: 15, maxWidth: 300 }}>
+              <BarcodeScanner compact label="Scanne l&rsquo;article"
+                              onScan={code => router.push(`/admin/produits/nouveau?ean=${encodeURIComponent(code)}`)} />
+            </div>
+          </div>
+        )}
 
         {/* Filtres */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

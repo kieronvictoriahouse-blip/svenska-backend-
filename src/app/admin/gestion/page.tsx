@@ -332,84 +332,88 @@ export default function GestionPage() {
   );
 
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=DM+Mono:wght@400;500&family=Jost:wght@300;400;500;600&display=swap');
-    :root{--moss:#3E5238;--moss-mid:#587050;--moss-light:#7A9468;--moss-pale:#E8EEE5;--copper:#9E5A3C;--copper-mid:#BC7455;--midnight:#1C2028;--slate:#3E4550;--dust:#6A7280;--linen:#D8CEBC;--cream:#F6F1E9;--snow:#FFFFFF;--success:#16A34A;--danger:#DC2626;--warning:#D97706;--r:6px;--font-d:'Cormorant Garamond',serif;--font-ui:'Jost',sans-serif;--font-mono:'DM Mono',monospace}
-    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:var(--font-ui);background:#EDEAE4;color:var(--midnight)}
-    .g-shell{display:flex;min-height:100vh}
-    .g-sidebar{width:220px;background:var(--midnight);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
-    .g-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.06)}
-    .g-logo-main{font-family:var(--font-d);font-size:17px;font-weight:600;color:#fff;display:block;line-height:1.2}
-    .g-logo-tag{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--copper-mid);display:block;margin-top:3px}
-    .g-nav{flex:1;padding:12px 0;overflow-y:auto}
-    .g-section{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.2);padding:12px 20px 5px}
-    .g-link{display:flex;align-items:center;gap:9px;padding:9px 20px;font-size:12.5px;font-weight:500;color:rgba(255,255,255,0.5);border-left:3px solid transparent;transition:all 0.18s;cursor:pointer;border:none;background:none;width:100%;text-align:left}
-    .g-link:hover{color:#fff;background:rgba(255,255,255,0.05)}
-    .g-link.active{color:#fff;background:rgba(255,255,255,0.08);border-left-color:var(--copper-mid)}
-    .g-main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
-    .g-topbar{height:58px;background:#fff;border-bottom:1px solid var(--linen);display:flex;align-items:center;padding:0 28px;gap:14px;position:sticky;top:0;z-index:90}
-    .g-topbar-title{font-size:16px;font-weight:600;flex:1}
-    .g-content{padding:28px}
-    .g-page-header{margin-bottom:24px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px}
-    .g-page-title{font-family:var(--font-d);font-size:30px;font-weight:600}
-    .g-page-sub{font-size:13px;color:var(--dust);margin-top:3px}
-    .g-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
-    .g-stat{background:#fff;border:1px solid var(--linen);border-radius:var(--r);padding:18px 20px;display:flex;align-items:center;gap:14px}
-    .g-stat-icon{font-size:26px;flex-shrink:0}
-    .g-stat-num{font-family:var(--font-mono);font-size:22px;font-weight:500;color:var(--midnight);line-height:1}
-    .g-stat-label{font-size:11px;color:var(--dust);margin-top:3px;letter-spacing:0.5px}
-    .g-card{background:#fff;border:1px solid var(--linen);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
-    .g-card-header{padding:14px 20px;border-bottom:1px solid var(--linen);display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .g-card-title{font-size:14px;font-weight:600}
-    .g-table{width:100%;border-collapse:collapse;font-size:13px}
-    .g-table th{padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--dust);background:var(--cream);border-bottom:1px solid var(--linen)}
-    .g-table td{padding:10px 14px;border-bottom:1px solid var(--linen)}
-    .g-table tr:last-child td{border-bottom:none}
-    .g-table tr:hover td{background:#FDFAF5}
-    .mono{font-family:var(--font-mono)}
-    .price{font-family:var(--font-mono);text-align:right}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--r);font-family:var(--font-ui);font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s}
-    .btn-primary{background:var(--moss);color:#fff}.btn-primary:hover{background:var(--moss-mid)}
-    .btn-secondary{background:var(--cream);color:var(--slate);border:1px solid var(--linen)}.btn-secondary:hover{background:var(--linen)}
-    .btn-danger{background:#FEE2E2;color:#991B1B}.btn-danger:hover{background:#FCA5A5}
-    .btn-sm{padding:5px 10px;font-size:12px}
-    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:0.5px}
-    .form-group{margin-bottom:14px}
-    .form-label{display:block;font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--dust);margin-bottom:5px}
-    .form-control{width:100%;padding:8px 10px;border:1px solid var(--linen);border-radius:var(--r);font-family:var(--font-ui);font-size:13px;background:#fff;color:var(--midnight);outline:none;transition:border 0.15s}
-    .form-control:focus{border-color:var(--moss-light)}
-    .form-grid{display:grid;gap:12px}
-    .g-modal-overlay{position:fixed;inset:0;background:rgba(28,32,40,0.5);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
-    .g-modal{background:#fff;border-radius:var(--r);width:100%;max-width:680px;box-shadow:0 20px 60px rgba(0,0,0,0.2);margin:auto}
-    .g-modal-header{padding:16px 20px;border-bottom:1px solid var(--linen);display:flex;align-items:center;justify-content:space-between}
-    .g-modal-title{font-size:16px;font-weight:600}
-    .g-modal-body{padding:20px}
-    .g-modal-footer{padding:14px 20px;border-top:1px solid var(--linen);display:flex;justify-content:flex-end;gap:10px}
-    .g-toast{position:fixed;bottom:24px;right:24px;background:var(--midnight);color:#fff;padding:10px 18px;border-radius:var(--r);font-size:13px;z-index:999;animation:slideIn 0.2s ease}
-    @keyframes slideIn{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
-    .empty{padding:40px;text-align:center;color:var(--dust);font-size:13px;font-style:italic}
-    .g-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .g-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-    .margin-bar{height:6px;background:var(--linen);border-radius:3px;overflow:hidden;width:80px}
-    .margin-fill{height:100%;border-radius:3px}
-    .result-box{background:var(--cream);border:1px solid var(--linen);border-radius:var(--r);padding:14px 16px;margin-top:12px}
-    .result-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
-    .result-total{font-weight:700;font-size:14px;border-top:1px solid var(--linen);margin-top:8px;padding-top:8px}
-    textarea.form-control{resize:vertical;min-height:70px}
-    select.form-control{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236A7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+    /* Facturation — classes historiques remappees sur les tokens du
+       nouveau design. Les blocs de shell (g-shell, g-sidebar, g-nav,
+       g-logo, g-topbar) ne sont plus rendus : la navigation vient du
+       shell global et les onglets remplacent l'ancienne sidebar. */
+
+    .g-content { padding: 0; }
+    .g-page-header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
+    .g-page-title { font-size:17px; font-weight:600; letter-spacing:-.2px; color:${TH.ink}; }
+    .g-page-sub { font-size:11.5px; color:${TH.text3}; margin-top:2px; }
+
+    .g-section { background:#fff; border:1px solid ${TH.border}; border-radius:10px; padding:15px; margin-bottom:12px; }
+
+    .g-card { background:#fff; border:1px solid ${TH.border}; border-radius:10px; overflow:hidden; margin-bottom:12px; }
+    .g-card-header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 15px; border-bottom:1px solid ${TH.border}; }
+    .g-card-title { font-size:12.5px; font-weight:600; color:${TH.ink}; }
+
+    .g-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); gap:10px; margin-bottom:12px; }
+    .g-stat { background:#fff; border:1px solid ${TH.border}; border-radius:10px; padding:13px 15px; display:flex; align-items:center; gap:11px; }
+    .g-stat-icon { display:none; }
+    .g-stat-num { font-size:23px; font-weight:700; color:${TH.ink}; font-variant-numeric:tabular-nums; letter-spacing:-.4px; }
+    .g-stat-label { font-size:9.5px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:${TH.muted}; margin-top:3px; }
+
+    .g-grid-2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
+    .g-grid-3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+
+    .g-table { width:100%; border-collapse:collapse; background:#fff; font-size:12.5px; }
+    .g-table th { padding:8px 14px; text-align:left; font-size:9px; font-weight:600; letter-spacing:1.3px; text-transform:uppercase; color:${TH.muted}; background:${TH.surfaceAlt}; border-bottom:1px solid ${TH.border}; white-space:nowrap; }
+    .g-table td { padding:7px 14px; border-bottom:1px solid ${TH.borderFaint}; color:${TH.text2b}; }
+    .g-table tr:last-child td { border-bottom:none; }
+    .g-table tbody tr:hover td { background:${TH.rowHover}; }
+
+    .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:600; letter-spacing:.3px; white-space:nowrap; }
+
+    .btn { display:inline-flex; align-items:center; gap:6px; border-radius:7px; padding:8px 14px; font-size:12.5px; font-weight:500; cursor:pointer; border:1px solid ${TH.borderField}; background:#fff; color:#3A3228; text-decoration:none; transition:background .12s,border-color .12s; }
+    .btn:hover { background:#F7F4EF; }
+    .btn-primary { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
+    .btn-primary:hover { background:${TH.inkHover}; }
+    .btn-secondary { background:#fff; }
+    .btn-danger { background:#fff; color:${TH.red}; border-color:#EBD5D1; }
+    .btn-danger:hover { background:#FBE7E4; }
+    .btn-sm { padding:5px 10px; font-size:11.5px; }
+
+    .form-group { margin-bottom:12px; }
+    .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+    .form-label { display:block; font-size:11px; font-weight:600; color:${TH.text2b}; margin-bottom:5px; }
+    .form-control { width:100%; height:34px; border:1px solid ${TH.borderField}; border-radius:7px; padding:0 10px; font-size:12.5px; color:${TH.ink}; background:#fff; outline:none; transition:border-color .12s; }
+    .form-control:focus { border-color:var(--accent); }
+    textarea.form-control { height:auto; padding:8px 10px; line-height:1.5; }
+
+    .mono { font-variant-numeric:tabular-nums; }
+    .price { font-variant-numeric:tabular-nums; font-weight:600; }
+    .empty { padding:44px 20px; text-align:center; color:${TH.muted}; font-size:12.5px; }
+
+    .margin-bar { height:6px; border-radius:3px; background:${TH.borderFaint2}; overflow:hidden; }
+    .margin-fill { height:100%; border-radius:3px; background:var(--accent); }
+
+    .result-box { background:#F2F5F0; border:1px solid ${TH.border}; border-radius:8px; padding:12px 14px; }
+    .result-row { display:flex; justify-content:space-between; font-size:12.5px; color:${TH.text2b}; padding:5px 0; }
+    .result-total { display:flex; justify-content:space-between; align-items:baseline; font-size:15px; font-weight:700; color:${TH.ink}; padding-top:8px; margin-top:4px; border-top:1px solid ${TH.border}; }
+
+    /* Modales */
+    .g-modal-overlay { position:fixed; inset:0; background:rgba(21,24,30,.45); backdrop-filter:blur(2px); z-index:200; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
+    .g-modal { background:#fff; border:1px solid ${TH.border}; border-radius:10px; width:100%; max-width:640px; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,.2); }
+    .g-modal-header { padding:14px 18px; border-bottom:1px solid ${TH.border}; display:flex; align-items:center; justify-content:space-between; }
+    .g-modal-title { font-size:14px; font-weight:600; color:${TH.ink}; }
+    .g-modal-body { padding:18px; max-height:74vh; overflow-y:auto; }
+    .g-modal-footer { padding:13px 18px; border-top:1px solid ${TH.border}; display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+
+    .g-toast { position:fixed; bottom:24px; right:24px; background:${TH.ink}; color:#fff; padding:10px 18px; border-radius:7px; font-size:12.5px; z-index:300; }
   `;
 
   const NAV = [
-    { id: 'dashboard', icon: '📊', label: 'Vue d\'ensemble' },
-    { id: 'factures', icon: '🧾', label: 'Factures clients', count: invoices.length },
-    { id: 'achats', icon: '📦', label: 'Achats fournisseurs' },
-    { id: 'marges', icon: '📈', label: 'Calcul des marges' },
-    { id: 'transport', icon: '🚚', label: 'Répartition transport' },
-    { id: 'params', icon: '⚙️', label: 'Paramètres' },
+    { id: 'dashboard', icon: '', label: 'Vue d\'ensemble' },
+    { id: 'factures', icon: '', label: 'Factures clients', count: invoices.length },
+    { id: 'achats', icon: '', label: 'Achats fournisseurs' },
+    { id: 'marges', icon: '', label: 'Calcul des marges' },
+    { id: 'transport', icon: '', label: 'Répartition transport' },
+    { id: 'params', icon: '', label: 'Paramètres' },
   ];
 
   const PAGE_TITLES: Record<string, string> = {
-    dashboard: 'Vue d\'ensemble 🇸🇪', factures: 'Factures clients',
+    dashboard: 'Vue d\'ensemble ', factures: 'Factures clients',
     achats: 'Achats fournisseurs', marges: 'Calcul des marges',
     transport: 'Répartition transport', params: 'Paramètres',
   };
@@ -483,14 +487,14 @@ export default function GestionPage() {
             {page === 'dashboard' && (
               <>
                 <div className="g-stats">
-                  <div className="g-stat"><span className="g-stat-icon">💶</span><div><div className="g-stat-num mono">{fmt(totalCA)}</div><div className="g-stat-label">CA FACTURÉ HT</div></div></div>
-                  <div className="g-stat"><span className="g-stat-icon">🧾</span><div><div className="g-stat-num mono">{invoices.filter(i => i.status !== 'draft').length}</div><div className="g-stat-label">FACTURES ÉMISES</div></div></div>
-                  <div className="g-stat"><span className="g-stat-icon">⏳</span><div><div className="g-stat-num mono">{fmt(pending)}</div><div className="g-stat-label">EN ATTENTE</div></div></div>
-                  <div className="g-stat"><span className="g-stat-icon">📈</span><div><div className="g-stat-num mono">{fmtPct(avgMargin)}</div><div className="g-stat-label">MARGE MOY.</div></div></div>
+                  <div className="g-stat"><span className="g-stat-icon"></span><div><div className="g-stat-num mono">{fmt(totalCA)}</div><div className="g-stat-label">CA FACTURÉ HT</div></div></div>
+                  <div className="g-stat"><span className="g-stat-icon"></span><div><div className="g-stat-num mono">{invoices.filter(i => i.status !== 'draft').length}</div><div className="g-stat-label">FACTURES ÉMISES</div></div></div>
+                  <div className="g-stat"><span className="g-stat-icon"></span><div><div className="g-stat-num mono">{fmt(pending)}</div><div className="g-stat-label">EN ATTENTE</div></div></div>
+                  <div className="g-stat"><span className="g-stat-icon"></span><div><div className="g-stat-num mono">{fmtPct(avgMargin)}</div><div className="g-stat-label">MARGE MOY.</div></div></div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   <div className="g-card">
-                    <div className="g-card-header"><span className="g-card-title">📋 Dernières factures</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('factures')}>Voir tout →</button></div>
+                    <div className="g-card-header"><span className="g-card-title">Dernières factures</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('factures')}>Voir tout →</button></div>
                     {invoices.slice(0, 5).map(i => (
                       <div key={i.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid var(--linen)' }}>
                         <div><div style={{ fontSize: 13, fontWeight: 600 }}>{i.client_name || '—'}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>{i.number} · {fmtDate(i.date)}</div></div>
@@ -558,7 +562,7 @@ export default function GestionPage() {
             {page === 'achats' && (
               <>
                 <div className="g-card" style={{ padding: '40px 32px', textAlign: 'center', marginBottom: 24 }}>
-                  <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}></div>
                   <div style={{ fontFamily: 'var(--font-d)', fontSize: 24, fontWeight: 600, marginBottom: 10 }}>Module Achats fournisseurs</div>
                   <p style={{ color: 'var(--dust)', marginBottom: 24, maxWidth: 480, margin: '0 auto 24px' }}>
                     Les commandes fournisseurs, réceptions et calcul automatique du PMP sont gérés dans le module Achats dédié.
@@ -861,7 +865,7 @@ export default function GestionPage() {
             </div>
             <div className="g-modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowInvoiceModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={saveInvoice}>💾 Sauvegarder</button>
+              <button className="btn btn-primary" onClick={saveInvoice}>Sauvegarder</button>
             </div>
           </div>
         </div>
@@ -891,7 +895,7 @@ export default function GestionPage() {
             </div>
             <div className="g-modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowPurchaseModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={savePurchase}>💾 Enregistrer</button>
+              <button className="btn btn-primary" onClick={savePurchase}>Enregistrer</button>
             </div>
           </div>
         </div>
@@ -923,7 +927,7 @@ export default function GestionPage() {
             </div>
             <div className="g-modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowMarginModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={saveProduct}>💾 Enregistrer</button>
+              <button className="btn btn-primary" onClick={saveProduct}>Enregistrer</button>
             </div>
           </div>
         </div>

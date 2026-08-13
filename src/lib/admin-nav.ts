@@ -41,6 +41,7 @@ export const NAV: NavGroup[] = [
       { href: '/admin/categories', icon: 'category',     label: 'Catégories', desc: 'Organiser les rayons' },
       { href: '/admin/stock',      icon: 'inventory',    label: 'Stocks',     desc: 'Niveaux & alertes', badge: 'stock' },
       { href: '/admin/commandes',  icon: 'receipt_long', label: 'Commandes',  desc: 'Suivi des ventes',  badge: 'orders' },
+      { href: '/admin/commandes/preparation', icon: 'barcode_scanner', label: 'Préparation', desc: 'Picking scanné au téléphone' },
       // Hors maquette — conservés pour ne pas perdre l'accès à ces écrans.
       { href: '/admin/produits/suggestions', icon: 'lightbulb', label: 'Suggestions', desc: 'Idées clients',        extra: true },
       { href: '/admin/import',              icon: 'upload',    label: 'Import URL',  desc: 'Ajouter depuis un lien', extra: true },
@@ -50,6 +51,7 @@ export const NAV: NavGroup[] = [
     label: 'Achats',
     items: [
       { href: '/admin/achats',     icon: 'shopping_basket', label: "Commandes d'achat", desc: 'Passer des commandes' },
+      { href: '/admin/achats/ticket', icon: 'receipt', label: 'Saisie ticket', desc: 'Lire un ticket de caisse' },
       { href: '/admin/receptions', icon: 'local_shipping',  label: 'Réceptions',        desc: 'Recevoir & stocker', badge: 'receptions' },
     ],
   },
