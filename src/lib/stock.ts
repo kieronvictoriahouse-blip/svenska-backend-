@@ -66,7 +66,7 @@ async function move(
   /* Le journal écrit les deux jeux de colonnes : `quantity`/`type` pour
      rester lisible par l'historique existant, `delta`/`qty_before`/
      `qty_after` pour le nouveau journal (cf. migration 031). */
-  await supabaseAdmin.from('stock_movements').insert({
+  const { error: logErr } = await supabaseAdmin.from('stock_movements').insert({
     product_id,
     quantity: Math.abs(delta),
     type: delta < 0 ? 'out' : 'in',
@@ -78,6 +78,10 @@ async function move(
     note: opts.note || null,
     order_id: opts.order_id || null,
   });
+  /* Le stock est déjà à jour : un journal muet est un incident, pas un
+     détail. C'est typiquement le symptôme d'une migration 031 non
+     appliquée (colonnes delta / qty_before / qty_after absentes). */
+  if (logErr) console.error('[stock] mouvement non journalisé', product_id, logErr.message);
 
   return { product_id, name: p.name_fr, before, after, delta };
 }
