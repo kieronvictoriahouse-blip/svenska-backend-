@@ -64,7 +64,31 @@ le risque.
   `{{ }}` non résolue sur un jeu de données de test. C'est ce contrôle qui a
   rattrapé le nom d'article resté en dur dans l'avoir.
 
-## 4. Boîte mail — décidé : IMAP sur la boîte existante
+## 4. Boîte mail — décidé : IMAP sur `hej@swedishcravings.fr`
+
+**Le handoff complet est versionné** dans `docs/handoff/boite-mail.md` (spec) et
+`docs/handoff/boite-mail-reference.html` (prototype interactif à ouvrir dans un
+navigateur). Fidélité demandée : au pixel près.
+
+Ce n'est pas un écran, c'est un client de messagerie : trois panneaux
+(dossiers 228 px / liste 392 px, 340 sous 1320 px / lecture), fenêtre de
+rédaction 660 × 640 en surimpression, bascule mobile sous 1000 px — seuils
+calculés en JS, pas en media query. Plus : lu/non lu, étoiles, brouillons,
+programmés, archives, corbeille, indésirables, étiquettes, actions groupées,
+recherche, réponse / répondre à tous / transfert, quota IMAP, signature,
+pièces jointes.
+
+Ordre de construction conseillé, pour que chaque étape soit vérifiable :
+1. connexion IMAP + table de cache `inbox_messages` + cron de synchronisation ;
+2. panneau liste et lecture en lecture seule ;
+3. actions (lu/non lu, étoile, classement, corbeille) ;
+4. rédaction et envoi (l'envoi passe par SMTP/Resend, pas par IMAP) ;
+5. brouillons, programmés, pièces jointes.
+
+Variable d'environnement : `IMAP_PASSWORD` (mot de passe d'application), plus
+l'hôte et le port du fournisseur. Jamais en base, jamais en dur.
+
+### Notes d'origine
 
 Pas de changement DNS : les MX restent où ils sont et le webmail actuel continue
 de fonctionner. Le back-office se connecte en IMAP à `contact@swedishcravings.fr`.
