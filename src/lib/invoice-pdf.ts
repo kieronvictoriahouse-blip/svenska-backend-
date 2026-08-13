@@ -126,11 +126,18 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   /* La table invoices ne porte pas toujours order_number : sans ce repli,
      la case « Commande » du bandeau reste vide, comme sur l'ancien PDF. */
   let orderNumber: string = inv.order_number || '';
-  if (!orderNumber && inv.order_id) {
+  let orderPaid = false;
+  if (inv.order_id) {
     const { data: ord } = await supabaseAdmin
-      .from('orders').select('order_number').eq('id', inv.order_id).maybeSingle();
-    orderNumber = ord?.order_number || '';
+      .from('orders').select('order_number, status').eq('id', inv.order_id).maybeSingle();
+    orderNumber = orderNumber || ord?.order_number || '';
+    orderPaid = ['paid', 'confirmed', 'shipped', 'delivered'].includes(ord?.status || '');
   }
+
+  /* Le paiement se fait à la commande : dès que la commande est payée, la
+     facture l'est aussi. On ne se fie donc pas au seul statut de la facture,
+     qui peut être resté à « émise » sur les factures d'avant ce correctif. */
+  const isPaid = inv.status === 'paid' || orderPaid;
 
   const rawLines: InvoiceLine[] = Array.isArray(inv.lines)
     ? inv.lines
@@ -166,6 +173,20 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   doc.rect(0, PX(7), W, PX(2)).fill(toneUnder);
 
   const F = registerFonts(doc);
+
+  /* Filigrane « PAYÉE » — posé avant le contenu pour passer dessous,
+     à 6 % d'opacité comme dans la maquette. */
+  if (isPaid && !isAvoir) {
+    doc.save();
+    doc.opacity(0.06).fillColor(D.green)
+      .font(F[SERIF_B]).fontSize(PX(130));
+    doc.rotate(-16, { origin: [W / 2, H * 0.46] });
+    doc.text('PAYÉE', 0, H * 0.46 - PX(130) * 0.5, {
+      width: W, align: 'center', characterSpacing: PX(130) * 0.14, lineBreak: false,
+    });
+    doc.restore();
+    doc.opacity(1);
+  }
 
   const text = (
     s: string, x: number, y: number,
@@ -244,7 +265,8 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   /* ── Bandeau d'informations ────────────────────────────── */
   const meta = [
     { label: "DATE D'ÉMISSION", value: dateLong(inv.date) },
-    { label: 'ÉCHÉANCE', value: isAvoir ? '—' : 'À réception' },
+    // La 4e case porte déjà « RÈGLEMENT » (le moyen) : ici c'est l'état.
+    { label: isPaid && !isAvoir ? 'STATUT' : 'ÉCHÉANCE', value: isAvoir ? '—' : isPaid ? 'Payée' : 'À réception' },
     { label: 'COMMANDE', value: orderNumber ? `N° ${orderNumber}` : '—' },
     { label: 'RÈGLEMENT', value: PAYMENT_LABELS[inv.payment_method] || 'Carte bancaire' },
   ];
@@ -309,7 +331,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   ty += PX(9);
   const totalH = PX(48);
   doc.rect(totalsX, ty, totalsW, totalH).fill(tone);
-  text(isAvoir ? 'TOTAL DE L’AVOIR' : 'TOTAL À RÉGLER', totalsX + PX(16), ty + PX(19), {
+  text(isAvoir ? 'TOTAL DE L’AVOIR' : isPaid ? 'TOTAL PAYÉ' : 'TOTAL À RÉGLER', totalsX + PX(16), ty + PX(19), {
     size: PX(10), color: isAvoir ? D.paper : D.cream, font: SANS_B, spacing: PX(10) * 0.24,
   });
   text(sign + eur(total), totalsX, ty + PX(13), {
@@ -320,7 +342,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     size: PX(10.5), color: D.soft2, width: totalsW, align: 'right',
   });
 
-  if (!isAvoir) {
+  if (!isAvoir && !isPaid) {
     text(
       "Pénalités de retard : 3 fois le taux d'intérêt légal. Indemnité forfaitaire pour frais " +
       "de recouvrement : 40 €. Pas d'escompte pour paiement anticipé.",

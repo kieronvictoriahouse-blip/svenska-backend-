@@ -159,8 +159,11 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
   }
 
   // Statut facture selon statut commande
+  // Le paiement se fait a la commande : une facture rattachee a une
+  // commande payee est deja reglee, elle nait donc « payee ». L'ancien
+  // « sent » laissait toutes les factures du site en attente de paiement.
   const paidStatuses = ['paid', 'confirmed', 'shipped', 'delivered'];
-  const status = paidStatuses.includes(order.status) ? 'sent' : 'draft';
+  const status = paidStatuses.includes(order.status) ? 'paid' : 'draft';
 
   const { data: invoice, error } = await supabaseAdmin.from('invoices').insert({
     number:          invoiceNumber,
