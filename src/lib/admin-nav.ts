@@ -42,6 +42,7 @@ export const NAV: NavGroup[] = [
       { href: '/admin/stock',      icon: 'inventory',    label: 'Stocks',     desc: 'Niveaux & alertes', badge: 'stock' },
       { href: '/admin/commandes',  icon: 'receipt_long', label: 'Commandes',  desc: 'Suivi des ventes',  badge: 'orders' },
       { href: '/admin/commandes/preparation', icon: 'barcode_scanner', label: 'Préparation', desc: 'Picking scanné au téléphone' },
+      { href: '/admin/ruptures', icon: 'production_quantity_limits', label: 'Ruptures', desc: 'Proposer un remplacement au client' },
       // Hors maquette — conservés pour ne pas perdre l'accès à ces écrans.
       { href: '/admin/produits/suggestions', icon: 'lightbulb', label: 'Suggestions', desc: 'Idées clients',        extra: true },
       { href: '/admin/import',              icon: 'upload',    label: 'Import URL',  desc: 'Ajouter depuis un lien', extra: true },

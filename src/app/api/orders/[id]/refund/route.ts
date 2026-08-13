@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
+import { avoirEmail } from '@/lib/customer-emails';
 import { requireAuth } from '@/lib/auth';
 import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
 import { nextSequentialNumber } from '@/lib/invoice-utils';
@@ -88,6 +89,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const doRestock    = body.restock !== false;
   const doNotify     = body.notify  !== false;
   const modifyOrder  = isPartial && body.modify_order === true;
+
+  // Rendu de l email d avoir, prepare a la creation du document et
+  // consomme plus bas par la notification client.
+  let avoirRendu: { sujet: string; html: string } | null = null;
 
   // ── Réécriture de la commande ─────────────────────────────────────
   // Les lignes créditées sortent de la commande (elles ne partent pas au client)
@@ -256,7 +261,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // Créer l'avoir (montants négatifs)
-    if (!skipAvoir) await supabaseAdmin.from('invoices').insert({
+    const avoirPayload = {
       number:         avoirNumber,
       date:           today,
       status:         'avoir',
@@ -275,7 +280,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       seller_address: originalInv?.seller_address || '',
       seller_email:   originalInv?.seller_email   || '',
       seller_phone:   originalInv?.seller_phone   || '',
-    });
+    };
+
+    if (!skipAvoir) {
+      const { data: avoir } = await supabaseAdmin
+        .from('invoices').insert(avoirPayload).select().single();
+      if (avoir) avoirRendu = avoirEmail(avoir, originalInv?.number || '', avoirLines);
+
+    }
 
     // Marquer la facture originale comme remboursée (seulement si soldée)
     if (originalInv && closesOrder) {
@@ -374,8 +386,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       await sendEmail({
         from:    fromEmail,
         to:      order.customer_email,
-        subject: `💶 ${isPartial ? 'Remboursement partiel' : 'Remboursement'} ${order.order_number}${siteName ? ` — ${siteName}` : ''}`,
-        html:    baseTemplate(content, `Remboursement ${order.order_number}`, cfg),
+        // Gabarit du handoff. `content` reste construit au-dessus : il sert
+        // de repli si l'avoir n'a pas pu etre cree (skipAvoir).
+        subject: avoirRendu ? avoirRendu.sujet
+          : `${isPartial ? 'Remboursement partiel' : 'Remboursement'} ${order.order_number}${siteName ? ` — ${siteName}` : ''}`,
+        html:    avoirRendu ? avoirRendu.html
+          : baseTemplate(content, `Remboursement ${order.order_number}`, cfg),
       }, cfg);
     } catch (e) {
       console.error('[refund] email error:', e);
