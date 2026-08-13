@@ -16,11 +16,13 @@
 --  Cette migration ne touche pas aux quantités : elle prépare le
 --  journal. La remise à niveau des quantités se fait depuis l'écran
 --  Stocks › Contrôle, produit par produit.
+--
+--  Rejouable sans risque : chaque étape est gardée.
 -- ═══════════════════════════════════════════════════════════════
 
 -- ─── 1. La table existe déjà (créée à la main, jamais versionnée) ──
 -- Colonnes d'origine : product_id, quantity, type, reason, order_id.
--- On la crée pour les environnements neufs, puis on l'aligne.
+-- On la crée pour les environnements neufs ; ailleurs c'est un no-op.
 CREATE TABLE IF NOT EXISTS stock_movements (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   product_id  UUID REFERENCES products(id) ON DELETE CASCADE,
@@ -39,25 +41,48 @@ ALTER TABLE stock_movements
   ADD COLUMN IF NOT EXISTS qty_before INTEGER,
   ADD COLUMN IF NOT EXISTS qty_after  INTEGER,
   ADD COLUMN IF NOT EXISTS reference  TEXT,
-  ADD COLUMN IF NOT EXISTS note       TEXT;
+  ADD COLUMN IF NOT EXISTS note       TEXT,
+  ADD COLUMN IF NOT EXISTS order_id   UUID;
 
 -- Les anciennes colonnes deviennent facultatives : le code écrit
 -- désormais les deux jeux, mais un environnement neuf n'a pas à les
--- remplir.
-ALTER TABLE stock_movements ALTER COLUMN quantity DROP NOT NULL;
-ALTER TABLE stock_movements ALTER COLUMN type     DROP NOT NULL;
-ALTER TABLE stock_movements ALTER COLUMN reason   DROP NOT NULL;
+-- remplir. Gardé colonne par colonne — DROP NOT NULL échoue si la
+-- colonne n'existe pas, et le contenu réel de la table n'a jamais été
+-- versionné.
+DO $$
+DECLARE
+  c TEXT;
+BEGIN
+  FOREACH c IN ARRAY ARRAY['quantity', 'type', 'reason'] LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'stock_movements' AND column_name = c
+    ) THEN
+      EXECUTE format('ALTER TABLE stock_movements ALTER COLUMN %I DROP NOT NULL', c);
+    END IF;
+  END LOOP;
+END $$;
 
 -- ─── 3. Reprise de l'historique ───────────────────────────────────
--- delta signé déduit du couple (type, quantity) des 126 mouvements
+-- delta signé déduit du couple (type, quantity) des mouvements
 -- existants, pour que le journal soit lisible d'un bout à l'autre.
-UPDATE stock_movements
-SET delta = CASE
-      WHEN type = 'out' THEN -ABS(quantity)
-      WHEN type = 'in'  THEN  ABS(quantity)
-      ELSE quantity
-    END
-WHERE delta IS NULL AND quantity IS NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'stock_movements' AND column_name = 'quantity'
+  ) THEN
+    EXECUTE $q$
+      UPDATE stock_movements
+      SET delta = CASE
+            WHEN type = 'out' THEN -ABS(quantity)
+            WHEN type = 'in'  THEN  ABS(quantity)
+            ELSE quantity
+          END
+      WHERE delta IS NULL AND quantity IS NOT NULL
+    $q$;
+  END IF;
+END $$;
 
 -- ─── 4. Index ─────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS stock_movements_product ON stock_movements (product_id, created_at DESC);
@@ -73,7 +98,13 @@ CREATE POLICY "admin_stock_movements" ON stock_movements FOR ALL USING (auth.rol
 -- La garde « AND track_stock = true » disparaît. Un produit non suivi
 -- passe simplement en stock négatif, ce qui est un signal visible,
 -- alors que l'ancien comportement était silencieux.
-CREATE OR REPLACE FUNCTION decrement_stock(p_id UUID, qty INTEGER)
+--
+-- DROP obligatoire : la version 018 renvoie VOID, et Postgres refuse
+-- un CREATE OR REPLACE qui change le type de retour
+-- (42P13 « cannot change return type of existing function »).
+DROP FUNCTION IF EXISTS decrement_stock(UUID, INTEGER);
+
+CREATE FUNCTION decrement_stock(p_id UUID, qty INTEGER)
 RETURNS INTEGER AS $$
 DECLARE
   new_stock INTEGER;
