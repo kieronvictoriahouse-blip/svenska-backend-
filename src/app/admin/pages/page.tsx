@@ -1,4 +1,5 @@
 'use client';
+import { T as TH, BADGE } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
 
 type Block =
@@ -303,38 +304,77 @@ export default function PagesAdminPage() {
         {/* LIST VIEW */}
         {view === 'list' && (
           <>
-            <div className="pg-header">
+            <div className="sc-head">
               <div>
-                <div className="pg-title">Pages CMS</div>
-                <div className="pg-subtitle">Gérez les pages statiques de votre site</div>
+                <div className="sc-title">Pages</div>
+                <div className="sc-sub">{pages.length} page(s) statique(s) — CGV, mentions légales, pages libres</div>
               </div>
-              <button className="btn btn-primary" onClick={openNew}>+ Nouvelle page</button>
+              <div className="sc-actions">
+                <button className="sc-btn sc-btn-primary" onClick={openNew}>
+                  <span className="ms">add</span>Nouvelle page
+                </button>
+              </div>
             </div>
 
-            {loading ? (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: '#6A7280', fontSize: 14 }}>Chargement…</div>
-            ) : pages.length === 0 ? (
-              <div className="pg-section" style={{ textAlign: 'center', padding: '48px 24px', color: '#6A7280' }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#1C2028', marginBottom: 6 }}>Aucune page</div>
-                <div style={{ fontSize: 13 }}>Créez votre première page CMS</div>
-              </div>
-            ) : (
-              pages.map(p => (
-                <div key={p.slug} className="page-list-item">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-                    <span className="page-list-title">{p.title_fr || p.slug}</span>
-                    <span className="page-list-slug">{p.slug}</span>
-                    <span className={`page-list-nav-badge ${p.show_in_nav ? 'badge-shown' : 'badge-hidden'}`}>
-                      {p.show_in_nav ? 'Nav visible' : 'Nav masqué'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p.slug)}>Modifier</button>
-                    <button className="btn btn-danger btn-sm" onClick={() => setConfirmSlug(p.slug)}>Supprimer</button>
-                  </div>
+            {loading && <div className="sc-empty">Chargement…</div>}
+            {!loading && pages.length === 0 && <div className="sc-empty">Aucune page. Crée la première.</div>}
+
+            {!loading && pages.length > 0 && (
+              <div className="sc-card" style={{ overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="sc-table" style={{ minWidth: 660 }}>
+                    <thead>
+                      <tr>
+                        <th>Titre</th>
+                        <th style={{ width: 170 }}>URL</th>
+                        <th style={{ width: 130 }}>Traductions</th>
+                        <th style={{ width: 120 }}>Navigation</th>
+                        <th style={{ width: 96 }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pages.map(p => {
+                        const langs = [
+                          p.title_fr ? 'FR' : null,
+                          (p as any).title_sv ? 'SV' : null,
+                          (p as any).title_en ? 'EN' : null,
+                        ].filter(Boolean);
+                        return (
+                          <tr key={p.slug}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                                <span className="ms" style={{ fontSize: 17, color: TH.muted }}>article</span>
+                                <button onClick={() => openEdit(p.slug)}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: TH.ink, padding: 0, textAlign: 'left' }}>
+                                  {p.title_fr || p.slug}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="sc-num" style={{ fontSize: 11.5, color: TH.muted }}>/{p.slug}</td>
+                            <td style={{ fontSize: 11.5, color: TH.text2b }}>{langs.join(' · ') || '—'}</td>
+                            <td>
+                              <span className="sc-badge" style={{
+                                background: p.show_in_nav ? BADGE.green.bg : BADGE.gray.bg,
+                                color: p.show_in_nav ? BADGE.green.fg : BADGE.gray.fg,
+                              }}>{p.show_in_nav ? 'Visible' : 'Masquée'}</span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                                <button className="sc-iconbtn" onClick={() => openEdit(p.slug)} aria-label="Modifier">
+                                  <span className="ms">edit</span>
+                                </button>
+                                <button className="sc-iconbtn" onClick={() => setConfirmSlug(p.slug)} aria-label="Supprimer">
+                                  <span className="ms">delete</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              ))
+              </div>
             )}
           </>
         )}

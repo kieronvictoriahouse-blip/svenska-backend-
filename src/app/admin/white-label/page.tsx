@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { T as TH } from '@/lib/admin-theme';
 import { adminFetch } from '@/lib/auth-client';
 
 type Config = {
@@ -17,6 +18,7 @@ type Config = {
 };
 
 const FONTS_DISPLAY = ['Cormorant Garamond', 'Playfair Display', 'Libre Baskerville', 'Merriweather', 'Lora'];
+const FONTS_BODY = ['Crimson Pro', 'Lora', 'Source Serif 4', 'EB Garamond', 'Spectral'];
 const FONTS_UI = ['Jost', 'Inter', 'DM Sans', 'Plus Jakarta Sans', 'Outfit'];
 
 const DEFAULT_CONFIG: Config = {
@@ -96,295 +98,325 @@ function WhiteLabelInner() {
     setConfig(c => ({ ...c, [field]: val }));
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+     ÉCRAN 19 — WHITE LABEL
+     Handoff §19 : 5 pastilles de couleur 44 px, sélecteurs de police,
+     zones de dépôt logo/favicon, et aperçu en direct à droite.
+     Les onglets Contact, Emails et Import sont conservés : ils portent
+     des réglages réels absents de la maquette.
+     ═══════════════════════════════════════════════════════════════ */
+
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
-    * { box-sizing: border-box; }
-    .wl-wrap { font-family: 'Jost', sans-serif; max-width: 900px; }
-    .wl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-    .wl-title { font-family: 'Cormorant Garamond', serif; font-size: 30px; font-weight: 600; color: #1C2028; }
-    .wl-tabs { display: flex; gap: 0; border: 1px solid #D8CEBC; border-radius: 8px; overflow: hidden; margin-bottom: 24px; flex-wrap: wrap; }
-    .wl-tab { padding: 10px 18px; font-family: 'Jost', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: #fff; color: #6A7280; transition: all 0.15s; }
-    .wl-tab.active { background: #1C2028; color: #fff; }
-    .wl-section { background: #fff; border: 1px solid #D8CEBC; border-radius: 8px; padding: 24px; margin-bottom: 16px; }
-    .wl-section-title { font-size: 14px; font-weight: 600; color: #1C2028; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #D8CEBC; }
-    .form-group { margin-bottom: 14px; }
-    .form-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: #6A7280; margin-bottom: 5px; }
-    .form-control { width: 100%; padding: 8px 10px; border: 1px solid #D8CEBC; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; outline: none; }
-    .form-control:focus { border-color: #7A9468; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; }
-    .color-picker { display: flex; align-items: center; gap: 10px; }
-    .color-input { width: 44px; height: 36px; padding: 2px; border: 1px solid #D8CEBC; border-radius: 6px; cursor: pointer; }
-    .color-text { flex: 1; }
-    .preview-box { border: 1px solid #D8CEBC; border-radius: 8px; overflow: hidden; margin-top: 16px; }
-    .preview-header { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
-    .preview-nav { display: flex; gap: 16px; font-size: 12px; }
-    .preview-hero { padding: 40px 24px; text-align: center; }
-    .preview-title { font-size: 28px; font-weight: 300; margin-bottom: 8px; }
-    .preview-sub { font-size: 14px; opacity: 0.7; }
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
-    .btn-primary { background: #3E5238; color: #fff; } .btn-primary:hover { background: #587050; }
-    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-    .btn-secondary { background: #F6F1E9; color: #3E4550; border: 1px solid #D8CEBC; }
-    .btn-sm { padding: 5px 12px; font-size: 12px; }
-    .import-zone { border: 2px dashed #D8CEBC; border-radius: 8px; padding: 32px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
-    .import-zone:hover { border-color: #7A9468; }
-    .import-zone-icon { font-size: 36px; margin-bottom: 8px; }
-    .import-zone-text { font-size: 14px; color: #6A7280; }
-    .result-box { margin-top: 16px; padding: 14px; border-radius: 6px; font-size: 13px; }
-    .result-ok { background: #D1FAE5; color: #065F46; }
-    .result-err { background: #FEE2E2; color: #991B1B; }
-    .font-preview { font-size: 18px; color: #1C2028; }
-    select.form-control { appearance: none; }
-    .mono { font-family: 'DM Mono', monospace; }
-    .toast { position: fixed; bottom: 24px; right: 24px; background: #1C2028; color: #fff; padding: 10px 18px; border-radius: 6px; font-size: 13px; z-index: 999; }
-    .csv-template { background: #F6F1E9; border: 1px solid #D8CEBC; border-radius: 6px; padding: 12px 14px; font-family: 'DM Mono', monospace; font-size: 11px; color: #3E4550; margin-bottom: 14px; white-space: pre; overflow-x: auto; }
+    .form-group { margin-bottom:12px; }
+    .form-label { display:block; font-size:11px; font-weight:600; color:${TH.text2b}; margin-bottom:5px; }
+    .form-control { width:100%; height:34px; border:1px solid ${TH.borderField}; border-radius:7px; padding:0 10px; font-size:12.5px; background:#fff; outline:none; }
+    .form-control:focus { border-color:var(--accent); }
+    textarea.form-control { height:auto; padding:8px 10px; line-height:1.5; }
+    .form-hint { font-size:10.5px; color:${TH.muted}; margin-top:4px; }
+    .card { background:#fff; border:1px solid ${TH.border}; border-radius:10px; margin-bottom:12px; }
+    .card-header { padding:12px 15px; border-bottom:1px solid ${TH.border}; display:flex; align-items:center; justify-content:space-between; }
+    .card-title { font-size:12.5px; font-weight:600; color:${TH.ink}; }
+    .card-body { padding:13px 15px; }
+    .btn { display:inline-flex; align-items:center; gap:6px; border-radius:7px; padding:8px 14px; font-size:12.5px; font-weight:500; cursor:pointer; border:1px solid ${TH.borderField}; background:#fff; color:#3A3228; }
+    .btn-primary { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
+    .btn-sm { padding:6px 11px; font-size:11.5px; }
+    .grid-2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+    .toast { position:fixed; bottom:24px; right:24px; background:${TH.ink}; color:#fff; padding:10px 18px; border-radius:7px; font-size:12.5px; z-index:300; }
   `;
 
-  const TEMPLATES: Record<string, string> = {
-    products: 'nom,prix,poids,categorie\n"Cardamome bio",6.90,"50g","Épices"\n"Cannelle Ceylan",5.90,"30g","Épices"',
-    contacts: 'prenom,nom,societe,email,telephone,adresse,ville\n"Marie","Dupont","","marie@email.fr","0612345678","1 rue de la Paix","Paris"',
-    suppliers: 'societe,prenom,nom,email,telephone,adresse,ville,siret\n"Épices du Nord","Jean","Martin","contact@epices.fr","0612345678","10 rue du Port","Lyon","12345678901234"',
-    stock: 'produit,stock\n"Cardamome bio",50\n"Cannelle Ceylan",30',
-  };
+  const TABS: Array<[string, string]> = [
+    ['identity', 'Identité'], ['contact', 'Contact & légal'],
+    ['emails', 'Emails'], ['import', 'Import données'],
+  ];
+
+  const SWATCHES: Array<{ key: keyof Config; label: string }> = [
+    { key: 'color_primary',   label: 'Primaire' },
+    { key: 'color_secondary', label: 'Secondaire' },
+    { key: 'color_bg',        label: 'Fond' },
+    { key: 'color_text',      label: 'Encre' },
+  ];
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="wl-wrap">
-        <div className="wl-header">
-          <div>
-            <div className="wl-title">🎨 White Label</div>
-            <div style={{ fontSize: 13, color: '#6A7280', marginTop: 4 }}>Personnalisation complète du site</div>
-          </div>
-          {tab !== 'import' && <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Sauvegarde…' : '💾 Sauvegarder'}</button>}
+
+      <div className="sc-head">
+        <div>
+          <div className="sc-title">White label</div>
+          <div className="sc-sub">Identité visuelle, informations légales et paramètres d’envoi</div>
         </div>
-
-        <div className="wl-tabs">
-          {[['identity', '🏷️ Identité'], ['content', '📝 Contenu'], ['colors', '🎨 Couleurs'], ['fonts', '✍️ Typographie'], ['ecommerce', '🛒 E-commerce'], ['smtp', '📧 Email'], ['import', '📥 Import données']].map(([k, l]) => (
-            <button key={k} className={`wl-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
-          ))}
+        <div className="sc-actions">
+          <button className="sc-btn sc-btn-green" onClick={save} disabled={saving}>
+            <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
         </div>
+      </div>
 
-        {/* IDENTITÉ */}
-        {tab === 'identity' && (
-          <>
-            <div className="wl-section">
-              <div className="wl-section-title">🏷️ Informations du site</div>
-              <div className="grid-2">
-                <div className="form-group"><label className="form-label">Nom du site *</label><input className="form-control" value={config.site_name} onChange={e => update('site_name', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">Slogan</label><input className="form-control" value={config.site_slogan} onChange={e => update('site_slogan', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">URL Logo</label><input className="form-control" value={config.logo_url} onChange={e => update('logo_url', e.target.value)} placeholder="https://..." /></div>
-                <div className="form-group"><label className="form-label">URL Favicon</label><input className="form-control" value={config.favicon_url} onChange={e => update('favicon_url', e.target.value)} placeholder="https://..." /></div>
-                <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">URL du site vitrine (front-end)</label><input className="form-control" value={config.front_url} onChange={e => update('front_url', e.target.value)} placeholder="https://votredomaine.fr" /></div>
-              </div>
-            </div>
-            <div className="wl-section">
-              <div className="wl-section-title">📬 Contact</div>
-              <div className="grid-2">
-                <div className="form-group"><label className="form-label">Email</label><input className="form-control" value={config.email} onChange={e => update('email', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">Téléphone</label><input className="form-control" value={config.phone} onChange={e => update('phone', e.target.value)} /></div>
-                <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">Adresse</label><input className="form-control" value={config.address} onChange={e => update('address', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">SIRET</label><input className="form-control mono" value={config.siret} onChange={e => update('siret', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">N° TVA</label><input className="form-control mono" value={config.tva} onChange={e => update('tva', e.target.value)} /></div>
-              </div>
-            </div>
-            <div className="wl-section">
-              <div className="wl-section-title">📱 Réseaux sociaux</div>
-              <div className="grid-3">
-                <div className="form-group"><label className="form-label">Instagram (URL)</label><input className="form-control" value={config.instagram} onChange={e => update('instagram', e.target.value)} placeholder="https://instagram.com/..." /></div>
-                <div className="form-group"><label className="form-label">Facebook (URL)</label><input className="form-control" value={config.facebook} onChange={e => update('facebook', e.target.value)} placeholder="https://facebook.com/..." /></div>
-                <div className="form-group"><label className="form-label">Pinterest (URL)</label><input className="form-control" value={config.pinterest} onChange={e => update('pinterest', e.target.value)} placeholder="https://pinterest.com/..." /></div>
-              </div>
-            </div>
-          </>
-        )}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}`, overflowX: 'auto' }}>
+        {TABS.map(([k, l]) => {
+          const on = tab === k;
+          return (
+            <button key={k} onClick={() => setTab(k)}
+              style={{
+                border: 'none', background: 'none', cursor: 'pointer', padding: '9px 13px', fontSize: 12.5,
+                whiteSpace: 'nowrap', fontWeight: on ? 600 : 400,
+                color: on ? 'var(--accent)' : TH.text2,
+                boxShadow: on ? 'inset 0 -2px 0 var(--accent)' : undefined,
+              }}>{l}</button>
+          );
+        })}
+      </div>
 
-        {/* CONTENU */}
-        {tab === 'content' && (
-          <>
-            <div className="wl-section">
-              <div className="wl-section-title">📣 Barre d'annonce</div>
-              <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 14 }}>Texte affiché sous la navigation</div>
-              <div className="form-group"><label className="form-label">🇫🇷 Français</label><input className="form-control" value={config.announcement_fr} onChange={e => update('announcement_fr', e.target.value)} /></div>
-              <div className="form-group"><label className="form-label">🇸🇪 Svenska</label><input className="form-control" value={config.announcement_sv} onChange={e => update('announcement_sv', e.target.value)} /></div>
-              <div className="form-group"><label className="form-label">🇬🇧 English</label><input className="form-control" value={config.announcement_en} onChange={e => update('announcement_en', e.target.value)} /></div>
-            </div>
-            <div className="wl-section">
-              <div className="wl-section-title">📝 Description footer</div>
-              <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 14 }}>Texte sous le logo dans le pied de page</div>
-              {(['fr', 'sv', 'en'] as const).map(lang => (
-                <div key={lang} className="form-group">
-                  <label className="form-label">{lang === 'fr' ? '🇫🇷 Français' : lang === 'sv' ? '🇸🇪 Svenska' : '🇬🇧 English'}</label>
-                  <textarea className="form-control" rows={3} value={config[`footer_desc_${lang}` as keyof Config] as string} onChange={e => update(`footer_desc_${lang}` as keyof Config, e.target.value)} />
+      {/* ══════════ IDENTITÉ ══════════ */}
+      {tab === 'identity' && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style={{ flex: '2 1 420px', minWidth: 0 }}>
+
+            <div className="card">
+              <div className="card-header"><span className="card-title">Marque</span></div>
+              <div className="card-body">
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Nom de la boutique</label>
+                    <input className="form-control" value={config.site_name} onChange={e => update('site_name', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Slogan</label>
+                    <input className="form-control" value={config.site_slogan} onChange={e => update('site_slogan', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">URL de la boutique</label>
+                    <input className="form-control" value={config.front_url} onChange={e => update('front_url', e.target.value)} placeholder="https://www.swedishcravings.fr" />
+                  </div>
                 </div>
-              ))}
+              </div>
             </div>
-            <div className="wl-section">
-              <div className="wl-section-title">✨ Signature footer</div>
-              <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 14 }}>Petite phrase en bas du footer (ex: "Fait avec soin depuis Paris")</div>
-              <div className="form-group"><label className="form-label">🇫🇷 Français</label><input className="form-control" value={config.footer_tagline_fr} onChange={e => update('footer_tagline_fr', e.target.value)} /></div>
-              <div className="form-group"><label className="form-label">🇸🇪 Svenska</label><input className="form-control" value={config.footer_tagline_sv} onChange={e => update('footer_tagline_sv', e.target.value)} /></div>
-              <div className="form-group"><label className="form-label">🇬🇧 English</label><input className="form-control" value={config.footer_tagline_en} onChange={e => update('footer_tagline_en', e.target.value)} /></div>
-            </div>
-          </>
-        )}
 
-        {/* COULEURS */}
-        {tab === 'colors' && (
-          <>
-            <div className="wl-section">
-              <div className="wl-section-title">🎨 Palette de couleurs</div>
-              <div className="grid-2">
-                {([
-                  ['color_primary', 'Couleur principale', 'Boutons, liens actifs, accents'],
-                  ['color_secondary', 'Couleur secondaire', 'Accents, prix, badges'],
-                  ['color_bg', 'Fond', 'Arrière-plan général'],
-                  ['color_text', 'Texte', 'Couleur du texte principal'],
-                ] as [keyof Config, string, string][]).map(([field, label, desc]) => (
-                  <div key={field} className="form-group">
-                    <label className="form-label">{label}</label>
-                    <div style={{ fontSize: 11, color: '#6A7280', marginBottom: 6 }}>{desc}</div>
-                    <div className="color-picker">
-                      <input type="color" className="color-input" value={config[field] as string} onChange={e => update(field, e.target.value)} />
-                      <input className="form-control color-text mono" value={config[field] as string} onChange={e => update(field, e.target.value)} placeholder="#3E5238" />
+            <div className="card">
+              <div className="card-header"><span className="card-title">Couleurs</span></div>
+              <div className="card-body">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 12 }}>
+                  {SWATCHES.map(s => (
+                    <div key={String(s.key)} style={{ textAlign: 'center' }}>
+                      <label style={{ cursor: 'pointer', display: 'inline-block' }}>
+                        <span style={{
+                          display: 'block', width: 44, height: 44, borderRadius: 10, margin: '0 auto 7px',
+                          background: String(config[s.key] || '#fff'), border: `1px solid ${TH.border}`,
+                        }} />
+                        <input type="color" value={String(config[s.key] || '#000000')}
+                               onChange={e => update(s.key, e.target.value)}
+                               style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                      </label>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: TH.ink }}>{s.label}</div>
+                      <input className="form-control sc-num" style={{ height: 26, fontSize: 11, textAlign: 'center', marginTop: 4 }}
+                             value={String(config[s.key] || '')} onChange={e => update(s.key, e.target.value)} />
                     </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header"><span className="card-title">Typographie & logo</span></div>
+              <div className="card-body">
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Police des titres</label>
+                    <select className="form-control" value={config.font_display} onChange={e => update('font_display', e.target.value)}>
+                      {FONTS_DISPLAY.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Police du texte</label>
+                    <select className="form-control" value={config.font_body} onChange={e => update('font_body', e.target.value)}>
+                      {FONTS_BODY.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Police d’interface</label>
+                    <select className="form-control" value={config.font_ui} onChange={e => update('font_ui', e.target.value)}>
+                      {FONTS_UI.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid-2" style={{ marginTop: 4 }}>
+                  <div className="form-group">
+                    <label className="form-label">Logo principal (SVG ou PNG)</label>
+                    <input className="form-control" value={config.logo_url} onChange={e => update('logo_url', e.target.value)} placeholder="https://…" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Favicon (512 px)</label>
+                    <input className="form-control" value={config.favicon_url} onChange={e => update('favicon_url', e.target.value)} placeholder="https://…" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header"><span className="card-title">Bandeau d’annonce</span></div>
+              <div className="card-body">
+                {(['fr', 'sv', 'en'] as const).map(l => (
+                  <div className="form-group" key={l}>
+                    <label className="form-label">{l.toUpperCase()}</label>
+                    <input className="form-control" value={(config as any)[`announcement_${l}`] || ''}
+                           onChange={e => update(`announcement_${l}` as keyof Config, e.target.value)} />
                   </div>
                 ))}
               </div>
             </div>
-            {/* Preview */}
-            <div className="wl-section">
-              <div className="wl-section-title">👁️ Aperçu</div>
-              <div className="preview-box" style={{ background: config.color_bg }}>
-                <div className="preview-header" style={{ background: config.color_primary }}>
-                  <span style={{ color: '#fff', fontWeight: 600, fontSize: 16 }}>{config.site_name}</span>
-                  <div className="preview-nav">
-                    {['Accueil', 'Boutique', 'Contact'].map(l => <span key={l} style={{ color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}>{l}</span>)}
-                  </div>
-                </div>
-                <div className="preview-hero">
-                  <div className="preview-title" style={{ color: config.color_text, fontFamily: config.font_display }}>{config.site_slogan || 'Saveurs authentiques'}</div>
-                  <div className="preview-sub" style={{ color: config.color_text }}>Découvrez notre sélection de produits</div>
-                  <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center' }}>
-                    <span style={{ background: config.color_primary, color: '#fff', padding: '8px 20px', borderRadius: 4, fontSize: 13, cursor: 'pointer' }}>Explorer</span>
-                    <span style={{ background: 'transparent', color: config.color_primary, padding: '8px 20px', borderRadius: 4, fontSize: 13, border: `1px solid ${config.color_primary}`, cursor: 'pointer' }}>Notre histoire</span>
-                  </div>
-                </div>
-                <div style={{ padding: '12px 24px', display: 'flex', gap: 12 }}>
-                  {['Produit A', 'Produit B', 'Produit C'].map(p => (
-                    <div key={p} style={{ flex: 1, background: '#fff', border: `1px solid ${config.color_secondary}20`, borderRadius: 6, padding: 12, textAlign: 'center' }}>
-                      <div style={{ fontSize: 24, marginBottom: 6 }}>🏷️</div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: config.color_text }}>{p}</div>
-                      <div style={{ fontSize: 13, color: config.color_secondary, fontWeight: 600 }}>€9.90</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+          </div>
 
-        {/* TYPOGRAPHIE */}
-        {tab === 'fonts' && (
-          <div className="wl-section">
-            <div className="wl-section-title">✍️ Typographies</div>
-            <div className="grid-3">
-              <div className="form-group">
-                <label className="form-label">Police titres (Display)</label>
-                <select className="form-control" value={config.font_display} onChange={e => update('font_display', e.target.value)}>
-                  {FONTS_DISPLAY.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-                <div className="font-preview" style={{ fontFamily: config.font_display, marginTop: 10 }}>Le meilleur de l'épicerie</div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Police UI (Interface)</label>
-                <select className="form-control" value={config.font_ui} onChange={e => update('font_ui', e.target.value)}>
-                  {FONTS_UI.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-                <div className="font-preview" style={{ fontFamily: config.font_ui, fontSize: 14, marginTop: 10 }}>Ajouter au panier • Boutique • Contact</div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Police corps de texte</label>
-                <select className="form-control" value={config.font_body} onChange={e => update('font_body', e.target.value)}>
-                  {['Crimson Pro', 'Georgia', 'Lora', 'Source Serif Pro', 'EB Garamond'].map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-                <div className="font-preview" style={{ fontFamily: config.font_body, fontSize: 15, marginTop: 10 }}>Épices nordiques, flocons d'avoine, baies séchées — tout ce qu'il faut.</div>
+          {/* Aperçu en direct */}
+          <div style={{ flex: '1 1 280px', minWidth: 0, position: 'sticky', top: 8 }}>
+            <div className="card">
+              <div className="card-header"><span className="card-title">Aperçu</span></div>
+              <div className="card-body">
+                <div style={{
+                  background: config.color_bg || '#F6F1E9', borderRadius: 10, padding: 20,
+                  border: `1px solid ${TH.border}`,
+                }}>
+                  {config.logo_url
+                    ? <img src={config.logo_url} alt="" style={{ maxHeight: 34, marginBottom: 10 }} />
+                    : null}
+                  <div style={{
+                    fontFamily: `'${config.font_display}', serif`, fontSize: 24, fontWeight: 600,
+                    color: config.color_text || '#1C2028', lineHeight: 1.15,
+                  }}>{config.site_name}</div>
+                  <div style={{
+                    fontFamily: `'${config.font_body}', serif`, fontSize: 12.5,
+                    color: config.color_text || '#1C2028', opacity: .7, marginTop: 5,
+                  }}>{config.site_slogan}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
+                    <span style={{
+                      background: config.color_primary, color: '#fff', borderRadius: 7,
+                      padding: '8px 14px', fontSize: 12.5, fontWeight: 500,
+                      fontFamily: `'${config.font_ui}', sans-serif`,
+                    }}>Découvrir</span>
+                    <span style={{
+                      background: config.color_secondary + '22', color: config.color_secondary,
+                      borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 600,
+                      fontFamily: `'${config.font_ui}', sans-serif`,
+                    }}>Nouveauté</span>
+                  </div>
+                </div>
+                <div className="sc-num" style={{ fontSize: 10.5, color: TH.muted, marginTop: 8, textAlign: 'center' }}>
+                  {config.color_primary} · {config.color_secondary} · {config.color_bg} · {config.color_text}
+                </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* E-COMMERCE */}
-        {tab === 'ecommerce' && (
-          <div className="wl-section">
-            <div className="wl-section-title">🛒 Paramètres e-commerce</div>
-            <div className="grid-3">
-              <div className="form-group"><label className="form-label">Devise</label>
-                <select className="form-control" value={config.currency} onChange={e => update('currency', e.target.value)}>
-                  <option value="EUR">Euro (€)</option>
-                  <option value="GBP">Livre (£)</option>
-                  <option value="CHF">Franc suisse (CHF)</option>
-                  <option value="USD">Dollar ($)</option>
-                </select>
+      {/* ══════════ CONTACT & LÉGAL ══════════ */}
+      {tab === 'contact' && (
+        <div style={{ maxWidth: 720 }}>
+          <div className="card">
+            <div className="card-header"><span className="card-title">Coordonnées</span></div>
+            <div className="card-body">
+              <div className="grid-2">
+                <div className="form-group"><label className="form-label">Email</label><input className="form-control" value={config.email} onChange={e => update('email', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Téléphone</label><input className="form-control" value={config.phone} onChange={e => update('phone', e.target.value)} /></div>
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">Adresse</label><input className="form-control" value={config.address} onChange={e => update('address', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">SIRET</label><input className="form-control sc-num" value={config.siret} onChange={e => update('siret', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">N° TVA</label><input className="form-control sc-num" value={config.tva} onChange={e => update('tva', e.target.value)} /></div>
               </div>
-              <div className="form-group"><label className="form-label">Taux TVA (%)</label><input type="number" className="form-control mono" value={config.tva_rate} onChange={e => update('tva_rate', parseFloat(e.target.value) || 20)} /></div>
-              <div className="form-group"><label className="form-label">Livraison gratuite dès (€)</label><input type="number" className="form-control mono" value={config.free_shipping_threshold} onChange={e => update('free_shipping_threshold', parseFloat(e.target.value) || 50)} /></div>
             </div>
           </div>
-        )}
+          <div className="card">
+            <div className="card-header"><span className="card-title">Réseaux sociaux</span></div>
+            <div className="card-body">
+              <div className="grid-2">
+                <div className="form-group"><label className="form-label">Instagram</label><input className="form-control" value={config.instagram} onChange={e => update('instagram', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Facebook</label><input className="form-control" value={config.facebook} onChange={e => update('facebook', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Pinterest</label><input className="form-control" value={config.pinterest} onChange={e => update('pinterest', e.target.value)} /></div>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header"><span className="card-title">Commerce</span></div>
+            <div className="card-body">
+              <div className="grid-2">
+                <div className="form-group"><label className="form-label">Devise</label><input className="form-control" value={config.currency} onChange={e => update('currency', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Taux de TVA (%)</label><input className="form-control sc-num" type="number" value={config.tva_rate} onChange={e => update('tva_rate', parseFloat(e.target.value) || 0)} /></div>
+                <div className="form-group">
+                  <label className="form-label">Livraison gratuite dès (€)</label>
+                  <input className="form-control sc-num" type="number" value={config.free_shipping_threshold}
+                         onChange={e => update('free_shipping_threshold', parseFloat(e.target.value) || 50)} />
+                  <div className="form-hint">Seuil habituel. Une opération temporaire se règle dans Marketing → Codes promo.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header"><span className="card-title">Pied de page</span></div>
+            <div className="card-body">
+              {(['fr', 'sv', 'en'] as const).map(l => (
+                <div className="grid-2" key={l}>
+                  <div className="form-group">
+                    <label className="form-label">Description {l.toUpperCase()}</label>
+                    <textarea className="form-control" rows={2} value={(config as any)[`footer_desc_${l}`] || ''}
+                              onChange={e => update(`footer_desc_${l}` as keyof Config, e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Accroche {l.toUpperCase()}</label>
+                    <input className="form-control" value={(config as any)[`footer_tagline_${l}`] || ''}
+                           onChange={e => update(`footer_tagline_${l}` as keyof Config, e.target.value)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-        {/* SMTP */}
-        {tab === 'smtp' && (
+      {/* ══════════ EMAILS ══════════ */}
+      {tab === 'emails' && (
+        <div style={{ maxWidth: 720 }}>
           <SmtpSection config={config} update={update} />
-        )}
+        </div>
+      )}
 
-        {/* IMPORT */}
-        {tab === 'import' && (
-          <>
-            <div className="wl-section">
-              <div className="wl-section-title">📥 Import de données CSV</div>
+      {/* ══════════ IMPORT ══════════ */}
+      {tab === 'import' && (
+        <div style={{ maxWidth: 620 }}>
+          <div className="card">
+            <div className="card-header"><span className="card-title">Import de données</span></div>
+            <div className="card-body">
               <div className="form-group">
-                <label className="form-label">Type de données à importer</label>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {[['products', '📦 Articles'], ['contacts', '👤 Clients'], ['suppliers', '🏭 Fournisseurs'], ['stock', '🔢 Stock']].map(([k, l]) => (
-                    <button key={k} className={`btn ${importType === k ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setImportType(k); setImportResult(null); }}>{l}</button>
-                  ))}
-                </div>
+                <label className="form-label">Type de données</label>
+                <select className="form-control" value={importType} onChange={e => setImportType(e.target.value)}>
+                  <option value="products">Produits</option>
+                  <option value="contacts">Contacts</option>
+                </select>
               </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <div className="form-label">Format CSV attendu</div>
-                <div className="csv-template">{TEMPLATES[importType]}</div>
-              </div>
-
-              <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={handleImport} />
-              <div className="import-zone" onClick={() => fileRef.current?.click()}>
-                <div className="import-zone-icon">{importing ? '⏳' : '📂'}</div>
-                <div className="import-zone-text">{importing ? 'Import en cours…' : 'Cliquez pour sélectionner votre fichier CSV'}</div>
-                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Format : UTF-8, séparateur virgule</div>
-              </div>
-
+              <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
+                <span className="ms">upload_file</span>
+                {importing ? 'Import en cours…' : 'Choisir un fichier CSV'}
+                <input type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} disabled={importing} />
+              </label>
               {importResult && (
-                <div className={`result-box ${importResult.errors.length === 0 ? 'result-ok' : 'result-err'}`}>
-                  <strong>✅ {importResult.imported} ligne(s) importée(s)</strong>
+                <div style={{ marginTop: 12, padding: '11px 13px', background: '#F2F5F0', borderRadius: 7, fontSize: 12 }}>
+                  <div style={{ fontWeight: 600, color: TH.green }}>{importResult.imported} ligne(s) importée(s)</div>
                   {importResult.errors.length > 0 && (
-                    <div style={{ marginTop: 6 }}>
-                      ❌ Erreurs : {importResult.errors.join(', ')}
-                    </div>
+                    <ul style={{ margin: '6px 0 0 16px', color: TH.red }}>
+                      {importResult.errors.slice(0, 8).map((er, i) => <li key={i}>{er}</li>)}
+                    </ul>
                   )}
                 </div>
               )}
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
+
+
       {toast && <div className="toast">{toast}</div>}
     </>
   );
 }
 export default function WhiteLabelPage() { return <Suspense><WhiteLabelInner /></Suspense>; }
+
 
 function SmtpSection({ config, update }: { config: any; update: (k: keyof Config, v: any) => void }) {
   const [testing, setTesting] = useState(false);
