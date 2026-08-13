@@ -58,6 +58,11 @@ export default function BoiteMailPage() {
   const [toast, setToast] = useState('');
   const [w, setW] = useState(1400);
 
+  /* Sur mobile la colonne des dossiers devient un tiroir : sans lui, le
+     bouton « Nouveau message », les brouillons, les programmes et les
+     etiquettes etaient tout simplement inaccessibles au telephone. */
+  const [tiroir, setTiroir] = useState(false);
+
   const say = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); }, []);
   const mobile = w < 900;                 // même seuil que le shell
   const etroit = w < 1320;
@@ -214,7 +219,7 @@ export default function BoiteMailPage() {
     <div style={{ width: 228, flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, borderBottom: `1px solid ${C.ligneFaible}` }}>
         <button className="sc-btn" style={{ width: '100%', height: 38, justifyContent: 'center', background: C.ink, color: '#fff', border: 'none' }}
-                onClick={() => setRedac({ to: '', cc: '', subject: '', corps: '' })}>
+                onClick={() => { setRedac({ to: '', cc: '', subject: '', corps: '' }); setTiroir(false); }}>
           <span className="ms">edit</span>Nouveau message
         </button>
         <button className="sc-btn sc-btn-secondary" onClick={relever} disabled={synchro}
@@ -228,7 +233,7 @@ export default function BoiteMailPage() {
         {VUES.map(v => (
           <ItemNav key={v.id} icone={v.icone} label={v.label} actif={vue === v.id} pastille
                    compteur={compteurs[v.compteur] || 0}
-                   onClick={() => { setVue(v.id); setOuvert(null); }} />
+                   onClick={() => { setVue(v.id); setOuvert(null); setTiroir(false); }} />
         ))}
 
         {dossiers.filter(d => d.role !== 'inbox').length > 0 && (
@@ -239,7 +244,7 @@ export default function BoiteMailPage() {
                          : d.role === 'trash' ? 'delete' : d.role === 'junk' ? 'report'
                          : d.role === 'archive' ? 'archive' : 'folder'}
                        label={d.nom} actif={vue === d.path} compteur={d.enCache}
-                       onClick={() => ouvrirDossier(d)} />
+                       onClick={() => { ouvrirDossier(d); setTiroir(false); }} />
             ))}
           </GroupeNav>
         )}
@@ -248,7 +253,7 @@ export default function BoiteMailPage() {
           {Object.keys(COULEUR_ETIQ).map(l => (
             <ItemNav key={l} icone="label" carre={COULEUR_ETIQ[l]} label={l}
                      actif={etiquette === l}
-                     onClick={() => { setEtiquette(etiquette === l ? '' : l); setOuvert(null); }} />
+                     onClick={() => { setEtiquette(etiquette === l ? '' : l); setOuvert(null); setTiroir(false); }} />
           ))}
         </GroupeNav>
       </div>
@@ -264,6 +269,23 @@ export default function BoiteMailPage() {
   const colListe = (
     <div style={{ width: mobile ? '100%' : (etroit ? 340 : 392), flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ flexShrink: 0, background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '11px 14px' }}>
+        {mobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
+            <button className="sc-iconbtn" aria-label="Dossiers" onClick={() => setTiroir(true)}>
+              <span className="ms">menu</span>
+            </button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }}
+                    onClick={relever} disabled={synchro}>
+              <span className="ms" style={{ animation: synchro ? 'sc-spin .9s linear infinite' : 'none' }}>sync</span>
+              {synchro ? '…' : 'Relever'}
+            </button>
+            <span style={{ flex: 1 }} />
+            <button className="sc-btn" style={{ background: C.ink, color: '#fff', border: 'none', padding: '6px 12px', fontSize: 11.5 }}
+                    onClick={() => setRedac({ to: '', cc: '', subject: '', corps: '' })}>
+              <span className="ms">edit</span>Écrire
+            </button>
+          </div>
+        )}
         <div style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>
           {VUES.find(v => v.id === vue)?.label || dossiers.find(d => d.path === vue)?.nom || vue}
           {etiquette && <span style={{ fontSize: 11.5, fontWeight: 400, color: couleurDe(etiquette) }}> · {etiquette}</span>}
@@ -466,6 +488,20 @@ export default function BoiteMailPage() {
         overflow: 'hidden', border: `1px solid ${C.border}`,
       }}>
         {!mobile && colDossiers}
+
+        {/* Tiroir des dossiers, sur mobile uniquement */}
+        {mobile && tiroir && (
+          <>
+            <div onClick={() => setTiroir(false)}
+                 style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.42)', zIndex: 200 }} />
+            <div style={{
+              position: 'fixed', top: 48, bottom: 58, left: 0, width: 250, zIndex: 210,
+              boxShadow: '6px 0 28px rgba(21,24,30,.16)',
+            }}>
+              {colDossiers}
+            </div>
+          </>
+        )}
         {(!mobile || !ouvert) && colListe}
         {(!mobile || ouvert) && colLecture}
       </div>
