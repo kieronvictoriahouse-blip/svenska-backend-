@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { applySaleStock } from '@/lib/stock';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { requireAuth } from '@/lib/auth';
 
@@ -29,13 +30,10 @@ export async function POST(req: NextRequest) {
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Décrémenter le stock si track_stock
+  // Décrémenter le stock, en journalisant chaque ligne (cf. lib/stock).
   if (body.lines?.length > 0) {
-    for (const line of body.lines) {
-      if (line.product_id) {
-        await supabaseAdmin.rpc('decrement_stock', { p_id: line.product_id, qty: line.qty });
-      }
-    }
+    const r = await applySaleStock(body.lines, data.id, data.order_number);
+    if (r.failed.length) console.error('[orders] stock non déduit:', data.order_number, r.failed);
   }
 
   // Créer la facture automatiquement

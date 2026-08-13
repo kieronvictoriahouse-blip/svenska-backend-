@@ -67,23 +67,11 @@ CREATE POLICY "admin_purchase_tickets" ON purchase_tickets FOR ALL USING (auth.r
 -- ─── 4. Mouvements de stock ─────────────────────────────────────
 -- Les écarts d'inventaire doivent être datés et traçables, pas
 -- écrasés silencieusement dans products.stock.
-CREATE TABLE IF NOT EXISTS stock_movements (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  product_id  UUID REFERENCES products(id) ON DELETE CASCADE,
-  delta       INTEGER NOT NULL,
-  qty_before  INTEGER,
-  qty_after   INTEGER,
-  reason      TEXT NOT NULL DEFAULT 'inventory',  -- inventory | reception | order | manual | picking
-  reference   TEXT,
-  note        TEXT,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS stock_movements_product ON stock_movements (product_id, created_at DESC);
-
-ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "admin_stock_movements" ON stock_movements;
-CREATE POLICY "admin_stock_movements" ON stock_movements FOR ALL USING (auth.role() = 'authenticated');
+-- La table stock_movements existe deja en base (creee a la main, jamais
+-- versionnee) avec un autre jeu de colonnes : product_id, quantity, type,
+-- reason, order_id. Un CREATE TABLE IF NOT EXISTS ici serait un no-op et le
+-- code insererait des colonnes inexistantes. L'alignement se fait dans la
+-- migration 031, a appliquer juste apres celle-ci.
 
 -- ─── 5. Préparation de commande ─────────────────────────────────
 -- Avancement du picking, pour reprendre une préparation interrompue.

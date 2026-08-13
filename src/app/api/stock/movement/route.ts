@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.from('products').update({ stock: after }).eq('id', productId);
       await supabaseAdmin.from('stock_movements').insert({
         product_id: productId,
+        // Les deux jeux de colonnes : `quantity`/`type` pour rester lisible
+        // par l'historique d'avant le journal, le reste pour le nouveau.
+        quantity: Math.abs(delta),
+        type: delta < 0 ? 'out' : 'in',
         delta, qty_before: before, qty_after: after,
         reason: it.reason || reason,
         reference: it.reference || reference,

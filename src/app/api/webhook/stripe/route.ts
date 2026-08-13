@@ -113,13 +113,18 @@ export async function POST(req: NextRequest) {
           .neq('id', orderId);
       }
 
-      // Décrémenter le stock — skip pour les commandes test
+      // Décrémenter le stock — skip pour les commandes test.
+      // Passe par applySaleStock : chaque ligne écrit un mouvement rattaché
+      // à la commande, ce qui rend la déduction traçable et idempotente
+      // (un webhook rejoué ne déduit pas deux fois). Un échec est journalisé
+      // au lieu d'être avalé : c'est ce silence qui avait laissé le stock
+      // dériver de +77 unités.
       if (!isTestEvent && !existing?.is_test) {
-        for (const line of orderLines) {
-          if (line.product_id) {
-            try { await supabaseAdmin.rpc('decrement_stock', { p_id: line.product_id, qty: line.qty }); } catch { /* non bloquant */ }
-          }
-        }
+        try {
+          const { applySaleStock } = await import('@/lib/stock');
+          const r = await applySaleStock(orderLines, orderId, existing?.order_number);
+          if (r.failed.length) console.error('[webhook] stock non déduit:', orderId, r.failed);
+        } catch (e) { console.error('[webhook] déduction de stock impossible:', e); }
       }
 
       // Facture + compta : skip pour les commandes test

@@ -38,6 +38,14 @@ export default function StockPage() {
   const [inv, setInv] = useState<Record<string, number>>({});
   const [invBusy, setInvBusy] = useState(false);
 
+  /* Controle du stock : theorique (recu - vendu) confronte a la base.
+     Ne vaut que la ou des receptions existent — ailleurs le stock a ete
+     saisi a la main et seul un comptage physique fait foi. */
+  const [ctrlOpen, setCtrlOpen] = useState(false);
+  const [ctrl, setCtrl] = useState<any>(null);
+  const [ctrlSel, setCtrlSel] = useState<Set<string>>(new Set());
+  const [ctrlBusy, setCtrlBusy] = useState(false);
+
   useEffect(() => { load(); return () => Object.values(timers.current).forEach(clearTimeout); }, []);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2500); };
@@ -80,6 +88,39 @@ export default function StockPage() {
         setSaving(s => { const n = new Set(s); n.delete(p.id); return n; });
       }
     }, 700);
+  }
+
+  async function loadCtrl() {
+    setCtrlBusy(true);
+    try {
+      const d = await adminFetch('/api/stock/reconcile').then(r => r.json());
+      setCtrl(d);
+      setCtrlSel(new Set((d.rows || [])
+        .filter((r: any) => r.reconciliable && r.ecart !== 0)
+        .map((r: any) => r.product_id)));
+    } catch { say('Controle impossible'); }
+    finally { setCtrlBusy(false); }
+  }
+
+  async function applyCtrl() {
+    if (!ctrlSel.size) return;
+    if (!window.confirm(`Aligner le stock de ${ctrlSel.size} produit(s) sur le theorique ?`)) return;
+    setCtrlBusy(true);
+    try {
+      const res = await adminFetch('/api/stock/reconcile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_ids: Array.from(ctrlSel) }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Erreur');
+      setProducts(ps => ps.map(p => {
+        const hit = (d.applied || []).find((a: any) => a.product_id === p.id);
+        return hit ? { ...p, stock: hit.after } : p;
+      }));
+      say(`${(d.applied || []).length} produit(s) aligne(s)`);
+      await loadCtrl();
+    } catch (e: any) { say(e.message); }
+    finally { setCtrlBusy(false); }
   }
 
   async function onInvScan(code: string) {
@@ -170,9 +211,109 @@ export default function StockPage() {
                   style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
             <span className="ms">barcode_scanner</span>Inventaire par scan
           </button>
+          <button className="sc-btn sc-btn-secondary"
+                  onClick={() => { const n = !ctrlOpen; setCtrlOpen(n); if (n && !ctrl) loadCtrl(); }}>
+            <span className="ms">fact_check</span>Contr&ocirc;le
+          </button>
           <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>Exporter CSV</button>
         </div>
       </div>
+      {/* Controle du stock : recu - vendu confronte a la base */}
+      {ctrlOpen && (
+        <div className="sc-card" style={{ marginBottom: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
+            <span className="ms" style={{ fontSize: 19, color: T.muted }}>fact_check</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>Contr&ocirc;le du stock</div>
+              <div style={{ fontSize: 11, color: T.text3 }}>
+                Th&eacute;orique = total re&ccedil;u &minus; total vendu, recalcul&eacute; depuis les r&eacute;ceptions et les commandes.
+              </div>
+            </div>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={loadCtrl} disabled={ctrlBusy}>Recalculer</button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setCtrlOpen(false)}>Fermer</button>
+          </div>
+
+          {!ctrl ? (
+            <div className="sc-empty">{ctrlBusy ? 'Calcul en cours\u2026' : 'Aucun r\u00e9sultat'}</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 20, padding: '11px 15px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap' }}>
+                <div>
+                  <span className="sc-num" style={{ fontSize: 19, fontWeight: 700, color: ctrl.resume.en_ecart ? T.red : T.green }}>{ctrl.resume.en_ecart}</span>
+                  <span style={{ fontSize: 11.5, color: T.muted, marginLeft: 6 }}>produit(s) en &eacute;cart</span>
+                </div>
+                <div>
+                  <span className="sc-num" style={{ fontSize: 19, fontWeight: 700, color: T.ink }}>+{ctrl.resume.surstock}</span>
+                  <span style={{ fontSize: 11.5, color: T.muted, marginLeft: 6 }}>unit&eacute;(s) de stock fant&ocirc;me</span>
+                </div>
+                <div>
+                  <span className="sc-num" style={{ fontSize: 19, fontWeight: 700, color: T.ink }}>{ctrl.resume.a_compter}</span>
+                  <span style={{ fontSize: 11.5, color: T.muted, marginLeft: 6 }}>&agrave; compter physiquement</span>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="sc-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 34 }}></th>
+                      <th>Produit</th>
+                      <th style={{ width: 70, textAlign: 'right' }}>Re&ccedil;u</th>
+                      <th style={{ width: 70, textAlign: 'right' }}>Vendu</th>
+                      <th style={{ width: 82, textAlign: 'right' }}>Th&eacute;orique</th>
+                      <th style={{ width: 72, textAlign: 'right' }}>En base</th>
+                      <th style={{ width: 78, textAlign: 'right' }}>&Eacute;cart</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ctrl.rows.filter((r: any) => r.ecart !== 0 || !r.reconciliable).map((r: any) => (
+                      <tr key={r.product_id} style={{ opacity: r.reconciliable ? 1 : 0.62 }}>
+                        <td>
+                          {r.reconciliable && r.ecart !== 0 ? (
+                            <input type="checkbox" checked={ctrlSel.has(r.product_id)} style={{ accentColor: 'var(--accent)' }}
+                                   onChange={() => setCtrlSel(prev => {
+                                     const n = new Set(prev);
+                                     if (n.has(r.product_id)) n.delete(r.product_id); else n.add(r.product_id);
+                                     return n;
+                                   })} />
+                          ) : (
+                            <span className="ms" style={{ fontSize: 15, color: T.muted }}>help</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 12.5, color: T.ink }}>{r.name}</div>
+                          {!r.reconciliable && (
+                            <div style={{ fontSize: 10.5, color: T.muted }}>
+                              Jamais entr&eacute; par une r&eacute;ception &mdash; comptage requis
+                            </div>
+                          )}
+                        </td>
+                        <td className="sc-num" style={{ textAlign: 'right' }}>{r.received}</td>
+                        <td className="sc-num" style={{ textAlign: 'right' }}>{r.sold}</td>
+                        <td className="sc-num" style={{ textAlign: 'right', fontWeight: 600 }}>{r.reconciliable ? r.theorique : '\u2014'}</td>
+                        <td className="sc-num" style={{ textAlign: 'right' }}>{r.base}</td>
+                        <td className="sc-num" style={{ textAlign: 'right', fontWeight: 700, color: r.ecart === 0 ? T.muted : r.ecart > 0 ? T.red : T.blue }}>
+                          {r.reconciliable ? (r.ecart > 0 ? `+${r.ecart}` : r.ecart) : '\u2014'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11.5, color: T.muted, flex: 1 }}>
+                  L&rsquo;alignement cr&eacute;e un mouvement dat&eacute; et motiv&eacute; par produit. Les lignes gris&eacute;es ne sont pas calculables.
+                </span>
+                <button className="sc-btn sc-btn-green" onClick={applyCtrl} disabled={ctrlBusy || !ctrlSel.size}>
+                  <span className="ms">check_circle</span>{ctrlBusy ? 'Alignement\u2026' : `Aligner ${ctrlSel.size} produit(s)`}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Session d'inventaire par scan */}
       {invOpen && (
         <div className="sc-card" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
