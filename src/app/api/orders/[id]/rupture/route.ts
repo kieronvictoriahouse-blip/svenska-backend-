@@ -50,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const cfg = await getWhiteLabelConfig();
   const from = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
 
-  const mail = ruptureEmail(order, {
+  const mail = await ruptureEmail(order, {
     choice, token,
     titre: body.titre || 'Un article vient de partir en rupture',
     corps: body.corps || '',

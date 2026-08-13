@@ -285,7 +285,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!skipAvoir) {
       const { data: avoir } = await supabaseAdmin
         .from('invoices').insert(avoirPayload).select().single();
-      if (avoir) avoirRendu = avoirEmail(avoir, originalInv?.number || '', avoirLines);
+      if (avoir) avoirRendu = await avoirEmail(avoir, originalInv?.number || '', avoirLines);
 
     }
 

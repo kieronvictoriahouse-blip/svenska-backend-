@@ -1,4 +1,12 @@
-import { renderEmail } from '@/lib/email-templates';
+import { renderEmail, loadOverrides, EmailTemplate } from '@/lib/email-templates';
+
+/* L'objet peut lui aussi etre personnalise depuis le back-office ; sans
+   surcharge on garde celui calcule ici. */
+async function sujetDe(key: EmailTemplate, defaut: string): Promise<string> {
+  const over = await loadOverrides();
+  const s = over[key]?.subject?.trim();
+  return s || defaut;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    CONTEXTES DES EMAILS CLIENTS
@@ -57,13 +65,13 @@ function lignesDe(order: any) {
 const sousTotalDe = (lignes: Array<{ brut: number }>) => lignes.reduce((s, l) => s + l.brut, 0);
 
 /** Confirmation de commande — déclenchée par le paiement accepté. */
-export function confirmationCommande(order: any) {
+export async function confirmationCommande(order: any) {
   const lignes = lignesDe(order);
   const sousTotal = sousTotalDe(lignes);
   const livraison = Number(order.shipping) || 0;
   return {
-    sujet: `Commande ${order.order_number} confirmée — merci !`,
-    html: renderEmail('email-confirmation-commande', {
+    sujet: await sujetDe('email-confirmation-commande', `Commande ${order.order_number} confirmée — merci !`),
+    html: await renderEmail('email-confirmation-commande', {
       prenom: prenomDe(order.customer_name),
       client: order.customer_name || '',
       numero: order.order_number || '',
@@ -77,13 +85,13 @@ export function confirmationCommande(order: any) {
 }
 
 /** Facture — envoyée après encaissement, PDF en pièce jointe. */
-export function factureEmail(order: any, invoice: any) {
+export async function factureEmail(order: any, invoice: any) {
   const lignes = lignesDe({ lines: invoice?.lines ?? order?.lines });
   const livraison = Number(order?.shipping) || 0;
   const total = Number(invoice?.total_ttc ?? order?.total) || 0;
   return {
-    sujet: `Votre facture ${invoice?.number || ''}`.trim(),
-    html: renderEmail('email-facture', {
+    sujet: await sujetDe('email-facture', `Votre facture ${invoice?.number || ''}`.trim()),
+    html: await renderEmail('email-facture', {
       prenom: prenomDe(invoice?.client_name || order?.customer_name),
       client: invoice?.client_name || order?.customer_name || '',
       numero: order?.order_number || invoice?.order_number || '',
@@ -98,7 +106,7 @@ export function factureEmail(order: any, invoice: any) {
 }
 
 /** Avoir / remboursement — émis depuis la facturation. */
-export function avoirEmail(avoir: any, factureNumero: string, items: any[] = []) {
+export async function avoirEmail(avoir: any, factureNumero: string, items: any[] = []) {
   const lignes = (items.length ? items : parseLines(avoir?.lines)).map((l: any) => {
     const qte = Number(l.qty) || 1;
     const pu = Number(l.price ?? l.unit_price) || 0;
@@ -109,8 +117,8 @@ export function avoirEmail(avoir: any, factureNumero: string, items: any[] = [])
     };
   });
   return {
-    sujet: `Votre remboursement ${avoir?.number || ''}`.trim(),
-    html: renderEmail('email-avoir-remboursement', {
+    sujet: await sujetDe('email-avoir-remboursement', `Votre remboursement ${avoir?.number || ''}`.trim()),
+    html: await renderEmail('email-avoir-remboursement', {
       prenom: prenomDe(avoir?.client_name),
       client: avoir?.client_name || '',
       numero_avoir: avoir?.number || '',
@@ -126,7 +134,7 @@ export function avoirEmail(avoir: any, factureNumero: string, items: any[] = [])
  * Chaque lien porte le même jeton signé, seul `choix` change : le
  * serveur retrouve la demande par le jeton, jamais par l'URL.
  */
-export function ruptureEmail(
+export async function ruptureEmail(
   order: any,
   o: { choice: any; token: string; titre: string; corps: string; baseUrl: string },
 ) {
@@ -152,7 +160,7 @@ export function ruptureEmail(
 
   return {
     sujet: `${o.titre} — commande ${order?.order_number || ''}`.trim(),
-    html: renderEmail('email-message-libre', {
+    html: await renderEmail('email-message-libre', {
       prenom: prenomDe(order?.customer_name),
       numero: order?.order_number || '',
       surtitre: `COMMANDE N° ${order?.order_number || ''} · VOTRE AVIS`,
@@ -173,10 +181,10 @@ export function ruptureEmail(
 }
 
 /** Message libre — envoi manuel depuis la fiche commande. */
-export function messageLibre(order: any, opts: { surtitre?: string; titre: string; corps: string }) {
+export async function messageLibre(order: any, opts: { surtitre?: string; titre: string; corps: string }) {
   return {
     sujet: opts.titre,
-    html: renderEmail('email-message-libre', {
+    html: await renderEmail('email-message-libre', {
       prenom: prenomDe(order?.customer_name),
       numero: order?.order_number || '',
       surtitre: (opts.surtitre || `Commande n° ${order?.order_number || ''}`).toUpperCase(),

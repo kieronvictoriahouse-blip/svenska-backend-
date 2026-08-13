@@ -215,7 +215,7 @@ export async function POST(req: NextRequest) {
         };
 
         // Gabarit du handoff (src/emails/templates), rendu par customer-emails.
-        const mail = confirmationCommande({ ...existing, ...orderForEmail });
+        const mail = await confirmationCommande({ ...existing, ...orderForEmail });
         await sendEmail({
           from:    fromEmail,
           to:      customerEmail,

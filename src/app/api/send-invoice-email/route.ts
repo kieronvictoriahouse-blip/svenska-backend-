@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     // Gabarit du handoff : meme document que la facture PDF jointe.
     const { data: ord } = await supabaseAdmin
       .from('orders').select('*').eq('id', inv.order_id).maybeSingle();
-    const mail = factureEmail(ord || {}, inv);
+    const mail = await factureEmail(ord || {}, inv);
 
     await sendEmail({
       from:    fromEmail,

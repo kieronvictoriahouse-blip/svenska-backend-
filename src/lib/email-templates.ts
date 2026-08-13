@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { supabaseAdmin } from '@/lib/supabase';
 
 /* ═══════════════════════════════════════════════════════════════
    GABARITS D'EMAIL
@@ -30,14 +31,34 @@ export type EmailTemplate =
   | 'email-expedition'
   | 'email-colis-disponible';
 
-const cache = new Map<string, string>();
+const cacheFichier = new Map<string, string>();
 
-function load(name: EmailTemplate): string {
-  const hit = cache.get(name);
+/** Gabarit livre — la reference, jamais modifiee. */
+export function loadDefault(name: EmailTemplate): string {
+  const hit = cacheFichier.get(name);
   if (hit) return hit;
   const raw = fs.readFileSync(path.join(DIR, `${name}.html`), 'utf8');
-  cache.set(name, raw);
+  cacheFichier.set(name, raw);
   return raw;
+}
+
+/* Surcharges du back-office, gardees 60 s en memoire : l'envoi d'un email
+   ne doit pas provoquer une requete de plus a chaque fois, mais une
+   modification doit se voir tout de suite a l'echelle humaine. */
+let surcharges: Record<string, { subject?: string; html: string }> = {};
+let surchargesAt = 0;
+
+export async function loadOverrides(force = false) {
+  if (!force && Date.now() - surchargesAt < 60_000) return surcharges;
+  try {
+    const { data } = await supabaseAdmin.from('email_templates').select('key, subject, html');
+    surcharges = Object.fromEntries((data || []).map(r => [r.key, { subject: r.subject, html: r.html }]));
+    surchargesAt = Date.now();
+  } catch {
+    /* Table absente ou base injoignable : on continue sur les fichiers.
+       Un email doit partir meme si la personnalisation est indisponible. */
+  }
+  return surcharges;
 }
 
 const esc = (v: unknown) =>
@@ -62,12 +83,23 @@ const get = (ctx: Record<string, any>, key: string) =>
  * s'affiche jamais chez un destinataire. `baseUrl` réécrit donc les
  * sources locales vers le domaine public.
  */
-export function renderEmail(
+export async function renderEmail(
   name: EmailTemplate,
   ctx: Record<string, any>,
   baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr',
+): Promise<string> {
+  const over = await loadOverrides();
+  let html = over[name]?.html || loadDefault(name);
+  return renderSource(html, ctx, baseUrl);
+}
+
+/** Rend une source donnee — sert aussi a previsualiser un brouillon. */
+export function renderSource(
+  source: string,
+  ctx: Record<string, any>,
+  baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr',
 ): string {
-  let html = load(name);
+  let html = source;
 
   // Blocs répétés
   html = html.replace(
