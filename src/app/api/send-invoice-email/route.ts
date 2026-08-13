@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateInvoicePdf } from '@/lib/invoice-pdf';
+import { factureEmail } from '@/lib/customer-emails';
 import { sendEmail } from '@/lib/email-send';
 import { getWlConfig } from '@/lib/mailer';
 
@@ -36,27 +37,17 @@ export async function POST(req: NextRequest) {
 
     if (!toEmail) return NextResponse.json({ error: 'Email client manquant' }, { status: 400 });
 
+    // Gabarit du handoff : meme document que la facture PDF jointe.
+    const { data: ord } = await supabaseAdmin
+      .from('orders').select('*').eq('id', inv.order_id).maybeSingle();
+    const mail = factureEmail(ord || {}, inv);
+
     await sendEmail({
       from:    fromEmail,
       to:      toEmail,
-      subject: `🧾 Votre facture ${inv.number} — ${siteName}`,
-      html:    `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Georgia,serif;background:#EDEAE4;margin:0;padding:40px 20px">
-        <div style="max-width:500px;margin:0 auto;background:#FDFAF5;border-radius:8px;overflow:hidden">
-          <div style="background:#1C2028;padding:24px 36px;text-align:center">
-            <p style="color:#fff;font-size:18px;font-weight:300;letter-spacing:2px;text-transform:uppercase;margin:0">${siteName}</p>
-          </div>
-          <div style="padding:36px">
-            <h1 style="font-size:22px;color:#1C2028;font-weight:300;margin-bottom:12px">Votre facture</h1>
-            <p style="font-size:15px;color:#3E4550;line-height:1.8">Bonjour ${inv.client_name},</p>
-            <p style="font-size:15px;color:#3E4550;line-height:1.8">Veuillez trouver ci-joint votre facture <strong>${inv.number}</strong> d'un montant de <strong>${(inv.total_ttc || 0).toFixed(2)} €</strong>.</p>
-            <p style="font-size:13px;color:#6A7280;margin-top:24px">Merci pour votre commande !</p>
-          </div>
-          <div style="background:#1C2028;padding:20px 36px;text-align:center">
-            <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:0">${siteName}</p>
-          </div>
-        </div>
-      </body></html>`,
-      attachments: [{ filename: `${inv.number}.pdf`, content: pdfBuffer }],
+      subject: mail.sujet,
+      html:    mail.html,
+      attachments: [{ filename: `facture-${inv.number}.pdf`, content: pdfBuffer }],
     }, cfg);
 
     return NextResponse.json({ ok: true });

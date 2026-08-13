@@ -25,7 +25,7 @@
 </head>
 <body style="margin:0; padding:0; background-color:#F1EEE9;">
 
-<span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Votre commande n° 2417 est confirmée — nous préparons votre colis avec soin. Tack så mycket !</span>
+<span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Votre commande n° {{ numero }} est confirmée — nous préparons votre colis avec soin. Tack så mycket !</span>
 
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F1EEE9;">
   <tr>
@@ -52,8 +52,8 @@
         <tr>
           <td class="pad" style="padding:30px 40px 0 40px;">
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:14px; mso-line-height-rule:exactly; letter-spacing:2.6px; color:#B49256; font-weight:bold;">COMMANDE CONFIRMÉE</div>
-            <div class="h1" style="font-family:Georgia,'Times New Roman',Times,serif; font-size:32px; line-height:38px; mso-line-height-rule:exactly; color:#1F231C; padding-top:10px;">Tack, Camille !</div>
-            <div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:25px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:14px;">Votre commande <strong style="color:#1F231C;">n° 2417</strong> est bien enregistrée. Nous la préparons à la main dans notre atelier de Marcq-en-Barœul et vous prévenons dès qu'elle prend la route.</div>
+            <div class="h1" style="font-family:Georgia,'Times New Roman',Times,serif; font-size:32px; line-height:38px; mso-line-height-rule:exactly; color:#1F231C; padding-top:10px;">Tack, {{ prenom }} !</div>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:25px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:14px;">Votre commande <strong style="color:#1F231C;">n° {{ numero }}</strong> est bien enregistrée. Nous la préparons à la main dans notre atelier de Marcq-en-Barœul et vous prévenons dès qu'elle prend la route.</div>
           </td>
         </tr>
 
@@ -63,41 +63,22 @@
               <tr>
                 <td colspan="2" style="padding:0 0 9px 0; border-bottom:1px solid #44573D; font-family:Arial,Helvetica,sans-serif; font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#44573D; font-weight:bold;">VOTRE COMMANDE</td>
               </tr>
+<!--#each lignes-->
               <tr>
                 <td style="padding:13px 10px 13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C;">
-                  <strong>Kanelbullar · lot de 6</strong><br />
-                  <span style="font-size:12px; line-height:18px; color:#948B79;">2 × 8,90 €</span>
+                  <strong>{{ nom }}</strong><br />
+                  <span style="font-size:12px; line-height:18px; color:#948B79;">{{ qte }} × {{ pu }}</span>
                 </td>
-                <td align="right" width="90" style="width:90px; padding:13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; font-weight:bold;">17,80 €</td>
+                <td align="right" width="90" style="width:90px; padding:13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; font-weight:bold;">{{ montant }}</td>
               </tr>
-              <tr>
-                <td style="padding:13px 10px 13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C;">
-                  <strong>Kalles Kaviar 190 g</strong><br />
-                  <span style="font-size:12px; line-height:18px; color:#948B79;">1 × 5,50 €</span>
-                </td>
-                <td align="right" width="90" style="width:90px; padding:13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; font-weight:bold;">5,50 €</td>
-              </tr>
-              <tr>
-                <td style="padding:13px 10px 13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C;">
-                  <strong>Marabou Mjölkchoklad 200 g</strong><br />
-                  <span style="font-size:12px; line-height:18px; color:#948B79;">4 × 3,80 €</span>
-                </td>
-                <td align="right" width="90" style="width:90px; padding:13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; font-weight:bold;">15,20 €</td>
-              </tr>
-              <tr>
-                <td style="padding:13px 10px 13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C;">
-                  <strong>Knäckebröd Original 200 g</strong><br />
-                  <span style="font-size:12px; line-height:18px; color:#948B79;">1 × 3,20 €</span>
-                </td>
-                <td align="right" width="90" style="width:90px; padding:13px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; font-weight:bold;">3,20 €</td>
-              </tr>
+<!--/each-->
               <tr>
                 <td style="padding:12px 10px 4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Sous-total</td>
-                <td align="right" style="padding:12px 0 4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">41,70 €</td>
+                <td align="right" style="padding:12px 0 4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">{{ sous_total }}</td>
               </tr>
               <tr>
                 <td style="padding:4px 10px 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Livraison · Mondial Relay</td>
-                <td align="right" style="padding:4px 0 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">6,90 €</td>
+                <td align="right" style="padding:4px 0 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">{{ livraison }}</td>
               </tr>
             </table>
           </td>
@@ -108,7 +89,7 @@
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; background-color:#44573D;">
               <tr>
                 <td style="padding:16px 18px; font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:15px; mso-line-height-rule:exactly; letter-spacing:2.4px; color:#D8DCD2; font-weight:bold;">TOTAL RÉGLÉ</td>
-                <td align="right" style="padding:16px 18px; font-family:Georgia,'Times New Roman',Times,serif; font-size:26px; line-height:30px; mso-line-height-rule:exactly; color:#FDFBF5;">48,60 €</td>
+                <td align="right" style="padding:16px 18px; font-family:Georgia,'Times New Roman',Times,serif; font-size:26px; line-height:30px; mso-line-height-rule:exactly; color:#FDFBF5;">{{ total }}</td>
               </tr>
             </table>
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; line-height:17px; mso-line-height-rule:exactly; color:#948B79; padding-top:8px;">Réglé par carte bancaire le 12 août 2026 · TVA non applicable, art. 293 B du CGI</div>
@@ -129,7 +110,7 @@
                       </td>
                     </tr>
                   </table>
-                  <div style="font-size:14px; line-height:22px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;"><strong>Camille Rousseau</strong><br />Relais Presse du Vieux-Lille<br />28 rue de la Monnaie<br />59000 Lille, France</div>
+                  <div style="font-size:14px; line-height:22px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;"><strong>{{ client }}</strong><br />{{{ adresse_html }}}</div>
                 </td>
               </tr>
             </table>
@@ -167,7 +148,7 @@
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td align="center" bgcolor="#44573D" style="background-color:#44573D; border-radius:2px;">
-                  <a href="https://www.swedishcravings.fr/compte/commandes/2417" style="display:block; padding:15px 34px; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:18px; mso-line-height-rule:exactly; letter-spacing:1.4px; color:#FDFBF5; text-decoration:none; font-weight:bold;">SUIVRE MA COMMANDE</a>
+                  <a href="https://www.swedishcravings.fr/compte/commandes/{{ numero }}" style="display:block; padding:15px 34px; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:18px; mso-line-height-rule:exactly; letter-spacing:1.4px; color:#FDFBF5; text-decoration:none; font-weight:bold;">SUIVRE MA COMMANDE</a>
                 </td>
               </tr>
             </table>

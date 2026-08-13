@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
-import { orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
+import { getWlConfig } from '@/lib/mailer';
+import { confirmationCommande } from '@/lib/customer-emails';
 import { sendEmail } from '@/lib/email-send';
 
 export async function POST(req: NextRequest) {
@@ -213,11 +214,13 @@ export async function POST(req: NextRequest) {
           lines:            orderLines,
         };
 
+        // Gabarit du handoff (src/emails/templates), rendu par customer-emails.
+        const mail = confirmationCommande({ ...existing, ...orderForEmail });
         await sendEmail({
           from:    fromEmail,
           to:      customerEmail,
-          subject: `✅ Commande ${existing?.order_number || ''} confirmée${siteName ? ` — ${siteName}` : ''}`,
-          html:    orderConfirmationHtml(orderForEmail, cfg),
+          subject: mail.sujet,
+          html:    mail.html,
         }, cfg);
 
         // Notification interne — nouvelle commande
