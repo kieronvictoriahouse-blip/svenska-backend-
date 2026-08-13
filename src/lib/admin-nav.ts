@@ -70,6 +70,7 @@ export const NAV: NavGroup[] = [
       { href: '/admin/marketing?tab=promo',   icon: 'confirmation_number', label: 'Codes promo', desc: 'Réductions & offres' },
       { href: '/admin/marketing/automations', icon: 'smart_toy',           label: 'Automations', desc: 'Séquences automatiques' },
       { href: '/admin/emails', icon: 'mail', label: 'Emails', desc: 'Modèles envoyés aux clients' },
+      { href: '/admin/boite-mail', icon: 'inbox', label: 'Boîte mail', desc: 'hej@swedishcravings.fr' },
       { href: '/admin/marketing?tab=cart',    icon: 'shopping_cart',       label: 'Abandon panier', desc: 'Relances automatiques', extra: true },
     ],
   },

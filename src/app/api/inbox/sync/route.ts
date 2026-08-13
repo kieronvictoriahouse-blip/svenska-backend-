@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
-import { syncFolder } from '@/lib/imap';
+import { syncFolder, resolveFolders } from '@/lib/imap';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -12,8 +12,10 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
+  // Le nom du dossier « Envoyes » vient du serveur, il n'est pas devinable.
+  const roles = await resolveFolders();
   const resultats = [];
-  for (const dossier of ['INBOX', 'Sent']) {
+  for (const dossier of ['INBOX', roles.sent]) {
     resultats.push(await syncFolder(dossier));
   }
   const erreurs = resultats.filter(r => r.erreur);

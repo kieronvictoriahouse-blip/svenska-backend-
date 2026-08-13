@@ -25,14 +25,64 @@ const HOST = process.env.IMAP_HOST || 'imap.ionos.fr';
 const PORT = Number(process.env.IMAP_PORT || 993);
 const USER = process.env.IMAP_USER || 'hej@swedishcravings.fr';
 
-/** Dossiers suivis. IONOS expose les dossiers spéciaux en clair. */
-export const DOSSIERS: Record<string, string> = {
-  INBOX: 'INBOX',
-  Sent: 'Sent',
-  Drafts: 'Drafts',
-  Trash: 'Trash',
-  Junk: 'Junk',
+/* Les noms des dossiers speciaux varient d'un fournisseur a l'autre :
+   IONOS n'expose pas « Sent » mais sa propre denomination, d'ou l'echec
+   « Command failed » a la premiere synchronisation. On ne devine plus,
+   on demande au serveur via l'attribut special-use. */
+export type Roles = { sent: string; drafts: string; trash: string; junk: string; archive?: string };
+
+const ROLE_ATTR: Record<keyof Roles, string> = {
+  sent: '\Sent', drafts: '\Drafts', trash: '\Trash',
+  junk: '\Junk', archive: '\Archive',
 };
+
+/** Noms de repli, si le serveur n'annonce pas special-use. */
+const REPLIS: Record<keyof Roles, string[]> = {
+  sent: ['Sent', 'Sent Messages', 'Envoyés', 'INBOX.Sent'],
+  drafts: ['Drafts', 'Brouillons', 'INBOX.Drafts'],
+  trash: ['Trash', 'Corbeille', 'Deleted Messages', 'INBOX.Trash'],
+  junk: ['Junk', 'Spam', 'Indésirables', 'INBOX.Junk'],
+  archive: ['Archive', 'Archives', 'INBOX.Archive'],
+};
+
+let rolesCache: Roles | null = null;
+
+/** Resout les dossiers speciaux reellement exposes par le serveur. */
+export async function resolveFolders(force = false): Promise<Roles> {
+  if (rolesCache && !force) return rolesCache;
+  const c = client();
+  try {
+    await c.connect();
+    const boites = await c.list();
+    const trouve = (role: keyof Roles): string => {
+      const parAttr = boites.find((b: any) =>
+        (b.specialUse || '').toLowerCase() === ROLE_ATTR[role].toLowerCase() ||
+        (b.flags && b.flags.has && b.flags.has(ROLE_ATTR[role])));
+      if (parAttr) return parAttr.path;
+      const parNom = boites.find((b: any) =>
+        REPLIS[role].some(n => b.path.toLowerCase() === n.toLowerCase()));
+      return parNom ? parNom.path : REPLIS[role][0];
+    };
+    rolesCache = {
+      sent: trouve('sent'), drafts: trouve('drafts'),
+      trash: trouve('trash'), junk: trouve('junk'), archive: trouve('archive'),
+    };
+    return rolesCache;
+  } finally {
+    try { await c.logout(); } catch { /* ignore */ }
+  }
+}
+
+/** Liste brute des dossiers, pour le panneau de gauche. */
+export async function listFolders(): Promise<Array<{ path: string; name: string; specialUse?: string }>> {
+  const c = client();
+  try {
+    await c.connect();
+    return (await c.list()).map((b: any) => ({ path: b.path, name: b.name, specialUse: b.specialUse }));
+  } finally {
+    try { await c.logout(); } catch { /* ignore */ }
+  }
+}
 
 function client(): ImapFlow {
   const pass = process.env.IMAP_PASSWORD;

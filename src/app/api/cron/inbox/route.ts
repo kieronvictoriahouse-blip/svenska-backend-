@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncFolder } from '@/lib/imap';
+import { syncFolder, resolveFolders } from '@/lib/imap';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -15,8 +15,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET non configuré' }, { status: 500 });
   }
 
+  // Le nom du dossier « Envoyes » vient du serveur, il n'est pas devinable.
+  const roles = await resolveFolders();
   const resultats = [];
-  for (const dossier of ['INBOX', 'Sent']) {
+  for (const dossier of ['INBOX', roles.sent]) {
     resultats.push(await syncFolder(dossier));
   }
   // 207 : un dossier a pu échouer sans que l'autre soit perdu.
