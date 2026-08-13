@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
+import { sendEmail, getWhiteLabelConfig } from '@/lib/email-send';
+import { signChoice } from '@/lib/replacement-token';
+import { ruptureEmail } from '@/lib/customer-emails';
+
+export const dynamic = 'force-dynamic';
+
+/* Signale une rupture au client et lui propose des remplacements.
+   Corps attendu :
+   { line: { product_id, name, qty, price, ref? },
+     options: [product_id…],           // proposés au choix
+     titre?, corps? }                  // texte libre de l'expéditrice */
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const line = body.line || {};
+  const optionIds: string[] = Array.isArray(body.options) ? body.options : [];
+  if (!line.name) return NextResponse.json({ error: 'Ligne en rupture manquante' }, { status: 400 });
+
+  const { data: order } = await supabaseAdmin
+    .from('orders').select('*').eq('id', params.id).maybeSingle();
+  if (!order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+  if (!order.customer_email) return NextResponse.json({ error: 'Email client manquant' }, { status: 400 });
+
+  // Les propositions sont figées au moment de l'envoi, mais le prix sera
+  // recalculé au clic : ici c'est de l'affichage.
+  const { data: prods } = await supabaseAdmin
+    .from('products').select('id, name_fr, price, subtitle_fr').in('id', optionIds.length ? optionIds : ['-']);
+
+  const qte = Number(line.qty) || 1;
+  const pu = Number(line.price) || 0;
+
+  const { data: choice, error } = await supabaseAdmin.from('order_line_choices').insert({
+    order_id: order.id,
+    product_id: line.product_id || null,
+    line_ref: line.ref || null,
+    line_name: line.name,
+    line_qty: qte,
+    line_price: pu,
+    options: (prods || []).map(p => ({
+      product_id: p.id, nom: p.name_fr, prix: Number(p.price) || 0, note: p.subtitle_fr || '',
+    })),
+  }).select().single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const token = signChoice(choice.id, order.id);
+  const cfg = await getWhiteLabelConfig();
+  const from = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
+
+  const mail = ruptureEmail(order, {
+    choice, token,
+    titre: body.titre || 'Un article vient de partir en rupture',
+    corps: body.corps || '',
+    baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr',
+  });
+
+  await sendEmail({ from, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+
+  return NextResponse.json({ ok: true, choice_id: choice.id });
+}

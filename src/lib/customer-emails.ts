@@ -121,6 +121,57 @@ export function avoirEmail(avoir: any, factureNumero: string, items: any[] = [])
   };
 }
 
+/**
+ * Rupture de stock avec choix de remplacement.
+ * Chaque lien porte le même jeton signé, seul `choix` change : le
+ * serveur retrouve la demande par le jeton, jamais par l'URL.
+ */
+export function ruptureEmail(
+  order: any,
+  o: { choice: any; token: string; titre: string; corps: string; baseUrl: string },
+) {
+  /* Le gabarit ecrit `{{ base_lien }}?{{ lien }}` : la base ne porte donc
+     pas le « ? », et chaque lien apporte le jeton + le choix. Le « & » est
+     laisse brut : l echappement HTML est fait par le moteur de rendu. */
+  const base = `${o.baseUrl.replace(/\/$/, '')}/api/remplacement`;
+  const jeton = `token=${encodeURIComponent(o.token)}`;
+  const qte = Number(o.choice.line_qty) || 1;
+  const pu = Number(o.choice.line_price) || 0;
+
+  const options = (o.choice.options || []).map((opt: any) => {
+    const ecart = qte * pu - qte * (Number(opt.prix) || 0);
+    return {
+      nom: opt.nom,
+      note: opt.note || '',
+      prix: eur(opt.prix),
+      // Un écart nul ne s'affiche pas : « − 0,00 € » ne veut rien dire.
+      ecart: ecart > 0 ? `− ${eur(ecart)}` : ecart < 0 ? 'Même prix pour vous' : '',
+      lien: `${jeton}&choix=${encodeURIComponent(opt.product_id)}`,
+    };
+  });
+
+  return {
+    sujet: `${o.titre} — commande ${order?.order_number || ''}`.trim(),
+    html: renderEmail('email-message-libre', {
+      prenom: prenomDe(order?.customer_name),
+      numero: order?.order_number || '',
+      surtitre: `COMMANDE N° ${order?.order_number || ''} · VOTRE AVIS`,
+      titre: o.titre,
+      corps: o.corps || `En préparant votre colis, je me suis aperçue que le <strong style="color:#1F231C;">${esc(o.choice.line_name)}</strong> était épuisé. Je ne voulais pas retarder votre commande sans vous demander votre avis, alors voici ce que je peux vous proposer à la place.`,
+      article: o.choice.line_name,
+      article_ref: o.choice.line_ref || '—',
+      article_qte: String(qte),
+      article_pu: eur(pu),
+      article_montant: eur(qte * pu),
+      options,
+      base_lien: base,
+      lien_rembourser: `${jeton}&choix=rembourser`,
+      lien_attendre: `${jeton}&choix=attendre`,
+      note_ecart: "L'écart de prix est pour nous — c'est nous qui sommes en rupture, pas vous.",
+    }),
+  };
+}
+
 /** Message libre — envoi manuel depuis la fiche commande. */
 export function messageLibre(order: any, opts: { surtitre?: string; titre: string; corps: string }) {
   return {
