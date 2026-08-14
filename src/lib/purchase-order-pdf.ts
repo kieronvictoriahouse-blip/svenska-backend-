@@ -1,295 +1,260 @@
-import PDFDocument from 'pdfkit';
 import { supabaseAdmin } from '@/lib/supabase';
+import {
+  PX, D, SANS, SANS_B, SERIF_B, nouveauDocument, fondEtFilets, enTete, bandeau, pied,
+} from '@/lib/pdf-doc';
 
-export type PdfLang = 'sv' | 'en';
+/* ═══════════════════════════════════════════════════════════════
+   BON DE COMMANDE FOURNISSEUR
+
+   Même document que /admin/documents/bon-de-commande/<id>, dont la
+   maquette vit dans components/documents/BonDeCommande.tsx. Les deux
+   sorties doivent rester identiques : c'est ce PDF qui part chez le
+   fournisseur.
+
+   Le document reste multilingue — il s'adresse à des fournisseurs
+   suédois — mais les libellés seuls changent : la mise en page, elle,
+   est celle de la charte.
+   ═══════════════════════════════════════════════════════════════ */
+
+export type PdfLang = 'sv' | 'en' | 'fr';
 
 const LABELS: Record<PdfLang, Record<string, string>> = {
-  sv: {
-    title: 'INKÖPSORDER',
-    to: 'TILL',
-    orderNum: 'ORDERNR',
-    date: 'DATUM',
-    expectedDate: 'FÖRVÄNTAT DATUM',
-    product: 'PRODUKT',
-    qty: 'ANT',
-    unitPrice: 'ENHETSPRIS',
-    total: 'TOTALT',
-    notes: 'ANTECKNINGAR',
+  fr: {
+    titre: 'Bon de commande', baseline: 'BRINGING SWEDEN TO YOUR TABLE',
+    fournisseur: 'FOURNISSEUR', livraison: 'ADRESSE DE LIVRAISON',
+    date: "DATE D'ÉMISSION", livraisonPrevue: 'LIVRAISON PRÉVUE',
+    incoterm: 'INCOTERM', paiement: 'PAIEMENT',
+    article: 'ARTICLE', ref: 'RÉF.', qte: 'QTÉ', pu: 'P.U. HT', totalLigne: 'TOTAL HT',
+    marchandises: 'Total marchandises HT', transport: 'Transport', offert: 'Offert',
+    totalHT: 'TOTAL HT', autoliq: 'Autoliquidation de la TVA — achat intracommunautaire',
+    consignes: 'CONSIGNES', pourNous: 'POUR SWEDISH CRAVINGS',
+    accord: 'BON POUR ACCORD · FOURNISSEUR', cachet: 'Date, cachet et signature',
+    defautConsignes: "Palettes filmées, DLC minimum 6 mois à réception. Merci de joindre le bordereau et de nous transmettre le numéro de suivi dès l'expédition.",
+    incotermDefaut: 'DAP · rendu magasin', paiementDefaut: '30 jours net',
   },
   en: {
-    title: 'PURCHASE ORDER',
-    to: 'TO',
-    orderNum: 'ORDER NO.',
-    date: 'DATE',
-    expectedDate: 'EXPECTED DELIVERY',
-    product: 'PRODUCT',
-    qty: 'QTY',
-    unitPrice: 'UNIT PRICE',
-    total: 'TOTAL',
-    notes: 'NOTES',
+    titre: 'Purchase order', baseline: 'BRINGING SWEDEN TO YOUR TABLE',
+    fournisseur: 'SUPPLIER', livraison: 'DELIVERY ADDRESS',
+    date: 'ISSUE DATE', livraisonPrevue: 'EXPECTED DELIVERY',
+    incoterm: 'INCOTERM', paiement: 'PAYMENT',
+    article: 'ITEM', ref: 'REF.', qte: 'QTY', pu: 'UNIT PRICE', totalLigne: 'TOTAL',
+    marchandises: 'Goods total', transport: 'Freight', offert: 'Free',
+    totalHT: 'TOTAL', autoliq: 'VAT reverse charge — intra-community acquisition',
+    consignes: 'INSTRUCTIONS', pourNous: 'FOR SWEDISH CRAVINGS',
+    accord: 'APPROVED · SUPPLIER', cachet: 'Date, stamp and signature',
+    defautConsignes: 'Wrapped pallets, minimum 6 months shelf life on arrival. Please enclose the delivery note and send us the tracking number on dispatch.',
+    incotermDefaut: 'DAP · delivered to store', paiementDefaut: 'Net 30 days',
+  },
+  sv: {
+    titre: 'Inköpsorder', baseline: 'BRINGING SWEDEN TO YOUR TABLE',
+    fournisseur: 'LEVERANTÖR', livraison: 'LEVERANSADRESS',
+    date: 'ORDERDATUM', livraisonPrevue: 'FÖRVÄNTAD LEVERANS',
+    incoterm: 'INCOTERM', paiement: 'BETALNING',
+    article: 'ARTIKEL', ref: 'REF.', qte: 'ANT', pu: 'À-PRIS', totalLigne: 'SUMMA',
+    marchandises: 'Varor totalt', transport: 'Frakt', offert: 'Fri',
+    totalHT: 'TOTALT', autoliq: 'Omvänd skattskyldighet — gemenskapsinternt förvärv',
+    consignes: 'ANVISNINGAR', pourNous: 'FÖR SWEDISH CRAVINGS',
+    accord: 'GODKÄNT · LEVERANTÖR', cachet: 'Datum, stämpel och signatur',
+    defautConsignes: 'Plastade pallar, minst 6 månaders hållbarhet vid ankomst. Bifoga följesedel och skicka spårningsnummer vid avsändning.',
+    incotermDefaut: 'DAP · levererat till butik', paiementDefaut: '30 dagar netto',
   },
 };
 
+const SIREN = '105 003 537';
+const EI = 'EI Victoria Vallet';
+const SIEGE = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
+
+const parse = (v: any): any[] => {
+  try { return typeof v === 'string' ? JSON.parse(v) : (Array.isArray(v) ? v : []); }
+  catch { return []; }
+};
+
 export async function generatePurchaseOrderPdf(
-  orderId: string,
-  lang: PdfLang = 'en'
+  orderId: string, lang: PdfLang = 'en',
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const L = LABELS[lang];
+  const L = LABELS[lang] || LABELS.en;
 
   const { data: order } = await supabaseAdmin
-    .from('purchase_orders')
-    .select('*, contacts(*)')
-    .eq('id', orderId)
-    .single();
+    .from('purchase_orders').select('*, contacts(*)').eq('id', orderId).single();
   if (!order) throw new Error('Commande introuvable');
 
-  const lines: any[] = Array.isArray(order.lines)
-    ? order.lines
-    : typeof order.lines === 'string'
-    ? (() => { try { return JSON.parse(order.lines); } catch { return []; } })()
-    : [];
+  const { data: cfg } = await supabaseAdmin
+    .from('white_label_config').select('*').limit(1).maybeSingle();
+  const wl: Record<string, any> = cfg || {};
 
-  const productIds = Array.from(new Set(lines.map((l: any) => l.product_id).filter(Boolean))) as string[];
-  const productMap: Record<string, any> = {};
-  if (productIds.length) {
-    const { data: products } = await supabaseAdmin
-      .from('products')
-      .select('id, name_sv, name_en, name_fr, image_url')
-      .in('id', productIds);
-    for (const p of products || []) productMap[p.id] = p;
+  const lignes = parse(order.lines);
+
+  /* Les references produit viennent de la table : un fournisseur doit
+     pouvoir rapprocher la ligne de son propre catalogue. */
+  const ids = Array.from(new Set(lignes.map((l: any) => l.product_id).filter(Boolean))) as string[];
+  const produits: Record<string, any> = {};
+  if (ids.length) {
+    const { data } = await supabaseAdmin
+      .from('products').select('id, sku, sort_order, name_sv, name_en, name_fr').in('id', ids);
+    for (const p of data || []) produits[p.id] = p;
   }
 
-  // Pre-fetch and convert images to JPEG
-  const imageBuffers: Record<string, Buffer> = {};
-  await Promise.all(
-    productIds.map(async (pid) => {
-      const product = productMap[pid];
-      if (!product?.image_url) return;
-      try {
-        const res = await fetch(product.image_url);
-        if (!res.ok) return;
-        const raw = Buffer.from(await res.arrayBuffer());
-        const sharpMod = await import('sharp');
-        const jpg = await sharpMod.default(raw)
-          .resize(80, 80, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
-          .jpeg({ quality: 80 })
-          .toBuffer();
-        imageBuffers[pid] = jpg;
-      } catch { /* skip */ }
-    })
-  );
+  const fournisseur: any = order.contacts || {};
+  const nomFournisseur = fournisseur.company
+    || `${fournisseur.first_name || ''} ${fournisseur.last_name || ''}`.trim()
+    || order.supplier_name || '—';
 
-  const doc = new PDFDocument({ size: 'A4', margin: 50, autoFirstPage: true });
-  const chunks: Buffer[] = [];
-  doc.on('data', (c: any) => chunks.push(Buffer.from(c)));
-  const done = new Promise<void>((resolve) => doc.on('end', resolve));
+  const locale = lang === 'sv' ? 'sv-SE' : lang === 'en' ? 'en-GB' : 'fr-FR';
+  const eur = (n: any) =>
+    (Number(n) || 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  const dateLongue = (d?: string | null) => {
+    if (!d) return '—';
+    const x = new Date(String(d).length <= 10 ? `${d}T12:00:00` : d);
+    return Number.isNaN(+x) ? '—' : x.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+  };
 
-  const supplier = order.contacts as any;
-  const supplierName =
-    supplier?.company ||
-    `${supplier?.first_name || ''} ${supplier?.last_name || ''}`.trim() ||
-    order.supplier_name ||
-    '—';
-  const supplierEmail = supplier?.email || '';
+  const { doc, F, ecrire, chunks, fini } = nouveauDocument();
+  const W = doc.page.width;
+  const M = PX(56);
+  const CW = W - M * 2;
 
-  const fmtNum = (n: number) =>
-    (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
-  const fmtDate = (d: string) =>
-    new Date(d).toLocaleDateString(lang === 'sv' ? 'sv-SE' : 'en-GB', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
+  fondEtFilets(doc, D.green, D.gold);
+  let y = enTete(doc, ecrire, {
+    titre: L.titre, numero: order.number || '', M, CW, y: PX(54), baseline: L.baseline,
+  });
+
+  /* ── Fournisseur (fond crème, à gauche) / livraison ─────────── */
+  const colW = (CW - PX(22)) / 2;
+  const lignesFournisseur = [
+    fournisseur.address, fournisseur.email, fournisseur.phone,
+  ].filter(Boolean).map(String);
+  const hBloc = PX(26) + PX(17) + Math.max(1, lignesFournisseur.length) * PX(12 * 1.65) + PX(13);
+
+  doc.rect(M, y, colW, hBloc).fill(D.cream);
+  doc.rect(M, y, PX(2), hBloc).fill(D.green);
+  ecrire(L.fournisseur, M + PX(16), y + PX(13),
+    { size: PX(8.5), color: D.label2, font: SANS_B, spacing: PX(8.5) * 0.26 });
+  ecrire(nomFournisseur, M + PX(16), y + PX(29), { font: SANS_B, size: PX(13), color: D.ink, width: colW - PX(28) });
+  ecrire(lignesFournisseur.join('\n') || '—', M + PX(16), y + PX(46),
+    { size: PX(12), color: D.body, width: colW - PX(28), lineGap: PX(12) * 0.65 });
+
+  const rx = M + colW + PX(22);
+  ecrire(L.livraison, rx, y, { size: PX(8.5), color: D.label, font: SANS_B, spacing: PX(8.5) * 0.26 });
+  ecrire(wl.site_name || 'Swedish Cravings', rx, y + PX(16), { font: SANS_B, size: PX(13), color: D.ink });
+  ecrire([EI, wl.address || SIEGE].join('\n'), rx, y + PX(33),
+    { size: PX(12), color: D.body, width: colW, lineGap: PX(12) * 0.65 });
+
+  y += hBloc + PX(20);
+
+  y = bandeau(doc, ecrire, [
+    { label: L.date, value: dateLongue(order.created_at) },
+    { label: L.livraisonPrevue, value: dateLongue(order.expected_date) },
+    { label: L.incoterm, value: L.incotermDefaut },
+    { label: L.paiement, value: L.paiementDefaut },
+  ], { M, CW, y });
+
+  /* ── Lignes ─────────────────────────────────────────────────── */
+  const cRef = M + CW - PX(100) - PX(92) - PX(60) - PX(88);
+  const cQte = M + CW - PX(100) - PX(92) - PX(60);
+  const cPu = M + CW - PX(100) - PX(92);
+  const cTot = M + CW - PX(100);
+
+  const th = (t: string, x: number, w?: number, align?: any) =>
+    ecrire(t, x, y, { size: PX(8.5), color: D.green, font: SANS_B, width: w, align, spacing: PX(8.5) * 0.22 });
+  th(L.article, M);
+  th(L.ref, cRef, PX(88));
+  th(L.qte, cQte, PX(60), 'center');
+  th(L.pu, cPu, PX(92), 'right');
+  th(L.totalLigne, cTot, PX(100), 'right');
+
+  y += PX(9) + PX(8.5);
+  doc.rect(M, y, CW, PX(1.5)).fill(D.green);
+  y += PX(11);
+
+  let marchandises = 0;
+  for (const l of lignes) {
+    const p = produits[l.product_id] || {};
+    const nom = (lang === 'sv' ? p.name_sv : lang === 'en' ? p.name_en : p.name_fr)
+      || p.name_fr || l.name || 'Article';
+    const ref = p.sku || (p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : '—');
+    const qte = Number(l.qty) || 0;
+    const pu = Number(l.unit_cost ?? l.price) || 0;
+    const montant = qte * pu;
+    marchandises += montant;
+
+    doc.font(F[SANS]).fontSize(PX(13));
+    const h = doc.heightOfString(String(nom), { width: cRef - M - PX(12) });
+    ecrire(String(nom), M, y, { size: PX(13), color: D.ink, width: cRef - M - PX(12) });
+    ecrire(ref, cRef, y, { size: PX(11.5), color: D.soft, width: PX(88) });
+    ecrire(String(qte), cQte, y, { size: PX(13), color: D.ink, width: PX(60), align: 'center' });
+    ecrire(eur(pu), cPu, y, { size: PX(13), color: D.ink, width: PX(92), align: 'right' });
+    ecrire(eur(montant), cTot, y, { size: PX(13), color: D.ink, font: SANS_B, width: PX(100), align: 'right' });
+
+    y += Math.max(h, PX(13)) + PX(11);
+    doc.rect(M, y, CW, 0.75).fill(D.ruleRow);
+    y += PX(11);
+  }
+
+  /* ── Consignes à gauche, totaux à droite ────────────────────── */
+  const totW = PX(290);
+  const totX = M + CW - totW;
+  const haut = y + PX(11);
+
+  ecrire(L.consignes, M, haut, { size: PX(8.5), color: D.label, font: SANS_B, spacing: PX(8.5) * 0.24 });
+  ecrire(order.notes || L.defautConsignes, M, haut + PX(16),
+    { size: PX(10.5), color: D.soft2, width: PX(300), lineGap: PX(10.5) * 0.7 });
+
+  const transport = Number(order.shipping) || 0;
+  const total = Number(order.total) || (marchandises + transport);
+
+  let ty = haut;
+  const ligneTotal = (label: string, valeur: string, premier: boolean) => {
+    if (!premier) doc.rect(totX, ty, totW, 0.75).fill(D.ruleRow);
+    ecrire(label, totX, ty + PX(7), { size: PX(12.5), color: D.body });
+    ecrire(valeur, totX, ty + PX(7), { size: PX(12.5), color: D.body, width: totW, align: 'right' });
+    ty += PX(7) + PX(12.5) + PX(7);
+  };
+  ligneTotal(L.marchandises, eur(marchandises), true);
+  ligneTotal(L.transport, transport > 0 ? eur(transport) : L.offert, false);
+
+  ty += PX(9);
+  const hTot = PX(48);
+  doc.rect(totX, ty, totW, hTot).fill(D.green);
+  ecrire(L.totalHT, totX + PX(16), ty + PX(19),
+    { size: PX(10), color: D.cream, font: SANS_B, spacing: PX(10) * 0.24 });
+  ecrire(eur(total), totX, ty + PX(13),
+    { font: SERIF_B, size: PX(26), color: D.cream, width: totW - PX(16), align: 'right' });
+  ty += hTot + PX(7);
+  ecrire(L.autoliq, totX, ty, { size: PX(10.5), color: D.soft2, width: totW, align: 'right' });
+
+  /* ── Deux cadres de signature ───────────────────────────────── */
+  const cadreW = (CW - PX(24)) / 2;
+  const cadreH = PX(104);
+  /* Le pied est ancre en bas de page : avec beaucoup de lignes, les
+     cadres finiraient dessous. On les remonte tant qu'il y a la place,
+     et on les omet plutot que de les faire chevaucher — un cadre de
+     signature coupe en deux est pire que pas de cadre. */
+  const hautPied = doc.page.height - PX(34) - (PX(40) + PX(13) + 2 * PX(9.5 * 1.65) + PX(6));
+  const ySign = Math.max(ty + PX(26), haut + PX(120));
+  const placePourSignature = ySign + cadreH + PX(12) <= hautPied;
+
+  if (placePourSignature)
+  [[M, L.pourNous, wl.owner_name || 'Gérance'], [M + cadreW + PX(24), L.accord, L.cachet]]
+    .forEach(([x, titre, sous]) => {
+      doc.rect(x as number, ySign, cadreW, cadreH).lineWidth(0.75).stroke(D.rule);
+      ecrire(titre as string, (x as number) + PX(15), ySign + PX(13),
+        { size: PX(8.5), color: D.label, font: SANS_B, spacing: PX(8.5) * 0.24 });
+      ecrire(sous as string, (x as number) + PX(15), ySign + PX(28), { size: PX(11), color: D.soft2 });
     });
 
-  // ── HEADER ────────────────────────────────────────────────────────────
-  doc.rect(0, 0, 595.28, 82).fill('#3E5238');
-  doc
-    .fillColor('#a8c49a')
-    .font('Helvetica')
-    .fontSize(7.5)
-    .text('SVENSKA DELIKATESSEN', 50, 24, { characterSpacing: 2.5 });
-  doc
-    .fillColor('#ffffff')
-    .font('Helvetica-Bold')
-    .fontSize(19)
-    .text(L.title, 50, 44, { characterSpacing: 1.5 });
-  doc
-    .fillColor('rgba(255,255,255,0.6)')
-    .font('Helvetica')
-    .fontSize(8.5)
-    .text(`${L.orderNum}  ${order.number || '—'}`, 350, 52, {
-      align: 'right',
-      width: 195,
-    });
-
-  // ── SUPPLIER + DATES ──────────────────────────────────────────────────
-  let y = 104;
-  doc
-    .fillColor('#9CA3AF')
-    .font('Helvetica-Bold')
-    .fontSize(7)
-    .text(L.to, 50, y, { characterSpacing: 1 });
-  doc
-    .fillColor('#1C2028')
-    .font('Helvetica-Bold')
-    .fontSize(11)
-    .text(supplierName, 50, y + 10);
-  if (supplierEmail) {
-    doc
-      .fillColor('#2563EB')
-      .font('Helvetica')
-      .fontSize(9)
-      .text(supplierEmail, 50, y + 24);
-  }
-
-  doc
-    .fillColor('#9CA3AF')
-    .font('Helvetica-Bold')
-    .fontSize(7)
-    .text(L.date, 390, y, { characterSpacing: 1 });
-  doc
-    .fillColor('#1C2028')
-    .font('Helvetica')
-    .fontSize(9)
-    .text(fmtDate(order.created_at), 390, y + 10, { width: 155, align: 'right' });
-
-  if (order.expected_date) {
-    doc
-      .fillColor('#9CA3AF')
-      .font('Helvetica-Bold')
-      .fontSize(7)
-      .text(L.expectedDate, 390, y + 28, { characterSpacing: 1 });
-    doc
-      .fillColor('#1C2028')
-      .font('Helvetica')
-      .fontSize(9)
-      .text(fmtDate(order.expected_date), 390, y + 38, { width: 155, align: 'right' });
-  }
-
-  y += 62;
-  doc.moveTo(50, y).lineTo(545.28, y).strokeColor('#D8CEBC').lineWidth(0.7).stroke();
-  y += 14;
-
-  // ── TABLE HEADER ──────────────────────────────────────────────────────
-  const COL = { img: 50, name: 98, qty: 368, unitPrice: 412, total: 478 };
-  doc.rect(50, y, 495.28, 21).fill('#1C2028');
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7.5);
-  doc.text(L.product, COL.name, y + 7, { characterSpacing: 0.8 });
-  doc.text(L.qty,       COL.qty,       y + 7, { width: 38, align: 'right', characterSpacing: 0.8 });
-  doc.text(L.unitPrice, COL.unitPrice, y + 7, { width: 58, align: 'right', characterSpacing: 0.8 });
-  doc.text(L.total,     COL.total,     y + 7, { width: 62, align: 'right', characterSpacing: 0.8 });
-  y += 21;
-
-  // ── TABLE ROWS ────────────────────────────────────────────────────────
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const product = line.product_id ? productMap[line.product_id] : null;
-    const name =
-      line.name ||
-      (product
-        ? lang === 'sv'
-          ? product.name_sv || product.name_fr
-          : product.name_en || product.name_fr
-        : '—');
-    const imgBuf = line.product_id ? imageBuffers[line.product_id] : undefined;
-    const ROW_H = 46;
-
-    if (y + ROW_H > 768) {
-      doc.addPage();
-      y = 50;
-    }
-
-    doc
-      .rect(50, y, 495.28, ROW_H)
-      .fill(i % 2 === 0 ? '#FDFAF5' : '#ffffff');
-
-    if (imgBuf) {
-      try {
-        doc.image(imgBuf, COL.img + 1, y + 5, { width: 36, height: 36 });
-      } catch { /* skip */ }
-    } else {
-      doc.rect(COL.img + 1, y + 5, 36, 36).fillAndStroke('#F3F4F6', '#E5E7EB');
-    }
-
-    doc
-      .fillColor('#1C2028')
-      .font('Helvetica-Bold')
-      .fontSize(9)
-      .text(name, COL.name, y + 10, { width: 260, lineBreak: false });
-
-    doc
-      .fillColor('#374151')
-      .font('Helvetica')
-      .fontSize(9)
-      .text(String(line.qty || 0), COL.qty, y + 18, { width: 38, align: 'right', lineBreak: false });
-
-    doc.text(
-      fmtNum(line.unit_cost_eur || line.unit_cost || 0),
-      COL.unitPrice,
-      y + 18,
-      { width: 58, align: 'right', lineBreak: false }
-    );
-
-    doc
-      .fillColor('#1C2028')
-      .font('Helvetica-Bold')
-      .fontSize(9)
-      .text(fmtNum(line.total || 0), COL.total, y + 18, { width: 62, align: 'right', lineBreak: false });
-
-    doc.moveTo(50, y + ROW_H).lineTo(545.28, y + ROW_H).strokeColor('#EEE8DC').lineWidth(0.5).stroke();
-    y += ROW_H;
-  }
-
-  // ── TOTAL ─────────────────────────────────────────────────────────────
-  y += 14;
-  if (y + 40 > 768) { doc.addPage(); y = 50; }
-  doc.rect(368, y, 177.28, 34).fill('#3E5238');
-  doc
-    .fillColor('#a8c49a')
-    .font('Helvetica-Bold')
-    .fontSize(7.5)
-    .text(L.total, 376, y + 7, { characterSpacing: 1 });
-  doc
-    .fillColor('#ffffff')
-    .font('Helvetica-Bold')
-    .fontSize(13)
-    .text(fmtNum(order.total), 376, y + 17, { width: 161, align: 'right' });
-
-  // ── NOTES ─────────────────────────────────────────────────────────────
-  if (order.notes) {
-    y += 50;
-    doc.rect(50, y, 495.28, 1).fill('#E5E7EB');
-    y += 10;
-    doc
-      .fillColor('#9CA3AF')
-      .font('Helvetica-Bold')
-      .fontSize(7)
-      .text(L.notes, 50, y, { characterSpacing: 1 });
-    doc
-      .fillColor('#374151')
-      .font('Helvetica')
-      .fontSize(9)
-      .text(order.notes, 50, y + 12, { width: 495.28 });
-  }
-
-  // ── FOOTER ────────────────────────────────────────────────────────────
-  const pageH = 841.89;
-  doc
-    .fillColor('#9CA3AF')
-    .font('Helvetica')
-    .fontSize(7)
-    .text(
-      'Svenska Delikatessen · www.swedishcravings.fr · hello@swedishcravings.fr',
-      50,
-      pageH - 30,
-      { align: 'center', width: 495.28, characterSpacing: 0.5 }
-    );
+  pied(doc, ecrire, {
+    M, CW,
+    legal: `${wl.site_name || 'Swedish Cravings'} · ${wl.address || SIEGE}\n`
+      + `SIREN ${wl.siret || SIREN} · ${L.autoliq}`,
+    contact: `${(wl.email || 'hej@swedishcravings.fr').replace(/^[^@]+/, 'achats')}\n`
+      + String(wl.front_url || 'https://www.swedishcravings.fr').replace(/^https?:\/\//, ''),
+  });
 
   doc.end();
-  await done;
+  await fini;
 
   return {
     buffer: Buffer.concat(chunks),
-    filename: `purchase-order-${order.number || orderId}-${lang}.pdf`,
+    filename: `bon-de-commande-${order.number || orderId}-${lang}.pdf`,
   };
 }

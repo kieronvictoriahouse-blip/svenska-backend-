@@ -9,6 +9,7 @@ const nextConfig = {
     outputFileTracingIncludes: {
       '/api/invoices/**': ['./src/assets/fonts/**', './public/documents/**'],
       '/api/send-invoice-email/**': ['./src/assets/fonts/**', './public/documents/**'],
+      '/api/purchase-orders/**': ['./src/assets/fonts/**', './public/documents/**'],
       /* Même raison pour les gabarits d'email, lus sur le disque à l'envoi :
          sans cette ligne, toute route qui envoie un mail planterait en
          production alors que tout marche en local. Volontairement large —
