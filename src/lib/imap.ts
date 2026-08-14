@@ -36,14 +36,27 @@ const ROLE_ATTR: Record<keyof Roles, string> = {
   junk: '\Junk', archive: '\Archive',
 };
 
-/** Noms de repli, si le serveur n'annonce pas special-use. */
-const REPLIS: Record<keyof Roles, string[]> = {
-  sent: ['Sent', 'Sent Messages', 'Envoyés', 'INBOX.Sent'],
-  drafts: ['Drafts', 'Brouillons', 'INBOX.Drafts'],
-  trash: ['Trash', 'Corbeille', 'Deleted Messages', 'INBOX.Trash'],
-  junk: ['Junk', 'Spam', 'Indésirables', 'INBOX.Junk'],
-  archive: ['Archive', 'Archives', 'INBOX.Archive'],
+/* Repli quand le serveur n'annonce pas special-use. On ne compare pas
+   des noms exacts : IONOS dit « Objets envoyés », Gmail « Messages
+   envoyés », d'autres « Sent Items ». C'est ce qui avait fait echouer
+   le depot dans les Envoyes avec un « Command failed » : le code
+   cherchait « Sent », qui n'existe pas sur cette boite.
+
+   On normalise (sans accents, en minuscules) et on cherche des mots
+   caracteristiques, ce qui couvre les variantes francaises, anglaises
+   et prefixees INBOX. */
+const MOTS: Record<keyof Roles, string[]> = {
+  sent: ['envoy', 'sent'],
+  drafts: ['brouillon', 'draft'],
+  trash: ['corbeille', 'trash', 'deleted', 'supprim'],
+  junk: ['spam', 'junk', 'indesirable', 'pourriel'],
+  archive: ['archiv'],
 };
+
+/** Sans accents, en minuscules, sans le prefixe de hierarchie. */
+const normaliser = (s: string) =>
+  String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/^inbox[./]/, '').trim();
 
 let rolesCache: Roles | null = null;
 
@@ -53,16 +66,28 @@ export async function resolveFolders(force = false): Promise<Roles> {
   const c = client();
   try {
     await c.connect();
-    const boites = await c.list();
+    const boites: any[] = await c.list();
+
     const trouve = (role: keyof Roles): string => {
-      const parAttr = boites.find((b: any) =>
-        (b.specialUse || '').toLowerCase() === ROLE_ATTR[role].toLowerCase() ||
-        (b.flags && b.flags.has && b.flags.has(ROLE_ATTR[role])));
+      // 1. L'attribut special-use, quand le serveur le fournit.
+      const parAttr = boites.find(b =>
+        String(b.specialUse || '').toLowerCase() === ROLE_ATTR[role].toLowerCase());
       if (parAttr) return parAttr.path;
-      const parNom = boites.find((b: any) =>
-        REPLIS[role].some(n => b.path.toLowerCase() === n.toLowerCase()));
-      return parNom ? parNom.path : REPLIS[role][0];
+
+      // 2. Sinon, un mot caracteristique dans le nom normalise.
+      const mots = MOTS[role];
+      const parNom = boites.find(b => {
+        const n = normaliser(b.name || b.path);
+        return mots.some(m => n.includes(m));
+      });
+      if (parNom) return parNom.path;
+
+      // 3. Aucun candidat : on renvoie un nom conventionnel, et l'appelant
+      //    verra l'echec plutot que d'ecrire dans un dossier au hasard.
+      return role === 'sent' ? 'Sent' : role === 'drafts' ? 'Drafts'
+        : role === 'trash' ? 'Trash' : role === 'junk' ? 'Junk' : 'Archive';
     };
+
     rolesCache = {
       sent: trouve('sent'), drafts: trouve('drafts'),
       trash: trouve('trash'), junk: trouve('junk'), archive: trouve('archive'),

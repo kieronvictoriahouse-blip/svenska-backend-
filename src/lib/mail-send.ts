@@ -99,7 +99,7 @@ function transport() {
  * La copie est non bloquante : le message est déjà parti quand elle
  * échoue, remonter une erreur ferait croire à un envoi raté.
  */
-export async function envoyer(m: Message): Promise<{ destinataires: string[] }> {
+export async function envoyer(m: Message): Promise<{ destinataires: string[]; avertissement?: string }> {
   const destinataires = String(m.to || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
   if (!destinataires.length) throw new Error('Destinataire manquant');
   if (!String(m.subject || '').trim()) throw new Error('Objet manquant');
@@ -117,10 +117,18 @@ export async function envoyer(m: Message): Promise<{ destinataires: string[] }> 
     raw: brut,
   });
 
-  try { await appendToSent(brut); }
-  catch (e) { console.error('[mail-send] copie dans Envoyés impossible', e); }
+  /* La copie ne doit pas faire echouer l'envoi — le message est deja
+     parti. Mais elle ne doit pas non plus disparaitre dans les logs :
+     un message absent des Envoyes se remarque trop tard. */
+  let avertissement: string | undefined;
+  try {
+    await appendToSent(brut);
+  } catch (e: any) {
+    avertissement = `Message envoyé, mais la copie dans « Envoyés » a échoué : ${e?.message || 'erreur IMAP'}`;
+    console.error('[mail-send]', avertissement);
+  }
 
-  return { destinataires };
+  return { destinataires, avertissement };
 }
 
 /** Dépose un brouillon sur le serveur et retourne son UID. */

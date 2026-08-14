@@ -56,8 +56,8 @@ export default function Redaction(p: {
 
   async function envoyer() {
     try {
-      await appel('/api/inbox/send', { ...charge(), draftId: v.id }, 'envoi');
-      p.say('Message envoyé');
+      const d = await appel('/api/inbox/send', { ...charge(), draftId: v.id }, 'envoi');
+      p.say(d?.avertissement || 'Message envoyé');
       p.onEnvoye();
     } catch (e: any) { p.say(e.message); }
   }

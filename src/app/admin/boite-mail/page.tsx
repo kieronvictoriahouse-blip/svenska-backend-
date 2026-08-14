@@ -114,7 +114,8 @@ export default function BoiteMailPage() {
       const n = (d.resultats || []).reduce((s: number, r: any) => s + (r.nouveaux || 0), 0);
       const err = (d.resultats || []).find((r: any) => r.erreur);
       const prog = d.programmes?.envoyes ? ` · ${d.programmes.envoyes} envoi(s) programmé(s) parti(s)` : '';
-      say(err ? `Erreur : ${err.erreur}` : `Boîte synchronisée · ${n} message(s)${prog}`);
+      // Nommer le dossier : « Command failed » seul n'aide personne.
+      say(err ? `Dossier « ${err.folder} » : ${err.erreur}` : `Boîte synchronisée · ${n} message(s)${prog}`);
       charger(0);
     } catch (e: any) { say(e.message); }
     finally { setSynchro(false); }

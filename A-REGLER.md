@@ -181,6 +181,24 @@ Le bon de livraison reconstitue le poids du colis depuis `products.weight`.
 est affiché précédé de `~`. À compléter sur les fiches produit pour obtenir un
 poids juste (utile aussi pour l'affranchissement).
 
+### 21. Renforcement du back-office — chantier ouvert
+Trois defauts de la boite mail (corps vide, dossier Envoyes introuvable,
+echec avale) venaient tous du meme reflexe : supposer au lieu de demander, et
+journaliser au lieu de dire. A passer en revue ailleurs :
+
+- **Les echecs silencieux.** Chercher les `catch {}` vides et les
+  `console.error` sans retour a l'ecran. Un envoi, un remboursement ou une
+  deduction de stock qui echoue doit se voir dans l'interface, pas seulement
+  dans les logs Vercel.
+- **Les noms devines.** Le dossier « Objets envoyes » a coute une soiree
+  parce que le code cherchait « Sent ». Meme risque partout ou l'on suppose
+  un nom de colonne, de dossier ou de statut sans le demander a la source.
+- **Les contrats entre couches.** Le corps du message partait vide parce que
+  l'ecran envoyait `corps` et l'expediteur lisait `html`. Ces raccords
+  meritent un type partage plutot qu'un objet libre.
+- **Les ecrans construits par retouches.** La boite mail a du etre reprise
+  d'un bloc. Verifier si d'autres ecrans depassent 500 lignes sans decoupage.
+
 ---
 
 ## ✅ Réglé
