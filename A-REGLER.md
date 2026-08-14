@@ -1,227 +1,177 @@
 # À régler — Swedish Cravings
 
-Points relevés au fil des sessions, hors refonte des écrans. Rangés par urgence.
-Coche au fur et à mesure. Dernière mise à jour : 12/08/2026.
+Points relevés au fil des sessions. Dernière mise à jour : 14/08/2026.
+
+Les points de code ont été traités. Ce qui reste demande **ta décision, ta
+saisie ou un tiers** — je ne peux pas le faire à ta place.
 
 ---
 
-## 🔴 Sécurité — à traiter en premier
+## 🔴 À faire valider par un comptable
 
-### 1. Routes API sans authentification exposant des données personnelles
-
-Audit du 12/08/2026 : la plupart des `GET` de l'API n'ont **aucun contrôle d'accès**.
-Le plus grave d'abord :
-
-| Route | Ce qui fuite | Gravité |
-|---|---|---|
-| `/api/contacts` | **tout le fichier client** : noms, emails, adresses, téléphones | 🔴 RGPD |
-| `/api/contacts/[id]` | fiche client complète | 🔴 RGPD |
-| `/api/orders/[id]` | commande complète : client, adresse, lignes, montants | 🔴 RGPD |
-| `/api/invoices/[id]` | facture : identité client, adresse, montants | 🔴 RGPD |
-| `/api/invoices/[id]/pdf` | le PDF de la facture | 🔴 RGPD |
-| `/api/orders/session/[session_id]` | commande via l'id de session Stripe | 🟠 |
-| `/api/purchases`, `/api/purchase-orders`, `/api/purchase-orders/[id]` | achats, prix fournisseurs, marges | 🟠 concurrence |
-| `/api/landed-costs`, `/api/stock` | coûts de revient, niveaux de stock | 🟠 concurrence |
-| `/api/receptions`, `/api/product-suggestions`, `/api/purchase-suggestions` | données internes | 🟠 |
-| `/api/admin/replay-orders` | action d'administration | 🟠 |
-
-Les identifiants sont des UUID (non devinables), donc l'exploitation demande de
-connaître un id — mais un id fuite facilement (lien partagé, historique, log,
-capture d'écran). **Ce n'est pas une protection.**
-
-**À faire** : `requireAuth` sur chaque handler admin, et pour ce que le front
-consomme vraiment (`/api/products`, `/api/categories`, `/api/white-label`,
-`/api/public-config`, `/api/cms`, `/api/pages`, `/api/homepage`,
-`/api/gift-offer`, `/api/mondial-relay/points`, `/api/exchange-rate`,
-`/api/google-reviews`, `/api/orders/session/[session_id]`), créer des routes
-publiques dédiées qui ne renvoient que le strict nécessaire — comme on l'a fait
-pour `/api/promo/validate`.
-
-⚠️ Piège : ajouter `requireAuth` casse l'écran admin qui appelle la route sans
-jeton. Vérifier chaque appelant et passer par `adminFetch` (cf.
-`src/lib/auth-client.ts`), qui gère jeton + rafraîchissement + redirection.
-
-**Déjà corrigé le 12/08** : `/api/marketing` (GET/POST/PUT/DELETE),
-`/api/marketing/automations`, `/api/marketing/promo-email`. Les codes promo
-étaient listables **et créables** par n'importe qui.
-
----
-
-## 🟠 Fiscal & légal
-
-### 2. TVA intracommunautaire sur les achats en Suède
+### 1. TVA intracommunautaire sur les achats en Suède
 N° `FR19105003537` existant, franchise en base par ailleurs. L'autoliquidation
 de la TVA sur les acquisitions intracommunautaires via **CA3** est probablement
-due malgré la franchise. **À faire valider par un comptable** — c'est le seul
-sujet qui peut coûter cher rétroactivement.
+due malgré la franchise.
 
-### 3. Le champ `siret` contient un SIREN
-`white_label_config.siret` = `105003537`, soit 9 chiffres (SIREN), pas 14 (SIRET).
-Acceptable sur une facture de micro-entreprise, mais à vérifier — il apparaît sur
-tous les documents.
+C'est le seul sujet qui peut coûter cher rétroactivement. Les bons de commande
+portent désormais la mention d'autoliquidation, ce qui est cohérent avec cette
+hypothèse — mais une mention sur un document ne remplace pas une déclaration.
 
-### 4. Six factures émises sur des commandes test
-`FAC-2026-0001 / 0002 / 0003 / 0005 / 0008 / 0014` (15,60 € au total), passées en
-statut `cancelled`. Fiscalement une facture émise ne s'annule pas, elle se
+### 2. Six factures émises sur des commandes test
+`FAC-2026-0001 / 0002 / 0003 / 0005 / 0008 / 0014` (15,60 € au total), passées
+en statut `cancelled`. Fiscalement une facture émise ne s'annule pas, elle se
 contre-passe par un avoir. Montants négligeables et c'est toi le client, mais à
 signaler si un comptable reprend le dossier.
+
 **Prévention** : marquer une commande comme test **avant** qu'elle passe en
 `confirmed`, sinon la facturation se déclenche.
 
 ---
 
-## 🟡 Données & cohérence
+## 🟠 Ta décision
 
-### 5. Transport et emballage réels sous-saisis
-Sur 34 commandes : **22,87 €** de transport réel et **1,92 € d'emballage**
-enregistrés. Avec des envois Mondial Relay autour de 4-5 €, le transport réel
-tourne plutôt autour de 100-120 €. Conséquence : **le tableau de marge annonce
-plus que la réalité**, et les prix sont pilotés là-dessus.
-**À faire** : saisir systématiquement les deux à l'expédition (champs déjà
-présents dans la fiche commande).
+### 3. Le champ `siret` contient un SIREN
+`white_label_config.siret` = `105003537`, soit 9 chiffres (SIREN), pas 14.
+Acceptable sur une facture de micro-entreprise, mais il apparaît sur tous les
+documents — à trancher une fois pour toutes.
 
-### 6. Pas de champ référence (SKU) sur les produits
-La table `products` n'a pas de colonne référence. Les écrans affichent
-`SC-0042` dérivé du `sort_order` — instable si l'ordre change.
-**À faire** : ajouter une colonne `sku` (texte, unique) et remplacer `refOf()`
-dans `src/app/admin/produits/page.tsx` et `src/app/admin/stock/page.tsx`.
+### 4. Coordonnées bancaires absentes de la facture
+Le bloc IBAN/BIC est prévu par le design mais désactivé (`bank: null`) : je n'ai
+pas inventé tes coordonnées. À décider : les afficher ou non, et les stocker
+dans `white_label_config`.
 
-### 7. Deux définitions du « stock bas »
-Le handoff fixe le seuil à **12** ; la base a un `stock_alert` **par produit**.
-Aujourd'hui : le seuil du produit sert à la couleur et à la jauge, le 12 du
-handoff sert au filtre « Stock bas » et aux compteurs de la sidebar.
-**À trancher** : un seul des deux, partout.
-
-### 8. Pas de table `quotes` pour les devis
+### 5. Pas de table `quotes` pour les devis
 Le document Devis se génère à partir d'une commande existante. Impossible de
 faire un devis à un prospect qui n'a jamais commandé — alors que le design vise
-justement les revendeurs et restaurateurs (« tarif professionnel »).
-**À faire** : table `quotes` + écran de saisie, ou formulaire à la volée.
+les revendeurs et restaurateurs. À construire si tu veux démarcher.
+
+### 6. Onglets Marketing à restructurer
+Ton retour : « c'est pouri ». L'écran empile campagnes, codes promo et abandon
+panier dans un seul jeu d'onglets à plat, et la navigation propose quatre
+entrées qui pointent toutes sur la même page avec un `?tab=`.
+
+**À cadrer avec toi avant de coder** : le découpage change la structure des URL
+et donc les entrées de navigation.
 
 ---
 
-## 🟡 Documents & impression
+## 🟡 Ta saisie
 
-### 9. La facture envoyée par email n'a pas le nouveau design
-Les 6 documents A4 sont en HTML pixel-perfect (`/admin/documents/...`), mais
-l'envoi automatique par email utilise toujours `src/lib/invoice-pdf.ts`
-(**pdfkit**, ancien design).
-**Option retenue si tu veux l'unifier** : Chromium headless sur Vercel
-(`@sparticuz/chromium`) pour rendre le HTML en PDF côté serveur — ~50 Mo de
-dépendance et des démarrages à froid plus lents, à n'activer que pour cet usage.
+### 7. Transport et emballage réels sous-saisis
+Sur 34 commandes : **22,87 €** de transport réel et **1,92 € d'emballage**
+enregistrés. Avec des envois Mondial Relay autour de 4-5 €, le transport réel
+tourne plutôt autour de 100-120 €.
 
-### 10. Coordonnées bancaires absentes de la facture
-Le bloc IBAN/BIC est prévu par le design mais désactivé (`bank: null`) : je n'ai
-pas inventé tes coordonnées. **À décider** : les afficher ou non, et où les
-stocker (`white_label_config`).
+Conséquence : **le tableau de marge annonce plus que la réalité**, et les prix
+sont pilotés là-dessus. Les champs existent dans la fiche commande — il faut les
+remplir à l'expédition.
 
-### 11. Liens « Imprimer » pas encore posés dans les écrans
-Les URLs fonctionnent, mais aucun bouton n'y mène depuis Facturation, Commandes
-et Achats. À poser lors de la refonte de ces écrans (le handoff prévoit des
-icônes `print` / `picture_as_pdf`).
+### 8. Poids manquant sur 19 produits
+Le bon de livraison reconstitue le poids du colis depuis `products.weight`. Sur
+les commandes contenant ces 19 produits, le total est précédé de `~`. Utile
+aussi pour l'affranchissement.
 
----
+### 9. Treize serviettes en papier jamais réceptionnées
+Leur stock a été saisi à la main, sans réception : le contrôle ne peut pas le
+recalculer. Deux sont même vendues avec un stock à 0. Un comptage physique est
+le seul moyen — l'inventaire par scan est là pour ça.
 
-## 🟢 Confort & finitions
-
-### 12. Textes « dès 50 € » en dur sur le front
-Le seuil de franco est dynamique dans le panier, mais ces textes ne le sont pas :
+### 10. Textes « dès 50 € » en dur sur le site
+Le seuil de franco est dynamique dans le panier, mais pas ces textes :
 - ticker d'accueil → éditable dans **CMS → `ticker_1`**
 - badges des ~57 fiches produit pré-générées, `faq.html`, `cgv.html`,
   `livraison.html`, `contact.html`
+
 À adapter à la main pendant une opération « livraison offerte ».
 
-### 13. Le formulaire de code promo exige une « valeur » inutile
-Pour le type **Livraison offerte**, le champ Valeur est obligatoire alors qu'il
-ne sert à rien (le type `gift` en est déjà exempté).
-`src/app/admin/marketing/page.tsx`, fonction `saveCode` — une ligne.
+---
 
-### 14. Le bloc « Opération livraison offerte » paraît vide quand il est inactif
-Les champs n'apparaissent qu'une fois l'interrupteur allumé, ce qui donne
-l'impression d'un bloc mort. Possible : les afficher grisés en permanence.
+## 🟢 Environnement
 
-### 15. `.vercel/project.json` du front pointe sur un ancien `orgId`
+### 11. `.vercel/project.json` du front pointe sur un ancien `orgId`
 `team_BDipBo5jmqJ19qMuogt9k3kp`, alors que le projet vit sous
 `kieronvictoriahouse-3949s-projects`. Sans effet sur le déploiement Git, mais
 `vercel` en CLI depuis ce dossier échoue.
 
-### 16. Compte GitHub actif à rebasculer
-Le compte actif retombe sur `dvsfrance26-site`, qui n'a pas les droits sur les
-dépôts. Avant un push :
+### 12. Compte GitHub actif à rebasculer
+Le compte actif retombe régulièrement sur un autre. Avant un push :
 ```bash
 gh auth switch --user kieronvictoriahouse-blip
 ```
 
-### 17. `/admin/homepage` est un écran orphelin
-La route existe encore mais n'est référencée nulle part : aucun lien, aucune
-entrée de navigation. Elle a été remplacée par `/admin/home-cms`. Elle porte
-encore l'ancien design et ses propres appels d'écriture — donc un second
-chemin de modification de la page d'accueil, non maintenu. À supprimer après
-vérification que `home-cms` couvre bien les trois sections (`hero`,
-`featured_band`, `fredagsmys_band`).
-
-### 18. Onglets Marketing à restructurer
-Ton retour : « c'est pouri ». L'écran empile campagnes, codes promo et abandon
-panier dans un seul jeu d'onglets à plat, et la navigation propose quatre
-entrées qui pointent toutes sur la même page avec un `?tab=`. Ce qu'il faut :
-des onglets dédiés par domaine, avec des sous-onglets liés à l'intérieur.
-**Non fait — à cadrer avec toi avant de coder**, parce que le découpage change
-la structure de l'URL et donc les entrées de navigation.
-
-### 19. Bon de commande fournisseur : deux rendus concurrents
-L'écran Achats propose à la fois `/api/purchase-orders/[id]/pdf` (ancien
-générateur pdfkit, bouton « PDF ») et `/admin/documents/bon-de-commande/<id>`
-(nouveau modèle A4). Même situation que la facture avant correction : le PDF
-téléchargé et le PDF envoyé au fournisseur ne ressemblent pas au document de
-la maquette. À porter comme `lib/invoice-pdf.ts`.
-
-### 20. Poids des articles manquant sur 19 produits
-Le bon de livraison reconstitue le poids du colis depuis `products.weight`.
-19 produits sur 57 n'ont pas de poids exploitable : sur ces commandes le total
-est affiché précédé de `~`. À compléter sur les fiches produit pour obtenir un
-poids juste (utile aussi pour l'affranchissement).
-
-### 21. Renforcement du back-office — chantier ouvert
-Trois defauts de la boite mail (corps vide, dossier Envoyes introuvable,
-echec avale) venaient tous du meme reflexe : supposer au lieu de demander, et
-journaliser au lieu de dire. A passer en revue ailleurs :
-
-- **Les echecs silencieux.** Chercher les `catch {}` vides et les
-  `console.error` sans retour a l'ecran. Un envoi, un remboursement ou une
-  deduction de stock qui echoue doit se voir dans l'interface, pas seulement
-  dans les logs Vercel.
-- **Les noms devines.** Le dossier « Objets envoyes » a coute une soiree
-  parce que le code cherchait « Sent ». Meme risque partout ou l'on suppose
-  un nom de colonne, de dossier ou de statut sans le demander a la source.
-- **Les contrats entre couches.** Le corps du message partait vide parce que
-  l'ecran envoyait `corps` et l'expediteur lisait `html`. Ces raccords
-  meritent un type partage plutot qu'un objet libre.
-- **Les ecrans construits par retouches.** La boite mail a du etre reprise
-  d'un bloc. Verifier si d'autres ecrans depassent 500 lignes sans decoupage.
+### 13. `.next` verrouillé par OneDrive
+Le dépôt vit dans OneDrive, qui synchronise `.next` et verrouille des fichiers
+pendant un build — d'où des `EINVAL: readlink` intermittents. Contournement :
+supprimer `.next` en PowerShell avant le build. Mieux : exclure `.next` de la
+synchronisation OneDrive.
 
 ---
 
 ## ✅ Réglé
 
-- Migration `028` (remboursement partiel) et `029` (opération livraison) appliquées.
-- `AV-2026-0001` remis en statut `avoir`.
-- Les 5 paiements test en `cs_live_` remboursés sur Stripe (11,15 €) — les
-  12 autres étaient en `cs_test_`, aucun flux réel. **Réflexe** : le préfixe de
-  `stripe_session_id` dit si de l'argent a bougé.
-- `/api/marketing` et ses sous-routes fermées.
+**Sécurité**
+- Audit d'authentification refait handler par handler, en retirant les
+  commentaires : le comptage naïf prenait des handlers commentés pour des
+  fuites. 31 handlers étaient ouverts, tous fermés. Les routes restées
+  publiques le sont pour une raison écrite : authentification, checkout,
+  webhooks à signature, crons à secret, jeton de remplacement, lectures de
+  catalogue.
+- Les 74 appels concernés des écrans admin passent par `adminFetch` — fermer
+  une route sans ça casse l'écran qui l'appelle.
+- `/api/orders/[id]` renvoyait la commande entière (nom, adresse, email,
+  téléphone) à qui connaissait l'identifiant, et la page de remerciement du
+  site s'en servait. Nouvelle route `/api/orders/[id]/public` limitée à ce que
+  cette page affiche.
+- `/api/invoices/[id]` et son PDF fermés ; les liens de téléchargement passent
+  par `downloadAuth()`, un `<a href download>` n'envoyant pas le jeton.
+- Espace client (`/api/customer/*`) déjà neutralisé en 410.
+
+**Stock**
+- Journal unique : toute variation écrit un mouvement, idempotent par commande.
+  La dérive de +77 unités sur 22 produits venait de trois causes cumulées, dont
+  un `decrement_stock` muet quand `track_stock = false`.
+- Cron de surveillance qui répare ce qui est réparable et alerte sur le reste.
+- 9 produits réalignés, référence `CTRL-2026-08-13`.
+- Référence produit stable (`sku`, migration 036) au lieu d'être dérivée du
+  `sort_order`, qui changeait quand on réordonnait le catalogue.
+- Un seul seuil de stock bas : celui du produit, 12 en repli.
+
+**Documents**
+- Facture et avoir PDF au nouveau modèle, polices Jost et Cormorant embarquées.
+- Bon de commande fournisseur idem, multilingue conservé.
+- `lib/pdf-doc` : tokens et blocs communs, la palette n'est plus dupliquée.
+- Statut « payée » corrigé à la source + 25 factures reprises ; filigrane PAYÉE.
+- Bon de livraison : poids du colis reconstitué, marqué `~` quand un article
+  n'a pas de poids.
+- Boutons « imprimer » et « PDF » posés dans Facturation.
+
+**Emails & boîte mail**
+- Six gabarits du handoff branchés, éditables depuis le back-office avec un
+  garde-fou qui refuse un gabarit laissant une balise non résolue.
+- Boîte mail IMAP complète : relève, dossiers réels du serveur, lecture,
+  réponse, transfert, pièces jointes dans les deux sens, étiquettes,
+  brouillons, envois programmés, carnet d'adresses.
+- Parcours de remplacement sur rupture, avec jeton HMAC signé et recalcul du
+  montant côté serveur.
+
+**Fiabilité**
+- Le cron marketing avalait six erreurs d'envoi : elles remontent désormais.
+- Les échecs de dépôt IMAP remontent à l'écran au lieu des seuls logs.
+- Écran boîte mail repris d'un bloc et découpé en composants.
+
+**Écrans**
+- Repassés au nouveau design : Suggestions, Import URL, Création d'article,
+  Facturation, Achats, Pages, Ruptures, Boîte mail, Emails.
+- `/admin/homepage` n'était pas un doublon de `home-cms` : il édite les
+  sections et les produits mis en avant, que `home-cms` ne couvre pas. Remis
+  dans la navigation au lieu d'être supprimé.
+- Champ EAN, « Créer par scan », inventaire scanné, préparation de commande.
+- Le type « livraison offerte » n'exige plus de valeur.
+- Les champs de l'opération livraison restent visibles, grisés, quand elle est
+  éteinte.
+
+**Fiscal**
 - Déclarations URSSAF mai, juin, juillet 2026 faites.
-- Écrans repassés au nouveau design : Suggestions, Import URL (les deux étapes :
-  saisie de l'URL et création de l'article), Création d'article, Facturation,
-  Achats (modales), Pages (éditeur).
-- Champ EAN sur la fiche produit, « Créer par scan » depuis la liste produits,
-  session d'inventaire scannée, écran de préparation de commande.
-- Facture PDF portée au nouveau modèle, polices Jost et Cormorant embarquées.
-- Statut « payée » sur les factures : source corrigée + 25 factures reprises.
-- Stock : journal unique, cron de surveillance, 9 produits réalignés.
-- Audit d'authentification des API refait le 13/08 : `/api/contacts` et
-  `/api/orders/[id]` etaient deja fermees (la note precedente etait perimee).
-  `/api/invoices/[id]` et son PDF ne l'etaient pas — une facture porte nom,
-  adresse et montants, elle etait lisible par simple identifiant. Ferme.
-  Consequence traitee : les liens `<a href download>` n'envoient pas le jeton,
-  ils passent desormais par `downloadAuth()` (fetch authentifie + blob).
-- Ecran /admin/ruptures et email d'avoir branches.
+- Les 5 paiements test en `cs_live_` remboursés (11,15 €). **Réflexe** : le
+  préfixe de `stripe_session_id` dit si de l'argent a bougé.
