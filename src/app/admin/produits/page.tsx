@@ -22,12 +22,21 @@ type Product = {
 };
 type Category = { id: string; name_fr: string; emoji?: string };
 
-const LOW_STOCK = 12;            // « Stock bas » = quantité ≤ 12 (handoff)
+/* Seuil de stock bas. La base porte un `stock_alert` PAR PRODUIT ; ce 12
+   n'est qu'un repli quand il n'est pas renseigne. Avant, le filtre et les
+   compteurs utilisaient le 12 pour tout le monde pendant que la couleur
+   suivait le seuil du produit : deux verites a l'ecran. */
+const LOW_STOCK = 12;
+const seuilDe = (p: Product) => p.stock_alert ?? LOW_STOCK;
 const TVA_RATE = 1.055;          // marge = (PV/1,055 − PA) / (PV/1,055)
 
 /** Référence affichée : la base n'a pas de champ SKU, on la dérive du sort_order. */
-const refOf = (p: Product) =>
-  p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : p.id.slice(0, 6).toUpperCase();
+/* Reference stable, colonne `sku` (migration 036). Le repli sur
+   sort_order ne sert qu'aux bases ou la migration n'est pas passee :
+   une reference derivee de l'ordre d'affichage change des qu'on
+   reordonne le catalogue. */
+const refOf = (p: any) =>
+  p.sku || (p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : String(p.id).slice(0, 6).toUpperCase());
 
 const marginPct = (price: number, cost?: number) => {
   const ht = (Number(price) || 0) / TVA_RATE;
@@ -94,7 +103,7 @@ export default function ProduitsPage() {
     const okStat = !stat
       || (stat === 'active' && p.is_active)
       || (stat === 'draft' && !p.is_active)
-      || (stat === 'low' && p.track_stock && qty <= LOW_STOCK);
+      || (stat === 'low' && p.track_stock && qty <= seuilDe(p));
     return okQ && okCat && okStat;
   }), [products, q, cat, stat]);
 
@@ -186,11 +195,11 @@ export default function ProduitsPage() {
     if (!p.is_active) return { label: 'Brouillon', tone: 'gray' };
     const qty = p.stock ?? 0;
     if (p.track_stock && qty <= 0) return { label: 'Rupture', tone: 'red' };
-    if (p.track_stock && qty <= LOW_STOCK) return { label: 'Stock bas', tone: 'orange' };
+    if (p.track_stock && qty <= seuilDe(p)) return { label: 'Stock bas', tone: 'orange' };
     return { label: 'Actif', tone: 'green' };
   };
 
-  const lowCount = products.filter(p => p.track_stock && (p.stock ?? 0) <= LOW_STOCK).length;
+  const lowCount = products.filter(p => p.track_stock && (p.stock ?? 0) <= seuilDe(p)).length;
 
   const stickyHead: React.CSSProperties = {
     position: 'sticky', top: 0, zIndex: 20, background: '#fff',
@@ -323,7 +332,7 @@ export default function ProduitsPage() {
                 {filtered.map(p => {
                   const checked = sel.has(p.id);
                   const qty = p.stock ?? 0;
-                  const thr = p.stock_alert ?? LOW_STOCK;
+                  const thr = seuilDe(p);
                   const gaugeMax = Math.max(qty, thr * 4, 1);
                   const m = marginPct(p.price, p.cost_price);
                   const st = statusOf(p);

@@ -26,6 +26,7 @@ type Nutrition = {
 type ProductFormData = {
   category_id: string;
   ean: string;
+  sku: string;
   name_sv: string; name_fr: string; name_en: string;
   subtitle_sv: string; subtitle_fr: string; subtitle_en: string;
   desc_sv: string; desc_fr: string; desc_en: string;
@@ -55,7 +56,7 @@ type ProductFormData = {
 };
 
 const EMPTY: ProductFormData = {
-  category_id: '', ean: '', name_sv: '', name_fr: '', name_en: '',
+  category_id: '', ean: '', sku: '', name_sv: '', name_fr: '', name_en: '',
   subtitle_sv: '', subtitle_fr: '', subtitle_en: '',
   desc_sv: '', desc_fr: '', desc_en: '',
   price: '', cost_price: '', weight: '',
@@ -547,8 +548,13 @@ export default function ProductForm({
           )}
 
           {show('general') && (
-            <Card title="Code-barres">
-              <Field label="EAN 13" hint="Scanne l’article en magasin : nom, marque et poids sont pré-remplis depuis Open Food Facts.">
+            <Card title="Référence &amp; code-barres">
+              <Field label="Référence (SKU)" hint="Identifiant stable, imprimé sur les bons de commande et de livraison. À ne pas changer une fois utilisé.">
+          <input className="sc-input" value={form.sku || ''}
+                 onChange={e => set('sku', e.target.value.toUpperCase())} placeholder="SC-0042" />
+        </Field>
+
+        <Field label="EAN 13" hint="Scanne l’article en magasin : nom, marque et poids sont pré-remplis depuis Open Food Facts.">
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input className="sc-input sc-num" value={form.ean || ''} inputMode="numeric"
                          placeholder="7310865004703"

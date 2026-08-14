@@ -77,7 +77,12 @@ export const NAV: NavGroup[] = [
   {
     label: 'Contenu',
     items: [
-      { href: '/admin/home-cms', icon: 'home',      label: "Page d'accueil", desc: 'Sections & textes de la home' },
+      { href: '/admin/home-cms', icon: 'home',      label: "Textes d'accueil", desc: 'Titres, images et textes de la home' },
+      /* Complementaire, pas doublon : home-cms edite les cles CMS, cet ecran
+         edite les sections (hero, bande Epices, bande Fredagsmys) et les
+         selections de produits mises en avant. Il etait sorti de la nav par
+         erreur et devenait inatteignable. */
+      { href: '/admin/homepage', icon: 'view_carousel', label: "Sections d'accueil", desc: 'Bandes et produits mis en avant' },
       { href: '/admin/pages',    icon: 'article',   label: 'Pages',          desc: 'CGV, mentions, pages libres' },
       { href: '/admin/medias',   icon: 'perm_media', label: 'Médiathèque',   desc: 'Photos & fichiers' },
     ],

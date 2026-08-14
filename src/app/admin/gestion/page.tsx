@@ -1,5 +1,5 @@
 'use client';
-import { adminFetch } from '@/lib/auth-client';
+import { adminFetch, downloadAuth } from '@/lib/auth-client';
 import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
@@ -545,9 +545,25 @@ export default function GestionPage() {
                           <td><span className={`badge ${STATUS_BADGE[i.status] || ''}`}>{STATUS_LABEL[i.status] || i.status}</span></td>
                           <td>
                             <div style={{ display: 'flex', gap: 4 }}>
-                              <button className="btn btn-secondary btn-sm" onClick={() => openEditInvoice(i)}>✏️</button>
-                              <button className="btn btn-secondary btn-sm" onClick={() => setPreviewInvoice(i)}>👁</button>
-                              <button className="btn btn-danger btn-sm" onClick={() => deleteInvoice(i.id)}>🗑</button>
+                              <button className="btn btn-secondary btn-sm" title="Modifier" onClick={() => openEditInvoice(i)}>
+                                <span className="ms" style={{ fontSize: 16 }}>edit</span>
+                              </button>
+                              <button className="btn btn-secondary btn-sm" title="Aperçu" onClick={() => setPreviewInvoice(i)}>
+                                <span className="ms" style={{ fontSize: 16 }}>visibility</span>
+                              </button>
+                              {/* Document A4 : le meme rendu que le PDF envoye au client. */}
+                              <a className="btn btn-secondary btn-sm" title="Document A4 à imprimer"
+                                 href={`/admin/documents/${i.status === 'avoir' ? 'avoir' : 'facture'}/${i.id}`}
+                                 target="_blank" rel="noopener">
+                                <span className="ms" style={{ fontSize: 16 }}>print</span>
+                              </a>
+                              <button className="btn btn-secondary btn-sm" title="Télécharger le PDF"
+                                      onClick={() => downloadAuth(`/api/invoices/${i.id}/pdf`, `${i.status === 'avoir' ? 'avoir' : 'facture'}-${i.number}.pdf`).catch(e => showToast(e.message))}>
+                                <span className="ms" style={{ fontSize: 16 }}>picture_as_pdf</span>
+                              </button>
+                              <button className="btn btn-danger btn-sm" title="Supprimer" onClick={() => deleteInvoice(i.id)}>
+                                <span className="ms" style={{ fontSize: 16 }}>delete</span>
+                              </button>
                             </div>
                           </td>
                         </tr>

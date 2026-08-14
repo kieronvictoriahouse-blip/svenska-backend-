@@ -368,7 +368,13 @@ export async function POST(req: NextRequest) {
             { onConflict: 'promo_code_id,customer_email', ignoreDuplicates: true }
           );
         }
-      } catch {}
+      } catch (e) {
+        /* Non bloquant : la session de paiement est creee, refuser ici
+           empecherait la vente. Mais l'usage unique du code ne sera pas
+           enregistre, donc le code restera reutilisable — il faut le
+           savoir. */
+        console.error('[checkout] usage du code promo non enregistre', e);
+      }
     }
 
     return NextResponse.json({ url: session.url }, { headers: CORS });

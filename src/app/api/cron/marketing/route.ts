@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const siteName = cfg.site_name || '';
   const from = cfg.smtp_from || process.env.SMTP_FROM || (siteName ? `${siteName} <noreply@example.com>` : 'noreply@example.com');
   const results: string[] = [];
+  const echecs: string[] = [];
   const now = Date.now();
 
   // ── PANIER ABANDONNÉ (3 étapes automatiques) ─────────────
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
       await sendEmail({ from, to: cart.customer_email, subject, html }, cfg);
       await supabaseAdmin.from('abandoned_carts').update({ email_1_sent_at: new Date().toISOString() }).eq('id', cart.id);
       results.push(`cart_1:${cart.customer_email}`);
-    } catch {}
+    } catch (e: any) { echecs.push(e?.message || 'erreur'); }
   }
 
   // Étape 2 : 3 jours (email_1 envoyé, pas email_2)
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
       await sendEmail({ from, to: cart.customer_email, subject, html }, cfg);
       await supabaseAdmin.from('abandoned_carts').update({ email_2_sent_at: new Date().toISOString() }).eq('id', cart.id);
       results.push(`cart_2:${cart.customer_email}`);
-    } catch {}
+    } catch (e: any) { echecs.push(e?.message || 'erreur'); }
   }
 
   // Étape 3 : 7 jours (email_2 envoyé, pas email_3) — avec code promo -10%
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
       await sendEmail({ from, to: cart.customer_email, subject, html }, cfg);
       await supabaseAdmin.from('abandoned_carts').update({ email_3_sent_at: new Date().toISOString() }).eq('id', cart.id);
       results.push(`cart_3:${cart.customer_email}`);
-    } catch {}
+    } catch (e: any) { echecs.push(e?.message || 'erreur'); }
   }
 
   // ── AUTOMATIONS PERSONNALISÉES (table marketing_automations) ─
@@ -115,7 +116,7 @@ export async function GET(req: NextRequest) {
           await sendEmail({ from, to: order.customer_email, subject, html }, cfg);
           results.push(`welcome:${order.customer_email}`);
           sent++;
-        } catch {}
+        } catch (e: any) { echecs.push(e?.message || 'erreur'); }
       }
     }
 
@@ -149,7 +150,7 @@ export async function GET(req: NextRequest) {
           });
           results.push(`win_back:${customer.customer_email}`);
           sent++;
-        } catch {}
+        } catch (e: any) { echecs.push(e?.message || 'erreur'); }
       }
     }
 
@@ -171,7 +172,7 @@ export async function GET(req: NextRequest) {
           await supabaseAdmin.from('orders').update({ review_email_sent_at: new Date().toISOString() }).eq('id', order.id);
           results.push(`post_purchase:${order.customer_email}`);
           sent++;
-        } catch {}
+        } catch (e: any) { echecs.push(e?.message || 'erreur'); }
       }
     }
 
@@ -182,5 +183,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, sent: results.length, details: results, ts: new Date().toISOString() });
+  /* Les echecs remontent dans la reponse et dans les logs : un email
+     de relance qui ne part pas doit se voir, pas disparaitre. */
+  if (echecs.length) console.error('[cron/marketing] envois en echec :', echecs);
+  return NextResponse.json({
+    ok: echecs.length === 0, sent: results.length, details: results,
+    echecs, ts: new Date().toISOString(),
+  }, { status: echecs.length ? 207 : 200 });
 }

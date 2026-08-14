@@ -178,8 +178,13 @@ function MarketingInner() {
     const isGift = codeForm.type === 'gift';
     if (isGift) {
       if (!codeForm.gift_product_ids || codeForm.gift_product_ids.length === 0) { showToast('⚠️ Choisissez au moins 1 produit cadeau'); return; }
-    } else if (!codeForm.code || !codeForm.value) {
-      showToast('⚠️ Code et valeur requis'); return;
+    } else if (!codeForm.code) {
+      showToast('Code requis'); return;
+    } else if (codeForm.type !== 'free_shipping' && !codeForm.value) {
+      /* « Livraison offerte » n'a pas de montant : le type porte toute
+         l'information, comme pour le cadeau. Exiger une valeur ici
+         obligeait a saisir un chiffre qui ne servait a rien. */
+      showToast('Valeur requise pour ce type de code'); return;
     }
     const autoCode = codeForm.code || (isGift ? ('CADEAU-' + Math.random().toString(36).slice(2, 7).toUpperCase()) : '');
     const payload = {
@@ -409,7 +414,13 @@ function MarketingInner() {
               </label>
             </div>
 
-            {ship.ship_promo_active && (
+            {/* Les champs restaient caches tant que l'interrupteur etait
+                eteint : le bloc paraissait mort, et on ne pouvait pas
+                preparer une operation a l'avance. Ils sont desormais
+                toujours la, simplement desactives. */}
+            <fieldset disabled={!ship.ship_promo_active}
+                      style={{ border: 'none', margin: 0, padding: 0,
+                               opacity: ship.ship_promo_active ? 1 : 0.5 }}>
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginTop: 14 }}>
                   <div>
@@ -464,7 +475,7 @@ function MarketingInner() {
                   </div>
                 )}
               </>
-            )}
+            </fieldset>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: shipPromoLive && shipFrOk ? '#065F46' : shipPromoLive ? '#B45309' : TH.muted }}>

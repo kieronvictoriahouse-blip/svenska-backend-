@@ -20,8 +20,12 @@ type Product = {
 type Category = { id: string; name_fr: string };
 
 const LOW = 12;
-const refOf = (p: Product) =>
-  p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : p.id.slice(0, 6).toUpperCase();
+/* Reference stable, colonne `sku` (migration 036). Le repli sur
+   sort_order ne sert qu'aux bases ou la migration n'est pas passee :
+   une reference derivee de l'ordre d'affichage change des qu'on
+   reordonne le catalogue. */
+const refOf = (p: any) =>
+  p.sku || (p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : String(p.id).slice(0, 6).toUpperCase());
 
 export default function StockPage() {
   const [products, setProducts] = useState<Product[]>([]);
