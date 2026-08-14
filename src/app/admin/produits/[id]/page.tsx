@@ -47,8 +47,8 @@ export default function EditProduitPage() {
     if (!id) return;
     Promise.all([
       adminFetch(`/api/products/${id}`).then(r => r.json()),
-      fetch('/api/categories').then(r => r.json()),
-      fetch('/api/white-label').then(r => r.json()).catch(() => ({})),
+      adminFetch('/api/categories').then(r => r.json()),
+      adminFetch('/api/white-label').then(r => r.json()).catch(() => ({})),
     ]).then(([pData, cData, wl]) => {
       const p = pData.product;
       if (p) {

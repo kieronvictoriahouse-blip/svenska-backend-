@@ -105,7 +105,7 @@ export default function TicketPage() {
         const fd = new FormData();
         fd.append('file', file);
         fd.append('folder', 'tickets');      // justificatif comptable, conservé dans Supabase
-        const res = await fetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+        const res = await adminFetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
         const d = await res.json();
         if (d.url) urls.push(d.url);
       }

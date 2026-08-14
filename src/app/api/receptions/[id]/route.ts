@@ -70,6 +70,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { data: reception, error } = await supabaseAdmin
     .from('receptions').select('*').eq('id', params.id).single();
   if (error || !reception) return NextResponse.json({ error: 'Réception introuvable' }, { status: 404 });

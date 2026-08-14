@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, AdminLang } from '@/lib/admin-i18n';
@@ -104,7 +105,7 @@ export default function AchatsPage() {
   useEffect(() => { load(); loadSuppliers(); loadProducts(); loadSuggestions(); }, [filter]);
 
   async function loadSuggestions() {
-    const res = await fetch('/api/purchase-suggestions');
+    const res = await adminFetch('/api/purchase-suggestions');
     const data = await res.json();
     setSuggestions(data.suggestions || []);
   }
@@ -114,20 +115,20 @@ export default function AchatsPage() {
   async function load() {
     setLoading(true);
     const params = filter ? `?status=${filter}` : '';
-    const res = await fetch('/api/purchase-orders' + params);
+    const res = await adminFetch('/api/purchase-orders' + params);
     const data = await res.json();
     setOrders(data.orders || []);
     setLoading(false);
   }
 
   async function loadSuppliers() {
-    const res = await fetch('/api/contacts?type=supplier');
+    const res = await adminFetch('/api/contacts?type=supplier');
     const data = await res.json();
     setSuppliers(data.contacts || []);
   }
 
   async function loadProducts() {
-    const res = await fetch('/api/products');
+    const res = await adminFetch('/api/products');
     const data = await res.json();
     setProducts(data.products || []);
   }
@@ -136,7 +137,7 @@ export default function AchatsPage() {
     if (curr === 'EUR') { setExchangeRate(1); return; }
     setFetchingRate(true);
     try {
-      const res = await fetch(`/api/exchange-rate?from=${curr}&to=EUR&date=${paymentDate}`);
+      const res = await adminFetch(`/api/exchange-rate?from=${curr}&to=EUR&date=${paymentDate}`);
       const data = await res.json();
       const rate = data.rate;
       if (rate) {
@@ -209,7 +210,7 @@ export default function AchatsPage() {
   }
 
   async function updateStatus(id: string, status: string) {
-    await fetch(`/api/purchase-orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    await adminFetch(`/api/purchase-orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     showToast('✅ ' + tc('status'));
     load();
   }
@@ -258,7 +259,7 @@ export default function AchatsPage() {
     const token = localStorage.getItem('sd_admin_token') || '';
     showToast('⏳ Génération PDF…');
     try {
-      const res = await fetch(`/api/purchase-orders/${order.id}/pdf?lang=${lang}`, {
+      const res = await adminFetch(`/api/purchase-orders/${order.id}/pdf?lang=${lang}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) { showToast('❌ Erreur génération PDF'); return; }
@@ -282,7 +283,7 @@ export default function AchatsPage() {
     setSendingPdf(true);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch(`/api/purchase-orders/${sendOrder.id}/send-pdf`, {
+      const res = await adminFetch(`/api/purchase-orders/${sendOrder.id}/send-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email: sendEmailInput, lang: sendLang }),
@@ -304,7 +305,7 @@ export default function AchatsPage() {
   async function saveReception() {
     if (!selected) return;
     const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await fetch('/api/receptions', {
+    const res = await adminFetch('/api/receptions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ ...recForm, purchase_order_id: selected.id, supplier_id: selected.supplier_id, supplier_name: selected.supplier_name }),

@@ -89,14 +89,14 @@ export default function FacturePage() {
   }
 
   useEffect(() => {
-    fetch(`/api/invoices/${id}`, { cache: 'no-store' })
+    adminFetch(`/api/invoices/${id}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
         if (d.invoice) {
           setInvoice(d.invoice);
           if (d.invoice.status === 'refunded' && d.invoice.order_id) {
             const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
-            fetch(`/api/invoices?order_id=${d.invoice.order_id}&status=avoir`, {
+            adminFetch(`/api/invoices?order_id=${d.invoice.order_id}&status=avoir`, {
               headers: token ? { Authorization: `Bearer ${token}` } : {},
             })
               .then(r => r.json())
@@ -112,7 +112,7 @@ export default function FacturePage() {
   async function markPaid() {
     if (!invoice) return;
     setSaving(true);
-    const res = await fetch(`/api/invoices/${invoice.id}`, {
+    const res = await adminFetch(`/api/invoices/${invoice.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'paid' }),

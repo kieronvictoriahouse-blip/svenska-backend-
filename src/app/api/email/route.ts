@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getWhiteLabelConfig, sendEmail, baseTemplate, abandonedCartTemplate } from '@/lib/email-send';
 
@@ -42,6 +43,7 @@ function campaignTemplate(campaign: any, cfg: Record<string, any>) {
 // ── ROUTE HANDLERS ─────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const { type, smtp_override } = body;
   const dbCfg = await getWhiteLabelConfig();
@@ -158,7 +160,8 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const cfg = await getWhiteLabelConfig();
   const fromEmail = (cfg as any).smtp_from || process.env.SMTP_FROM || '';
   return NextResponse.json({ configured: !!(cfg.smtp_host || process.env.RESEND_API_KEY), from: fromEmail });

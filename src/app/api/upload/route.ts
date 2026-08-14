@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'svenska-media';
@@ -9,6 +10,7 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'im
 // Upload une image vers Supabase Storage
 // multipart/form-data: file (File), folder (string optionnel)
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   // Auth
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -91,6 +93,7 @@ export async function POST(req: NextRequest) {
 // ─── GET /api/upload ──────────────────────────────────────────────
 // Liste tous les médias uploadés
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -112,6 +115,7 @@ export async function GET(req: NextRequest) {
 // ─── DELETE /api/upload ───────────────────────────────────────────
 // Supprime un fichier du Storage + la ligne media
 export async function DELETE(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });

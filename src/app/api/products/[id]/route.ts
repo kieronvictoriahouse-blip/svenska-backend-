@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
 
 export const maxDuration = 60;
 
 // Helper auth
-async function requireAuth(req: NextRequest) {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.slice(7);
-  const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-  return user;
-}
 
 // ─── GET /api/products/[id] ───────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  // Fiche produit : donnee de catalogue, lue par le site public.
   const { data, error } = await supabaseAdmin
     .from('products')
     .select(`

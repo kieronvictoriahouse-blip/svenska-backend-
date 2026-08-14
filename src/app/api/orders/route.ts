@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const { count: orderCount } = await supabaseAdmin.from('orders').select('id', { count: 'exact', head: true });
   const num = String((orderCount || 0) + 1).padStart(4, '0');

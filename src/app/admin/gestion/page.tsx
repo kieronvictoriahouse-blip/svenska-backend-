@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
@@ -105,11 +106,11 @@ export default function GestionPage() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
     const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const [invRes, { data: pur }, { data: prd }, { data: prm }, realRes] = await Promise.all([
-      fetch('/api/invoices', { headers: authHeaders }),
+      adminFetch('/api/invoices', { headers: authHeaders }),
       supabase.from('purchases').select('*').order('created_at', { ascending: false }),
       supabase.from('margin_products').select('*').order('created_at', { ascending: false }),
       supabase.from('company_settings').select('*'),
-      fetch('/api/products?limit=500', { headers: authHeaders }),
+      adminFetch('/api/products?limit=500', { headers: authHeaders }),
     ]);
     if (invRes.ok) { const d = await invRes.json(); setInvoices(d.invoices || []); }
     if (pur) setPurchases(pur);
@@ -174,9 +175,9 @@ export default function GestionPage() {
 
     let res: Response;
     if (editingInvoice) {
-      res = await fetch(`/api/invoices/${editingInvoice.id}`, { method: 'PUT', headers, body: JSON.stringify({ status: invForm.status, note: invForm.note, date: invForm.date }) });
+      res = await adminFetch(`/api/invoices/${editingInvoice.id}`, { method: 'PUT', headers, body: JSON.stringify({ status: invForm.status, note: invForm.note, date: invForm.date }) });
     } else {
-      res = await fetch('/api/invoices', { method: 'POST', headers, body: JSON.stringify(payload) });
+      res = await adminFetch('/api/invoices', { method: 'POST', headers, body: JSON.stringify(payload) });
     }
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));

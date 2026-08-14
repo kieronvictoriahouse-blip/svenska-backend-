@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 
@@ -105,8 +106,8 @@ export default function ComptabilitePage() {
       const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
       const headers = { Authorization: `Bearer ${token}` };
       const [sumRes, entRes] = await Promise.all([
-        fetch(`/api/accounting/summary?year=${selectedYear}`, { cache: 'no-store', headers }),
-        fetch(`/api/accounting/entries?year=${selectedYear}`, { cache: 'no-store', headers }),
+        adminFetch(`/api/accounting/summary?year=${selectedYear}`, { cache: 'no-store', headers }),
+        adminFetch(`/api/accounting/entries?year=${selectedYear}`, { cache: 'no-store', headers }),
       ]);
       if (sumRes.ok) setSummary(await sumRes.json());
       if (entRes.ok) setEntries((await entRes.json()).entries || []);
@@ -133,7 +134,7 @@ export default function ComptabilitePage() {
   async function sync() {
     setSyncing(true);
     try {
-      const res = await fetch('/api/accounting/sync', { method: 'POST', headers: authHeaders() });
+      const res = await adminFetch('/api/accounting/sync', { method: 'POST', headers: authHeaders() });
       const data = await res.json();
       if (res.ok) {
         showToast(`✅ ${data.count} nouvelles entrées importées`);
@@ -150,7 +151,7 @@ export default function ComptabilitePage() {
     if (!fDate || !fDesc || !fAmount) { showToast('⚠️ Tous les champs sont requis'); return; }
     setSaving(true);
     try {
-      const res = await fetch('/api/accounting/entries', {
+      const res = await adminFetch('/api/accounting/entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ date: fDate, type: formType, category: fCat, description: fDesc, amount: parseFloat(fAmount) }),
@@ -171,7 +172,7 @@ export default function ComptabilitePage() {
 
   async function deleteEntry(id: string) {
     if (!confirm('Supprimer cette entrée ?')) return;
-    const res = await fetch(`/api/accounting/entries?id=${id}`, { method: 'DELETE', headers: authHeaders() });
+    const res = await adminFetch(`/api/accounting/entries?id=${id}`, { method: 'DELETE', headers: authHeaders() });
     if (res.ok) { showToast('🗑️ Supprimé'); load(); }
     else { const e = await res.json().catch(() => ({})); showToast('❌ ' + (e?.error || 'Erreur suppression')); }
   }

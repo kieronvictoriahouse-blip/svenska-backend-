@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
 /**
@@ -10,6 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase';
  * Protégé par un secret dans .env pour éviter les abus.
  */
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
 
   // Vérification secret

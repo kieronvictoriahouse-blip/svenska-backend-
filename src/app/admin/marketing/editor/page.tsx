@@ -80,7 +80,7 @@ export default function EmailEditorPage() {
 
   useEffect(() => {
     if (showProducts && products.length === 0) {
-      fetch('/api/products?limit=100')
+      adminFetch('/api/products?limit=100')
         .then(r => r.json())
         .then(d => setProducts(d.products || d || []));
     }
@@ -141,7 +141,7 @@ export default function EmailEditorPage() {
     if (!testEmail) { showToast('⚠️ Saisissez votre email de test'); return; }
     setSendingTest(true);
     try {
-      const res = await fetch('/api/email', {
+      const res = await adminFetch('/api/email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'test_campaign', to: testEmail, html, subject }),
       });
@@ -157,7 +157,7 @@ export default function EmailEditorPage() {
     if (!confirm(`Envoyer cette campagne à "${SEGMENTS[segment]}" ?`)) return;
     setSending(true); setSendResult('');
     try {
-      const res = await fetch('/api/email', {
+      const res = await adminFetch('/api/email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'campaign', campaign_id: selectedId, custom_html: htmlContent }),
       });
@@ -214,7 +214,7 @@ export default function EmailEditorPage() {
       const { html } = data;
       setSending(true); setSendResult('');
       try {
-        const res = await fetch('/api/email', {
+        const res = await adminFetch('/api/email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'campaign', campaign_id: campId, custom_html: html }),

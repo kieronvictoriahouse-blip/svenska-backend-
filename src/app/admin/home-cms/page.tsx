@@ -34,7 +34,7 @@ export default function HomeCmsPage() {
 
   useEffect(() => {
     load();
-    fetch('/api/white-label').then(r => r.json()).then(d => {
+    adminFetch('/api/white-label').then(r => r.json()).then(d => {
       if (d?.config?.front_url) setFrontUrl(d.config.front_url);
     }).catch(() => {});
   }, []);
@@ -42,7 +42,7 @@ export default function HomeCmsPage() {
   async function load() {
     setLoading(true);
     try {
-      const d = await fetch('/api/cms').then(r => r.json());
+      const d = await adminFetch('/api/cms').then(r => r.json());
       const list: CmsItem[] = d.cms || [];
       setItems(list);
       const ed: Record<string, CmsItem> = {};
@@ -81,7 +81,7 @@ export default function HomeCmsPage() {
     fd.append('file', file);
     fd.append('folder', 'home');
     try {
-      const res = await fetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      const res = await adminFetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
       const d = await res.json();
       if (d.url) { (['fr', 'sv', 'en'] as Lang[]).forEach(l => setVal(key, l, d.url)); say('Image remplacée — pense à publier'); }
       else say('Upload impossible');

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status');
   let query = supabaseAdmin.from('purchase_orders')

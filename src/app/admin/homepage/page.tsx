@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 
 const SECTION_LABELS: Record<string, string> = {
@@ -22,8 +23,8 @@ export default function HomepagePage() {
 
   async function load() {
     const [hpRes, prRes] = await Promise.all([
-      fetch('/api/homepage'),
-      fetch('/api/products?limit=200'),
+      adminFetch('/api/homepage'),
+      adminFetch('/api/products?limit=200'),
     ]);
     const hp = await hpRes.json();
     const pr = await prRes.json();
@@ -43,7 +44,7 @@ export default function HomepagePage() {
     setSaving(true);
     const token = localStorage.getItem('sd_admin_token');
     const section = getSection(key);
-    const res = await fetch('/api/homepage', {
+    const res = await adminFetch('/api/homepage', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ key, ...section }),
@@ -54,7 +55,7 @@ export default function HomepagePage() {
 
   async function toggleBestseller(productId: string, current: boolean) {
     const token = localStorage.getItem('sd_admin_token');
-    await fetch(`/api/products/${productId}`, {
+    await adminFetch(`/api/products/${productId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ is_bestseller: !current }),
@@ -66,7 +67,7 @@ export default function HomepagePage() {
 
   async function toggleNew(productId: string, current: boolean) {
     const token = localStorage.getItem('sd_admin_token');
-    await fetch(`/api/products/${productId}`, {
+    await adminFetch(`/api/products/${productId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ is_new: !current }),

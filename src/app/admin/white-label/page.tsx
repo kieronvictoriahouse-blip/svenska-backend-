@@ -52,7 +52,7 @@ function WhiteLabelInner() {
   useEffect(() => { loadConfig(); }, []);
 
   async function loadConfig() {
-    const res = await fetch('/api/white-label');
+    const res = await adminFetch('/api/white-label');
     const data = await res.json();
     if (data.config && data.config.id) setConfig({ ...DEFAULT_CONFIG, ...data.config });
   }
@@ -85,7 +85,7 @@ function WhiteLabelInner() {
       rows.push(row);
     }
 
-    const res = await fetch(`/api/white-label?type=${importType}`, {
+    const res = await adminFetch(`/api/white-label?type=${importType}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
     });
     const result = await res.json();
@@ -426,7 +426,7 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
     setTesting(true);
     setTestResult('');
     try {
-      const res = await fetch('/api/email', {
+      const res = await adminFetch('/api/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

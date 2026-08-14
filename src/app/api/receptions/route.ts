@@ -4,6 +4,7 @@ import { applyStockAndPmp } from '@/lib/reception-utils';
 import { requireAuth } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const poId = searchParams.get('purchase_order_id');
   let query = supabaseAdmin.from('receptions').select('*, contacts(company, first_name, last_name), purchase_orders(number)').order('created_at', { ascending: false });

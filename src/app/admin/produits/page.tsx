@@ -75,7 +75,7 @@ export default function ProduitsPage() {
     try {
       const [p, c] = await Promise.all([
         adminFetch('/api/products?limit=1000').then(r => r.json()).catch(() => ({})),
-        fetch('/api/categories').then(r => r.json()).catch(() => ({})),
+        adminFetch('/api/categories').then(r => r.json()).catch(() => ({})),
       ]);
       setProducts(p.products || []);
       setCategories(c.categories || []);

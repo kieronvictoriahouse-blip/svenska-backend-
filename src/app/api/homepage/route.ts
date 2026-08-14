@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 
 // ─── GET /api/homepage ────────────────────────────────────────────
@@ -51,6 +52,7 @@ export async function GET() {
 // ─── PUT /api/homepage ────────────────────────────────────────────
 // Mise à jour d'une section (admin)
 export async function PUT(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const token = authHeader.slice(7);

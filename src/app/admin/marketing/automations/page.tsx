@@ -124,7 +124,7 @@ export default function AutomationsPage() {
   async function runNow() {
     setRunning(true);
     try {
-      const d = await fetch('/api/cron/marketing').then(r => r.json());
+      const d = await adminFetch('/api/cron/marketing').then(r => r.json());
       setLastRun(`${d.sent || 0} email(s) · ${new Date().toLocaleTimeString('fr-FR')}`);
       say(`Cron exécuté : ${d.sent || 0} email(s) envoyé(s)`);
     } finally { setRunning(false); }

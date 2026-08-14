@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendEmail, orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
@@ -6,6 +7,7 @@ import { sendEmail, orderConfirmationHtml, getWlConfig } from '@/lib/mailer';
 // One-time endpoint to replay completed Stripe sessions for pending orders
 // GET /api/admin/replay-orders?secret=IMPORT_SECRET
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const secret = req.nextUrl.searchParams.get('secret');
   if (secret !== process.env.IMPORT_SECRET) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });

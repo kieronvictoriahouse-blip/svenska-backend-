@@ -14,7 +14,9 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
 }
 
-export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  // Une commande porte le nom, l'adresse et les montants du client.
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS });
   const { data, error } = await supabaseAdmin.from('orders').select('*').eq('id', params.id).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
   return NextResponse.json({ order: data }, { headers: CORS });

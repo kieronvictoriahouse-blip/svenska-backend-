@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 
 export async function GET() {
@@ -11,6 +12,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const token = authHeader.slice(7);

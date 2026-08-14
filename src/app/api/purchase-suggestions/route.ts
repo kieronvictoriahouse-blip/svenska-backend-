@@ -1,7 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   // Produits avec suivi de stock
   const { data: products } = await supabaseAdmin
     .from('products')

@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { useState, useRef, useEffect } from 'react';
 import { T } from '@/lib/admin-theme';
 import BarcodeScanner from './BarcodeScanner';
@@ -209,7 +210,7 @@ export default function ProductForm({
     fd.append('folder', 'products');
     fd.append('alt_text', form.name_fr || file.name);
     try {
-      const res = await fetch('/api/upload', {
+      const res = await adminFetch('/api/upload', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -567,7 +568,7 @@ export default function ProductForm({
                       set('ean', code);
                       setEanMsg('Recherche…');
                       try {
-                        const d = await fetch(`/api/scan?ean=${encodeURIComponent(code)}`, {
+                        const d = await adminFetch(`/api/scan?ean=${encodeURIComponent(code)}`, {
                           headers: { Authorization: `Bearer ${localStorage.getItem('sd_admin_token') || ''}` },
                         }).then(r => r.json());
                         if (d.found && d.product && d.product.id !== initialData?.id) {

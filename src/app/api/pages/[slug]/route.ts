@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(_req: NextRequest, { params }: { params: { slug: string } }) {
@@ -15,6 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: { slug: strin
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { slug: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   try {
     const body = await req.json();
     const { data, error } = await supabaseAdmin
@@ -31,6 +33,7 @@ export async function PUT(req: NextRequest, { params }: { params: { slug: string
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { slug: string } }) {
+  if (!await requireAuth(_req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   try {
     const { error } = await supabaseAdmin.from('cms_pages').delete().eq('slug', params.slug);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

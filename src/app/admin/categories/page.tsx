@@ -40,7 +40,7 @@ export default function CategoriesPage() {
     setLoading(true);
     try {
       const [c, p] = await Promise.all([
-        fetch('/api/categories').then(r => r.json()).catch(() => ({})),
+        adminFetch('/api/categories').then(r => r.json()).catch(() => ({})),
         adminFetch('/api/products?limit=1000').then(r => r.json()).catch(() => ({})),
       ]);
       const list: Category[] = (c.categories || []).slice()

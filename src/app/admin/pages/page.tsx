@@ -1,4 +1,5 @@
 'use client';
+import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
 
@@ -112,7 +113,7 @@ export default function PagesAdminPage() {
   async function loadPages() {
     setLoading(true);
     try {
-      const res = await fetch('/api/pages');
+      const res = await adminFetch('/api/pages');
       const data = await res.json();
       setPages(data.pages || []);
     } catch {
@@ -130,7 +131,7 @@ export default function PagesAdminPage() {
 
   async function openEdit(slug: string) {
     try {
-      const res = await fetch(`/api/pages/${slug}`);
+      const res = await adminFetch(`/api/pages/${slug}`);
       const data = await res.json();
       if (data.page) {
         setEditPage({ ...EMPTY_PAGE, ...data.page, blocks: data.page.blocks || [] });
@@ -169,7 +170,7 @@ export default function PagesAdminPage() {
 
   async function deletePage(slug: string) {
     try {
-      const res = await fetch(`/api/pages/${slug}`, { method: 'DELETE' });
+      const res = await adminFetch(`/api/pages/${slug}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.error) showToast('Erreur : ' + data.error);
       else { showToast('Page supprimée'); await loadPages(); }

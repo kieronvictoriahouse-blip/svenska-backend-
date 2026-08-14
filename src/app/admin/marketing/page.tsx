@@ -114,7 +114,7 @@ function MarketingInner() {
       const res = await adminFetch('/api/marketing?tab=promo');
       setCodes((await res.json()).codes || []);
       try {
-        const pr = await fetch('/api/products');
+        const pr = await adminFetch('/api/products');
         const pj = await pr.json();
         setProducts((pj.products || []).map((p: any) => ({ id: p.id, name_fr: p.name_fr })).filter((p: any) => p.id && p.name_fr));
       } catch { /* liste cadeau indisponible */ }

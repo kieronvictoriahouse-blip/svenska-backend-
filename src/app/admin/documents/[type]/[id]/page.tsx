@@ -77,7 +77,7 @@ export default function DocumentPrintPage() {
                   : `/api/orders/${id}`;
         const [res, wl] = await Promise.all([
           adminFetch(url).then(r => r.json()),
-          fetch('/api/white-label').then(r => r.json()).catch(() => ({})),
+          adminFetch('/api/white-label').then(r => r.json()).catch(() => ({})),
         ]);
         if (res?.error) { setError(res.error); return; }
         setDoc(res.invoice || res.order);

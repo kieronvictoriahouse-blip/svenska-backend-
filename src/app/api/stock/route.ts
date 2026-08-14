@@ -6,6 +6,7 @@ import { adjustStock } from '@/lib/stock';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { searchParams } = new URL(req.url);
 
   if (searchParams.get('history') === '1') {

@@ -47,7 +47,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setLang(getAdminLang());
     getValidToken().then(token => {
       if (!token) { router.replace('/login'); return; }
-      fetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
+      adminFetch('/api/auth/login', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => {
           if (!r.ok) {
             localStorage.removeItem('sd_admin_token');
@@ -56,7 +56,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           }
         });
     });
-    fetch('/api/white-label')
+    adminFetch('/api/white-label')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         const c = d?.config;

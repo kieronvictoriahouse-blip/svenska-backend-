@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
 
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const authHeader = req.headers.get('authorization');
   if (!authHeader) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 

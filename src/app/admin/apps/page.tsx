@@ -21,7 +21,7 @@ export default function ParametresPage() {
 
   useEffect(() => {
     setEmail(localStorage.getItem('sd_admin_email') || '');
-    fetch('/api/white-label')
+    adminFetch('/api/white-label')
       .then(r => r.json())
       .then(d => setCfg(d.config || {}))
       .catch(() => {})

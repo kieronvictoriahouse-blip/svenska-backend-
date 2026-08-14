@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const receptionId = req.nextUrl.searchParams.get('reception_id');
   let query = supabaseAdmin.from('landed_costs').select('*').order('created_at', { ascending: false });
   if (receptionId) query = query.eq('reception_id', receptionId);
@@ -11,6 +13,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const { reception_id, description, amount, allocation_method } = body;
 

@@ -1,5 +1,5 @@
 'use client';
-import { downloadAuth } from '@/lib/auth-client';
+import { downloadAuth, adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang } from '@/lib/admin-i18n';
@@ -164,7 +164,7 @@ export default function CommandesPage() {
   useEffect(() => { load(); loadCosts(); }, [filter, search]);
   useEffect(() => { loadCosts(); }, []);
   useEffect(() => {
-    fetch('/api/white-label')
+    adminFetch('/api/white-label')
       .then(r => r.json())
       .then(d => setWlConfig(d.config || null))
       .catch(() => setWlConfig(null));
@@ -188,7 +188,7 @@ export default function CommandesPage() {
   useEffect(() => {
     if (!selected || (selected.status !== 'refunded' && !(selected.refunded_amount! > 0))) { setAvoirId(null); return; }
     const token = localStorage.getItem('sd_admin_token') || '';
-    fetch(`/api/invoices?order_id=${selected.id}&status=avoir`, { headers: { Authorization: `Bearer ${token}` } })
+    adminFetch(`/api/invoices?order_id=${selected.id}&status=avoir`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => setAvoirId(d.invoices?.[0]?.id || null))
       .catch(() => setAvoirId(null));
@@ -201,7 +201,7 @@ export default function CommandesPage() {
       ? { tracking: selected.mondial_relay_tracking, labelUrl: selected.mondial_relay_label_url || '' }
       : null);
     const token = localStorage.getItem('sd_admin_token') || '';
-    fetch('/api/mondial-relay/settings', { headers: { Authorization: `Bearer ${token}` } })
+    adminFetch('/api/mondial-relay/settings', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => { if (d.mr_col_rel) setMrColRel(d.mr_col_rel); })
       .catch(() => {});
@@ -211,7 +211,7 @@ export default function CommandesPage() {
 
   async function loadCosts() {
     const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await fetch('/api/products?limit=500', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await adminFetch('/api/products?limit=500', { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     const costs: Record<string, number> = {};
     const images: Record<string, string> = {};
@@ -230,7 +230,7 @@ export default function CommandesPage() {
     const params = new URLSearchParams();
     if (filter) params.set('status', filter);
     if (search) params.set('search', search);
-    const res = await fetch('/api/orders?' + params.toString(), {
+    const res = await adminFetch('/api/orders?' + params.toString(), {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -240,7 +240,7 @@ export default function CommandesPage() {
 
   async function updateStatus(id: string, status: string) {
     const token = localStorage.getItem('sd_admin_token') || '';
-    await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
+    await adminFetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
     showToast('✅ ' + tc('status'));
     load();
     if (selected?.id === id) setSelected(o => o ? { ...o, status } : null);
@@ -252,7 +252,7 @@ export default function CommandesPage() {
 
   async function doRestock(orderId: string) {
     const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await fetch(`/api/orders/${orderId}/restock`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    const res = await adminFetch(`/api/orders/${orderId}/restock`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     showToast(data.restocked > 0 ? `✅ Stock réincrémenté (${data.restocked} produit${data.restocked > 1 ? 's' : ''})` : '⚠️ Aucun produit suivi à réincrémenter');
     setShowRestockModal(false);
@@ -265,7 +265,7 @@ export default function CommandesPage() {
     setSavingCosts(true);
     const transport_cost_real = parseFloat(transportInput) || 0;
     const packaging_cost = parseFloat(packagingInput) || 0;
-    await fetch(`/api/orders/${selected.id}`, {
+    await adminFetch(`/api/orders/${selected.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ transport_cost_real, packaging_cost }),
@@ -280,7 +280,7 @@ export default function CommandesPage() {
     if (!selected) return;
     const token = localStorage.getItem('sd_admin_token') || '';
     setSavingTracking(true);
-    await fetch(`/api/orders/${selected.id}`, {
+    await adminFetch(`/api/orders/${selected.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ tracking_number: trackingInput || null }),
@@ -308,7 +308,7 @@ export default function CommandesPage() {
     setApplyingPromo(true);
     try {
       const token = localStorage.getItem('sd_admin_token') || '';
-      const res = await fetch('/api/marketing?tab=promo', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await adminFetch('/api/marketing?tab=promo', { headers: { Authorization: `Bearer ${token}` } });
       const { codes } = await res.json();
       const found = (codes || []).find((c: any) => c.code === code);
       if (!found || !found.is_active) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code invalide ou inactif'); return; }
@@ -343,7 +343,7 @@ export default function CommandesPage() {
     const total = Math.max(0, subtotal - discount) + effectiveShipping;
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch('/api/orders', {
+      const res = await adminFetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -375,7 +375,7 @@ export default function CommandesPage() {
     setTestConfirm(false);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch(`/api/orders/${selected.id}/mark-test`, {
+      const res = await adminFetch(`/api/orders/${selected.id}/mark-test`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -399,7 +399,7 @@ export default function CommandesPage() {
     setTogglingStats(true);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch(`/api/orders/${selected.id}/exclude-stats`, {
+      const res = await adminFetch(`/api/orders/${selected.id}/exclude-stats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ exclude: !selected.exclude_from_stats }),
@@ -425,7 +425,7 @@ export default function CommandesPage() {
     setRefundConfirm(false);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch(`/api/orders/${selected.id}/refund`, {
+      const res = await adminFetch(`/api/orders/${selected.id}/refund`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -477,7 +477,7 @@ export default function CommandesPage() {
     setPartialConfirm(false);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch(`/api/orders/${selected.id}/refund`, {
+      const res = await adminFetch(`/api/orders/${selected.id}/refund`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -495,7 +495,7 @@ export default function CommandesPage() {
 
       // Bascule Click & Collect → expédition si demandé
       if (partialSwitchDelivery && selected.delivery_mode === 'pickup') {
-        await fetch(`/api/orders/${selected.id}`, {
+        await adminFetch(`/api/orders/${selected.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ delivery_mode: 'delivery' }),
@@ -509,7 +509,7 @@ export default function CommandesPage() {
       );
       // La commande a pu être réécrite (lignes, port, total) → on relit la version à jour
       try {
-        const fresh = await fetch(`/api/orders/${selected.id}`).then(r => r.json());
+        const fresh = await adminFetch(`/api/orders/${selected.id}`).then(r => r.json());
         if (fresh?.order) setSelected(fresh.order);
       } catch {
         setSelected(o => o ? { ...o, status: data.status || o.status, refunded_amount: data.refunded_amount } : null);
@@ -530,7 +530,7 @@ export default function CommandesPage() {
     setSendingPaymentLink(true);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch(`/api/orders/${selected.id}/payment-link`, {
+      const res = await adminFetch(`/api/orders/${selected.id}/payment-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ send_email: byEmail }),
@@ -553,7 +553,7 @@ export default function CommandesPage() {
     setCreatingAccount(true);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch('/api/customer/create-account', {
+      const res = await adminFetch('/api/customer/create-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email: selected.customer_email, name: selected.customer_name, send_email: true }),
@@ -573,7 +573,7 @@ export default function CommandesPage() {
     setMrLoading(true);
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
-      const res = await fetch('/api/mondial-relay/label', {
+      const res = await adminFetch('/api/mondial-relay/label', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({

@@ -48,7 +48,7 @@ export default function MediasPage() {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('folder', 'library');
-      const res = await fetch('/api/upload', {
+      const res = await adminFetch('/api/upload', {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
       });
       if (res.ok) ok++;
