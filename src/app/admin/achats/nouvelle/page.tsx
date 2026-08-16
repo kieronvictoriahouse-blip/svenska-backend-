@@ -1,7 +1,7 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import {
   Produit, Fournisseur, Enrichi, Methode, enrichir, trier, totaux,
@@ -27,8 +27,22 @@ const FILTRES = [
   { id: 'Tout', label: 'Tout' },
 ];
 
+/* useSearchParams impose une frontière de suspense : sans elle, Next
+   refuse de prérendre la page. */
 export default function NouvelleCommandeAchat() {
+  return (
+    <Suspense fallback={<div className="sc-empty">Chargement du catalogue…</div>}>
+      <Composition />
+    </Suspense>
+  );
+}
+
+function Composition() {
   const router = useRouter();
+  /* `?id=` ouvre une commande existante dans ce même écran : c'est ici
+     qu'on voit la couverture et les ruptures, donc c'est ici qu'on doit
+     pouvoir la corriger. */
+  const modifieId = useSearchParams().get('id');
 
   const [fournisseurs, setFournisseurs] = useState<Fournisseur[]>([]);
   const [produits, setProduits] = useState<Produit[]>([]);
@@ -69,19 +83,68 @@ export default function NouvelleCommandeAchat() {
     const s = Number(localStorage.getItem('sc_po_weeks'));
     if (s >= 2 && s <= 12) setSemaines(s);
   }, []);
-  useEffect(() => { localStorage.setItem('sc_po_weeks', String(semaines)); }, [semaines]);
+  /* Rouvrir une vieille commande ne doit pas redéfinir la préférence :
+     sa couverture était celle du jour où elle a été passée. */
+  useEffect(() => {
+    if (!modifieId) localStorage.setItem('sc_po_weeks', String(semaines));
+  }, [semaines, modifieId]);
+
+  const [numeroModifie, setNumeroModifie] = useState('');
+  /* Lignes d'une commande rouverte dont le produit n'est plus au
+     catalogue : elles ne peuvent pas être reprises, il faut le dire. */
+  const [perdues, setPerdues] = useState<string[]>([]);
 
   useEffect(() => {
-    adminFetch('/api/purchase-planner').then(r => r.json()).then(d => {
-      setFournisseurs(d.fournisseurs || []);
-      setProduits(d.catalogue || []);
-      setTaux(Number(d.rate) || 0.0876);
-      setSansFournisseur(d.sansFournisseur || 0);
-      if (!supId && d.fournisseurs?.[0]) setSupId(d.fournisseurs[0].id);
-    }).catch(() => say('Chargement impossible'))
-      .finally(() => setChargement(false));
+    (async () => {
+      try {
+        const d = await adminFetch('/api/purchase-planner').then(r => r.json());
+        const cat: Produit[] = d.catalogue || [];
+        setFournisseurs(d.fournisseurs || []);
+        setProduits(cat);
+        setTaux(Number(d.rate) || 0.0876);
+        setSansFournisseur(d.sansFournisseur || 0);
+
+        if (!modifieId) {
+          if (d.fournisseurs?.[0]) setSupId(d.fournisseurs[0].id);
+          return;
+        }
+
+        /* Reprise d'une commande existante. Les lignes anciennes ne
+           connaissent pas les cartons : on les reconstitue depuis la
+           quantité, sinon toute commande saisie à la main reviendrait
+           vide. */
+        const { order } = await adminFetch(`/api/purchase-orders/${modifieId}`).then(r => r.json());
+        if (!order) { say('Commande introuvable'); return; }
+        setNumeroModifie(order.number || '');
+        setSupId(order.supplier_id || '');
+        if (order.coverage_weeks) setSemaines(Number(order.coverage_weeks));
+        if (Number(order.shipping) > 0) setPortTexte(String(order.shipping).replace('.', ','));
+
+        const lignes = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
+        const reprise: Record<string, number> = {};
+        const exclus: Record<string, boolean> = {};
+        const orphelines: string[] = [];
+        for (const l of lignes) {
+          if (!l.product_id) continue;
+          const p = cat.find(x => x.id === l.product_id);
+          /* Un produit désactivé ou non suivi n'est plus au catalogue :
+             sa ligne disparaîtrait du panier, et l'enregistrement la
+             supprimerait sans que rien ne le dise. */
+          if (!p) { orphelines.push(l.name || 'Article inconnu'); continue; }
+          const taille = Math.max(1, Number(l.pack_size)
+            || p.sources.find(s => s.sup === order.supplier_id)?.pack || p.pack || 1);
+          const cartons = Number(l.packs) || Math.max(1, Math.round((Number(l.qty) || 0) / taille));
+          reprise[l.product_id] = cartons;
+          if (l.bears_shipping === false) exclus[l.product_id] = true;
+        }
+        setPanier(reprise);
+        setPortExclus(exclus);
+        setPerdues(orphelines);
+      } catch { say('Chargement impossible'); }
+      finally { setChargement(false); }
+    })();
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, []);
+  }, [modifieId]);
 
   const fournisseur = fournisseurs.find(f => f.id === supId) || null;
 
@@ -153,6 +216,7 @@ export default function NouvelleCommandeAchat() {
       const res = await adminFetch('/api/purchase-orders/composer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: modifieId || undefined,
           supplier_id: fournisseur.id,
           coverage_weeks: semaines,
           rate: taux,
@@ -189,8 +253,15 @@ export default function NouvelleCommandeAchat() {
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 10.5, color: C.t5 }}>Achats · Commandes d’achat</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>Nouvelle commande</span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>
+              {modifieId ? `Modifier ${numeroModifie}` : 'Nouvelle commande'}
+            </span>
             {fournisseur && <span style={{ fontSize: 12.5, color: C.t4 }}>· {fournisseur.name}</span>}
+            {modifieId && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 20, background: `${C.accent}18`, color: C.accent }}>
+                MODIFICATION
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -396,7 +467,9 @@ export default function NouvelleCommandeAchat() {
                     color: t.pretAEnvoyer ? '#fff' : C.t6,
                     cursor: t.pretAEnvoyer ? 'pointer' : 'not-allowed',
                   }}>
-            {envoi ? 'Envoi…' : `Envoyer à ${fournisseur?.name || '…'}`}
+            {envoi ? 'Enregistrement…'
+              : modifieId ? 'Enregistrer les modifications'
+              : `Envoyer à ${fournisseur?.name || '…'}`}
           </button>
         </div>
       </div>
@@ -409,6 +482,20 @@ export default function NouvelleCommandeAchat() {
   return (
     <>
       {entete}
+
+      {perdues.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 9, marginTop: 14,
+          background: '#FBEEEC', border: '1px solid #E8C4BE', borderRadius: 9, padding: '10px 13px',
+        }}>
+          <span className="ms" style={{ fontSize: 18, color: C.rouge }}>report</span>
+          <div style={{ fontSize: 12, color: C.rouge, lineHeight: 1.5 }}>
+            <strong>{perdues.length} ligne(s) ne peuvent pas être reprises</strong> — leur produit
+            n’est plus au catalogue actif ({perdues.join(', ')}). Si tu enregistres, elles seront
+            retirées de la commande. Réactive le produit d’abord pour les conserver.
+          </div>
+        </div>
+      )}
 
       {sansFournisseur > 0 && (
         <div style={{

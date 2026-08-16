@@ -82,9 +82,11 @@ export default function DocumentPrintPage() {
         if (res?.error) { setError(res.error); return; }
         setDoc(res.invoice || res.order);
         setCfg(wl?.config || {});
-        /* Le poids du colis n'est stocke nulle part : on le reconstitue
-           depuis le poids unitaire des articles du catalogue. */
-        if (type === 'bon-de-livraison') {
+        /* Le catalogue sert au bon de livraison (le poids du colis n'est
+           stocké nulle part, on le reconstitue) et au bon de commande
+           (nom suédois et photo : c'est le document avec lequel on va en
+           magasin, où personne ne lit le français). */
+        if (type === 'bon-de-livraison' || type === 'bon-de-commande') {
           adminFetch('/api/products?limit=1000').then(r => r.json())
             .then(d => setCatalogue(d.products || [])).catch(() => {});
         }
@@ -132,13 +134,34 @@ export default function DocumentPrintPage() {
     ? (Number(shippingLine.qty) || 1) * (Number(shippingLine.price) || 0)
     : (source === 'order' ? Number(doc.shipping) || 0 : undefined);
 
+  const parProduit: Record<string, any> = Object.fromEntries(
+    (catalogue || []).map((p: any) => [p.id, p]));
+
   const lines: DocLine[] = productLines.map(l => {
     const qty = Number(l.qty) || 1;
-    const unit = Number(l.price ?? l.unit_price) || 0;
+    /* Une ligne d'achat porte `unit_cost`, pas `price` : sans ce repli,
+       le bon de commande s'imprimait avec des prix à zéro. */
+    const unit = Number(l.price ?? l.unit_price ?? l.unit_cost_eur ?? l.unit_cost) || 0;
+    const p = parProduit[l.product_id] || {};
+
+    /* Sur le bon de commande, le suédois prime : c'est le nom écrit sur
+       le paquet, celui que le magasin comprend et celui qu'on cherche en
+       rayon. La photo évite de confondre deux sachets voisins. */
+    const enSuedois = type === 'bon-de-commande';
+    const label = enSuedois
+      ? (p.name_sv || l.name_sv || p.name_fr || l.desc || l.name || 'Artikel')
+      : (l.desc || l.name_fr || l.name || 'Article');
+
     return {
-      label: l.desc || l.name_fr || l.name || 'Article',
+      label,
       desc: l.subdesc || undefined,
-      ref: l.ref || l.sku || undefined,
+      // Vignette redimensionnée : la photo pleine résolution pèse des
+      // centaines de kilo-octets pour être affichée en 34 px.
+      image: enSuedois && p.image_url
+        ? p.image_url.replace('/object/public/', '/render/image/public/')
+          + '?width=96&height=96&resize=cover&quality=75'
+        : undefined,
+      ref: l.ref || l.sku || p.sku || undefined,
       qty, unit, amount: qty * unit,
     };
   });

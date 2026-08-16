@@ -50,6 +50,9 @@ export type DocLine = {
   label: string;
   /** Deuxième ligne descriptive, 10,5 px */
   desc?: string;
+  /** Vignette produit — on reconnaît un paquet en rayon plus vite qu'on
+   *  ne lit sa référence. */
+  image?: string;
   ref?: string;
   qty?: number | string;
   unit?: number;
@@ -234,11 +237,18 @@ export function LinesTable({
   );
 }
 
-/** Cellule « désignation » : nom en 500 + description 10,5 px optionnelle. */
+/** Cellule « désignation » : vignette optionnelle, nom en 500,
+ *  description 10,5 px optionnelle. */
 export const DesignationCell = (l: DocLine) => (
-  <span style={{ fontVariantNumeric: 'normal' }}>
-    <span style={{ fontWeight: 500 }}>{l.label}</span>
-    {l.desc && <><br /><span style={{ fontSize: 10.5, color: D.soft2 }}>{l.desc}</span></>}
+  <span style={{ fontVariantNumeric: 'normal', display: 'flex', alignItems: 'center', gap: 9 }}>
+    {l.image && (
+      <img src={l.image} alt="" width={34} height={34}
+           style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+    )}
+    <span>
+      <span style={{ fontWeight: 500 }}>{l.label}</span>
+      {l.desc && <><br /><span style={{ fontSize: 10.5, color: D.soft2 }}>{l.desc}</span></>}
+    </span>
   </span>
 );
 

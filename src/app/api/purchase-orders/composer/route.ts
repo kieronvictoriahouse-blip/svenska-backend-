@@ -120,20 +120,43 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  /* Modification d'une commande existante : on garde son numéro, son
+     statut et sa date d'émission — une commande déjà partie chez le
+     magasin ne doit pas changer d'identité parce qu'on corrige une
+     quantité. */
+  const existanteId: string | null = body.id || null;
+  let existante: any = null;
+  if (existanteId) {
+    const { data } = await supabaseAdmin.from('purchase_orders')
+      .select('id, number, status, expected_date').eq('id', existanteId).maybeSingle();
+    if (!data) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+    if (data.status === 'received') {
+      return NextResponse.json(
+        { error: 'Cette commande est déjà réceptionnée : la modifier fausserait le stock. Annule la réception d’abord.' },
+        { status: 409 },
+      );
+    }
+    existante = data;
+  }
+
   /* Numérotation par le maximum existant, pas par le nombre de lignes :
      une commande annulée puis supprimée ferait sinon réémettre un numéro
      déjà utilisé. */
-  const { data: dernieres } = await supabaseAdmin.from('purchase_orders')
-    .select('number').like('number', 'ACH-%').order('number', { ascending: false }).limit(1);
-  const precedent = Number(String(dernieres?.[0]?.number || '').replace(/\D/g, '')) || 0;
-  const numero = `ACH-${String(precedent + 1).padStart(4, '0')}`;
+  let numero = existante?.number || '';
+  if (!numero) {
+    const { data: dernieres } = await supabaseAdmin.from('purchase_orders')
+      .select('number').like('number', 'ACH-%').order('number', { ascending: false }).limit(1);
+    const precedent = Number(String(dernieres?.[0]?.number || '').replace(/\D/g, '')) || 0;
+    numero = `ACH-${String(precedent + 1).padStart(4, '0')}`;
+  }
 
   const delai = Math.max(1, Number(fournisseur.lead_time_days) || 7);
-  const attendue = new Date(Date.now() + delai * 86400000).toISOString().slice(0, 10);
+  const attendue = existante?.expected_date
+    || new Date(Date.now() + delai * 86400000).toISOString().slice(0, 10);
 
   const payload: Record<string, unknown> = {
     number: numero,
-    status: 'confirmed',
+    status: existante?.status || 'confirmed',
     supplier_id: fournisseur.id,
     supplier_name: nomFournisseur,
     expected_date: attendue,
@@ -149,23 +172,29 @@ export async function POST(req: NextRequest) {
   if (body.coverage_weeks) payload.coverage_weeks = Math.round(Number(body.coverage_weeks));
   payload.exchange_rate_used = taux;
 
-  let { data: commande, error } = await supabaseAdmin
-    .from('purchase_orders').insert(payload).select().single();
+  const ecrire = () => existante
+    ? supabaseAdmin.from('purchase_orders').update(payload).eq('id', existante.id).select().single()
+    : supabaseAdmin.from('purchase_orders').insert(payload).select().single();
+
+  let { data: commande, error } = await ecrire();
 
   /* Si la 037 n'est pas encore appliquée, la commande ne doit pas être
      perdue pour deux colonnes de confort. */
   if (error && /coverage_weeks|exchange_rate_used/.test(error.message || '')) {
     delete payload.coverage_weeks; delete payload.exchange_rate_used;
-    ({ data: commande, error } = await supabaseAdmin
-      .from('purchase_orders').insert(payload).select().single());
+    ({ data: commande, error } = await ecrire());
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await supabaseAdmin.from('contacts')
-    .update({ last_order_at: new Date().toISOString() }).eq('id', fournisseur.id);
+  if (!existante) {
+    await supabaseAdmin.from('contacts')
+      .update({ last_order_at: new Date().toISOString() }).eq('id', fournisseur.id);
+  }
 
   /* Le prix payé chez ce magasin est ce qui alimentera la comparaison
-     des enseignes à la prochaine commande. */
+     des enseignes à la prochaine commande. Le compteur d'achats n'avance
+     qu'à la création : sur une modification, enregistrer à nouveau ferait
+     croire à autant d'achats qu'on a corrigé de fautes de frappe. */
   for (const l of lignes) {
     const { data: connu } = await supabaseAdmin.from('product_suppliers')
       .select('times_bought').eq('product_id', l.product_id).eq('supplier_id', fournisseur.id).maybeSingle();
@@ -175,21 +204,26 @@ export async function POST(req: NextRequest) {
       cost_eur: l.unit_cost_eur,
       cost_sek: l.unit_cost_sek,
       pack_size: l.pack_size,
-      times_bought: (Number(connu?.times_bought) || 0) + 1,
+      times_bought: (Number(connu?.times_bought) || 0) + (existante ? 0 : 1),
       last_bought_at: new Date().toISOString(),
     }, { onConflict: 'product_id,supplier_id' });
   }
 
   const dateFr = new Date(attendue).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
-  let message = `${numero} — ${lignes.length} référence(s), ${unites} unités, `
+  let message = `${existante ? 'Modifiée · ' : ''}${numero} — ${lignes.length} référence(s), ${unites} unités, `
     + `${sousTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € HT`
     + (port > 0 ? ` + ${port.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € de transport reversés sur les articles` : '')
     + `. Attendue vers le ${dateFr}.`;
 
   /* L'envoi par mail n'a de sens que si le magasin en a une : plusieurs
-     de ces enseignes sont des points de vente où l'on se rend. */
+     de ces enseignes sont des points de vente où l'on se rend.
+     Une modification ne renvoie rien toute seule : corriger une quantité
+     ne doit pas expédier un second bon au magasin. Le renvoi reste un
+     geste explicite depuis la liste des commandes. */
   let envoye = false;
-  if (fournisseur.email) {
+  if (existante) {
+    message += ` Le bon n’a pas été renvoyé — utilise l’icône d’envoi depuis la liste si le magasin doit recevoir la version corrigée.`;
+  } else if (fournisseur.email) {
     try {
       const { generatePurchaseOrderPdf } = await import('@/lib/purchase-order-pdf');
       const { sendEmail, getWhiteLabelConfig } = await import('@/lib/email-send');

@@ -90,9 +90,47 @@ export async function generatePurchaseOrderPdf(
   const produits: Record<string, any> = {};
   if (ids.length) {
     const { data } = await supabaseAdmin
-      .from('products').select('id, sku, sort_order, name_sv, name_en, name_fr').in('id', ids);
+      .from('products').select('id, sku, sort_order, name_sv, name_en, name_fr, image_url').in('id', ids);
     for (const p of data || []) produits[p.id] = p;
   }
+
+  /* Vignettes : on reconnaît un paquet en rayon plus vite qu'on ne lit
+     sa référence.
+     On passe par le redimensionnement de Supabase plutôt que par le
+     fichier d'origine, pour deux raisons. Le poids d'abord : en pleine
+     résolution le bon pesait 11 Mo, injoignable en pièce jointe ; à
+     96 px il tient sous 200 ko. Le format ensuite : pdfkit n'embarque
+     que du JPEG et du PNG, or une partie du catalogue est en avif et en
+     webp — la transformation les rend en JPEG.
+     On vérifie quand même les octets d'en-tête, l'extension ment. Une
+     image manquante ne doit jamais empêcher le bon de partir. */
+  const VIGNETTE_PX = 96;
+  const vignettes: Record<string, Buffer> = {};
+
+  const telecharger = async (url: string) => {
+    const r = await fetch(url, {
+      headers: { Accept: 'image/jpeg,image/png' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null;
+    const b = Buffer.from(await r.arrayBuffer());
+    const jpeg = b[0] === 0xff && b[1] === 0xd8;
+    const png = b.slice(0, 8).toString('hex') === '89504e470d0a1a0a';
+    return jpeg || png ? b : null;
+  };
+
+  await Promise.all(ids.map(async id => {
+    const url = produits[id]?.image_url;
+    if (!url) return;
+    const redimensionne = url.replace('/object/public/', '/render/image/public/')
+      + `?width=${VIGNETTE_PX}&height=${VIGNETTE_PX}&resize=cover&quality=75`;
+    try {
+      // Repli sur l'original : si la transformation est indisponible, un
+      // JPEG lourd vaut mieux qu'un bon sans photos.
+      const b = await telecharger(redimensionne) || await telecharger(url);
+      if (b) vignettes[id] = b;
+    } catch { /* le bon part sans la photo */ }
+  }));
 
   const fournisseur: any = order.contacts || {};
   const nomFournisseur = fournisseur.company
@@ -167,25 +205,45 @@ export async function generatePurchaseOrderPdf(
   y += PX(11);
 
   let marchandises = 0;
+  const VIG = PX(34);
   for (const l of lignes) {
     const p = produits[l.product_id] || {};
-    const nom = (lang === 'sv' ? p.name_sv : lang === 'en' ? p.name_en : p.name_fr)
-      || p.name_fr || l.name || 'Article';
+    /* Le suédois prime, quelle que soit la langue des libellés : c'est
+       le nom imprimé sur le paquet, celui que le magasin comprend et
+       celui qu'on cherche en rayon. */
+    const nom = p.name_sv || p.name_fr || l.name_sv || l.name || 'Artikel';
     const ref = p.sku || (p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : '—');
     const qte = Number(l.qty) || 0;
     const pu = Number(l.unit_cost ?? l.price) || 0;
     const montant = qte * pu;
     marchandises += montant;
 
+    const vignette = vignettes[l.product_id];
+    const xNom = M + (vignette ? VIG + PX(10) : 0);
+    const wNom = cRef - xNom - PX(12);
+
     doc.font(F[SANS]).fontSize(PX(13));
-    const h = doc.heightOfString(String(nom), { width: cRef - M - PX(12) });
-    ecrire(String(nom), M, y, { size: PX(13), color: D.ink, width: cRef - M - PX(12) });
+    const h = doc.heightOfString(String(nom), { width: wNom });
+    const hLigne = Math.max(h, vignette ? VIG : PX(13));
+
+    if (vignette) {
+      try {
+        doc.save();
+        doc.roundedRect(M, y - PX(2), VIG, VIG, PX(3)).clip();
+        doc.image(vignette, M, y - PX(2), { cover: [VIG, VIG], align: 'center', valign: 'center' });
+        doc.restore();
+      } catch { doc.restore(); }
+    }
+
+    // Le nom se centre sur la vignette quand elle est plus haute.
+    const yNom = y + Math.max(0, (hLigne - h) / 2);
+    ecrire(String(nom), xNom, yNom, { size: PX(13), color: D.ink, width: wNom });
     ecrire(ref, cRef, y, { size: PX(11.5), color: D.soft, width: PX(88) });
     ecrire(String(qte), cQte, y, { size: PX(13), color: D.ink, width: PX(60), align: 'center' });
     ecrire(eur(pu), cPu, y, { size: PX(13), color: D.ink, width: PX(92), align: 'right' });
     ecrire(eur(montant), cTot, y, { size: PX(13), color: D.ink, font: SANS_B, width: PX(100), align: 'right' });
 
-    y += Math.max(h, PX(13)) + PX(11);
+    y += hLigne + PX(11);
     doc.rect(M, y, CW, 0.75).fill(D.ruleRow);
     y += PX(11);
   }

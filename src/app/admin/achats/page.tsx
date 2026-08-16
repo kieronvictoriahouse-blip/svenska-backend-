@@ -604,9 +604,19 @@ export default function AchatsPage() {
                         <a className="sc-iconbtn" href={`/admin/documents/bon-de-commande/${o.id}`} target="_blank" rel="noopener" title="Bon de commande A4">
                           <span className="ms">print</span>
                         </a>
-                        <button className="sc-iconbtn" onClick={() => openEdit(o)} title={t('editTitle')}>
-                          <span className="ms">edit</span>
-                        </button>
+                        {/* On modifie là où l'on voit la couverture et les
+                            ruptures. Sans magasin rattaché, l'écran de
+                            composition n'a rien à afficher : la saisie
+                            manuelle reste le seul recours. */}
+                        {o.supplier_id ? (
+                          <Link className="sc-iconbtn" href={`/admin/achats/nouvelle?id=${o.id}`} title={t('editTitle')}>
+                            <span className="ms">edit</span>
+                          </Link>
+                        ) : (
+                          <button className="sc-iconbtn" onClick={() => openEdit(o)} title={t('editTitle')}>
+                            <span className="ms">edit</span>
+                          </button>
+                        )}
                         <button className="sc-iconbtn" onClick={() => openSendModal(o)} title="PDF / Envoyer">
                           <span className="ms">send</span>
                         </button>
