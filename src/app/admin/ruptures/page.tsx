@@ -91,13 +91,18 @@ export default function RupturesPage() {
     finally { setBusy(false); }
   }
 
-  async function clore(id: string) {
-    await adminFetch('/api/ruptures', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    setRows(rs => rs.map(r => (r.id === id ? { ...r, status: 'done' } : r)));
-    say('Demande close');
+  async function agir(id: string, action: 'appliquer' | 'clore') {
+    try {
+      const res = await adminFetch('/api/ruptures', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Échec');
+      setRows(rs => rs.map(r => (r.id === id ? { ...r, status: 'done' } : r)));
+      say(d.message || 'Demande close');
+      if (d.remboursement_du > 0) load();
+    } catch (e: any) { say(e.message); }
   }
 
   const enAttente = rows.filter(r => r.status === 'pending').length;
@@ -239,11 +244,27 @@ export default function RupturesPage() {
                           {du < 0 ? `${eur(Math.abs(du))} à rendre` : du > 0 ? eur(du) : '—'}
                         </td>
                         <td>
-                          {r.status !== 'pending' && r.status !== 'done' && (
-                            <button className="sc-iconbtn" title="Marquer comme traité" onClick={() => clore(r.id)}>
-                              <span className="ms" style={{ color: T.green }}>check_circle</span>
-                            </button>
-                          )}
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                            {/* Le remplacement s'applique ici ; un remboursement
+                                se fait depuis la fiche commande, avec son ecran. */}
+                            {r.status === 'replaced' && (
+                              <button className="sc-btn sc-btn-green" style={{ padding: '4px 9px', fontSize: 11 }}
+                                      onClick={() => agir(r.id, 'appliquer')}>
+                                Appliquer
+                              </button>
+                            )}
+                            {r.status === 'refund_requested' && r.order && (
+                              <a className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
+                                 href={`/admin/commandes?q=${encodeURIComponent(r.order.order_number)}`}>
+                                Rembourser
+                              </a>
+                            )}
+                            {r.status !== 'pending' && r.status !== 'done' && (
+                              <button className="sc-iconbtn" title="Marquer comme traité" onClick={() => agir(r.id, 'clore')}>
+                                <span className="ms" style={{ color: T.green }}>check_circle</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
