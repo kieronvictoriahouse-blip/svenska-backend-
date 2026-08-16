@@ -66,6 +66,8 @@ export async function GET(req: NextRequest) {
   const refs: Record<string, number> = {};
   for (const s of sources || []) refs[s.supplier_id] = (refs[s.supplier_id] || 0) + 1;
 
+  const nomDe = Object.fromEntries((fournisseurs || []).map(c => [c.id, nomFournisseur(c)]));
+
   const NEUF_JOURS = 45;      // « nouveauté » : pas d'historique exploitable
 
   const catalogue = (produits || [])
@@ -99,7 +101,9 @@ export async function GET(req: NextRequest) {
           fois: Number(s.times_bought) || 0,
           habituel: !!s.is_preferred,
         })),
-        moinsCher: moinsCher ? { sup: moinsCher.supplier_id, cost: Number(moinsCher.cost_eur) } : null,
+        moinsCher: moinsCher
+          ? { sup: moinsCher.supplier_id, cost: Number(moinsCher.cost_eur), nom: nomDe[moinsCher.supplier_id] || '' }
+          : null,
         stock: Number(p.stock) || 0,
         onOrder: enRoute[p.id] || 0,
         pack: Math.max(1, Number(p.pack_size) || 1),

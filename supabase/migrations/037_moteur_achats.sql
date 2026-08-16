@@ -60,9 +60,13 @@ COMMENT ON TABLE product_suppliers IS
 -- 54 couples produit-magasin sont deja connus des commandes passees,
 -- dont 12 produits vus chez plusieurs enseignes. Autant ne pas les
 -- ressaisir.
-WITH lignes AS (
+-- Une ligne au moins porte un product_id vide : ''::uuid ferait echouer
+-- toute la migration. Le NULLIF est la garde, et le cast n'a lieu qu'une
+-- fois la ligne filtree — l'ordre d'evaluation d'un SELECT n'est pas
+-- garanti a l'interieur d'un meme niveau de requete.
+WITH brut AS (
   SELECT po.supplier_id,
-         (j.line->>'product_id')::uuid AS product_id,
+         NULLIF(btrim(j.line->>'product_id'), '') AS product_txt,
          COALESCE(
            NULLIF(j.line->>'unit_cost_eur', '')::numeric,
            NULLIF(j.line->>'unit_cost', '')::numeric,
@@ -71,11 +75,20 @@ WITH lignes AS (
          po.created_at
   FROM purchase_orders po
        CROSS JOIN LATERAL jsonb_array_elements(
-         CASE jsonb_typeof(po.lines::jsonb) WHEN 'array' THEN po.lines::jsonb ELSE '[]'::jsonb END
+         CASE
+           WHEN po.lines IS NOT NULL AND btrim(po.lines::text) LIKE '[%'
+             THEN po.lines::jsonb
+           ELSE '[]'::jsonb
+         END
        ) AS j(line)
   WHERE po.status <> 'cancelled'
     AND po.supplier_id IS NOT NULL
-    AND j.line->>'product_id' IS NOT NULL
+),
+lignes AS (
+  SELECT supplier_id, product_txt::uuid AS product_id, cout, created_at
+  FROM brut
+  WHERE product_txt IS NOT NULL
+    AND product_txt ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 ),
 agrege AS (
   SELECT product_id, supplier_id,

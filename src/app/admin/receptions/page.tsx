@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, eur, thumbStyle, initials } from '@/lib/admin-theme';
+import { repartir } from '@/lib/landed';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 8 — RÉCEPTIONS
@@ -41,6 +42,8 @@ export default function ReceptionsPage() {
   const [lcForm, setLcForm] = useState({ description: '', amount: '', allocation_method: 'equal' });
   const [lcSaving, setLcSaving] = useState(false);
   const [lcResult, setLcResult] = useState<any[] | null>(null);
+  /* Lignes décochées : par défaut le port se répartit sur tout. */
+  const [lcExclus, setLcExclus] = useState<Record<string, boolean>>({});
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
 
@@ -59,6 +62,7 @@ export default function ReceptionsPage() {
   async function selectReception(r: Reception) {
     setSelected(r);
     setLcResult(null);
+    setLcExclus({});
     setLcForm({ description: '', amount: '', allocation_method: 'equal' });
     try {
       const d = await adminFetch(`/api/landed-costs?reception_id=${r.id}`).then(x => x.json());
@@ -68,6 +72,11 @@ export default function ReceptionsPage() {
 
   async function saveLandedCost() {
     if (!selected || !lcForm.description || !lcForm.amount) { say('Description et montant requis'); return; }
+    const porteurs = linesOf(selected)
+      .filter((l: any) => l.product_id && Number(l.received_qty) > 0 && !lcExclus[l.product_id]);
+    /* Sans garde, une sélection vide serait comprise côté serveur comme
+       « pas de sélection », donc imputée sur tout — l'inverse du geste. */
+    if (!porteurs.length) { say('Coche au moins un article pour porter ce coût'); return; }
     setLcSaving(true);
     try {
       const res = await adminFetch('/api/landed-costs', {
@@ -77,6 +86,7 @@ export default function ReceptionsPage() {
           description: lcForm.description,
           amount: parseFloat(lcForm.amount),
           allocation_method: lcForm.allocation_method,
+          product_ids: porteurs.map((l: any) => l.product_id),
         }),
       });
       const d = await res.json();
@@ -201,14 +211,70 @@ export default function ReceptionsPage() {
                       </div>
                       <div>
                         <label className="sc-label">Répartition</label>
+                        {/* Deux méthodes, pas trois : l'API n'en connaît que
+                            deux, les libellés en promettaient une de plus. */}
                         <select className="sc-input sc-select" value={lcForm.allocation_method}
                                 onChange={e => setLcForm(f => ({ ...f, allocation_method: e.target.value }))}>
-                          <option value="equal">Égale par ligne</option>
-                          <option value="value">Au prorata de la valeur</option>
-                          <option value="quantity">Au prorata des quantités</option>
+                          <option value="equal">Par unité reçue</option>
+                          <option value="prorata">Au prorata de la valeur</option>
                         </select>
                       </div>
                     </div>
+
+                    {/* Sur quels articles reverser le port : un carton
+                        volumineux ne doit pas être subventionné par un
+                        sachet plat. */}
+                    {(() => {
+                      const lignes = linesOf(selected).filter((l: any) => l.product_id && Number(l.received_qty) > 0);
+                      if (!lignes.length) return null;
+                      const montant = parseFloat(lcForm.amount) || 0;
+                      const parts = repartir(
+                        lignes.map((l: any) => ({
+                          key: l.product_id,
+                          qty: parseInt(l.received_qty) || 0,
+                          unit_cost: parseFloat(l.unit_cost) || 0,
+                          retenue: !lcExclus[l.product_id],
+                        })),
+                        montant,
+                        lcForm.allocation_method === 'prorata' ? 'prorata' : 'equal',
+                      );
+                      const retenues = lignes.filter((l: any) => !lcExclus[l.product_id]).length;
+                      return (
+                        <div style={{ marginTop: 12, border: `1px solid ${T.borderFaint}`, borderRadius: 7, overflow: 'hidden' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 11px', background: '#FBF9F6' }}>
+                            <span className="sc-label" style={{ margin: 0, flex: 1 }}>
+                              Articles qui portent ce coût — {retenues}/{lignes.length}
+                            </span>
+                            <button onClick={() => setLcExclus({})}
+                                    style={{ border: 'none', background: 'none', color: T.text2b, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>
+                              Tout cocher
+                            </button>
+                          </div>
+                          {lignes.map((l: any) => {
+                            const coche = !lcExclus[l.product_id];
+                            const part = parts[l.product_id];
+                            return (
+                              <label key={l.product_id}
+                                     style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 11px', borderTop: `1px solid ${T.borderFaint}`, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={coche}
+                                       onChange={e => setLcExclus(x => ({ ...x, [l.product_id]: !e.target.checked }))}
+                                       style={{ width: 14, height: 14, cursor: 'pointer' }} />
+                                <span style={{ flex: 1, fontSize: 12, color: coche ? T.text2 : T.muted, minWidth: 0 }}>
+                                  {l.name || l.product_name}
+                                  <span className="sc-num" style={{ color: T.muted }}> · {l.received_qty} u.</span>
+                                </span>
+                                {montant > 0 && coche && part && (
+                                  <span className="sc-num" style={{ fontSize: 11.5, color: T.text2b, whiteSpace: 'nowrap' }}>
+                                    +{eur(part.parUnite)}/u. → {eur(part.revient)}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
                     <button className="sc-btn sc-btn-green" style={{ marginTop: 10 }} onClick={saveLandedCost} disabled={lcSaving}>
                       <span className="ms">calculate</span>{lcSaving ? 'Imputation…' : 'Imputer sur le PMP'}
                     </button>

@@ -128,6 +128,14 @@ export function LigneCatalogue({ p, semaines, cartons, onAdd }: {
           {p.ref} · carton de {p.packEffectif}
           {p.sek != null ? ` · ${kr(p.sek)} /u.` : p.prix ? ` · ${eur(p.prix)} HT /u.` : ''}
           {p.onOrder > 0 ? ` · ${p.onOrder} en route` : ''}
+          {/* Payer 70 % de plus parce qu'on a l'habitude d'un magasin est
+              une perte qu'on ne voit jamais : elle est dite ici, au moment
+              où la ligne s'ajoute. */}
+          {p.surcout >= 8 && (
+            <span style={{ color: C.ambre, fontWeight: 600 }}>
+              {' · '}+{p.surcout} % vs {p.moinsCherNom || 'ailleurs'}
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>

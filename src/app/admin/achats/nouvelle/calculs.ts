@@ -12,6 +12,9 @@
      suggest = ceil(need / pack)             → nombre de CARTONS
    ═══════════════════════════════════════════════════════════════ */
 
+import { repartir, type LigneAImputer, type Methode, type Part } from '@/lib/landed';
+export type { Methode, Part };
+
 export type Source = {
   sup: string; cost: number; sek: number | null;
   pack: number; fois: number; habituel: boolean;
@@ -24,7 +27,7 @@ export type Produit = {
      differents. GEKAS, grossiste pour particuliers, est presque
      toujours le moins cher. */
   sources: Source[];
-  moinsCher: { sup: string; cost: number } | null;
+  moinsCher: { sup: string; cost: number; nom: string } | null;
   stock: number; onOrder: number; pack: number; cost: number;
   vel: number; velCalendar: number; joursRupture: number; isNew: boolean;
 };
@@ -41,6 +44,7 @@ export type Enrichi = Produit & {
   prix: number; sek: number | null; packEffectif: number;
   /** Ecart avec le magasin le moins cher, en % — 0 si c'est le moins cher. */
   surcout: number;
+  moinsCherNom: string;
 };
 
 export const URGENCE_COULEUR = ['#B03A2E', '#C97A2B', '#8A5B08', '#3E5238'];
@@ -67,7 +71,10 @@ export function enrichir(p: Produit, semaines: number, fournisseur?: string | nu
   const surcout = p.moinsCher && p.moinsCher.cost > 0 && prix > 0
     ? Math.round(((prix - p.moinsCher.cost) / p.moinsCher.cost) * 100) : 0;
 
-  return { ...p, daily, cover, suggest, urgency, prix, sek: source?.sek ?? null, packEffectif, surcout };
+  return {
+    ...p, daily, cover, suggest, urgency, prix, sek: source?.sek ?? null,
+    packEffectif, surcout, moinsCherNom: p.moinsCher?.nom || '',
+  };
 }
 
 /** Libellé de couverture — « 999 j » ne veut rien dire à l'écran. */
@@ -101,6 +108,10 @@ export const kr = (n: number) =>
 
 export type Totaux = {
   lignes: number; unites: number; sek: number; eur: number;
+  /** Port saisi, et coût d'achat réel une fois le port reversé. */
+  port: number; eurAvecPort: number;
+  /** Part du port par ligne, indexée par product_id. */
+  parts: Record<string, Part>;
   couvertureMoyenne: number;
   francoReste: number; francoAtteint: boolean;
   minAtteint: boolean;
@@ -108,16 +119,25 @@ export type Totaux = {
   pretAEnvoyer: boolean;
 };
 
+export type OptionsPort = {
+  /** Montant TNT en euros HT — 0 quand on va chercher la marchandise. */
+  montant: number;
+  methode: Methode;
+  /** Produits exclus de la répartition, cochés/décochés à la main. */
+  exclus: Record<string, boolean>;
+};
+
 /** Compteurs du panier, jauge de franco et liste de contrôle. */
 export function totaux(
   panier: Record<string, number>,
   catalogue: Enrichi[],
   fournisseur: Fournisseur | null,
-  semaines: number,
   taux: number,
+  port: OptionsPort = { montant: 0, methode: 'equal', exclus: {} },
 ): Totaux {
   let unites = 0, sek = 0, euros = 0;
   const couvertures: number[] = [];
+  const aImputer: LigneAImputer[] = [];
   let lignes = 0;
 
   for (const p of catalogue) {
@@ -126,11 +146,17 @@ export function totaux(
     lignes++;
     const u = cartons * p.packEffectif;
     unites += u;
+    const puEuro = p.sek != null ? sekVersEur(p.sek, taux) : p.prix;
     if (p.sek != null) { sek += p.sek * u; euros += sekVersEur(p.sek * u, taux); }
     else euros += p.prix * u;
+    aImputer.push({ key: p.id, qty: u, unit_cost: puEuro, retenue: !port.exclus[p.id] });
     // Couverture une fois la commande reçue.
     couvertures.push(p.daily > 0 ? (p.stock + u) / p.daily : 999);
   }
+
+  /* Le port fait partie du coût d'achat : tant qu'il n'est pas reversé
+     sur les articles, la marge affichée est fausse. */
+  const parts = repartir(aImputer, port.montant, port.methode);
 
   const franco = fournisseur?.franco || 0;
   const min = fournisseur?.min || 0;
@@ -142,6 +168,7 @@ export function totaux(
 
   return {
     lignes, unites, sek, eur: euros,
+    port: port.montant, eurAvecPort: euros + (port.montant || 0), parts,
     couvertureMoyenne: couvertures.length
       ? Math.round(couvertures.reduce((s, c) => s + c, 0) / couvertures.length) : 0,
     francoReste: Math.max(0, franco - sek),

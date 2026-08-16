@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { repartir } from '@/lib/landed';
 
 export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -16,6 +17,11 @@ export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
   const { reception_id, description, amount, allocation_method } = body;
+  /* Sélection d'articles : toutes les lignes ne portent pas le port —
+     un carton volumineux ne doit pas se faire subventionner par un
+     sachet plat. Absente, on impute sur tout, comme avant. */
+  const choisis: string[] | null = Array.isArray(body.product_ids) && body.product_ids.length
+    ? body.product_ids : null;
 
   if (!reception_id || !amount || !description) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -32,27 +38,31 @@ export async function POST(req: NextRequest) {
   const validLines = lines.filter(l => l.product_id && l.received_qty > 0);
   if (!validLines.length) return NextResponse.json({ error: 'Aucune ligne valide' }, { status: 400 });
 
-  // Calcul de l'allocation par méthode
-  const totalUnits = validLines.reduce((s: number, l: any) => s + (parseInt(l.received_qty) || 0), 0);
-  const totalValue = validLines.reduce((s: number, l: any) =>
-    s + (parseInt(l.received_qty) || 0) * (parseFloat(l.unit_cost) || 0), 0);
+  const retenues = validLines.filter(l => !choisis || choisis.includes(l.product_id));
+  if (!retenues.length) {
+    return NextResponse.json({ error: 'Aucun article sélectionné pour porter ce coût' }, { status: 400 });
+  }
+
+  /* Même répartition que l'écran de commande d'achat : deux calculs
+     séparés donneraient deux PMP pour le même carton. */
+  const parts = repartir(
+    validLines.map((l: any) => ({
+      key: l.product_id,
+      qty: parseInt(l.received_qty) || 0,
+      unit_cost: parseFloat(l.unit_cost) || 0,
+      retenue: !choisis || choisis.includes(l.product_id),
+    })),
+    Number(amount) || 0,
+    allocation_method === 'prorata' ? 'prorata' : 'equal',
+  );
 
   const computedLines: any[] = [];
 
-  for (const line of validLines) {
+  for (const line of retenues) {
     const qty = parseInt(line.received_qty) || 0;
     const unitCost = parseFloat(line.unit_cost) || 0;
-    const lineValue = qty * unitCost;
-
-    // Coût logistique alloué à cette ligne
-    let allocatedTotal = 0;
-    if (allocation_method === 'prorata' && totalValue > 0) {
-      allocatedTotal = (lineValue / totalValue) * amount;
-    } else {
-      // equal : prorata par unités
-      allocatedTotal = (qty / totalUnits) * amount;
-    }
-    const allocatedPerUnit = qty > 0 ? allocatedTotal / qty : 0;
+    const allocatedTotal = parts[line.product_id]?.total || 0;
+    const allocatedPerUnit = parts[line.product_id]?.parUnite || 0;
 
     // Récupérer le PMP et stock actuels du produit
     const { data: product } = await supabaseAdmin.from('products')
