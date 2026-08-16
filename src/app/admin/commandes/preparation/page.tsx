@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials, eur } from '@/lib/admin-theme';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import { useT } from '@/lib/admin-i18n';
+import { TP, nomProduit } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    BOUTIQUE › PRÉPARATION DE COMMANDE
@@ -24,6 +26,7 @@ type PickLine = { product_id: string; name: string; qty: number; ean?: string; i
 const PAID = ['paid', 'confirmed'];
 
 export default function PreparationPage() {
+  const { t, tc, lang } = useT(TP);
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -66,14 +69,14 @@ export default function PreparationPage() {
       const p = products.find(x => x.id === l.product_id);
       return {
         product_id: l.product_id,
-        name: l.name || l.name_fr || p?.name_fr || 'Article',
+        name: nomProduit(l, p, lang),
         qty: Number(l.qty) || 1,
         ean: p?.ean || undefined,
         image_url: l.image_url || p?.image_url,
         ref: p?.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : undefined,
       };
     });
-  }, [active, products]);
+  }, [active, products, lang]);
 
   const totalQty = lines.reduce((s, l) => s + l.qty, 0);
   const doneQty = lines.reduce((s, l) => s + Math.min(l.qty, picked[l.product_id] || 0), 0);
@@ -84,14 +87,14 @@ export default function PreparationPage() {
   function onScan(code: string) {
     const line = lines.find(l => l.ean && l.ean === code);
     if (!line) {
-      setFeedback({ ok: false, title: 'Article hors commande', detail: `EAN ${code} — absent de la commande ${active?.order_number || ''}` });
+      setFeedback({ ok: false, title: t('horsCmd'), detail: `EAN ${code} — ${t('horsCmdD')} ${active?.order_number || ''}` });
       try { navigator.vibrate?.([70, 60, 70]); } catch {}
       return;
     }
     setPicked(prev => {
       const current = prev[line.product_id] || 0;
       if (current >= line.qty) {
-        setFeedback({ ok: false, title: 'Quantité déjà atteinte', detail: `${line.name} — ${line.qty} / ${line.qty}` });
+        setFeedback({ ok: false, title: t('dejaAtteint'), detail: `${line.name} — ${line.qty} / ${line.qty}` });
         return prev;
       }
       const next = current + 1;
@@ -134,11 +137,11 @@ export default function PreparationPage() {
         body: JSON.stringify({ status: 'shipped', picking: picked, picked_at: new Date().toISOString() }),
       });
       if (!res.ok) throw new Error();
-      say(`${active.order_number} expédiée · stock décrémenté`);
+      say(`${active.order_number} ${t('expediee')}`);
       setOrders(os => os.filter(o => o.id !== active.id));
       const rest = orders.filter(o => o.id !== active.id);
       if (rest.length) selectOrder(rest[0]); else { setActiveId(null); setPicked({}); }
-    } catch { say('Validation impossible'); }
+    } catch { say(t('echecValid')); }
     finally { setBusy(false); }
   }
 
@@ -146,23 +149,21 @@ export default function PreparationPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Préparation de commande</div>
-          <div className="sc-sub">
-            Scanne chaque article avec le téléphone : la ligne se coche seule et le stock se décrémente à la validation.
-          </div>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">{t('sous')}</div>
         </div>
         <div className="sc-actions">
           {active && (
             <a className="sc-btn sc-btn-secondary" href={`/admin/documents/bon-de-livraison/${active.id}`} target="_blank" rel="noopener">
-              <span className="ms">print</span>Feuille de picking
+              <span className="ms">print</span>{t('feuille')}
             </a>
           )}
         </div>
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <div className="sc-empty">{tc('loading')}</div>}
       {!loading && orders.length === 0 && (
-        <div className="sc-empty">Aucune commande à préparer. Les commandes payées apparaissent ici.</div>
+        <div className="sc-empty">{t('vide')}</div>
       )}
 
       {!loading && orders.length > 0 && (
@@ -172,7 +173,7 @@ export default function PreparationPage() {
           <div style={{ flex: '1 1 230px', minWidth: 0 }}>
             <div className="sc-card" style={{ background: T.sidebarBg, overflow: 'hidden' }}>
               <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-                <span className="sc-card-title">File d’attente ({orders.length})</span>
+                <span className="sc-card-title">{t('file')} ({orders.length})</span>
               </div>
               {orders.map(o => {
                 const on = o.id === activeId;
@@ -189,7 +190,7 @@ export default function PreparationPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{o.order_number}</span>
                       <span style={{ flex: 1 }} />
-                      <span style={{ fontSize: 10.5, color: T.muted }}>{n} art.</span>
+                      <span style={{ fontSize: 10.5, color: T.muted }}>{n} {t('art')}</span>
                     </div>
                     <div style={{ fontSize: 11.5, color: T.text2 }}>{o.customer_name || '—'}</div>
                   </button>
@@ -204,12 +205,12 @@ export default function PreparationPage() {
               <>
                 <div className="sc-card" style={{ padding: '13px 15px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>Commande {active.order_number}</span>
-                    <span className="sc-badge" style={{ background: BADGE.blue.bg, color: BADGE.blue.fg }}>À préparer</span>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{tc('order')} {active.order_number}</span>
+                    <span className="sc-badge" style={{ background: BADGE.blue.bg, color: BADGE.blue.fg }}>{t('aPreparer')}</span>
                     <span style={{ flex: 1 }} />
-                    <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>{doneQty} / {totalQty} articles scannés</span>
+                    <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>{doneQty} / {totalQty} {t('scannes')}</span>
                     <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }}
-                            onClick={() => { setPicked({}); setFeedback(null); }}>Réinitialiser</button>
+                            onClick={() => { setPicked({}); setFeedback(null); }}>{t('reinit')}</button>
                   </div>
                   <div style={{ height: 7, borderRadius: 4, background: T.borderFaint2, marginTop: 10, overflow: 'hidden' }}>
                     <div style={{
@@ -221,7 +222,7 @@ export default function PreparationPage() {
 
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                   <div style={{ flex: '1 1 280px', minWidth: 0 }}>
-                    <BarcodeScanner onScan={onScan} label="Vise le code-barres de l’article" />
+                    <BarcodeScanner onScan={onScan} label={t('viser')} />
                   </div>
 
                   <div style={{ flex: '1 1 260px', minWidth: 0 }}>
@@ -244,28 +245,23 @@ export default function PreparationPage() {
 
                     {complete ? (
                       <div className="sc-card" style={{ borderColor: '#CFE0C8', padding: '13px 15px' }}>
-                        <div className="sc-card-title" style={{ color: '#3E5238', marginBottom: 8 }}>Emballage</div>
+                        <div className="sc-card-title" style={{ color: '#3E5238', marginBottom: 8 }}>{t('emballage')}</div>
                         <div style={{ fontSize: 11.5, color: T.text2b, marginBottom: 10 }}>
-                          Tous les articles sont scannés. La validation décrémente le stock et passe la commande en expédiée.
+                          {t('emballageD')}
                         </div>
                         <button className="sc-btn sc-btn-green" style={{ width: '100%', justifyContent: 'center' }}
                                 onClick={finish} disabled={busy}>
-                          <span className="ms">local_shipping</span>{busy ? 'Validation…' : 'Valider & expédier'}
+                          <span className="ms">local_shipping</span>{busy ? t('validation') : t('valider')}
                         </button>
                         <a className="sc-btn sc-btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}
                            href={`/admin/documents/bon-de-livraison/${active.id}`} target="_blank" rel="noopener">
-                          <span className="ms">print</span>Imprimer le BL
+                          <span className="ms">print</span>{t('imprimerBL')}
                         </a>
                       </div>
                     ) : (
                       <div className="sc-card" style={{ padding: '13px 15px' }}>
-                        <div className="sc-card-title" style={{ marginBottom: 8 }}>Comment ça marche</div>
-                        {[
-                          'Active la caméra et vise le code-barres.',
-                          'La ligne se coche seule, avec un bip et une vibration.',
-                          'Un article hors commande est refusé.',
-                          'À 100 %, valide : le stock se décrémente.',
-                        ].map((s, i) => (
+                        <div className="sc-card-title" style={{ marginBottom: 8 }}>{t('commentCa')}</div>
+                        {[t('etape1'), t('etape2'), t('etape3'), t('etape4')].map((s, i) => (
                           <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
                             <span className="sc-num" style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>{i + 1}</span>
                             <span style={{ fontSize: 11.5, color: T.text2b }}>{s}</span>
@@ -279,13 +275,13 @@ export default function PreparationPage() {
                 {/* Articles à prélever */}
                 <div className="sc-card" style={{ overflow: 'hidden' }}>
                   <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center' }}>
-                    <span className="sc-card-title">Articles à prélever</span>
+                    <span className="sc-card-title">{t('aPrelever')}</span>
                     <span style={{ flex: 1 }} />
                     <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={saveProgress}>
-                      Enregistrer l’avancement
+                      {t('enregAvanc')}
                     </button>
                   </div>
-                  {lines.length === 0 && <div className="sc-empty">Aucune ligne rattachée à un produit.</div>}
+                  {lines.length === 0 && <div className="sc-empty">{t('aucuneLigne')}</div>}
                   {lines.map(l => {
                     const got = picked[l.product_id] || 0;
                     const done = got >= l.qty;
@@ -309,17 +305,17 @@ export default function PreparationPage() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12.5, color: T.ink }}>{l.name}</div>
                           <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>
-                            {[l.ref, l.ean ? `EAN ${l.ean}` : 'sans code-barres'].filter(Boolean).join(' · ')}
+                            {[l.ref, l.ean ? `EAN ${l.ean}` : t('sansEan')].filter(Boolean).join(' · ')}
                           </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <button className="sc-iconbtn" style={{ width: 28, height: 28 }} onClick={() => adjust(l, -1)} aria-label="Moins">
+                          <button className="sc-iconbtn" style={{ width: 28, height: 28 }} onClick={() => adjust(l, -1)} aria-label={t('moins')}>
                             <span className="ms">remove</span>
                           </button>
                           <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 700, minWidth: 40, textAlign: 'center', color: done ? T.green : T.ink }}>
                             {got} / {l.qty}
                           </span>
-                          <button className="sc-iconbtn" style={{ width: 28, height: 28 }} onClick={() => adjust(l, +1)} aria-label="Plus">
+                          <button className="sc-iconbtn" style={{ width: 28, height: 28 }} onClick={() => adjust(l, +1)} aria-label={t('plus')}>
                             <span className="ms">add</span>
                           </button>
                         </div>
@@ -328,8 +324,7 @@ export default function PreparationPage() {
                   })}
                   {lines.some(l => !l.ean) && (
                     <div style={{ padding: '10px 15px', background: '#FDF6EA', fontSize: 11.5, color: '#8A5B08' }}>
-                      Certains articles n’ont pas de code-barres : renseigne leur EAN sur la fiche produit
-                      pour pouvoir les scanner. En attendant, utilise les boutons + / −.
+                      {t('avertEan')}
                     </div>
                   )}
                 </div>

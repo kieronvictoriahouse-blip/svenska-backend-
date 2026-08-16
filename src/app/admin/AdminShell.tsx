@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { AdminLang } from '@/lib/admin-i18n';
+import { AdminLang, T_SHELL, traduire } from '@/lib/admin-i18n';
 import { NAV, MOBILE_TABS, NavBadge, isNavItemActive } from '@/lib/admin-nav';
 import { T, initials } from '@/lib/admin-theme';
 import { shellCss } from './shell-css';
@@ -33,6 +33,10 @@ export type ShellProps = {
 };
 
 export default function AdminShell(p: ShellProps) {
+  /* La coquille reçoit la langue en props plutôt que par le hook : elle
+     est rendue telle quelle dans le harnais de vérification visuelle, où
+     il n'y a ni localStorage ni évènement. */
+  const s = (cle: keyof typeof T_SHELL) => traduire(T_SHELL[cle], p.lang);
   const userInitials = initials(p.email);
   const brandInitials = initials(p.siteName).slice(0, 2);
 
@@ -44,7 +48,7 @@ export default function AdminShell(p: ShellProps) {
         {/* ── Topbar 48 px ───────────────────────────────── */}
         <header className="sc-top">
           {p.mobile && (
-            <button className="sc-burger" onClick={() => p.setNavOpen(v => !v)} aria-label="Ouvrir la navigation" aria-expanded={p.navOpen}>
+            <button className="sc-burger" onClick={() => p.setNavOpen(v => !v)} aria-label={s('openNav')} aria-expanded={p.navOpen}>
               <span className="ms" style={{ fontSize: 22 }}>menu</span>
             </button>
           )}
@@ -53,7 +57,7 @@ export default function AdminShell(p: ShellProps) {
             <div className="sc-brand-mark">{brandInitials}</div>
             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
               <span className="sc-brand-name">{p.siteName}</span>
-              <span className="sc-brand-sub">Back-office</span>
+              <span className="sc-brand-sub">{s('backoffice')}</span>
             </div>
           </Link>
 
@@ -62,7 +66,7 @@ export default function AdminShell(p: ShellProps) {
               <div className="sc-search">
                 <span className="ms" style={{ fontSize: 17, color: 'rgba(255,255,255,.4)' }}>search</span>
                 <input
-                  placeholder="Rechercher un produit, une commande, un client…"
+                  placeholder={s('searchPlaceholder')}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
                       const q = (e.target as HTMLInputElement).value.trim();
@@ -79,7 +83,7 @@ export default function AdminShell(p: ShellProps) {
 
           {!p.mobile && (
             <a href={p.frontUrl} target="_blank" rel="noopener" className="sc-top-link">
-              <span className="ms" style={{ fontSize: 17 }}>open_in_new</span>Voir le site
+              <span className="ms" style={{ fontSize: 17 }}>open_in_new</span>{s('viewSite')}
             </a>
           )}
 
@@ -89,7 +93,7 @@ export default function AdminShell(p: ShellProps) {
             ))}
           </div>
 
-          <button className="sc-user" onClick={p.onUserClick} title="Se déconnecter">
+          <button className="sc-user" onClick={p.onUserClick} title={s('logout')}>
             <div className="sc-avatar">{userInitials}</div>
             {!p.mobile && (
               <>
@@ -106,14 +110,14 @@ export default function AdminShell(p: ShellProps) {
             <div className="sc-side-scroll">
               {NAV.map((group, gi) => (
                 <div className="sc-nav-group" key={gi}>
-                  {group.label && <div className="sc-nav-glabel">{group.label}</div>}
+                  {group.label && <div className="sc-nav-glabel">{traduire(group.label, p.lang)}</div>}
                   {group.items.map(item => {
                     const on = isNavItemActive(item, p.pathname, p.search, group.items);
                     const badge = item.badge ? p.counts[item.badge] : 0;
                     return (
                       <Link key={item.href} href={item.href} className={`sc-nav-item${on ? ' on' : ''}`} aria-current={on ? 'page' : undefined}>
                         <span className="ms">{item.icon}</span>
-                        <span className="sc-nav-label">{item.label}</span>
+                        <span className="sc-nav-label">{traduire(item.label, p.lang)}</span>
                         {!!badge && <span className="sc-nav-badge">{badge}</span>}
                       </Link>
                     );
@@ -124,12 +128,12 @@ export default function AdminShell(p: ShellProps) {
             <div className="sc-side-foot">
               <span className="ms" style={{ fontSize: 15 }}>bolt</span>
               <span style={{ flex: 1 }}>Shopflow v2.4</span>
-              <span className="ms" style={{ fontSize: 16, cursor: 'pointer' }}>help</span>
+              <span className="ms" style={{ fontSize: 16, cursor: 'pointer' }} title={s('help')}>help</span>
             </div>
           </aside>
 
           {p.mobile && p.navOpen && (
-            <button className="sc-overlay" onClick={() => p.setNavOpen(false)} aria-label="Fermer la navigation" />
+            <button className="sc-overlay" onClick={() => p.setNavOpen(false)} aria-label={s('closeNav')} />
           )}
 
           <main className="sc-main">
@@ -146,12 +150,12 @@ export default function AdminShell(p: ShellProps) {
               const inner = (
                 <>
                   <span className="ms">{tab.icon}</span>
-                  <span className="lbl">{tab.label}</span>
+                  <span className="lbl">{traduire(tab.label, p.lang)}</span>
                   {!!badge && <span className="sc-tab-badge">{badge}</span>}
                 </>
               );
               return tab.menu ? (
-                <button key={tab.label} className="sc-tab" onClick={() => p.setNavOpen(true)}>{inner}</button>
+                <button key={tab.icon} className="sc-tab" onClick={() => p.setNavOpen(true)}>{inner}</button>
               ) : (
                 <Link key={tab.href} href={tab.href} className={`sc-tab${on ? ' on' : ''}`}>{inner}</Link>
               );

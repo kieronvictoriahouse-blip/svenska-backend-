@@ -2,7 +2,7 @@
 import { downloadAuth, adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang } from '@/lib/admin-i18n';
+import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang, LOCALES } from '@/lib/admin-i18n';
 import { resolveShipping } from '@/lib/shipping';
 // Thème importé sous alias :  est déjà pris par le dictionnaire de traductions.
 import { T as TH, BADGE, ORDER_STATUS, thumbStyle, initials } from '@/lib/admin-theme';
@@ -72,10 +72,67 @@ const T = {
   markTest:      { fr: 'Marquer comme test', en: 'Mark as test', sv: 'Markera som test' },
   markTestConfirm: { fr: '⚠️ Confirmer ? Supprime la comptabilité associée', en: '⚠️ Confirm? Removes accounting entry', sv: '⚠️ Bekräfta? Tar bort bokföringen' },
   showTest:      { fr: 'Afficher les commandes test', en: 'Show test orders', sv: 'Visa testbeställningar' },
+  selectOrder:   { fr: 'Sélectionne une commande dans la liste.', en: 'Select an order from the list.', sv: 'Välj en order i listan.' },
+  noOrder:       { fr: 'Aucune commande', en: 'No order', sv: 'Ingen order' },
+  notApplicable: { fr: 'Non applicable', en: 'Not applicable', sv: 'Ej tillämpligt' },
+  realCosts:     { fr: 'Coûts réels & marge', en: 'Actual costs & margin', sv: 'Verkliga kostnader och marginal' },
+  saving:        { fr: 'Enregistrement…', en: 'Saving…', sv: 'Sparar…' },
+  realFreight:   { fr: 'Transport réel', en: 'Actual freight', sv: 'Verklig frakt' },
+  packaging:     { fr: 'Emballage', en: 'Packaging', sv: 'Emballage' },
+  realMargin:    { fr: 'Marge réelle', en: 'Actual margin', sv: 'Verklig marginal' },
+  stripeFee:     { fr: 'Stripe (~1,5 % + 0,25 €)', en: 'Stripe (~1.5% + €0.25)', sv: 'Stripe (~1,5 % + 0,25 €)' },
+  freightCharged:{ fr: 'Port perçu client', en: 'Shipping charged to customer', sv: 'Frakt debiterad kunden' },
+  itemsToCredit: { fr: 'Articles à retirer / créditer', en: 'Items to remove / credit', sv: 'Artiklar att ta bort / kreditera' },
+  freightToBill: { fr: 'Frais de port à facturer au client', en: 'Shipping to bill the customer', sv: 'Frakt att fakturera kunden' },
+  creditItems:   { fr: 'Crédit articles retirés', en: 'Credit for removed items', sv: 'Kredit för borttagna artiklar' },
+  freightBilled: { fr: 'Frais de port facturés', en: 'Shipping billed', sv: 'Fakturerad frakt' },
+  refundReason:  { fr: 'Motif (visible sur l’avoir et l’email client)', en: 'Reason (shown on the credit note and customer email)', sv: 'Orsak (syns på kreditnotan och kundens e-post)' },
+  stripeLink:    { fr: 'Lien de paiement Stripe', en: 'Stripe payment link', sv: 'Stripe-betallänk' },
+  shipment:      { fr: 'Expédition', en: 'Shipment', sv: 'Försändelse' },
+  downloadPdf:   { fr: 'Télécharger le PDF', en: 'Download PDF', sv: 'Ladda ner PDF' },
+  relayDelivery: { fr: 'Relais livraison', en: 'Pickup point', sv: 'Utlämningsställe' },
+  relayCode:     { fr: 'Code relais', en: 'Pickup code', sv: 'Utlämningskod' },
+  relayDrop:     { fr: 'Relais de dépôt', en: 'Drop-off point', sv: 'Inlämningsställe' },
+  relayYours:    { fr: 'Votre relais', en: 'Your pickup point', sv: 'Ditt ombud' },
+  weightG:       { fr: 'Poids (g)', en: 'Weight (g)', sv: 'Vikt (g)' },
+  trackingShort: { fr: 'Suivi', en: 'Tracking', sv: 'Spårning' },
+  docsActions:   { fr: 'Documents & actions', en: 'Documents & actions', sv: 'Dokument och åtgärder' },
+  excludeStats:  { fr: 'Exclut des stats de marge uniquement — la compta reste intacte', en: 'Excludes from margin stats only — accounting untouched', sv: 'Utesluts endast ur marginalstatistiken — bokföringen rörs inte' },
+  excludeAll:    { fr: 'Exclut la commande des stats ET de la comptabilité', en: 'Excludes the order from stats AND accounting', sv: 'Utesluter ordern ur både statistik och bokföring' },
+  shippingMode:  { fr: 'Mode de livraison', en: 'Shipping method', sv: 'Fraktsätt' },
+  promoCode:     { fr: 'Code promo (optionnel)', en: 'Promo code (optional)', sv: 'Rabattkod (valfritt)' },
+  promoExample:  { fr: 'Ex: SWEDISH10', en: 'E.g. SWEDISH10', sv: 'T.ex. SWEDISH10' },
+  freeShipping:  { fr: 'Livraison offerte', en: 'Free shipping', sv: 'Fri frakt' },
+  searchProduct: { fr: 'Rechercher un produit...', en: 'Search a product...', sv: 'Sök en produkt...' },
+  cancelledOrder:{ fr: 'Cette commande a été annulée ou remboursée.', en: 'This order was cancelled or refunded.', sv: 'Ordern har avbrutits eller återbetalats.' },
+  restock:       { fr: 'Voulez-vous remettre les articles en stock ?', en: 'Do you want to put the items back in stock?', sv: 'Vill du lägga tillbaka artiklarna i lagret?' },
+  msgLinkCopied: { fr: 'Lien copié', en: 'Link copied', sv: 'Länk kopierad' },
+  msgAddLine:    { fr: '⚠️ Ajoutez au moins un article', en: '⚠️ Add at least one item', sv: '⚠️ Lägg till minst en artikel' },
+  msgOrderCreated:{ fr: '✅ Commande créée', en: '✅ Order created', sv: '✅ Order skapad' },
+  msgMarkedTest: { fr: '✅ Commande marquée comme test — compta et facture nettoyées', en: '✅ Order marked as test — accounting and invoice cleaned up', sv: '✅ Ordern markerad som test — bokföring och faktura rensade' },
+  msgCostsSaved: { fr: '✅ Coûts enregistrés', en: '✅ Costs saved', sv: '✅ Kostnader sparade' },
+  msgRefunded:   { fr: '✅ Remboursement effectué — client notifié par email', en: '✅ Refund issued — customer notified by email', sv: '✅ Återbetalning gjord — kunden har meddelats via e-post' },
+  msgLabelMR:    { fr: '✅ Étiquette Mondial Relay créée !', en: '✅ Mondial Relay label created!', sv: '✅ Mondial Relay-etikett skapad!' },
+  msgRefundPos:  { fr: '❌ Le montant à rembourser doit être positif', en: '❌ The refund amount must be positive', sv: '❌ Återbetalningsbeloppet måste vara positivt' },
+  msgMaxRefund:  { fr: 'Maximum remboursable', en: 'Maximum refundable', sv: 'Högsta återbetalning' },
+  msgRefundedOk: { fr: 'remboursés', en: 'refunded', sv: 'återbetalda' },
+  msgNotified:   { fr: 'client notifié', en: 'customer notified', sv: 'kunden meddelad' },
+  allOrders:     { fr: 'Toutes les commandes', en: 'All orders', sv: 'Alla order' },
+  invoice:       { fr: 'Facture', en: 'Invoice', sv: 'Faktura' },
+  invoiceEditor: { fr: 'Facture (éditeur)', en: 'Invoice (editor)', sv: 'Faktura (redigerare)' },
+  creditNote:    { fr: 'Avoir', en: 'Credit note', sv: 'Kreditnota' },
+  markShipped:   { fr: 'Marquer expédiée', en: 'Mark as shipped', sv: 'Markera som skickad' },
+  copy:          { fr: 'Copier', en: 'Copy', sv: 'Kopiera' },
+  sendByEmail:   { fr: 'Envoyer par email', en: 'Send by email', sv: 'Skicka via e-post' },
+  labelPdf:      { fr: 'Étiquette PDF', en: 'PDF label', sv: 'PDF-etikett' },
 };
 
-const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+/* Les formats suivent la langue choisie : une interface anglaise qui
+   affiche « 1 234,50 € » le 16/08/2026 n'est pas traduite. */
+const fmtL = (n: number, lang: AdminLang) =>
+  (n || 0).toLocaleString(LOCALES[lang], { minimumFractionDigits: 2 }) + ' €';
+const fmtDateL = (d: string, lang: AdminLang) =>
+  new Date(d).toLocaleDateString(LOCALES[lang], { day: '2-digit', month: '2-digit', year: 'numeric' });
 // shipping_address peut être string ou objet JSONB selon la source
 const toAddrStr = (v: any): string => !v ? '' : typeof v === 'string' ? v : [v.line1, v.line2, v.postal_code && v.city ? `${v.postal_code} ${v.city}` : (v.postal_code || v.city), v.country].filter(Boolean).join(', ');
 
@@ -87,6 +144,9 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function CommandesPage() {
   const [lang, setLang] = useState<AdminLang>('fr');
+  // Les formateurs suivent la langue courante sans changer les appels.
+  const fmt = (n: number) => fmtL(n, lang);
+  const fmtDate = (d: string) => fmtDateL(d, lang);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -273,7 +333,7 @@ export default function CommandesPage() {
     setSelected(o => o ? { ...o, transport_cost_real, packaging_cost } : null);
     load();
     setSavingCosts(false);
-    showToast('✅ Coûts enregistrés');
+    showToast(t('msgCostsSaved'));
   }
 
   async function saveTracking() {
@@ -331,7 +391,7 @@ export default function CommandesPage() {
       const price = variantObj ? variantObj.price : (p?.price || s.price);
       return { desc: (p?.name_fr || pid) + (s.variantLabel ? ` — ${s.variantLabel}` : ''), qty: s.qty, price, product_id: pid, image_url: p?.image_url || null };
     });
-    if (lines.length === 0) { showToast('⚠️ Ajoutez au moins un article'); return; }
+    if (lines.length === 0) { showToast(t('msgAddLine')); return; }
     const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
     const shipRules = resolveShipping(wlConfig, { isInternational: false });
     const baseShipping = subtotal >= shipRules.threshold ? 0 : shipRules.cost;
@@ -364,7 +424,7 @@ export default function CommandesPage() {
       return;
     }
     resetNewOrderModal();
-    showToast('✅ Commande créée');
+    showToast(t('msgOrderCreated'));
     load();
   }
 
@@ -380,7 +440,7 @@ export default function CommandesPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        showToast('✅ Commande marquée comme test — compta et facture nettoyées');
+        showToast(t('msgMarkedTest'));
         setShowModal(false);
         load();
       } else {
@@ -431,7 +491,7 @@ export default function CommandesPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('✅ Remboursement effectué — client notifié par email');
+        showToast(t('msgRefunded'));
         setSelected(o => o ? { ...o, status: 'refunded' } : null);
         load();
         setShowModal(false);
@@ -469,8 +529,8 @@ export default function CommandesPage() {
   async function handlePartialRefund() {
     if (!selected) return;
     const { shipping, amount, remaining } = partialTotals(selected);
-    if (!(amount > 0)) { showToast('❌ Le montant à rembourser doit être positif'); return; }
-    if (amount > remaining + 0.005) { showToast(`❌ Maximum remboursable : ${fmt(remaining)}`); return; }
+    if (!(amount > 0)) { showToast(t('msgRefundPos')); return; }
+    if (amount > remaining + 0.005) { showToast(`❌ ${t('msgMaxRefund')} : ${fmt(remaining)}`); return; }
     if (!partialConfirm) { setPartialConfirm(true); return; }
 
     setRefunding(true);
@@ -504,8 +564,8 @@ export default function CommandesPage() {
 
       showToast(
         data.warning
-          ? `✅ ${fmt(data.amount)} remboursés — ⚠️ ${data.warning}`
-          : `✅ ${fmt(data.amount)} remboursés${partialNotify ? ' — client notifié' : ''}`
+          ? `✅ ${fmt(data.amount)} ${t('msgRefundedOk')} — ⚠️ ${data.warning}`
+          : `✅ ${fmt(data.amount)} ${t('msgRefundedOk')}${partialNotify ? ' — ' + t('msgNotified') : ''}`
       );
       // La commande a pu être réécrite (lignes, port, total) → on relit la version à jour
       try {
@@ -587,7 +647,7 @@ export default function CommandesPage() {
       if (!res.ok) { showToast('❌ ' + (data.error || 'Erreur MR')); return; }
       setMrResult({ tracking: data.tracking, labelUrl: data.labelUrl });
       setSelected(s => s ? { ...s, mondial_relay_tracking: data.tracking, mondial_relay_label_url: data.labelUrl, tracking_number: data.tracking, status: 'shipped' } : s);
-      showToast('✅ Étiquette Mondial Relay créée !');
+      showToast(t('msgLabelMR'));
       load();
     } finally {
       setMrLoading(false);
@@ -846,8 +906,8 @@ export default function CommandesPage() {
             background: TH.sidebarBg, borderRight: mobile ? 'none' : `1px solid ${TH.border}`,
             overflowY: 'auto',
           }}>
-            {loading && <div className="sc-empty">Chargement…</div>}
-            {!loading && visibleOrders.length === 0 && <div className="sc-empty">Aucune commande</div>}
+            {loading && <div className="sc-empty">{tc('loading')}</div>}
+            {!loading && visibleOrders.length === 0 && <div className="sc-empty">{t('noOrder')}</div>}
             {visibleOrders.map(o => {
               const on = selected?.id === o.id;
               const n = linesOf(o).length;
@@ -893,7 +953,7 @@ export default function CommandesPage() {
         {/* Détail */}
         {showDetail && (
           <div style={{ flex: 1, minWidth: 0, padding: '14px 18px 90px', overflowY: 'auto' }}>
-            {!selected && <div className="sc-empty">Sélectionne une commande dans la liste.</div>}
+            {!selected && <div className="sc-empty">{t('selectOrder')}</div>}
             {selected && (() => {
               const o = selected;
               const lines = linesOf(o);
@@ -906,7 +966,7 @@ export default function CommandesPage() {
                 <>
                   {mobile && (
                     <button className="sc-btn sc-btn-secondary" style={{ marginBottom: 12 }} onClick={() => setMobDetail(false)}>
-                      <span className="ms">arrow_back</span>Toutes les commandes
+                      <span className="ms">arrow_back</span>{t('allOrders')}
                     </button>
                   )}
 
@@ -926,14 +986,14 @@ export default function CommandesPage() {
                     </div>
                     <div className="sc-actions">
                       <a className="sc-btn sc-btn-secondary" href={`/admin/documents/bon-de-livraison/${o.id}`} target="_blank" rel="noopener">
-                        <span className="ms">local_shipping</span>Bon de livraison
+                        <span className="ms">local_shipping</span>{t('deliveryNote')}
                       </a>
                       <a className="sc-btn sc-btn-secondary" href={`/admin/documents/facture/${o.id}`} target="_blank" rel="noopener">
-                        <span className="ms">print</span>Facture
+                        <span className="ms">print</span>{t('invoice')}
                       </a>
                       {['paid', 'confirmed'].includes(o.status) && (
                         <button className="sc-btn sc-btn-primary" onClick={() => updateStatus(o.id, 'shipped')}>
-                          <span className="ms">send</span>Marquer expédiée
+                          <span className="ms">send</span>{t('markShipped')}
                         </button>
                       )}
                     </div>
@@ -975,7 +1035,7 @@ export default function CommandesPage() {
                             </div>
                           )}
                           <div className="o-row"><span>{tc('shipping')}</span><span className="sc-num">{o.shipping > 0 ? fmt(o.shipping) : tc('free')}</span></div>
-                          <div className="o-row"><span>TVA</span><span className="sc-num">Non applicable</span></div>
+                          <div className="o-row"><span>TVA</span><span className="sc-num">{t('notApplicable')}</span></div>
                           <div className="o-row" style={{ fontSize: 15, fontWeight: 700, color: TH.ink, borderTop: `2px solid ${TH.ink}`, marginTop: 4, paddingTop: 8 }}>
                             <span>{tc('total')}</span><span className="sc-num">{fmt(o.total)}</span>
                           </div>
@@ -997,18 +1057,18 @@ export default function CommandesPage() {
                       {/* Coûts réels + marge */}
                       <div className="sc-card">
                         <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span className="sc-card-title">Coûts réels & marge</span>
-                          {savingCosts && <span style={{ fontSize: 10.5, color: TH.muted }}>Enregistrement…</span>}
+                          <span className="sc-card-title">{t('realCosts')}</span>
+                          {savingCosts && <span style={{ fontSize: 10.5, color: TH.muted }}>{t('saving')}</span>}
                         </div>
                         <div style={{ padding: '13px 15px' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                             <div>
-                              <label className="sc-label">Transport réel</label>
+                              <label className="sc-label">{t('realFreight')}</label>
                               <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="0.00"
                                      value={transportInput} onChange={e => setTransportInput(e.target.value)} onBlur={saveCosts} />
                             </div>
                             <div>
-                              <label className="sc-label">Emballage</label>
+                              <label className="sc-label">{t('packaging')}</label>
                               <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="0.00"
                                      value={packagingInput} onChange={e => setPackagingInput(e.target.value)} onBlur={saveCosts} />
                             </div>
@@ -1023,22 +1083,22 @@ export default function CommandesPage() {
                             return (
                               <div style={{ background: color + '15', border: `1px solid ${color}40`, borderRadius: 8, padding: '11px 13px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color }}>Marge réelle</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color }}>{t('realMargin')}</span>
                                   <span className="sc-num" style={{ fontSize: 15, fontWeight: 800, color }}>{fmt(margin)} ({pct!.toFixed(1)} %)</span>
                                 </div>
                                 <div style={{ borderTop: `1px solid ${color}30`, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: TH.text2b }}>
-                                  {stripeFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Stripe (~1,5 % + 0,25 €)</span><span className="sc-num">−{fmt(stripeFee)}</span></div>}
+                                  {stripeFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('stripeFee')}</span><span className="sc-num">−{fmt(stripeFee)}</span></div>}
                                   <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>URSSAF (12,3 % du CA)</span><span className="sc-num">−{fmt(urssaf)}</span></div>
                                   {transportReal > 0 && (
                                     <>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Transport réel</span><span className="sc-num">−{fmt(transportReal)}</span></div>
-                                      {shippingCollected > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: TH.green }}><span>Port perçu client</span><span className="sc-num">+{fmt(shippingCollected)}</span></div>}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('realFreight')}</span><span className="sc-num">−{fmt(transportReal)}</span></div>
+                                      {shippingCollected > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: TH.green }}><span>{t('freightCharged')}</span><span className="sc-num">+{fmt(shippingCollected)}</span></div>}
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: netTransport <= 0 ? TH.green : TH.text2b, borderTop: '1px dashed #e5e7eb', paddingTop: 3 }}>
                                         <span>= Net transport</span><span className="sc-num">{netTransport <= 0 ? '+' : '−'}{fmt(Math.abs(netTransport))}</span>
                                       </div>
                                     </>
                                   )}
-                                  {packagingCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Emballage</span><span className="sc-num">−{fmt(packagingCost)}</span></div>}
+                                  {packagingCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('packaging')}</span><span className="sc-num">−{fmt(packagingCost)}</span></div>}
                                 </div>
                               </div>
                             );
@@ -1068,7 +1128,7 @@ export default function CommandesPage() {
                             )}
                             {showPartialPanel && (
                               <div style={{ padding: '0 15px 15px' }}>
-                                <label className="sc-label" style={{ color: '#9A3412' }}>Articles à retirer / créditer</label>
+                                <label className="sc-label" style={{ color: '#9A3412' }}>{t('itemsToCredit')}</label>
                                 <div style={{ background: '#fff', border: '1px solid #FED7AA', borderRadius: 7, padding: '2px 10px' }}>
                                   {lines.map((l: any, i: number) => {
                                     const maxQty = Number(l.qty) || 1;
@@ -1095,15 +1155,15 @@ export default function CommandesPage() {
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
-                                  <span style={{ fontSize: 12.5, color: '#7C2D12' }}>Frais de port à facturer au client</span>
+                                  <span style={{ fontSize: 12.5, color: '#7C2D12' }}>{t('freightToBill')}</span>
                                   <input className="sc-num" type="number" min="0" step="0.01" placeholder="0.00" value={partialShipping}
                                          onChange={e => { setPartialShipping(e.target.value); setPartialConfirm(false); }}
                                          style={{ width: 82, padding: '5px 8px', borderRadius: 5, border: '1px solid #FDBA74', fontSize: 12.5, textAlign: 'right' }} />
                                 </div>
 
                                 <div style={{ marginTop: 12, background: '#fff', border: '1px solid #FED7AA', borderRadius: 7, padding: '10px 12px' }}>
-                                  <div className="o-row" style={{ color: '#7C2D12' }}><span>Crédit articles retirés</span><span className="sc-num">+{fmt(credit)}</span></div>
-                                  <div className="o-row" style={{ color: '#7C2D12' }}><span>Frais de port facturés</span><span className="sc-num">−{fmt(shipping)}</span></div>
+                                  <div className="o-row" style={{ color: '#7C2D12' }}><span>{t('creditItems')}</span><span className="sc-num">+{fmt(credit)}</span></div>
+                                  <div className="o-row" style={{ color: '#7C2D12' }}><span>{t('freightBilled')}</span><span className="sc-num">−{fmt(shipping)}</span></div>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #FED7AA', marginTop: 6, paddingTop: 8 }}>
                                     <span style={{ fontSize: 12.5, fontWeight: 700, color: '#9A3412' }}>À rembourser au client</span>
                                     <input className="sc-num" type="number" min="0" step="0.01"
@@ -1114,7 +1174,7 @@ export default function CommandesPage() {
                                   {overMax && <div style={{ fontSize: 11, color: TH.red, marginTop: 6, fontWeight: 600 }}>Maximum remboursable : {fmt(remaining)}</div>}
                                 </div>
 
-                                <input className="sc-input" style={{ marginTop: 10 }} placeholder="Motif (visible sur l’avoir et l’email client)"
+                                <input className="sc-input" style={{ marginTop: 10 }} placeholder={t('refundReason')}
                                        value={partialReason} onChange={e => setPartialReason(e.target.value)} />
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, fontSize: 12, color: '#7C2D12' }}>
@@ -1157,7 +1217,7 @@ export default function CommandesPage() {
                       {!['paid', 'confirmed', 'shipped', 'delivered', 'refunded', 'cancelled'].includes(o.status) && (
                         <div className="sc-card">
                           <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
-                            <span className="sc-card-title">Lien de paiement Stripe</span>
+                            <span className="sc-card-title">{t('stripeLink')}</span>
                           </div>
                           <div style={{ padding: '13px 15px' }}>
                             {o.payment_link_url && (
@@ -1167,15 +1227,15 @@ export default function CommandesPage() {
                             )}
                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                               {o.payment_link_url && (
-                                <button className="sc-btn sc-btn-secondary" onClick={() => { navigator.clipboard?.writeText(o.payment_link_url!); showToast('Lien copié'); }}>
-                                  <span className="ms">content_copy</span>Copier
+                                <button className="sc-btn sc-btn-secondary" onClick={() => { navigator.clipboard?.writeText(o.payment_link_url!); showToast(t('msgLinkCopied')); }}>
+                                  <span className="ms">content_copy</span>{t('copy')}
                                 </button>
                               )}
                               <button className="sc-btn sc-btn-secondary" onClick={() => sendPaymentLink(false)} disabled={sendingPaymentLink}>
                                 <span className="ms">link</span>{o.payment_link_url ? 'Régénérer' : 'Générer le lien'}
                               </button>
                               <button className="sc-btn sc-btn-secondary" onClick={() => sendPaymentLink(true)} disabled={sendingPaymentLink}>
-                                <span className="ms">mail</span>Envoyer par email
+                                <span className="ms">mail</span>{t('sendByEmail')}
                               </button>
                             </div>
                             {o.payment_link_sent_at && (
@@ -1189,19 +1249,19 @@ export default function CommandesPage() {
                       {!isDead && (
                         <div className="sc-card">
                           <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
-                            <span className="sc-card-title">Expédition</span>
+                            <span className="sc-card-title">{t('shipment')}</span>
                           </div>
                           <div style={{ padding: '13px 15px' }}>
                             {(o.logspher_label_url || o.logspher_error) && (
                               <div style={{ background: o.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${o.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
                                 {o.logspher_label_url
-                                  ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">Télécharger le PDF</a></>
+                                  ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">{t('downloadPdf')}</a></>
                                   : <>Erreur LogSpher : {o.logspher_error}</>}
                               </div>
                             )}
                             {mrResult && (
                               <div style={{ background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 7, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: '#065F46' }}>
-                                {mrResult.tracking}{mrResult.labelUrl ? <> · <a href={mrResult.labelUrl} target="_blank" rel="noopener">Étiquette PDF</a></> : null}
+                                {mrResult.tracking}{mrResult.labelUrl ? <> · <a href={mrResult.labelUrl} target="_blank" rel="noopener">{t('labelPdf')}</a></> : null}
                               </div>
                             )}
                             {o.relay_point_name && (
@@ -1211,15 +1271,15 @@ export default function CommandesPage() {
                             )}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>
                               <div>
-                                <label className="sc-label">Relais livraison</label>
-                                <input className="sc-input" value={mrLivRel} onChange={e => setMrLivRel(e.target.value)} placeholder="Code relais" />
+                                <label className="sc-label">{t('relayDelivery')}</label>
+                                <input className="sc-input" value={mrLivRel} onChange={e => setMrLivRel(e.target.value)} placeholder={t('relayCode')} />
                               </div>
                               <div>
-                                <label className="sc-label">Relais de dépôt</label>
-                                <input className="sc-input" value={mrColRel} onChange={e => setMrColRel(e.target.value)} placeholder="Votre relais" />
+                                <label className="sc-label">{t('relayDrop')}</label>
+                                <input className="sc-input" value={mrColRel} onChange={e => setMrColRel(e.target.value)} placeholder={t('relayYours')} />
                               </div>
                               <div>
-                                <label className="sc-label">Poids (g)</label>
+                                <label className="sc-label">{t('weightG')}</label>
                                 <input className="sc-input sc-num" type="number" min={1} value={mrWeight} onChange={e => setMrWeight(e.target.value)} />
                               </div>
                             </div>
@@ -1287,7 +1347,7 @@ export default function CommandesPage() {
                       {/* Suivi */}
                       <div className="sc-card">
                         <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
-                          <span className="sc-card-title">Suivi</span>
+                          <span className="sc-card-title">{t('trackingShort')}</span>
                         </div>
                         <div style={{ padding: '13px 15px' }}>
                           {isDead ? (
@@ -1322,11 +1382,11 @@ export default function CommandesPage() {
                       {/* Documents & actions */}
                       <div className="sc-card">
                         <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
-                          <span className="sc-card-title">Documents & actions</span>
+                          <span className="sc-card-title">{t('docsActions')}</span>
                         </div>
                         <div style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/admin/factures/${o.id}`} target="_blank" rel="noopener">
-                            <span className="ms">receipt_long</span>Facture (éditeur)
+                            <span className="ms">receipt_long</span>{t('invoiceEditor')}
                           </a>
                           <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => downloadAuth(`/api/invoices/${o.id}/pdf`, `facture-${o.order_number}.pdf`).catch((e: any) => showToast(e.message))}>
                             <span className="ms">picture_as_pdf</span>PDF facture
@@ -1334,7 +1394,7 @@ export default function CommandesPage() {
                           {avoirId && (
                             <>
                               <a className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} href={`/admin/factures/${avoirId}`} target="_blank" rel="noopener">
-                                <span className="ms">undo</span>Avoir
+                                <span className="ms">undo</span>{t('creditNote')}
                               </a>
                               <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => downloadAuth(`/api/invoices/${avoirId}/pdf`, `avoir-${o.order_number}.pdf`).catch((e: any) => showToast(e.message))}>
                                 <span className="ms">picture_as_pdf</span>PDF avoir
@@ -1351,13 +1411,13 @@ export default function CommandesPage() {
                             <>
                               <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }}
                                       onClick={handleMarkTest} disabled={markingTest}
-                                      title="Exclut la commande des stats ET de la comptabilité">
+                                      title={t('excludeAll')}>
                                 <span className="ms">science</span>
                                 {markingTest ? '…' : testConfirm ? t('markTestConfirm') : t('markTest')}
                               </button>
                               <button className="sc-btn sc-btn-secondary" style={{ justifyContent: 'flex-start' }}
                                       onClick={toggleExcludeStats} disabled={togglingStats}
-                                      title="Exclut des stats de marge uniquement — la compta reste intacte">
+                                      title={t('excludeStats')}>
                                 <span className="ms">query_stats</span>
                                 {togglingStats ? '…' : o.exclude_from_stats ? 'Réintégrer aux stats' : 'Hors stats'}
                               </button>
@@ -1449,7 +1509,7 @@ export default function CommandesPage() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Mode de livraison</label>
+                    <label className="form-label">{t('shippingMode')}</label>
                     <div className="delivery-btn-row">
                       <button className={`delivery-btn${newOrderDelivery === 'pickup' ? ' active' : ''}`} onClick={() => setNewOrderDelivery('pickup')}>🏪 Click & Collect</button>
                       <button className={`delivery-btn${newOrderDelivery === 'mondial_relay' ? ' active' : ''}`} onClick={() => setNewOrderDelivery('mondial_relay')}>📦 Point Relais</button>
@@ -1458,9 +1518,9 @@ export default function CommandesPage() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Code promo (optionnel)</label>
+                    <label className="form-label">{t('promoCode')}</label>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <input className="form-control mono" style={{ textTransform: 'uppercase', flex: 1 }} placeholder="Ex: SWEDISH10"
+                      <input className="form-control mono" style={{ textTransform: 'uppercase', flex: 1 }} placeholder={t('promoExample')}
                         value={newOrderPromoCode}
                         onChange={e => { setNewOrderPromoCode(e.target.value.toUpperCase()); setNewOrderPromoData(null); setNewOrderPromoMsg(''); }}
                         onKeyDown={e => e.key === 'Enter' && applyPromoInNewOrder()} />
@@ -1481,7 +1541,7 @@ export default function CommandesPage() {
                   {pickerLines.length > 0 && (
                     <div style={{ background: '#FDFAF5', border: '1px solid #D8CEBC', borderRadius: 6, padding: '12px 16px', fontSize: 13 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#6A7280' }}>
-                        <span>Sous-total</span><span className="mono">{fmt(subtotal)}</span>
+                        <span>{tc('subtotal')}</span><span className="mono">{fmt(subtotal)}</span>
                       </div>
                       {discount > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#16A34A' }}>
@@ -1490,17 +1550,17 @@ export default function CommandesPage() {
                       )}
                       {isFreeShip && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#16A34A' }}>
-                          <span>🎟 {newOrderPromoData.code}</span><span className="mono">Livraison offerte</span>
+                          <span>🎟 {newOrderPromoData.code}</span><span className="mono">{t('freeShipping')}</span>
                         </div>
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#6A7280' }}>
-                        <span>Livraison</span>
+                        <span>{tc('shipping')}</span>
                         <span className="mono" style={{ color: effectiveShipping === 0 ? '#10B981' : 'inherit' }}>
                           {effectiveShipping === 0 ? 'Gratuite' : fmt(effectiveShipping)}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 15, borderTop: '1px solid #D8CEBC', paddingTop: 8, marginTop: 4 }}>
-                        <span>Total</span><span className="mono">{fmt(total)}</span>
+                        <span>{tc('total')}</span><span className="mono">{fmt(total)}</span>
                       </div>
                     </div>
                   )}
@@ -1528,7 +1588,7 @@ export default function CommandesPage() {
                   <button className="btn btn-secondary btn-sm" onClick={() => setShowProductPicker(false)}>✕</button>
                 </div>
                 <div style={{ padding: '12px 20px 0' }}>
-                  <input className="picker-search" placeholder="Rechercher un produit..." value={pickerSearch}
+                  <input className="picker-search" placeholder={t('searchProduct')} value={pickerSearch}
                     onChange={e => setPickerSearch(e.target.value)} autoFocus />
                 </div>
                 <div className="picker-body">
@@ -1591,7 +1651,7 @@ export default function CommandesPage() {
                   <span style={{ fontSize: 13, color: '#6A7280', flex: 1, alignSelf: 'center' }}>
                     {Object.values(pickerSelections).filter(s => s.qty > 0).length} article(s)
                   </span>
-                  <button className="btn btn-secondary" onClick={() => setShowProductPicker(false)}>Annuler</button>
+                  <button className="btn btn-secondary" onClick={() => setShowProductPicker(false)}>{tc('cancel')}</button>
                   <button className="btn btn-primary" onClick={() => setShowProductPicker(false)}>✅ Confirmer</button>
                 </div>
               </div>
@@ -1607,8 +1667,8 @@ export default function CommandesPage() {
                 <span className="o-modal-title">📦 Réincrémenter le stock ?</span>
               </div>
               <div className="o-modal-body" style={{ fontSize: 14, lineHeight: 1.6, color: '#374151' }}>
-                <p style={{ margin: '0 0 8px' }}>Cette commande a été annulée ou remboursée.</p>
-                <p style={{ margin: 0 }}>Voulez-vous remettre les articles en stock ?</p>
+                <p style={{ margin: '0 0 8px' }}>{t('cancelledOrder')}</p>
+                <p style={{ margin: 0 }}>{t('restock')}</p>
               </div>
               <div className="o-modal-footer">
                 <button

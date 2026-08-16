@@ -6,15 +6,20 @@
 //  Ne plus jamais redéfinir la nav ailleurs.
 // ─────────────────────────────────────────────────────────────
 
+import type { Trad } from '@/lib/admin-i18n';
+
 export type NavBadge = 'stock' | 'orders' | 'receptions';
 
 export type NavItem = {
   href: string;
   /** Ligature Material Symbols Rounded (pas d'emoji). */
   icon: string;
-  label: string;
+  /* Les libellés sont traduits : la navigation est le seul texte visible
+     sur tous les écrans, un back-office à moitié traduit se voit ici en
+     premier. */
+  label: Trad;
   /** Sous-titre affiché sur les cartes du hub. */
-  desc?: string;
+  desc?: Trad;
   /** Compteur dynamique à afficher en pastille. */
   badge?: NavBadge;
   /** Item hors maquette, conservé pour ne pas perdre l'accès à une page existante. */
@@ -23,93 +28,152 @@ export type NavItem = {
 
 export type NavGroup = {
   /** Vide pour le premier groupe (sans libellé, cf. handoff). */
-  label: string;
+  label: Trad | null;
   items: NavItem[];
 };
 
 export const NAV: NavGroup[] = [
   {
-    label: '',
+    label: null,
     items: [
-      { href: '/admin', icon: 'space_dashboard', label: 'Tableau de bord', desc: 'Vue d’ensemble de la boutique' },
+      { href: '/admin', icon: 'space_dashboard',
+        label: { fr: 'Tableau de bord', en: 'Dashboard', sv: 'Översikt' },
+        desc: { fr: 'Vue d’ensemble de la boutique', en: 'Shop overview', sv: 'Överblick över butiken' } },
     ],
   },
   {
-    label: 'Boutique',
+    label: { fr: 'Boutique', en: 'Shop', sv: 'Butik' },
     items: [
-      { href: '/admin/produits',   icon: 'inventory_2',  label: 'Produits',   desc: 'Gérer le catalogue' },
-      { href: '/admin/categories', icon: 'category',     label: 'Catégories', desc: 'Organiser les rayons' },
-      { href: '/admin/stock',      icon: 'inventory',    label: 'Stocks',     desc: 'Niveaux & alertes', badge: 'stock' },
-      { href: '/admin/commandes',  icon: 'receipt_long', label: 'Commandes',  desc: 'Suivi des ventes',  badge: 'orders' },
-      { href: '/admin/commandes/preparation', icon: 'barcode_scanner', label: 'Préparation', desc: 'Picking scanné au téléphone' },
-      { href: '/admin/ruptures', icon: 'production_quantity_limits', label: 'Ruptures', desc: 'Proposer un remplacement au client' },
+      { href: '/admin/produits', icon: 'inventory_2',
+        label: { fr: 'Produits', en: 'Products', sv: 'Produkter' },
+        desc: { fr: 'Gérer le catalogue', en: 'Manage the catalogue', sv: 'Hantera sortimentet' } },
+      { href: '/admin/categories', icon: 'category',
+        label: { fr: 'Catégories', en: 'Categories', sv: 'Kategorier' },
+        desc: { fr: 'Organiser les rayons', en: 'Organise the aisles', sv: 'Ordna hyllorna' } },
+      { href: '/admin/stock', icon: 'inventory', badge: 'stock',
+        label: { fr: 'Stocks', en: 'Stock', sv: 'Lager' },
+        desc: { fr: 'Niveaux & alertes', en: 'Levels & alerts', sv: 'Nivåer och varningar' } },
+      { href: '/admin/commandes', icon: 'receipt_long', badge: 'orders',
+        label: { fr: 'Commandes', en: 'Orders', sv: 'Beställningar' },
+        desc: { fr: 'Suivi des ventes', en: 'Sales tracking', sv: 'Uppföljning av försäljning' } },
+      { href: '/admin/commandes/preparation', icon: 'barcode_scanner',
+        label: { fr: 'Préparation', en: 'Picking', sv: 'Plockning' },
+        desc: { fr: 'Picking scanné au téléphone', en: 'Scan-based picking on your phone', sv: 'Plockning med mobilskanner' } },
+      { href: '/admin/ruptures', icon: 'production_quantity_limits',
+        label: { fr: 'Ruptures', en: 'Out of stock', sv: 'Slutsålt' },
+        desc: { fr: 'Proposer un remplacement au client', en: 'Offer the customer a replacement', sv: 'Erbjud kunden en ersättning' } },
       // Hors maquette — conservés pour ne pas perdre l'accès à ces écrans.
-      { href: '/admin/produits/suggestions', icon: 'lightbulb', label: 'Suggestions', desc: 'Idées clients',        extra: true },
-      { href: '/admin/import',              icon: 'upload',    label: 'Import URL',  desc: 'Ajouter depuis un lien', extra: true },
+      { href: '/admin/produits/suggestions', icon: 'lightbulb', extra: true,
+        label: { fr: 'Suggestions', en: 'Suggestions', sv: 'Förslag' },
+        desc: { fr: 'Idées clients', en: 'Customer ideas', sv: 'Kundernas idéer' } },
+      { href: '/admin/import', icon: 'upload', extra: true,
+        label: { fr: 'Import URL', en: 'URL import', sv: 'URL-import' },
+        desc: { fr: 'Ajouter depuis un lien', en: 'Add from a link', sv: 'Lägg till från en länk' } },
     ],
   },
   {
-    label: 'Achats',
+    label: { fr: 'Achats', en: 'Purchasing', sv: 'Inköp' },
     items: [
-      { href: '/admin/achats',     icon: 'shopping_basket', label: "Commandes d'achat", desc: 'Passer des commandes' },
-      { href: '/admin/achats/ticket', icon: 'receipt', label: 'Saisie ticket', desc: 'Lire un ticket de caisse' },
-      { href: '/admin/receptions', icon: 'local_shipping',  label: 'Réceptions',        desc: 'Recevoir & stocker', badge: 'receptions' },
+      { href: '/admin/achats', icon: 'shopping_basket',
+        label: { fr: 'Commandes d’achat', en: 'Purchase orders', sv: 'Inköpsorder' },
+        desc: { fr: 'Passer des commandes', en: 'Place orders', sv: 'Lägg beställningar' } },
+      { href: '/admin/achats/conditionnements', icon: 'inventory_2', extra: true,
+        label: { fr: 'Conditionnements', en: 'Pack sizes', sv: 'Förpackningsstorlekar' },
+        desc: { fr: 'Unités par carton', en: 'Units per case', sv: 'Enheter per kartong' } },
+      { href: '/admin/achats/ticket', icon: 'receipt',
+        label: { fr: 'Saisie ticket', en: 'Receipt entry', sv: 'Kvittoregistrering' },
+        desc: { fr: 'Lire un ticket de caisse', en: 'Read a till receipt', sv: 'Läs ett kvitto' } },
+      { href: '/admin/receptions', icon: 'local_shipping', badge: 'receptions',
+        label: { fr: 'Réceptions', en: 'Goods receipts', sv: 'Inleveranser' },
+        desc: { fr: 'Recevoir & stocker', en: 'Receive & store', sv: 'Ta emot och lagra' } },
     ],
   },
   {
-    label: 'Finance',
+    label: { fr: 'Finance', en: 'Finance', sv: 'Ekonomi' },
     items: [
-      { href: '/admin/gestion',      icon: 'request_quote',   label: 'Facturation',  desc: 'Factures, marges, transport' },
-      { href: '/admin/comptabilite', icon: 'account_balance', label: 'Comptabilité', desc: 'CA, recettes, cotisations' },
+      { href: '/admin/gestion', icon: 'request_quote',
+        label: { fr: 'Facturation', en: 'Invoicing', sv: 'Fakturering' },
+        desc: { fr: 'Factures, marges, transport', en: 'Invoices, margins, freight', sv: 'Fakturor, marginaler, frakt' } },
+      { href: '/admin/comptabilite', icon: 'account_balance',
+        label: { fr: 'Comptabilité', en: 'Accounting', sv: 'Bokföring' },
+        desc: { fr: 'CA, recettes, cotisations', en: 'Turnover, income, contributions', sv: 'Omsättning, intäkter, avgifter' } },
     ],
   },
   {
-    label: 'Marketing',
+    label: { fr: 'Marketing', en: 'Marketing', sv: 'Marknadsföring' },
     items: [
-      { href: '/admin/marketing',             icon: 'campaign',            label: 'Campagnes',   desc: 'Emails & envois' },
-      { href: '/admin/marketing?tab=promo',   icon: 'confirmation_number', label: 'Codes promo', desc: 'Réductions & offres' },
-      { href: '/admin/marketing/automations', icon: 'smart_toy',           label: 'Automations', desc: 'Séquences automatiques' },
-      { href: '/admin/emails', icon: 'mail', label: 'Emails', desc: 'Modèles envoyés aux clients' },
-      { href: '/admin/boite-mail', icon: 'inbox', label: 'Boîte mail', desc: 'hej@swedishcravings.fr' },
-      { href: '/admin/marketing?tab=cart',    icon: 'shopping_cart',       label: 'Abandon panier', desc: 'Relances automatiques', extra: true },
+      { href: '/admin/marketing', icon: 'campaign',
+        label: { fr: 'Campagnes', en: 'Campaigns', sv: 'Kampanjer' },
+        desc: { fr: 'Emails & envois', en: 'Emails & sends', sv: 'Utskick och e-post' } },
+      { href: '/admin/marketing?tab=promo', icon: 'confirmation_number',
+        label: { fr: 'Codes promo', en: 'Promo codes', sv: 'Rabattkoder' },
+        desc: { fr: 'Réductions & offres', en: 'Discounts & offers', sv: 'Rabatter och erbjudanden' } },
+      { href: '/admin/marketing/automations', icon: 'smart_toy',
+        label: { fr: 'Automations', en: 'Automations', sv: 'Automatiseringar' },
+        desc: { fr: 'Séquences automatiques', en: 'Automated sequences', sv: 'Automatiska sekvenser' } },
+      { href: '/admin/emails', icon: 'mail',
+        label: { fr: 'Emails', en: 'Emails', sv: 'E-postmallar' },
+        desc: { fr: 'Modèles envoyés aux clients', en: 'Templates sent to customers', sv: 'Mallar som skickas till kunder' } },
+      { href: '/admin/boite-mail', icon: 'inbox',
+        label: { fr: 'Boîte mail', en: 'Mailbox', sv: 'Inkorg' },
+        desc: { fr: 'hej@swedishcravings.fr', en: 'hej@swedishcravings.fr', sv: 'hej@swedishcravings.fr' } },
+      { href: '/admin/marketing?tab=cart', icon: 'shopping_cart', extra: true,
+        label: { fr: 'Abandon panier', en: 'Abandoned carts', sv: 'Övergivna kundvagnar' },
+        desc: { fr: 'Relances automatiques', en: 'Automatic reminders', sv: 'Automatiska påminnelser' } },
     ],
   },
   {
-    label: 'Contenu',
+    label: { fr: 'Contenu', en: 'Content', sv: 'Innehåll' },
     items: [
-      { href: '/admin/home-cms', icon: 'home',      label: "Textes d'accueil", desc: 'Titres, images et textes de la home' },
+      { href: '/admin/home-cms', icon: 'home',
+        label: { fr: 'Textes d’accueil', en: 'Home texts', sv: 'Startsidans texter' },
+        desc: { fr: 'Titres, images et textes de la home', en: 'Home page titles, images and copy', sv: 'Rubriker, bilder och text på startsidan' } },
       /* Complementaire, pas doublon : home-cms edite les cles CMS, cet ecran
          edite les sections (hero, bande Epices, bande Fredagsmys) et les
          selections de produits mises en avant. Il etait sorti de la nav par
          erreur et devenait inatteignable. */
-      { href: '/admin/homepage', icon: 'view_carousel', label: "Sections d'accueil", desc: 'Bandes et produits mis en avant' },
-      { href: '/admin/pages',    icon: 'article',   label: 'Pages',          desc: 'CGV, mentions, pages libres' },
-      { href: '/admin/medias',   icon: 'perm_media', label: 'Médiathèque',   desc: 'Photos & fichiers' },
+      { href: '/admin/homepage', icon: 'view_carousel',
+        label: { fr: 'Sections d’accueil', en: 'Home sections', sv: 'Startsidans sektioner' },
+        desc: { fr: 'Bandes et produits mis en avant', en: 'Bands and featured products', sv: 'Block och utvalda produkter' } },
+      { href: '/admin/pages', icon: 'article',
+        label: { fr: 'Pages', en: 'Pages', sv: 'Sidor' },
+        desc: { fr: 'CGV, mentions, pages libres', en: 'Terms, legal notice, free pages', sv: 'Villkor, juridik, fria sidor' } },
+      { href: '/admin/medias', icon: 'perm_media',
+        label: { fr: 'Médiathèque', en: 'Media library', sv: 'Mediabibliotek' },
+        desc: { fr: 'Photos & fichiers', en: 'Photos & files', sv: 'Bilder och filer' } },
     ],
   },
   {
-    label: 'Contacts',
+    label: { fr: 'Contacts', en: 'Contacts', sv: 'Kontakter' },
     items: [
-      { href: '/admin/contacts?type=client',   icon: 'group',   label: 'Clients',      desc: "Carnet d'adresses clients" },
-      { href: '/admin/contacts?type=supplier', icon: 'factory', label: 'Fournisseurs', desc: 'Gestion fournisseurs' },
+      { href: '/admin/contacts?type=client', icon: 'group',
+        label: { fr: 'Clients', en: 'Customers', sv: 'Kunder' },
+        desc: { fr: 'Carnet d’adresses clients', en: 'Customer address book', sv: 'Kundregister' } },
+      { href: '/admin/contacts?type=supplier', icon: 'factory',
+        label: { fr: 'Fournisseurs', en: 'Suppliers', sv: 'Leverantörer' },
+        desc: { fr: 'Gestion fournisseurs', en: 'Supplier management', sv: 'Leverantörshantering' } },
     ],
   },
   {
-    label: 'Réglages',
+    label: { fr: 'Réglages', en: 'Settings', sv: 'Inställningar' },
     items: [
-      { href: '/admin/white-label', icon: 'palette', label: 'White label', desc: 'Couleurs, polices, logo' },
-      { href: '/admin/apps',        icon: 'tune',    label: 'Paramètres',  desc: 'Boutique, livraison, TVA, emails' },
+      { href: '/admin/white-label', icon: 'palette',
+        label: { fr: 'White label', en: 'White label', sv: 'White label' },
+        desc: { fr: 'Couleurs, polices, logo', en: 'Colours, fonts, logo', sv: 'Färger, typsnitt, logotyp' } },
+      { href: '/admin/apps', icon: 'tune',
+        label: { fr: 'Paramètres', en: 'Settings', sv: 'Inställningar' },
+        desc: { fr: 'Boutique, livraison, TVA, emails', en: 'Shop, shipping, VAT, emails', sv: 'Butik, frakt, moms, e-post' } },
     ],
   },
 ];
 
 /** Barre d'onglets mobile (58 px) — 5 entrées, cf. handoff. */
-export const MOBILE_TABS: Array<{ href: string; icon: string; label: string; badge?: NavBadge; menu?: boolean }> = [
-  { href: '/admin',           icon: 'space_dashboard', label: 'Accueil' },
-  { href: '/admin/produits',  icon: 'inventory_2',     label: 'Produits' },
-  { href: '/admin/commandes', icon: 'receipt_long',    label: 'Commandes', badge: 'orders' },
-  { href: '/admin/stock',     icon: 'inventory',       label: 'Stocks',    badge: 'stock' },
-  { href: '#menu',            icon: 'menu',            label: 'Menu', menu: true },
+export const MOBILE_TABS: Array<{ href: string; icon: string; label: Trad; badge?: NavBadge; menu?: boolean }> = [
+  { href: '/admin',           icon: 'space_dashboard', label: { fr: 'Accueil', en: 'Home', sv: 'Hem' } },
+  { href: '/admin/produits',  icon: 'inventory_2',     label: { fr: 'Produits', en: 'Products', sv: 'Produkter' } },
+  { href: '/admin/commandes', icon: 'receipt_long',    label: { fr: 'Commandes', en: 'Orders', sv: 'Order' }, badge: 'orders' },
+  { href: '/admin/stock',     icon: 'inventory',       label: { fr: 'Stocks', en: 'Stock', sv: 'Lager' }, badge: 'stock' },
+  { href: '#menu',            icon: 'menu',            label: { fr: 'Menu', en: 'Menu', sv: 'Meny' }, menu: true },
 ];
 
 /** Tous les items, à plat — pratique pour le hub et la palette de commandes. */
