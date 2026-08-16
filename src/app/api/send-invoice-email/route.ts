@@ -12,9 +12,15 @@ export const maxDuration = 30;
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || 'svenska-internal-2024';
 
 export async function POST(req: NextRequest) {
-  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { order_id, secret } = await req.json();
-  if (secret !== INTERNAL_SECRET) {
+
+  /* Deux appelants légitimes, deux preuves différentes :
+     — le webhook Stripe, qui s'appelle lui-même avec le secret interne
+       et n'a pas de session admin ;
+     — le back-office, qui envoie une facture à la main avec son jeton.
+     Exiger le jeton pour les deux aurait coupé l'envoi automatique. */
+  const interne = secret === INTERNAL_SECRET;
+  if (!interne && !await requireAuth(req)) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
   if (!order_id) {
