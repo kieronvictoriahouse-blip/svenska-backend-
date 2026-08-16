@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
@@ -432,13 +433,19 @@ export default function AchatsPage() {
             <option value="">{t('allStatuses')}</option>
             {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
           </select>
-          <button className="sc-btn sc-btn-primary" onClick={() => {
+          {/* La saisie manuelle reste accessible : elle sert aux cas que
+              le réappro ne couvre pas, et c'est le seul chemin d'édition
+              d'une commande existante. */}
+          <button className="sc-btn" onClick={() => {
             setForm({ status: 'draft', supplier_id: '', expected_date: '', notes: '', lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] });
             setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
             setEditingOrder(null); setShowModal(true);
           }}>
-            <span className="ms">add</span>{t('newBtn')}
+            <span className="ms">edit_note</span>Saisie manuelle
           </button>
+          <Link href="/admin/achats/nouvelle" className="sc-btn sc-btn-primary">
+            <span className="ms">auto_awesome</span>{t('newBtn')}
+          </Link>
         </div>
       </div>
 

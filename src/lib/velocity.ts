@@ -112,13 +112,23 @@ export async function calculerVelocites(): Promise<Velocite[]> {
     const inP = entrees[p.id] || {};
     const outP = sorties[p.id] || {};
 
+    /* Un produit n'est pas « en rupture » avant d'exister à la vente.
+       Compter les jours antérieurs à sa première entrée en stock divise
+       les ventes par une poignée de jours et multiplie la vélocité par
+       dix — on commanderait dix fois trop, l'erreur symétrique de celle
+       qu'on corrige. La fenêtre d'un produit commence donc le jour de sa
+       première réception. */
+    const premiereEntree = Object.keys(inP).sort()[0];
+    const departProduit = premiereEntree && premiereEntree > debutFenetre
+      ? premiereEntree : debutFenetre;
+
     let stock = 0;
     let vendus = 0, dispo = 0, fenetre = 0;
 
     for (const d of jours) {
       stock += inP[d] || 0;
 
-      const dansFenetre = d >= debutFenetre;
+      const dansFenetre = d >= departProduit;
       if (dansFenetre) {
         fenetre++;
         // Disponible = il y avait du stock au moment de vendre.
