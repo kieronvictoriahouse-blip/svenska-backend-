@@ -67,6 +67,10 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
 
   const [torche, setTorche] = useState(false);
   const [torcheDispo, setTorcheDispo] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [zoomMin, setZoomMin] = useState(1);
+  const [zoomMax, setZoomMax] = useState(1);
+  const [objectif, setObjectif] = useState('');
 
   const [active, setActive] = useState(false);
   const [error, setError] = useState('');
@@ -122,6 +126,13 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
     onScan(code);
   }, [onScan]);
 
+  /** Zoom optique/numérique du capteur — pas un agrandissement CSS. */
+  const reglerZoom = useCallback(async (v: number) => {
+    setZoom(v);
+    try { await trackRef.current?.applyConstraints({ advanced: [{ zoom: v } as any] }); }
+    catch { /* zoom non pilotable */ }
+  }, []);
+
   /** Éclairage : indispensable sur une étiquette mate en réserve. */
   const basculerTorche = useCallback(async () => {
     const track = trackRef.current;
@@ -140,7 +151,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
     readerRef.current = null;
     candidatRef.current = { code: '', vu: 0 };
     trackRef.current = null;
-    setTorche(false); setTorcheDispo(false);
+    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif('');
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     setActive(false);
@@ -153,12 +164,34 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
          une definition suffisante pour resoudre des barres fines, et
          l'autofocus continu — sans lui l'image reste floue de pres, ce
          qui produit soit rien, soit un code faux. */
+      /* Choix de l'objectif — c'est ici que se jouait le flou.
+         « facingMode: environment » laisse le navigateur choisir, et sur
+         les telephones recents il prend souvent l'ULTRA GRAND-ANGLE, qui
+         ne fait pas la mise au point de pres : l'image reste floue quel
+         que soit le moteur de lecture.
+         On demande donc explicitement l'objectif principal arriere, en
+         ecartant ceux dont le libelle annonce un ultra grand-angle, un
+         teleobjectif ou un capteur de profondeur. */
+      let deviceId: string | undefined;
+      try {
+        // Un premier acces est necessaire pour que les libelles soient lisibles.
+        const amorce = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+        const sources = (await navigator.mediaDevices.enumerateDevices())
+          .filter(d => d.kind === 'videoinput');
+        amorce.getTracks().forEach(t => t.stop());
+
+        const arriere = sources.filter(d => /back|arri|rear|environment/i.test(d.label) || sources.length === 1);
+        const exclus = /ultra|wide|grand.?angle|t[ée]l[ée]|depth|profondeur|macro/i;
+        const principal = arriere.find(d => !exclus.test(d.label)) || arriere[0];
+        deviceId = principal?.deviceId;
+        setObjectif(principal?.label || '');
+      } catch { /* libelles indisponibles : on laisse le navigateur choisir */ }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: { ideal: 'environment' },
+          ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }),
           /* 1280x720 plutot que 1080p : au-dela, chaque appel au detecteur
-             coute plus cher et on lit MOINS de codes par seconde. La
-             version precedente demandait 1920 et scannait moins bien. */
+             coute plus cher et on lit MOINS de codes par seconde. */
           width: { ideal: 1280 }, height: { ideal: 720 },
         },
       });
@@ -169,8 +202,21 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       try {
         const caps: any = track?.getCapabilities?.() || {};
         setTorcheDispo(!!caps.torch);
+
         if (caps.focusMode?.includes?.('continuous')) {
           await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
+        }
+
+        /* Le zoom evite d'avoir a s'approcher. La plupart des objectifs
+           ne font pas le point sous 10 cm : on reste a bonne distance et
+           on grossit le code, plutot que de coller le telephone dessus. */
+        if (caps.zoom) {
+          const min = Number(caps.zoom.min) || 1;
+          const max = Number(caps.zoom.max) || 1;
+          setZoomMax(max); setZoomMin(min);
+          const depart = Math.min(max, Math.max(min, 2));
+          await track.applyConstraints({ advanced: [{ zoom: depart } as any] });
+          setZoom(depart);
         }
       } catch { /* capacites non exposees */ }
       if (videoRef.current) {
@@ -283,6 +329,21 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         }}>{error || label}</div>
       </div>
 
+      {/* Zoom : le seul reglage qui change vraiment le resultat. On reste
+          a 15-20 cm, distance ou l'objectif fait le point, et on grossit
+          le code au lieu de s'approcher jusqu'au flou. */}
+      {active && zoomMax > zoomMin && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+          <span className="ms" style={{ fontSize: 18, color: 'rgba(255,255,255,.55)' }}>zoom_out</span>
+          <input type="range" min={zoomMin} max={zoomMax} step={0.1} value={zoom}
+                 onChange={e => reglerZoom(Number(e.target.value))}
+                 style={{ flex: 1, accentColor: '#F4EEE1' }} />
+          <span className="sc-num" style={{ fontSize: 11, color: 'rgba(255,255,255,.55)', minWidth: 30, textAlign: 'right' }}>
+            {zoom.toFixed(1)}×
+          </span>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button
           onClick={active ? stop : start}
@@ -339,6 +400,13 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
             }}>Simuler</button>
         )}
       </div>
+
+      {active && (
+        <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', marginTop: 7, lineHeight: 1.5 }}>
+          Reste à 15–20 cm et zoome : sous 10 cm la plupart des objectifs ne font plus le point.
+          {objectif ? ` · ${objectif}` : ''}
+        </div>
+      )}
 
       {supported === false && (
         <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', marginTop: 7, lineHeight: 1.5 }}>
