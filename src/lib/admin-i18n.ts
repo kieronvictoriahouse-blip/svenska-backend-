@@ -163,6 +163,26 @@ export const T_SHELL = {
   help:        { fr: 'Aide', en: 'Help', sv: 'Hjälp' },
 };
 
+/**
+ * Nom d'un produit dans la langue choisie.
+ *
+ * Vaut pour une fiche produit comme pour une ligne de commande : les
+ * deux portent les mêmes champs, et une ligne ancienne n'a parfois que
+ * `name`. On accepte donc les deux, la fiche l'emportant sur la ligne —
+ * un produit renommé doit s'afficher sous son nom actuel.
+ *
+ * Le français est le dernier repli parce qu'il est toujours renseigné :
+ * mieux vaut un nom lisible qu'une case vide.
+ */
+export function nomProduit(source: any, lang: AdminLang, ligne?: any): string {
+  const champs = lang === 'sv' ? ['name_sv'] : lang === 'en' ? ['name_en'] : [];
+  for (const c of champs) {
+    const v = source?.[c] || ligne?.[c];
+    if (v) return String(v);
+  }
+  return source?.name_fr || ligne?.name_fr || ligne?.name || source?.name || 'Article';
+}
+
 /** Formats de date et de monnaie de la langue choisie. Une interface
  *  anglaise qui affiche « 16 août 2026 » n'est pas traduite. */
 export const LOCALES: Record<AdminLang, string> = {

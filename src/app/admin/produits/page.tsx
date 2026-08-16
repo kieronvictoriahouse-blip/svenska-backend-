@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone, thumbStyle, initials, eur, stockColor } from '@/lib/admin-theme';
+import { SqueletteTable, SqueletteCartes } from '@/components/Squelette';
+import { useT, nomProduit } from '@/lib/admin-i18n';
+import { TPR } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 2 — PRODUITS
@@ -46,6 +49,7 @@ const marginPct = (price: number, cost?: number) => {
 };
 
 export default function ProduitsPage() {
+  const { t, tc, lang } = useT(TPR);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,7 +147,7 @@ export default function ProduitsPage() {
 
   async function bulkPrice() {
     const pct = parseFloat(pricePct.replace(',', '.'));
-    if (!pct || Number.isNaN(pct)) { say('Indique un pourcentage, ex. 5 ou −3'); return; }
+    if (!pct || Number.isNaN(pct)) { say(t('msgPourcent')); return; }
     setBusy(true);
     try {
       const targets = products.filter(p => sel.has(p.id));
@@ -170,9 +174,9 @@ export default function ProduitsPage() {
         body: JSON.stringify({ ...rest, name_fr: `${p.name_fr} (copie)`, is_active: false }),
       });
       if (!res.ok) throw new Error();
-      say('Produit dupliqué');
+      say(t('msgDuplique'));
       load();
-    } catch { say('Duplication impossible'); }
+    } catch { say(t('msgDupliqueKo')); }
     finally { setBusy(false); }
   }
 
@@ -213,7 +217,7 @@ export default function ProduitsPage() {
       <div style={stickyHead}>
         <div className="sc-head" style={{ marginBottom: 12 }}>
           <div>
-            <div className="sc-title">Produits</div>
+            <div className="sc-title">{t('titre')}</div>
             <div className="sc-sub">
               {filtered.length} produit{filtered.length > 1 ? 's' : ''}
               {filtered.length !== products.length ? ` sur ${products.length}` : ''}
@@ -221,15 +225,15 @@ export default function ProduitsPage() {
             </div>
           </div>
           <div className="sc-actions">
-            <button className="sc-btn sc-btn-secondary" onClick={rehost} disabled={busy} title="Rapatrier les images externes dans le Storage">
-              <span className="ms">cloud_upload</span>Images
+            <button className="sc-btn sc-btn-secondary" onClick={rehost} disabled={busy} title={t('imagesTitre')}>
+              <span className="ms">cloud_upload</span>{t('images')}
             </button>
             <button className="sc-btn" onClick={() => setScanOpen(v => !v)}
                     style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
-              <span className="ms">barcode_scanner</span>Créer par scan
+              <span className="ms">barcode_scanner</span>{t('creerScan')}
             </button>
-            <Link href="/admin/import" className="sc-btn sc-btn-secondary"><span className="ms">upload</span>Importer</Link>
-            <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>Nouveau</Link>
+            <Link href="/admin/import" className="sc-btn sc-btn-secondary"><span className="ms">upload</span>{t('importer')}</Link>
+            <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>{t('nouveau')}</Link>
           </div>
         </div>
 
@@ -239,12 +243,12 @@ export default function ProduitsPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
               <span className="ms" style={{ fontSize: 19, color: '#6E4470' }}>barcode_scanner</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>Cr&eacute;er un article par scan</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>{t('creerScanTitre')}</div>
                 <div style={{ fontSize: 11, color: '#6E4470' }}>
                   Si le code est d&eacute;j&agrave; au catalogue, sa fiche s&rsquo;ouvre au lieu de cr&eacute;er un doublon.
                 </div>
               </div>
-              <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setScanOpen(false)}>Fermer</button>
+              <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setScanOpen(false)}>{tc('close')}</button>
             </div>
             <div style={{ padding: 15, maxWidth: 300 }}>
               <BarcodeScanner compact label="Scanne l&rsquo;article"
@@ -258,11 +262,11 @@ export default function ProduitsPage() {
           <input
             className="sc-input"
             style={{ height: 32, flex: '1 1 220px', maxWidth: 320, background: '#F7F4EF' }}
-            placeholder="Rechercher un produit, une référence…"
+            placeholder={t('chercher')}
             value={q}
             onChange={e => setQ(e.target.value)}
           />
-          <button className={`sc-chip${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>Toutes</button>
+          <button className={`sc-chip${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>{t('toutes')}</button>
           {categories.map(c => (
             <button key={c.id} className={`sc-chip${cat === c.id ? ' on' : ''}`} onClick={() => setCat(c.id)}>{c.name_fr}</button>
           ))}
@@ -271,7 +275,7 @@ export default function ProduitsPage() {
             <button key={v} className={`sc-chip${stat === v ? ' on' : ''}`} onClick={() => setStat(v)}>{l}</button>
           ))}
           {!mobile && (
-            <button className="sc-chip" onClick={() => setShowCosts(v => !v)} title="Afficher / masquer coût et marge">
+            <button className="sc-chip" onClick={() => setShowCosts(v => !v)} title={t('voirMarge')}>
               <span className="ms" style={{ fontSize: 16 }}>{showCosts ? 'visibility_off' : 'visibility'}</span>
               {showCosts ? 'Masquer coûts' : 'Afficher coûts'}
             </button>
@@ -290,22 +294,22 @@ export default function ProduitsPage() {
             </span>
             <span style={{ flex: 1 }} />
             <button className="sc-btn sc-btn-secondary" onClick={() => setPriceModal(true)} disabled={busy}>
-              <span className="ms">sell</span>Modifier les prix
+              <span className="ms">sell</span>{t('modifierPrix')}
             </button>
             <button className="sc-btn sc-btn-secondary" onClick={bulkUnpublish} disabled={busy}>
-              <span className="ms">visibility_off</span>Dépublier
+              <span className="ms">visibility_off</span>{t('depublier')}
             </button>
             <button className="sc-btn sc-btn-danger" onClick={bulkDelete} disabled={busy}>
-              <span className="ms">delete</span>Supprimer
+              <span className="ms">delete</span>{tc('delete')}
             </button>
-            <button className="sc-btn sc-btn-secondary" onClick={() => setSel(new Set())}>Annuler</button>
+            <button className="sc-btn sc-btn-secondary" onClick={() => setSel(new Set())}>{tc('cancel')}</button>
           </div>
         )}
       </div>
 
       {/* ── Contenu ─────────────────────────────────────── */}
-      {loading && <div className="sc-empty">Chargement…</div>}
-      {!loading && filtered.length === 0 && <div className="sc-empty">Aucun produit ne correspond à ces filtres.</div>}
+      {loading && (mobile ? <SqueletteCartes n={6} /> : <SqueletteTable lignes={8} colonnes={5} vignette />)}
+      {!loading && filtered.length === 0 && <div className="sc-empty">{t('aucun')}</div>}
 
       {/* Desktop : table */}
       {!loading && !mobile && filtered.length > 0 && (
@@ -315,16 +319,16 @@ export default function ProduitsPage() {
               <thead>
                 <tr>
                   <th style={{ width: 38 }}>
-                    <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" />
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label={t('toutSelect')} />
                   </th>
                   <th style={{ width: 92 }}>Réf.</th>
-                  <th>Produit</th>
-                  <th style={{ width: 140 }}>Catégorie</th>
+                  <th>{tc('product')}</th>
+                  <th style={{ width: 140 }}>{t('categorie')}</th>
                   <th className="sc-right" style={{ width: 84 }}>Prix</th>
                   {showCosts && <th className="sc-right" style={{ width: 84 }}>Coût</th>}
-                  {showCosts && <th className="sc-right" style={{ width: 74 }}>Marge</th>}
-                  <th style={{ width: 118 }}>Stock</th>
-                  <th style={{ width: 104 }}>Statut</th>
+                  {showCosts && <th className="sc-right" style={{ width: 74 }}>{t('marge')}</th>}
+                  <th style={{ width: 118 }}>{tc('stock')}</th>
+                  <th style={{ width: 104 }}>{tc('status')}</th>
                   <th style={{ width: 96 }} />
                 </tr>
               </thead>
@@ -338,14 +342,14 @@ export default function ProduitsPage() {
                   const st = statusOf(p);
                   return (
                     <tr key={p.id} style={checked ? { background: 'color-mix(in srgb, var(--accent) 4%, transparent)' } : undefined}>
-                      <td><input type="checkbox" checked={checked} onChange={() => toggle(p.id)} aria-label={`Sélectionner ${p.name_fr}`} /></td>
+                      <td><input type="checkbox" checked={checked} onChange={() => toggle(p.id)} aria-label={`${t('toutSelect')} — ${nomProduit(p, lang)}`} /></td>
                       <td className="sc-num" style={{ fontSize: 11.5, color: T.muted }}>{refOf(p)}</td>
                       <td>
                         <Link href={`/admin/produits/${p.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
                           {p.image_url
                             ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 28)} />
                             : <div style={thumbStyle(p.name_fr, 28)}>{initials(p.name_fr, 1)}</div>}
-                          <span style={{ fontSize: 13, fontWeight: 500, color: T.ink }}>{p.name_fr}</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: T.ink }}>{nomProduit(p, lang)}</span>
                         </Link>
                       </td>
                       <td>{catName(p.category_id)}</td>
@@ -365,11 +369,11 @@ export default function ProduitsPage() {
                       <td><span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>{st.label}</span></td>
                       <td>
                         <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-                          <Link href={`/admin/produits/${p.id}`} className="sc-iconbtn" title="Modifier"><span className="ms">edit</span></Link>
-                          <button className="sc-iconbtn" title="Dupliquer" onClick={() => duplicate(p)} disabled={busy}><span className="ms">content_copy</span></button>
+                          <Link href={`/admin/produits/${p.id}`} className="sc-iconbtn" title={tc('edit')}><span className="ms">edit</span></Link>
+                          <button className="sc-iconbtn" title={t('dupliquer')} onClick={() => duplicate(p)} disabled={busy}><span className="ms">content_copy</span></button>
                           <button
                             className="sc-iconbtn"
-                            title={p.is_active ? 'Dépublier' : 'Publier'}
+                            title={p.is_active ? t('depublier') : t('publier')}
                             onClick={async () => {
                               await adminFetch(`/api/products/${p.id}`, {
                                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -405,7 +409,7 @@ export default function ProduitsPage() {
                   : <div style={thumbStyle(p.name_fr, 46)}>{initials(p.name_fr, 1)}</div>}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name_fr}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nomProduit(p, lang)}</span>
                     <span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg, flexShrink: 0 }}>{st.label}</span>
                   </div>
                   <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>{refOf(p)} · {catName(p.category_id)}</div>
@@ -426,17 +430,17 @@ export default function ProduitsPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
              onClick={e => { if (e.target === e.currentTarget) setPriceModal(false); }}>
           <div className="sc-card" style={{ width: '100%', maxWidth: 380, padding: 18 }}>
-            <div className="sc-card-title" style={{ marginBottom: 4 }}>Modifier les prix</div>
+            <div className="sc-card-title" style={{ marginBottom: 4 }}>{t('modifierPrix')}</div>
             <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>
               Appliqué aux {sel.size} produit(s) sélectionné(s). Un nombre négatif baisse les prix.
             </div>
-            <label className="sc-label">Variation en %</label>
+            <label className="sc-label">{t('variation')}</label>
             <input className="sc-input" autoFocus value={pricePct} placeholder="ex. 5 ou -3"
                    onChange={e => setPricePct(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter') bulkPrice(); }} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button className="sc-btn sc-btn-secondary" onClick={() => setPriceModal(false)}>Annuler</button>
-              <button className="sc-btn sc-btn-primary" onClick={bulkPrice} disabled={busy}>Appliquer</button>
+              <button className="sc-btn sc-btn-secondary" onClick={() => setPriceModal(false)}>{tc('cancel')}</button>
+              <button className="sc-btn sc-btn-primary" onClick={bulkPrice} disabled={busy}>{t('appliquer')}</button>
             </div>
           </div>
         </div>

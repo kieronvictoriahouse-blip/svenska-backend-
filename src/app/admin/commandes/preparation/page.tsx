@@ -5,6 +5,7 @@ import { T, BADGE, thumbStyle, initials, eur } from '@/lib/admin-theme';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { useT } from '@/lib/admin-i18n';
 import { TP, nomProduit } from './i18n';
+import { SqueletteTable } from '@/components/Squelette';
 
 /* ═══════════════════════════════════════════════════════════════
    BOUTIQUE › PRÉPARATION DE COMMANDE
@@ -161,7 +162,7 @@ export default function PreparationPage() {
         </div>
       </div>
 
-      {loading && <div className="sc-empty">{tc('loading')}</div>}
+      {loading && <SqueletteTable lignes={5} colonnes={3} vignette />}
       {!loading && orders.length === 0 && (
         <div className="sc-empty">{t('vide')}</div>
       )}

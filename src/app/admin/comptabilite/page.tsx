@@ -2,6 +2,7 @@
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
+import { SqueletteTable, SqueletteKpis } from '@/components/Squelette';
 
 type Entry = {
   id: string;
@@ -287,7 +288,7 @@ export default function ComptabilitePage() {
         })}
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <><SqueletteKpis n={4} /><SqueletteTable lignes={6} colonnes={4} /></>}
 
       {!loading && tab === 'dashboard' && (
         <>

@@ -3,6 +3,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone, initials, eur, thumbStyle } from '@/lib/admin-theme';
+import { SqueletteTable } from '@/components/Squelette';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRANS 17 & 18 — CLIENTS / FOURNISSEURS
@@ -130,7 +131,7 @@ function ContactsInner() {
         </div>
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <SqueletteTable lignes={7} colonnes={4} vignette />}
       {!loading && contacts.length === 0 && <div className="sc-empty">Aucun contact.</div>}
 
       {/* ── Fournisseurs : grille de cartes ─────────────── */}

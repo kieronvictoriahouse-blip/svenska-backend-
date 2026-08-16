@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, eur, thumbStyle, initials } from '@/lib/admin-theme';
 import { repartir } from '@/lib/landed';
+import { SqueletteTable } from '@/components/Squelette';
+import { useT } from '@/lib/admin-i18n';
+import { TRE } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 8 — RÉCEPTIONS
@@ -34,6 +37,7 @@ const supplierOf = (r: Reception) =>
   [r.contacts?.first_name, r.contacts?.last_name].filter(Boolean).join(' ') || 'Fournisseur';
 
 export default function ReceptionsPage() {
+  const { t, tc } = useT(TRE);
   const [receptions, setReceptions] = useState<Reception[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Reception | null>(null);
@@ -71,12 +75,12 @@ export default function ReceptionsPage() {
   }
 
   async function saveLandedCost() {
-    if (!selected || !lcForm.description || !lcForm.amount) { say('Description et montant requis'); return; }
+    if (!selected || !lcForm.description || !lcForm.amount) { say(t('msgRequis')); return; }
     const porteurs = linesOf(selected)
       .filter((l: any) => l.product_id && Number(l.received_qty) > 0 && !lcExclus[l.product_id]);
     /* Sans garde, une sélection vide serait comprise côté serveur comme
        « pas de sélection », donc imputée sur tout — l'inverse du geste. */
-    if (!porteurs.length) { say('Coche au moins un article pour porter ce coût'); return; }
+    if (!porteurs.length) { say(t('msgCoche')); return; }
     setLcSaving(true);
     try {
       const res = await adminFetch('/api/landed-costs', {
@@ -91,7 +95,7 @@ export default function ReceptionsPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Erreur');
-      say('Coûts logistiques imputés — PMP mis à jour');
+      say(t('msgImpute'));
       setLcResult(d.lines);
       setLcForm({ description: '', amount: '', allocation_method: 'equal' });
       const d2 = await adminFetch(`/api/landed-costs?reception_id=${selected.id}`).then(x => x.json());
@@ -109,19 +113,19 @@ export default function ReceptionsPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Réceptions</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             {receptions.length} réception{receptions.length > 1 ? 's' : ''} · une ligne incomplète crée un reliquat sur la commande d’achat
           </div>
         </div>
         <div className="sc-actions">
-          <a className="sc-btn sc-btn-secondary" href="/admin/achats"><span className="ms">shopping_basket</span>Commandes d’achat</a>
+          <a className="sc-btn sc-btn-secondary" href="/admin/achats"><span className="ms">shopping_basket</span>{t('cmdAchat')}</a>
         </div>
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <SqueletteTable lignes={5} colonnes={4} />}
       {!loading && receptions.length === 0 && (
-        <div className="sc-empty">Aucune réception. Elles se créent depuis une commande d’achat.</div>
+        <div className="sc-empty">{t('aucune')}</div>
       )}
 
       {!loading && receptions.length > 0 && (
@@ -164,7 +168,7 @@ export default function ReceptionsPage() {
                           </div>
                           <div style={{ textAlign: 'center', minWidth: 62 }}>
                             <div className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>{expected}</div>
-                            <div style={{ fontSize: 9, color: T.muted, textTransform: 'uppercase', letterSpacing: .8 }}>Attendu</div>
+                            <div style={{ fontSize: 9, color: T.muted, textTransform: 'uppercase', letterSpacing: .8 }}>{t('attendu')}</div>
                           </div>
                           <div style={{ textAlign: 'center', minWidth: 62 }}>
                             <div className="sc-num" style={{
@@ -192,31 +196,31 @@ export default function ReceptionsPage() {
                 {/* Coûts logistiques → PMP */}
                 <div className="sc-card">
                   <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-                    <span className="sc-card-title">Coûts logistiques</span>
+                    <span className="sc-card-title">{t('couts')}</span>
                     <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>
-                      Transport, douane, manutention — répartis sur les lignes, ils mettent à jour le PMP des produits.
+                      {t('coutsSous')}
                     </div>
                   </div>
                   <div style={{ padding: '13px 15px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10 }}>
                       <div>
-                        <label className="sc-label">Description</label>
-                        <input className="sc-input" value={lcForm.description} placeholder="Transport DHL"
+                        <label className="sc-label">{t('description')}</label>
+                        <input className="sc-input" value={lcForm.description} placeholder={t('exTransport')}
                                onChange={e => setLcForm(f => ({ ...f, description: e.target.value }))} />
                       </div>
                       <div>
-                        <label className="sc-label">Montant</label>
+                        <label className="sc-label">{t('montant')}</label>
                         <input className="sc-input sc-num" type="number" step="0.01" min="0" value={lcForm.amount} placeholder="56.90"
                                onChange={e => setLcForm(f => ({ ...f, amount: e.target.value }))} />
                       </div>
                       <div>
-                        <label className="sc-label">Répartition</label>
+                        <label className="sc-label">{t('repartition')}</label>
                         {/* Deux méthodes, pas trois : l'API n'en connaît que
                             deux, les libellés en promettaient une de plus. */}
                         <select className="sc-input sc-select" value={lcForm.allocation_method}
                                 onChange={e => setLcForm(f => ({ ...f, allocation_method: e.target.value }))}>
-                          <option value="equal">Par unité reçue</option>
-                          <option value="prorata">Au prorata de la valeur</option>
+                          <option value="equal">{t('parUnite')}</option>
+                          <option value="prorata">{t('auProrata')}</option>
                         </select>
                       </div>
                     </div>
@@ -243,11 +247,11 @@ export default function ReceptionsPage() {
                         <div style={{ marginTop: 12, border: `1px solid ${T.borderFaint}`, borderRadius: 7, overflow: 'hidden' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 11px', background: '#FBF9F6' }}>
                             <span className="sc-label" style={{ margin: 0, flex: 1 }}>
-                              Articles qui portent ce coût — {retenues}/{lignes.length}
+                              {t('porteurs')} — {retenues}/{lignes.length}
                             </span>
                             <button onClick={() => setLcExclus({})}
                                     style={{ border: 'none', background: 'none', color: T.text2b, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>
-                              Tout cocher
+                              {t('toutCocher')}
                             </button>
                           </div>
                           {lignes.map((l: any) => {
@@ -276,13 +280,13 @@ export default function ReceptionsPage() {
                     })()}
 
                     <button className="sc-btn sc-btn-green" style={{ marginTop: 10 }} onClick={saveLandedCost} disabled={lcSaving}>
-                      <span className="ms">calculate</span>{lcSaving ? 'Imputation…' : 'Imputer sur le PMP'}
+                      <span className="ms">calculate</span>{lcSaving ? t('imputation') : t('imputer')}
                     </button>
 
                     {lcResult && lcResult.length > 0 && (
                       <div style={{ marginTop: 12, background: '#F2F5F0', borderRadius: 7, padding: '10px 12px' }}>
                         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: T.muted, marginBottom: 6 }}>
-                          Nouveau PMP
+                          {t('nouveauPmp')}
                         </div>
                         {lcResult.map((l: any, i: number) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
@@ -295,7 +299,7 @@ export default function ReceptionsPage() {
 
                     {landedCosts.length > 0 && (
                       <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.borderFaint}` }}>
-                        <div className="sc-label">Déjà imputés</div>
+                        <div className="sc-label">{t('dejaImputes')}</div>
                         {landedCosts.map(lc => (
                           <div key={lc.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
                             <span style={{ color: T.text2b }}>{lc.description}</span>
@@ -314,7 +318,7 @@ export default function ReceptionsPage() {
           <div style={{ flex: '1 1 280px', minWidth: 0 }}>
             <div className="sc-card" style={{ overflow: 'hidden' }}>
               <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-                <span className="sc-card-title">Historique</span>
+                <span className="sc-card-title">{t('historique')}</span>
               </div>
               {receptions.map(r => {
                 const on = selected?.id === r.id;

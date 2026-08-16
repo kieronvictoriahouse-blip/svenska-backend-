@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials, eur, num, stockColor } from '@/lib/admin-theme';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import { SqueletteTable } from '@/components/Squelette';
+import { useT, nomProduit } from '@/lib/admin-i18n';
+import { TST } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 5 — STOCKS
@@ -28,6 +31,7 @@ const refOf = (p: any) =>
   p.sku || (p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : String(p.id).slice(0, 6).toUpperCase());
 
 export default function StockPage() {
+  const { t, tc, lang } = useT(TST);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +106,7 @@ export default function StockPage() {
       setCtrlSel(new Set((d.rows || [])
         .filter((r: any) => r.reconciliable && r.ecart !== 0)
         .map((r: any) => r.product_id)));
-    } catch { say('Controle impossible'); }
+    } catch { say(t('msgControleKo')); }
     finally { setCtrlBusy(false); }
   }
 
@@ -206,20 +210,20 @@ export default function StockPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Stocks</div>
-          <div className="sc-sub">Ajuste les quantités directement dans la liste — enregistrement automatique</div>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">{t('sous')}</div>
         </div>
         <div className="sc-actions">
-          <Link href="/admin/achats" className="sc-btn sc-btn-secondary"><span className="ms">shopping_basket</span>Commande d’achat</Link>
+          <Link href="/admin/achats" className="sc-btn sc-btn-secondary"><span className="ms">shopping_basket</span>{t('cmdAchat')}</Link>
           <button className="sc-btn" onClick={() => setInvOpen(v => !v)}
                   style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
-            <span className="ms">barcode_scanner</span>Inventaire par scan
+            <span className="ms">barcode_scanner</span>{t('invScan')}
           </button>
           <button className="sc-btn sc-btn-secondary"
                   onClick={() => { const n = !ctrlOpen; setCtrlOpen(n); if (n && !ctrl) loadCtrl(); }}>
-            <span className="ms">fact_check</span>Contr&ocirc;le
+            <span className="ms">fact_check</span>{t('controle')}
           </button>
-          <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>Exporter CSV</button>
+          <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>{t('exporter')}</button>
         </div>
       </div>
       {/* Controle du stock : recu - vendu confronte a la base */}
@@ -228,13 +232,13 @@ export default function StockPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
             <span className="ms" style={{ fontSize: 19, color: T.muted }}>fact_check</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>Contr&ocirc;le du stock</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{t('controleTitre')}</div>
               <div style={{ fontSize: 11, color: T.text3 }}>
                 Th&eacute;orique = total re&ccedil;u &minus; total vendu, recalcul&eacute; depuis les r&eacute;ceptions et les commandes.
               </div>
             </div>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={loadCtrl} disabled={ctrlBusy}>Recalculer</button>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setCtrlOpen(false)}>Fermer</button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={loadCtrl} disabled={ctrlBusy}>{t('recalculer')}</button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setCtrlOpen(false)}>{tc('close')}</button>
           </div>
 
           {!ctrl ? (
@@ -261,11 +265,11 @@ export default function StockPage() {
                   <thead>
                     <tr>
                       <th style={{ width: 34 }}></th>
-                      <th>Produit</th>
-                      <th style={{ width: 70, textAlign: 'right' }}>Re&ccedil;u</th>
-                      <th style={{ width: 70, textAlign: 'right' }}>Vendu</th>
-                      <th style={{ width: 82, textAlign: 'right' }}>Th&eacute;orique</th>
-                      <th style={{ width: 72, textAlign: 'right' }}>En base</th>
+                      <th>{tc('product')}</th>
+                      <th style={{ width: 70, textAlign: 'right' }}>{t('recu')}</th>
+                      <th style={{ width: 70, textAlign: 'right' }}>{t('vendu')}</th>
+                      <th style={{ width: 82, textAlign: 'right' }}>{t('theorique')}</th>
+                      <th style={{ width: 72, textAlign: 'right' }}>{t('enBase')}</th>
                       <th style={{ width: 78, textAlign: 'right' }}>&Eacute;cart</th>
                     </tr>
                   </thead>
@@ -324,13 +328,13 @@ export default function StockPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
             <span className="ms" style={{ fontSize: 19, color: '#6E4470' }}>inventory</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>Session d&rsquo;inventaire</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>{t('session')}</div>
               <div style={{ fontSize: 11, color: '#6E4470' }}>
                 {Object.keys(inv).length} r&eacute;f&eacute;rence(s) compt&eacute;e(s) &middot; scanne chaque produit puis corrige la quantit&eacute;
               </div>
             </div>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInv({})}>Vider</button>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInvOpen(false)}>Fermer</button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInv({})}>{t('vider')}</button>
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInvOpen(false)}>{tc('close')}</button>
           </div>
 
           <div style={{ display: 'flex', gap: 12, padding: 15, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -358,12 +362,12 @@ export default function StockPage() {
                         ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 28)} />
                         : <div style={thumbStyle(p.name_fr, 28)}>{initials(p.name_fr, 1)}</div>}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, color: T.ink }}>{p.name_fr}</div>
+                        <div style={{ fontSize: 12.5, color: T.ink }}>{nomProduit(p, lang)}</div>
                         <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{refOf(p)} &middot; th&eacute;orique {theo}</div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
-                                onClick={() => setInv(s => ({ ...s, [id]: Math.max(0, (s[id] || 0) - 1) }))} aria-label="Moins">
+                                onClick={() => setInv(s => ({ ...s, [id]: Math.max(0, (s[id] || 0) - 1) }))} aria-label={t('moins')}>
                           <span className="ms">remove</span>
                         </button>
                         <span className="sc-num" style={{ fontSize: 13, fontWeight: 700, minWidth: 26, textAlign: 'center' }}>{counted}</span>
@@ -413,9 +417,9 @@ export default function StockPage() {
         ))}
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <SqueletteTable lignes={8} colonnes={5} vignette />}
       {!loading && sorted.length === 0 && (
-        <div className="sc-empty">Aucun produit en suivi de stock. Active le suivi sur une fiche produit pour le voir ici.</div>
+        <div className="sc-empty">{t('aucun')}</div>
       )}
 
       {!loading && sorted.length > 0 && (
@@ -424,11 +428,11 @@ export default function StockPage() {
             <table className="sc-table" style={{ minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th>Produit</th>
-                  <th style={{ width: 160 }}>Niveau</th>
-                  <th className="sc-right" style={{ width: 70 }}>Seuil</th>
-                  <th style={{ width: 130 }}>Ajuster</th>
-                  <th className="sc-right" style={{ width: 96 }}>Valeur</th>
+                  <th>{tc('product')}</th>
+                  <th style={{ width: 160 }}>{t('niveau')}</th>
+                  <th className="sc-right" style={{ width: 70 }}>{t('seuil')}</th>
+                  <th style={{ width: 130 }}>{t('ajuster')}</th>
+                  <th className="sc-right" style={{ width: 96 }}>{t('valeur')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -445,7 +449,7 @@ export default function StockPage() {
                             ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 28)} />
                             : <div style={thumbStyle(p.name_fr, 28)}>{initials(p.name_fr, 1)}</div>}
                           <span style={{ minWidth: 0 }}>
-                            <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: T.ink }}>{p.name_fr}</span>
+                            <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: T.ink }}>{nomProduit(p, lang)}</span>
                             <span style={{ display: 'block', fontSize: 10.5, color: T.muted }}>{refOf(p)} · {catName(p.category_id)}</span>
                           </span>
                         </Link>
@@ -461,10 +465,10 @@ export default function StockPage() {
                       <td className="sc-num sc-right" style={{ color: T.muted }}>{thr}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button className="sc-iconbtn" onClick={() => adjust(p, -1)} aria-label={`Retirer une unité de ${p.name_fr}`} disabled={qty <= 0}>
+                          <button className="sc-iconbtn" onClick={() => adjust(p, -1)} aria-label={`− ${nomProduit(p, lang)}`} disabled={qty <= 0}>
                             <span className="ms">remove</span>
                           </button>
-                          <button className="sc-iconbtn" onClick={() => adjust(p, +1)} aria-label={`Ajouter une unité de ${p.name_fr}`}>
+                          <button className="sc-iconbtn" onClick={() => adjust(p, +1)} aria-label={`+ ${nomProduit(p, lang)}`}>
                             <span className="ms">add</span>
                           </button>
                           {saving.has(p.id) && <span style={{ fontSize: 10, color: T.muted }}>…</span>}

@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
-import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, AdminLang } from '@/lib/admin-i18n';
+import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, AdminLang, nomProduit } from '@/lib/admin-i18n';
+import { SqueletteTable } from '@/components/Squelette';
 
 type PurchaseOrder = {
   id: string; number: string; status: string; supplier_id?: string; supplier_name?: string;
@@ -164,7 +165,7 @@ export default function AchatsPage() {
     nl[i] = { ...nl[i], [field]: val };
     if (field === 'product_id') {
       const p = products.find(x => x.id === val);
-      if (p) nl[i].name = lang === 'sv' ? (p.name_sv || p.name_fr) : lang === 'en' ? (p.name_en || p.name_fr) : p.name_fr;
+      if (p) nl[i].name = nomProduit(p, lang);
     }
     if (field === 'unit_cost' || field === 'qty') {
       if (!exchangeRate && currency !== 'EUR') {
@@ -506,7 +507,7 @@ export default function AchatsPage() {
                       : s.urgency === 'faible' ? 'Faible' : 'Attention';
                     return (
                       <tr key={s.id}>
-                        <td style={{ fontSize: 13, fontWeight: 500, color: TH.ink }}>{s.name_fr}</td>
+                        <td style={{ fontSize: 13, fontWeight: 500, color: TH.ink }}>{nomProduit(s, lang)}</td>
                         <td><span className="sc-badge" style={{ background: tone.bg, color: tone.fg }}>{label}</span></td>
                         <td className="sc-num sc-right" style={{
                           fontWeight: 600,
@@ -568,7 +569,7 @@ export default function AchatsPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={7}><div className="sc-empty">{tc('loading')}</div></td></tr>}
+              {loading && <tr><td colSpan={7} style={{ padding: 0 }}><SqueletteTable lignes={6} colonnes={5} vignette entete={false} /></td></tr>}
               {!loading && orders.length === 0 && <tr><td colSpan={7}><div className="sc-empty">{tc('noData')}</div></td></tr>}
               {!loading && orders.map(o => {
                 const st: any = STATUSES[o.status as keyof typeof STATUSES] || { color: '#6A7280', fr: o.status };
@@ -722,7 +723,7 @@ export default function AchatsPage() {
                           <td>
                             <select className="lines-input" value={l.product_id} onChange={e => updateLine(i, 'product_id', e.target.value)}>
                               <option value="">—</option>
-                              {products.map(p => <option key={p.id} value={p.id}>{lang === 'sv' ? (p.name_sv || p.name_fr) : lang === 'en' ? (p.name_en || p.name_fr) : p.name_fr}</option>)}
+                              {products.map(p => <option key={p.id} value={p.id}>{nomProduit(p, lang)}</option>)}
                             </select>
                           </td>
                           <td><input type="number" className="lines-input" style={{ width: 56 }} value={l.qty || ''} min={1} placeholder="Qté" onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 0)} /></td>

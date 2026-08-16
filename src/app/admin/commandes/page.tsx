@@ -2,10 +2,11 @@
 import { downloadAuth, adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang, LOCALES } from '@/lib/admin-i18n';
+import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang, LOCALES, nomProduit } from '@/lib/admin-i18n';
 import { resolveShipping } from '@/lib/shipping';
 // Thème importé sous alias :  est déjà pris par le dictionnaire de traductions.
 import { T as TH, BADGE, ORDER_STATUS, thumbStyle, initials } from '@/lib/admin-theme';
+import { SqueletteTable } from '@/components/Squelette';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -906,7 +907,7 @@ export default function CommandesPage() {
             background: TH.sidebarBg, borderRight: mobile ? 'none' : `1px solid ${TH.border}`,
             overflowY: 'auto',
           }}>
-            {loading && <div className="sc-empty">{tc('loading')}</div>}
+            {loading && <SqueletteTable lignes={7} colonnes={4} vignette />}
             {!loading && visibleOrders.length === 0 && <div className="sc-empty">{t('noOrder')}</div>}
             {visibleOrders.map(o => {
               const on = selected?.id === o.id;
@@ -1138,7 +1139,7 @@ export default function CommandesPage() {
                                         <input type="checkbox" checked={q > 0}
                                                onChange={e => setPartialItems(s => { const n = { ...s }; if (e.target.checked) n[i] = maxQty; else delete n[i]; return n; })} />
                                         <span style={{ flex: 1, fontSize: 12.5 }}>
-                                          {l.name_fr || l.name || l.desc || '—'}
+                                          {nomProduit(productList.find(p => p.id === l.product_id), lang, l)}
                                           <span style={{ color: '#9A3412', fontSize: 10.5 }}> (× {maxQty} — {fmt(l.price || 0)}/u)</span>
                                         </span>
                                         {q > 0 && maxQty > 1 && (
@@ -1499,7 +1500,7 @@ export default function CommandesPage() {
                       <div className="selected-lines">
                         {pickerLines.map(l => (
                           <div key={l.pid} className="selected-line">
-                            <span style={{ flex: 1 }}>{l.name} <span style={{ color: '#6A7280' }}>× {l.qty}</span></span>
+                            <span style={{ flex: 1 }}>{nomProduit(l, lang)} <span style={{ color: '#6A7280' }}>× {l.qty}</span></span>
                             <span className="mono" style={{ fontSize: 12, marginRight: 10 }}>{fmt(l.qty * l.price)}</span>
                             <button onClick={() => setPickerSelections(s => { const n = { ...s }; delete n[l.pid]; return n; })} style={{ border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
                           </div>
@@ -1605,7 +1606,7 @@ export default function CommandesPage() {
                           ? <img src={p.image_url} alt="" className="picker-item-img" />
                           : <div className="picker-item-noimg">📦</div>}
                         <div className="picker-item-info">
-                          <div className="picker-item-name">{p.name_fr}</div>
+                          <div className="picker-item-name">{nomProduit(p, lang)}</div>
                           <div className="picker-item-price">{fmt(displayPrice)}{p.weight ? ` · ${p.weight}` : ''}</div>
                           {hasVariants && (
                             <div className="picker-variants">

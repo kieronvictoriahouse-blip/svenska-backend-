@@ -9,8 +9,9 @@ import { T } from '@/lib/admin-theme';
 
 export function shellCss(accent: string): string {
   return `
-    @import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400;1,600&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,200..600,0..1,0');
+    /* Les polices sont chargées depuis le <head> du document racine :
+       ici, l'@import ne partait qu'après l'hydratation de React, et les
+       icônes s'affichaient en toutes lettres le temps du chargement. */
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Jost', system-ui, sans-serif; background: ${T.appBg}; color: ${T.ink}; -webkit-font-smoothing: antialiased; }
@@ -19,6 +20,25 @@ export function shellCss(accent: string): string {
     ::-webkit-scrollbar-thumb { background: #D9D3CA; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
     ::-webkit-scrollbar-track { background: transparent; }
     @keyframes sc-slide-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    /* ── Squelettes de chargement ─────────────────────────────
+       Une page qui se recharge doit montrer la forme de ce qui
+       arrive, pas un vide puis un saut de mise en page. La
+       silhouette occupe la place définitive : le contenu se pose
+       dessus sans rien décaler. */
+    @keyframes sc-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .sc-skel {
+      border-radius: 5px;
+      background: linear-gradient(90deg, ${T.borderFaint2} 25%, #F3EFE9 50%, ${T.borderFaint2} 75%);
+      background-size: 200% 100%;
+      animation: sc-shimmer 1.4s ease-in-out infinite;
+    }
+    .sc-skel-round { border-radius: 50%; }
+    /* Assez lente pour ne pas attirer l'œil, et coupée net pour qui
+       préfère l'immobilité. */
+    @media (prefers-reduced-motion: reduce) {
+      .sc-skel { animation: none; background: ${T.borderFaint2}; }
+    }
 
     :root { --accent: ${accent}; }
 

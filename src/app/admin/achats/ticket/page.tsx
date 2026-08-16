@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
+import { nomProduit, useAdminLang } from '@/lib/admin-i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ACHATS › SAISIE TICKET DE CAISSE
@@ -45,6 +46,7 @@ const STATUS_META: Record<Status, { border: string; label: string; tone: keyof t
 };
 
 export default function TicketPage() {
+  const lang = useAdminLang();
   const [mode, setMode] = useState<'photo' | 'quick'>('photo');
   const [store, setStore] = useState(STORES[0]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -560,7 +562,7 @@ export default function TicketPage() {
                               ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 26)} />
                               : <div style={thumbStyle(p.name_fr, 26)}>{initials(p.name_fr, 1)}</div>}
                             <span style={{ minWidth: 0 }}>
-                              <span style={{ display: 'block', fontSize: 12.5, color: T.ink }}>{p.name_fr}</span>
+                              <span style={{ display: 'block', fontSize: 12.5, color: T.ink }}>{nomProduit(p, lang)}</span>
                               <span style={{ display: 'block', fontSize: 10.5, color: T.muted }}>
                                 {p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : '—'}
                                 {p.cost_price ? ` · dernier PA ${eur(p.cost_price)}` : ''}

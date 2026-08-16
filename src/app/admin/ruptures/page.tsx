@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone } from '@/lib/admin-theme';
+import { useT, nomProduit } from '@/lib/admin-i18n';
+import { TRU } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    RUPTURES & REMPLACEMENTS
@@ -28,6 +30,7 @@ const eur = (n: any) =>
 const dt = (d?: string) => (d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) : '—');
 
 export default function RupturesPage() {
+  const { t, tc, lang } = useT(TRU);
   const [rows, setRows] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -55,7 +58,7 @@ export default function RupturesPage() {
       setRows(r.ruptures || []);
       setOrders((o.orders || []).filter((x: any) => ['paid', 'confirmed'].includes(x.status)));
       setProducts(p.products || []);
-    } catch { say('Chargement impossible'); }
+    } catch { say(t('msgChargement')); }
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
@@ -70,8 +73,8 @@ export default function RupturesPage() {
   const line = lines[Number(lineIdx)];
 
   async function envoyer() {
-    if (!order || !line) { say('Choisis une commande et un article'); return; }
-    if (!options.size) { say('Propose au moins un remplacement'); return; }
+    if (!order || !line) { say(t('msgChoisir')); return; }
+    if (!options.size) { say(t('msgProposer')); return; }
     setBusy(true);
     try {
       const res = await adminFetch(`/api/orders/${order.id}/rupture`, {
@@ -112,12 +115,12 @@ export default function RupturesPage() {
     <>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>Ruptures &amp; remplacements</div>
+          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
           <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
             {enAttente} en attente de réponse · {aTraiter} réponse(s) à traiter
           </div>
         </div>
-        <button className="sc-btn sc-btn-secondary" onClick={load}><span className="ms">refresh</span>Actualiser</button>
+        <button className="sc-btn sc-btn-secondary" onClick={load}><span className="ms">refresh</span>{t('actualiser')}</button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,340px) minmax(0,1fr)', gap: 12, alignItems: 'start' }}>
@@ -129,7 +132,7 @@ export default function RupturesPage() {
           </div>
           <div style={{ padding: 15, display: 'flex', flexDirection: 'column', gap: 11 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>Commande</label>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('commande')}</label>
               <select className="sc-input" style={{ width: '100%' }} value={orderId}
                       onChange={e => { setOrderId(e.target.value); setLineIdx(''); }}>
                 <option value="">— Choisir —</option>
@@ -140,7 +143,7 @@ export default function RupturesPage() {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>Article en rupture</label>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('enRupture')}</label>
               <select className="sc-input" style={{ width: '100%' }} value={lineIdx}
                       onChange={e => setLineIdx(e.target.value)} disabled={!lines.length}>
                 <option value="">{lines.length ? '— Choisir —' : 'Choisis d’abord une commande'}</option>
@@ -166,7 +169,7 @@ export default function RupturesPage() {
                              if (n.has(p.id)) n.delete(p.id); else n.add(p.id);
                              return n;
                            })} />
-                    <span style={{ flex: 1, minWidth: 0, color: T.ink }}>{p.name_fr}</span>
+                    <span style={{ flex: 1, minWidth: 0, color: T.ink }}>{nomProduit(p, lang)}</span>
                     <span className="sc-num" style={{ color: T.muted }}>{eur(p.price)}</span>
                   </label>
                 ))}
@@ -177,15 +180,15 @@ export default function RupturesPage() {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>Titre</label>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('titreMsg')}</label>
               <input className="sc-input" style={{ width: '100%' }} value={titre} onChange={e => setTitre(e.target.value)} />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>Message</label>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('message')}</label>
               <textarea className="sc-input" rows={4}
                         style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
-                        placeholder="Laisse vide pour le texte par défaut."
+                        placeholder={t('videParDefaut')}
                         value={corps} onChange={e => setCorps(e.target.value)} />
             </div>
 
@@ -198,7 +201,7 @@ export default function RupturesPage() {
         {/* ── Suivi des réponses ───────────────────────────── */}
         <div className="sc-card" style={{ overflow: 'hidden' }}>
           {loading ? (
-            <div className="sc-empty">Chargement…</div>
+            <div className="sc-empty">{tc('loading')}</div>
           ) : rows.length === 0 ? (
             <div className="sc-empty">
               <span className="ms" style={{ fontSize: 34, color: T.borderField, display: 'block', marginBottom: 8 }}>inventory_2</span>
@@ -209,11 +212,11 @@ export default function RupturesPage() {
               <table className="sc-table">
                 <thead>
                   <tr>
-                    <th style={{ width: 88 }}>Commande</th>
-                    <th>Article</th>
-                    <th>Réponse</th>
-                    <th style={{ width: 150 }}>Statut</th>
-                    <th style={{ width: 92, textAlign: 'right' }}>Montant</th>
+                    <th style={{ width: 88 }}>{t('commande')}</th>
+                    <th>{t('article')}</th>
+                    <th>{t('reponse')}</th>
+                    <th style={{ width: 150 }}>{tc('status')}</th>
+                    <th style={{ width: 92, textAlign: 'right' }}>{t('montant')}</th>
                     <th style={{ width: 58 }}></th>
                   </tr>
                 </thead>
@@ -260,7 +263,7 @@ export default function RupturesPage() {
                               </a>
                             )}
                             {r.status !== 'pending' && r.status !== 'done' && (
-                              <button className="sc-iconbtn" title="Marquer comme traité" onClick={() => agir(r.id, 'clore')}>
+                              <button className="sc-iconbtn" title={t('marquerTraite')} onClick={() => agir(r.id, 'clore')}>
                                 <span className="ms" style={{ color: T.green }}>check_circle</span>
                               </button>
                             )}

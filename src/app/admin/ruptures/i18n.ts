@@ -1,0 +1,16 @@
+export const TRU = {
+  titre: { fr: 'Ruptures & remplacements', en: 'Out of stock & replacements', sv: 'Slutsålt och ersättningar' },
+  actualiser: { fr: 'Actualiser', en: 'Refresh', sv: 'Uppdatera' },
+  commande: { fr: 'Commande', en: 'Order', sv: 'Order' },
+  enRupture: { fr: 'Article en rupture', en: 'Out-of-stock item', sv: 'Slutsåld artikel' },
+  titreMsg: { fr: 'Titre', en: 'Title', sv: 'Rubrik' },
+  message: { fr: 'Message', en: 'Message', sv: 'Meddelande' },
+  article: { fr: 'Article', en: 'Item', sv: 'Artikel' },
+  reponse: { fr: 'Réponse', en: 'Reply', sv: 'Svar' },
+  montant: { fr: 'Montant', en: 'Amount', sv: 'Belopp' },
+  videParDefaut: { fr: 'Laisse vide pour le texte par défaut.', en: 'Leave empty for the default text.', sv: 'Lämna tomt för standardtexten.' },
+  marquerTraite: { fr: 'Marquer comme traité', en: 'Mark as handled', sv: 'Markera som hanterad' },
+  msgChargement: { fr: 'Chargement impossible', en: 'Loading failed', sv: 'Kunde inte läsa in' },
+  msgChoisir: { fr: 'Choisis une commande et un article', en: 'Choose an order and an item', sv: 'Välj en order och en artikel' },
+  msgProposer: { fr: 'Propose au moins un remplacement', en: 'Offer at least one replacement', sv: 'Föreslå minst en ersättning' },
+};
