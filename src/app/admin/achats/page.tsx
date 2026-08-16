@@ -433,6 +433,9 @@ export default function AchatsPage() {
             <option value="">{t('allStatuses')}</option>
             {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
           </select>
+          <Link className="sc-btn" href="/admin/achats/conditionnements" title="Unités par carton">
+            <span className="ms">inventory_2</span>Conditionnements
+          </Link>
           {/* La saisie manuelle reste accessible : elle sert aux cas que
               le réappro ne couvre pas, et c'est le seul chemin d'édition
               d'une commande existante. */}

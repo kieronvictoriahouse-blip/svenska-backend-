@@ -497,6 +497,24 @@ function Composition() {
         </div>
       )}
 
+      {/* Tant que les cartons valent 1, tout l'écran raisonne en unités
+          en se donnant l'air de compter des cartons. */}
+      {catalogue.length > 0 && catalogue.every(p => p.packEffectif === 1) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 9, marginTop: 14,
+          background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 9, padding: '10px 13px',
+        }}>
+          <span className="ms" style={{ fontSize: 18, color: C.t4 }}>inventory_2</span>
+          <div style={{ fontSize: 12, color: C.t3, lineHeight: 1.5, flex: 1 }}>
+            Aucun conditionnement n’est renseigné : « 19 cartons » veut donc dire 19 unités.
+          </div>
+          <Link href="/admin/achats/conditionnements"
+                style={{ fontSize: 12, fontWeight: 600, color: C.accent, whiteSpace: 'nowrap' }}>
+            Les renseigner
+          </Link>
+        </div>
+      )}
+
       {sansFournisseur > 0 && (
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: 9, marginTop: 14,
