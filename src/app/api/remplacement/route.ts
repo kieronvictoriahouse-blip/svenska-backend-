@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
       .eq('id', c.id);
     return page('C’est noté, on vous rembourse',
       `Nous retirons <strong>${c.line_name}</strong> de votre commande et vous remboursons
-       <strong>${eur(du)}</strong> sur le moyen de paiement d’origine. Le reste du colis part immédiatement.<br /><br />
+       <strong>${eur(du)}</strong> sur le moyen de paiement d’origine. Le reste de votre commande suit son cours.<br /><br />
        Le remboursement apparaît sur votre relevé sous quelques jours.`);
   }
 
@@ -146,5 +146,5 @@ export async function GET(req: NextRequest) {
   return page('Parfait, c’est remplacé',
     `<strong>${c.line_name}</strong> est remplacé par <strong>${prod.name_fr}</strong> dans votre commande.<br /><br />
      ${mot}<br /><br />
-     Votre colis part dès aujourd’hui.`);
+     Nous préparons votre colis et vous prévenons dès qu’il part.`);
 }

@@ -7,9 +7,11 @@ import { T } from '@/lib/admin-theme';
    Handoff « scan & saisie ticket », §2 : bloc sombre, coins,
    ligne de balayage animée, bouton 44 px.
 
-   Détection : BarcodeDetector natif (Chrome Android) ; à défaut la
-   caméra reste utilisable et la saisie manuelle prend le relais.
-   L'accès caméra exige HTTPS — en local, seul localhost est autorisé.
+   Lecture : ZXing, qui tourne dans tous les navigateurs — iPhone
+   compris, ou BarcodeDetector n'existe pas et ou le scan ne
+   fonctionnait donc jamais. La saisie au clavier reste disponible
+   pour un code abime.
+   L'acces camera exige HTTPS — en local, seul localhost est autorise.
 
    ⚠️ Deux garde-fous imposés par le handoff :
    · anti-rebond de 700 ms sur un même code lu en continu ;
@@ -60,6 +62,8 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const timerRef = useRef<any>(null);
   const candidatRef = useRef<{ code: string; vu: number }>({ code: '', vu: 0 });
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const readerRef = useRef<any>(null);
+  const controlsRef = useRef<any>(null);
 
   const [torche, setTorche] = useState(false);
   const [torcheDispo, setTorcheDispo] = useState(false);
@@ -70,7 +74,9 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const [manual, setManual] = useState('');
 
   useEffect(() => {
-    setSupported(typeof window !== 'undefined' && 'BarcodeDetector' in window);
+    /* La lecture ne depend plus du navigateur : ZXing tourne partout,
+       iPhone compris. Seule la camera peut manquer. */
+    setSupported(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia);
   }, []);
 
   /**
@@ -129,6 +135,9 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const stop = useCallback(() => {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    try { controlsRef.current?.stop?.(); } catch { /* deja arrete */ }
+    controlsRef.current = null;
+    readerRef.current = null;
     candidatRef.current = { code: '', vu: 0 };
     trackRef.current = null;
     setTorche(false); setTorcheDispo(false);
@@ -170,39 +179,42 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       }
       setActive(true);
 
-      const Detector = (window as any).BarcodeDetector;
-      if (!Detector) return; // caméra allumée, lecture manuelle
+      /* ── Moteur de lecture ────────────────────────────────────
+         ZXing est le moteur principal, pas un repli : BarcodeDetector
+         lit mal les EAN sur etiquette imprimee, et n'existe pas du tout
+         sur iPhone — ou le scan ne fonctionnait donc jamais.
 
-      /* On demande au detecteur ce qu'il sait vraiment lire : declarer un
-         format non supporte fait echouer la construction entiere. */
-      let formats = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code', 'data_matrix'];
-      try {
-        const dispo: string[] = await Detector.getSupportedFormats();
-        if (dispo?.length) formats = formats.filter(f => dispo.includes(f));
-      } catch { /* methode absente : on garde la liste par defaut */ }
+         ZXing tourne partout, gere le flou et les codes de travers, et
+         reste sur son propre rythme. On lui laisse le flux deja ouvert
+         pour conserver nos contraintes de camera et la lampe. */
+      const { BrowserMultiFormatReader } = await import('@zxing/browser');
+      const { DecodeHintType, BarcodeFormat } = await import('@zxing/library');
 
-      const detector = new Detector({ formats });
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128, BarcodeFormat.CODE_39,
+        BarcodeFormat.ITF, BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX,
+      ]);
+      // Analyse plus poussee de chaque image : on prefere le temps de
+      // calcul au code manque, on est sur un geste ponctuel.
+      hints.set(DecodeHintType.TRY_HARDER, true);
 
-      /* Cadence fixe plutot qu'a chaque image : le detecteur est plus
-         lent que l'affichage, et empiler les appels degrade la lecture
-         au lieu de l'ameliorer. */
-      let enCours = false;
-      timerRef.current = setInterval(async () => {
-        if (enCours || !videoRef.current || !streamRef.current) return;
-        if (videoRef.current.readyState < 2) return;      // image pas encore prete
-        enCours = true;
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes?.length) {
-            /* Le plus grand code de l'image : c'est celui qu'on vise,
-               les autres sont des voisins sur l'etiquette. */
-            const plusGrand = codes.reduce((a: any, b: any) =>
-              ((b.boundingBox?.width || 0) > (a.boundingBox?.width || 0) ? b : a));
-            emit(String(plusGrand.rawValue || '').trim(), plusGrand.format);
-          }
-        } catch { /* image illisible, on continue */ }
-        finally { enCours = false; }
-      }, INTERVALLE_MS);
+      const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: INTERVALLE_MS });
+      readerRef.current = reader;
+
+      const FORMATS: Record<number, string> = {
+        [BarcodeFormat.EAN_13]: 'ean_13', [BarcodeFormat.EAN_8]: 'ean_8',
+        [BarcodeFormat.UPC_A]: 'upc_a', [BarcodeFormat.UPC_E]: 'upc_e',
+      };
+
+      controlsRef.current = await reader.decodeFromVideoElement(videoRef.current!, (result) => {
+        if (!result) return;                       // image sans code, on continue
+        const texte = String(result.getText() || '').trim();
+        emit(texte, FORMATS[result.getBarcodeFormat() as number]);
+      });
+
     } catch (e: any) {
       setError(
         e?.name === 'NotAllowedError' ? 'Accès caméra refusé.'
@@ -330,8 +342,8 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
 
       {supported === false && (
         <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', marginTop: 7, lineHeight: 1.5 }}>
-          Ce navigateur ne lit pas les codes-barres nativement (c’est le cas d’iOS).
-          La caméra sert de repère, saisis le code au clavier — ou utilise Chrome sur Android.
+          Ce navigateur ne donne pas accès à la caméra. Saisis le code au clavier,
+          ou ouvre le back-office depuis un téléphone.
         </div>
       )}
     </div>
