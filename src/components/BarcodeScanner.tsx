@@ -71,6 +71,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const [zoomMin, setZoomMin] = useState(1);
   const [zoomMax, setZoomMax] = useState(1);
   const [objectif, setObjectif] = useState('');
+  const [diag, setDiag] = useState('');
 
   const [active, setActive] = useState(false);
   const [error, setError] = useState('');
@@ -151,7 +152,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
     readerRef.current = null;
     candidatRef.current = { code: '', vu: 0 };
     trackRef.current = null;
-    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif('');
+    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif(''); setDiag('');
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     setActive(false);
@@ -184,7 +185,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         const exclus = /ultra|wide|grand.?angle|t[ée]l[ée]|depth|profondeur|macro/i;
         const principal = arriere.find(d => !exclus.test(d.label)) || arriere[0];
         deviceId = principal?.deviceId;
-        setObjectif(principal?.label || '');
+        setObjectif(principal?.label || 'libellé non communiqué');
       } catch { /* libelles indisponibles : on laisse le navigateur choisir */ }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -217,7 +218,25 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           const depart = Math.min(max, Math.max(min, 2));
           await track.applyConstraints({ advanced: [{ zoom: depart } as any] });
           setZoom(depart);
+        } else {
+          /* Pas de zoom pilotable — c'est le cas de Safari sur iPhone.
+             On compense par la definition : plus de pixels sur le code
+             permet de le lire de plus loin, la ou l'objectif fait encore
+             le point. On paie en temps de calcul, mais un code lu
+             lentement vaut mieux qu'un code jamais lu. */
+          try {
+            await track.applyConstraints({ width: { ideal: 1920 }, height: { ideal: 1080 } });
+          } catch { /* definition refusee : on garde celle obtenue */ }
         }
+        /* Diagnostic : plutot que de deviner d'un tour a l'autre, on
+           affiche ce que l'appareil expose reellement. */
+        const r = track?.getSettings?.() || {};
+        setDiag([
+          `${r.width || '?'}x${r.height || '?'}`,
+          caps.zoom ? `zoom ${caps.zoom.min}-${caps.zoom.max}` : 'zoom non pilotable',
+          caps.focusMode ? `focus ${(caps.focusMode || []).join('/')}` : 'focus non pilotable',
+          caps.torch ? 'lampe' : 'pas de lampe',
+        ].join(' · '));
       } catch { /* capacites non exposees */ }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -404,7 +423,8 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       {active && (
         <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', marginTop: 7, lineHeight: 1.5 }}>
           Reste à 15–20 cm et zoome : sous 10 cm la plupart des objectifs ne font plus le point.
-          {objectif ? ` · ${objectif}` : ''}
+          {objectif && <><br />Objectif : {objectif}</>}
+          {diag && <><br />{diag}</>}
         </div>
       )}
 
