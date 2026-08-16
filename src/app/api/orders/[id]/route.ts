@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { expeditionEmail } from '@/lib/customer-emails';
 import { requireAuth } from '@/lib/auth';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
@@ -102,12 +103,21 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           <p class="text" style="font-size:13px">Votre facture est disponible dans votre espace client.</p>
           ${cfg.email ? `<p class="text" style="font-size:13px">Des questions ? <a href="mailto:${cfg.email}" style="color:#3E4550">${cfg.email}</a></p>` : ''}`;
 
-        await sendEmail({
-          from:    fromEmail,
-          to:      order.customer_email,
-          subject: `${newStatus === 'shipped' ? '📦 Expédition' : '✅ Livraison'} — ${order.order_number}${siteName ? ` | ${siteName}` : ''}`,
-          html:    baseTemplate(content, `Commande ${order.order_number}`, cfg),
-        }, cfg);
+        /* Expédition : gabarit du handoff, avec le suivi et le point
+           relais. La livraison garde le message générique — le gabarit
+           « colis disponible » se déclenche sur le statut remonté par
+           Mondial Relay, pas sur ce changement manuel. */
+        if (newStatus === 'shipped') {
+          const mail = await expeditionEmail({ ...order, ...body });
+          await sendEmail({ from: fromEmail, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+        } else {
+          await sendEmail({
+            from:    fromEmail,
+            to:      order.customer_email,
+            subject: `Livraison — ${order.order_number}${siteName ? ` | ${siteName}` : ''}`,
+            html:    baseTemplate(content, `Commande ${order.order_number}`, cfg),
+          }, cfg);
+        }
       } catch (emailErr) {
         console.error('[orders PUT] email error:', emailErr);
       }

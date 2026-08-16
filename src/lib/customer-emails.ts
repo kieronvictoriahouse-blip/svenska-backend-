@@ -180,6 +180,25 @@ export async function ruptureEmail(
   };
 }
 
+/**
+ * Expédition — déclenché quand la commande passe à « expédiée ».
+ * Le suivi peut venir de trois transporteurs selon le mode choisi.
+ */
+export async function expeditionEmail(order: any) {
+  const suivi = order?.tracking_number || order?.mondial_relay_tracking
+    || order?.logspher_tracking || '';
+  return {
+    sujet: await sujetDe('email-expedition', `Votre commande ${order?.order_number || ''} est en route`),
+    html: await renderEmail('email-expedition', {
+      prenom: prenomDe(order?.customer_name),
+      numero: order?.order_number || '',
+      suivi: suivi || '—',
+      point_relais: order?.relay_point_name || 'Livraison à domicile',
+      adresse_html: adresseHtml(order || {}),
+    }),
+  };
+}
+
 /** Message libre — envoi manuel depuis la fiche commande. */
 export async function messageLibre(order: any, opts: { surtitre?: string; titre: string; corps: string }) {
   return {

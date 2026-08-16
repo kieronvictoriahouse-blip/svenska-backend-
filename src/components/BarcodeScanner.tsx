@@ -19,6 +19,25 @@ import { T } from '@/lib/admin-theme';
 
 const DEBOUNCE_MS = 700;
 
+/* Deux lectures identiques consecutives avant d'accepter. Une lecture
+   isolee sur une image floue est la premiere source de code faux. */
+const CONFIRMATIONS = 2;
+
+/* Cadence de detection. Analyser chaque image ne sert a rien : le
+   detecteur est plus lent que l'affichage, et on empile les appels. */
+const INTERVALLE_MS = 120;
+
+/** Cle de controle EAN-13 / EAN-8 / UPC-A. Un code mal lu la rate. */
+function cleValide(code: string): boolean {
+  if (!/^\d+$/.test(code)) return true;              // pas un EAN : rien a verifier
+  if (![8, 12, 13, 14].includes(code.length)) return true;
+  const chiffres = code.split('').map(Number);
+  const cle = chiffres.pop() as number;
+  // Le poids 3 s'applique en partant de la droite, quelle que soit la longueur.
+  const somme = chiffres.reverse().reduce((s, d, i) => s + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (somme % 10)) % 10 === cle;
+}
+
 export type ScannerProps = {
   onScan: (code: string) => void;
   /** Hauteur réduite pour la session d'inventaire. */
@@ -33,6 +52,12 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const streamRef = useRef<MediaStream | null>(null);
   const lastRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
   const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<any>(null);
+  const candidatRef = useRef<{ code: string; vu: number }>({ code: '', vu: 0 });
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+
+  const [torche, setTorche] = useState(false);
+  const [torcheDispo, setTorcheDispo] = useState(false);
 
   const [active, setActive] = useState(false);
   const [error, setError] = useState('');
@@ -43,17 +68,47 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
     setSupported(typeof window !== 'undefined' && 'BarcodeDetector' in window);
   }, []);
 
-  /** Émet le code en respectant l'anti-rebond. */
+  /**
+   * Émet un code lu.
+   *
+   * Deux filtres avant d'accepter, parce qu'un code faux coûte plus cher
+   * qu'un code manqué : il entre en stock ou part sur une commande.
+   *   1. la clé de contrôle EAN doit tomber juste ;
+   *   2. le même code doit être lu deux fois de suite.
+   */
   const emit = useCallback((code: string) => {
+    if (!code) return;
+    if (!cleValide(code)) { candidatRef.current = { code: '', vu: 0 }; return; }
+
+    const c = candidatRef.current;
+    if (c.code === code) c.vu += 1;
+    else candidatRef.current = { code, vu: 1 };
+    if (candidatRef.current.vu < CONFIRMATIONS) return;
+
     const now = Date.now();
     if (lastRef.current.code === code && now - lastRef.current.at < DEBOUNCE_MS) return;
     lastRef.current = { code, at: now };
+    candidatRef.current = { code: '', vu: 0 };
     try { navigator.vibrate?.(60); } catch { /* non supporté */ }
     onScan(code);
   }, [onScan]);
 
+  /** Éclairage : indispensable sur une étiquette mate en réserve. */
+  const basculerTorche = useCallback(async () => {
+    const track = trackRef.current;
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torche } as any] });
+      setTorche(t => !t);
+    } catch { /* la lampe n'est pas pilotable sur cet appareil */ }
+  }, [torche]);
+
   const stop = useCallback(() => {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    candidatRef.current = { code: '', vu: 0 };
+    trackRef.current = null;
+    setTorche(false); setTorcheDispo(false);
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     setActive(false);
@@ -62,10 +117,29 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const start = useCallback(async () => {
     setError('');
     try {
+      /* Contraintes qui font toute la difference sur un code-barres :
+         une definition suffisante pour resoudre des barres fines, et
+         l'autofocus continu — sans lui l'image reste floue de pres, ce
+         qui produit soit rien, soit un code faux. */
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 }, height: { ideal: 1080 },
+          // Non standard mais honore par Chrome Android, ignore ailleurs.
+          advanced: [{ focusMode: 'continuous' } as any],
+        },
       });
       streamRef.current = stream;
+
+      const track = stream.getVideoTracks()[0];
+      trackRef.current = track || null;
+      try {
+        const caps: any = track?.getCapabilities?.() || {};
+        setTorcheDispo(!!caps.torch);
+        if (caps.focusMode?.includes?.('continuous')) {
+          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
+        }
+      } catch { /* capacites non exposees */ }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -75,19 +149,36 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       const Detector = (window as any).BarcodeDetector;
       if (!Detector) return; // caméra allumée, lecture manuelle
 
-      const detector = new Detector({
-        formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'],
-      });
+      /* On demande au detecteur ce qu'il sait vraiment lire : declarer un
+         format non supporte fait echouer la construction entiere. */
+      let formats = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code', 'data_matrix'];
+      try {
+        const dispo: string[] = await Detector.getSupportedFormats();
+        if (dispo?.length) formats = formats.filter(f => dispo.includes(f));
+      } catch { /* methode absente : on garde la liste par defaut */ }
 
-      const tick = async () => {
-        if (!videoRef.current || !streamRef.current) return;
+      const detector = new Detector({ formats });
+
+      /* Cadence fixe plutot qu'a chaque image : le detecteur est plus
+         lent que l'affichage, et empiler les appels degrade la lecture
+         au lieu de l'ameliorer. */
+      let enCours = false;
+      timerRef.current = setInterval(async () => {
+        if (enCours || !videoRef.current || !streamRef.current) return;
+        if (videoRef.current.readyState < 2) return;      // image pas encore prete
+        enCours = true;
         try {
           const codes = await detector.detect(videoRef.current);
-          if (codes?.length) emit(String(codes[0].rawValue || '').trim());
-        } catch { /* frame illisible, on continue */ }
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
+          if (codes?.length) {
+            /* Le plus grand code de l'image : c'est celui qu'on vise,
+               les autres sont des voisins sur l'etiquette. */
+            const plusGrand = codes.reduce((a: any, b: any) =>
+              ((b.boundingBox?.width || 0) > (a.boundingBox?.width || 0) ? b : a));
+            emit(String(plusGrand.rawValue || '').trim());
+          }
+        } catch { /* image illisible, on continue */ }
+        finally { enCours = false; }
+      }, INTERVALLE_MS);
     } catch (e: any) {
       setError(
         e?.name === 'NotAllowedError' ? 'Accès caméra refusé.'
@@ -156,16 +247,33 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         }}>{error || label}</div>
       </div>
 
-      <button
-        onClick={active ? stop : start}
-        style={{
-          width: '100%', height: 44, marginTop: 10, borderRadius: 9, border: 'none',
-          background: '#F4EEE1', color: '#15181E', fontSize: 13.5, fontWeight: 700,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer',
-        }}>
-        <span className="ms" style={{ fontSize: 20 }}>barcode_scanner</span>
-        {active ? 'Arrêter la caméra' : 'Activer la caméra'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button
+          onClick={active ? stop : start}
+          style={{
+            flex: 1, height: 44, borderRadius: 9, border: 'none',
+            background: '#F4EEE1', color: '#15181E', fontSize: 13.5, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer',
+          }}>
+          <span className="ms" style={{ fontSize: 20 }}>barcode_scanner</span>
+          {active ? 'Arrêter la caméra' : 'Activer la caméra'}
+        </button>
+
+        {/* La lampe change tout sur une étiquette mate en réserve ; le
+            bouton n'apparaît que si l'appareil sait la piloter. */}
+        {active && torcheDispo && (
+          <button onClick={basculerTorche} aria-label="Éclairage"
+                  style={{
+                    width: 52, height: 44, borderRadius: 9, cursor: 'pointer',
+                    border: '1px solid rgba(255,255,255,.16)',
+                    background: torche ? '#F4EEE1' : 'transparent',
+                    color: torche ? '#15181E' : 'rgba(255,255,255,.85)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+            <span className="ms" style={{ fontSize: 21 }}>{torche ? 'flashlight_on' : 'flashlight_off'}</span>
+          </button>
+        )}
+      </div>
 
       {/* Saisie manuelle : filet de sécurité quand la détection native
           n'existe pas (iOS/Safari) ou que le code est abîmé. */}

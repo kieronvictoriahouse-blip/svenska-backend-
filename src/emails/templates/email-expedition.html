@@ -25,7 +25,7 @@
 </head>
 <body style="margin:0; padding:0; background-color:#F1EEE9;">
 
-<span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Votre colis est parti ! Suivi Mondial Relay 12345678 — nous vous prévenons dès son arrivée en point relais.</span>
+<span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Votre colis est parti ! Suivi Mondial Relay {{ suivi }} — nous vous prévenons dès son arrivée en point relais.</span>
 
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F1EEE9;">
   <tr>
@@ -51,9 +51,9 @@
 
         <tr>
           <td class="pad" style="padding:30px 40px 0 40px;">
-            <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:14px; mso-line-height-rule:exactly; letter-spacing:2.6px; color:#B49256; font-weight:bold;">COMMANDE N° 2417 · EXPÉDIÉE</div>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:14px; mso-line-height-rule:exactly; letter-spacing:2.6px; color:#B49256; font-weight:bold;">COMMANDE N° {{ numero }} · EXPÉDIÉE</div>
             <div class="h1" style="font-family:Georgia,'Times New Roman',Times,serif; font-size:32px; line-height:38px; mso-line-height-rule:exactly; color:#1F231C; padding-top:10px;">Votre colis est en route</div>
-            <div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:25px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:14px;">Bonjour Camille, votre colis a quitté notre atelier. Mondial Relay le prend en charge et l'achemine vers votre point relais — vous serez prévenue dès qu'il sera disponible au retrait.</div>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:25px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:14px;">Bonjour {{ prenom }}, votre colis a quitté notre atelier. Mondial Relay le prend en charge et l'achemine vers votre point relais — vous serez prévenue dès qu'il sera disponible au retrait.</div>
           </td>
         </tr>
 
@@ -71,11 +71,11 @@
                     </tr>
                   </table>
                   <div style="font-family:Arial,Helvetica,sans-serif; font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A8067; font-weight:bold;">NUMÉRO DE SUIVI</div>
-                  <div class="track" style="font-family:Georgia,'Times New Roman',Times,serif; font-size:24px; line-height:30px; mso-line-height-rule:exactly; letter-spacing:3px; color:#1F231C; padding-top:10px;">12345678</div>
+                  <div class="track" style="font-family:Georgia,'Times New Roman',Times,serif; font-size:24px; line-height:30px; mso-line-height-rule:exactly; letter-spacing:3px; color:#1F231C; padding-top:10px;">{{ suivi }}</div>
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin-top:18px;">
                     <tr>
                       <td align="center" bgcolor="#44573D" style="background-color:#44573D; border-radius:2px;">
-                        <a href="https://www.mondialrelay.fr/suivi-de-colis/?numeroExpedition=12345678" style="display:block; padding:14px 30px; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:17px; mso-line-height-rule:exactly; letter-spacing:1.4px; color:#FDFBF5; text-decoration:none; font-weight:bold;">SUIVRE MON COLIS</a>
+                        <a href="https://www.mondialrelay.fr/suivi-de-colis/?numeroExpedition={{ suivi }}" style="display:block; padding:14px 30px; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:17px; mso-line-height-rule:exactly; letter-spacing:1.4px; color:#FDFBF5; text-decoration:none; font-weight:bold;">SUIVRE MON COLIS</a>
                       </td>
                     </tr>
                   </table>
@@ -154,7 +154,7 @@
               <tr>
                 <td style="padding:18px 20px; border-left:2px solid #B49256; font-family:Arial,Helvetica,sans-serif;">
                   <div style="font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A8067; font-weight:bold;">POINT RELAIS DE RETRAIT</div>
-                  <div style="font-size:14px; line-height:22px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;"><strong>Relais Presse du Vieux-Lille</strong><br />28 rue de la Monnaie<br />59000 Lille, France</div>
+                  <div style="font-size:14px; line-height:22px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;"><strong>{{ point_relais }}</strong><br />{{{ adresse_html }}}</div>
                   <div style="font-size:12px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:10px;">Munissez-vous d'une pièce d'identité et de votre numéro de suivi pour le retrait. Une erreur de point relais ? Répondez à cet email au plus vite, nous pouvons encore intervenir.</div>
                 </td>
               </tr>
@@ -192,7 +192,7 @@
               <a href="mailto:hej@swedishcravings.fr" style="color:#44573D; text-decoration:none;">hej@swedishcravings.fr</a> &nbsp;·&nbsp; <a href="https://www.swedishcravings.fr" style="color:#44573D; text-decoration:none;">www.swedishcravings.fr</a>
             </div>
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; line-height:18px; mso-line-height-rule:exactly; color:#A0977F; padding-top:12px;">
-              Email d'expédition lié à votre commande n° 2417. <a href="https://www.swedishcravings.fr/livraison" style="color:#8A8067; text-decoration:underline;">Livraison &amp; retours</a> · <a href="https://www.swedishcravings.fr/compte/preferences" style="color:#8A8067; text-decoration:underline;">Préférences d'email</a>
+              Email d'expédition lié à votre commande n° {{ numero }}. <a href="https://www.swedishcravings.fr/livraison" style="color:#8A8067; text-decoration:underline;">Livraison &amp; retours</a> · <a href="https://www.swedishcravings.fr/compte/preferences" style="color:#8A8067; text-decoration:underline;">Préférences d'email</a>
             </div>
           </td>
         </tr>
