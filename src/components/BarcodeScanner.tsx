@@ -25,11 +25,16 @@ const CONFIRMATIONS = 2;
 
 /* Cadence de detection. Analyser chaque image ne sert a rien : le
    detecteur est plus lent que l'affichage, et on empile les appels. */
-const INTERVALLE_MS = 120;
+const INTERVALLE_MS = 90;
+
+/* Formats qui portent une cle de controle. Un CODE-128 ou un QR peut
+   contenir 13 chiffres sans etre un EAN : lui appliquer la cle le
+   rejetterait a tort. C'est ce que faisait la version precedente. */
+const AVEC_CLE = new Set(['ean_13', 'ean_8', 'upc_a', 'upc_e']);
 
 /** Cle de controle EAN-13 / EAN-8 / UPC-A. Un code mal lu la rate. */
 function cleValide(code: string): boolean {
-  if (!/^\d+$/.test(code)) return true;              // pas un EAN : rien a verifier
+  if (!/^\d+$/.test(code)) return true;
   if (![8, 12, 13, 14].includes(code.length)) return true;
   const chiffres = code.split('').map(Number);
   const cle = chiffres.pop() as number;
@@ -76,14 +81,32 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
    *   1. la clé de contrôle EAN doit tomber juste ;
    *   2. le même code doit être lu deux fois de suite.
    */
-  const emit = useCallback((code: string) => {
+  const emit = useCallback((code: string, format?: string, saisi = false) => {
     if (!code) return;
-    if (!cleValide(code)) { candidatRef.current = { code: '', vu: 0 }; return; }
 
-    const c = candidatRef.current;
-    if (c.code === code) c.vu += 1;
-    else candidatRef.current = { code, vu: 1 };
-    if (candidatRef.current.vu < CONFIRMATIONS) return;
+    /* Saisie au clavier : c'est un humain qui a tape, il n'y a rien a
+       confirmer. Sans cette sortie, il fallait valider deux fois. */
+    if (saisi) {
+      lastRef.current = { code, at: Date.now() };
+      candidatRef.current = { code: '', vu: 0 };
+      onScan(code);
+      return;
+    }
+
+    /* Un format a cle de controle se valide en une seule lecture : la
+       cle EST la confirmation. Exiger deux lectures identiques par
+       dessus, comme le faisait la version precedente, faisait rater la
+       plupart des scans sans rien apporter. */
+    const aUneCle = !!format && AVEC_CLE.has(format);
+    if (aUneCle) {
+      if (!cleValide(code)) { candidatRef.current = { code: '', vu: 0 }; return; }
+    } else {
+      // Sans cle (QR, CODE-128, ITF), on confirme par une seconde lecture.
+      const c = candidatRef.current;
+      if (c.code === code) c.vu += 1;
+      else candidatRef.current = { code, vu: 1 };
+      if (candidatRef.current.vu < CONFIRMATIONS) return;
+    }
 
     const now = Date.now();
     if (lastRef.current.code === code && now - lastRef.current.at < DEBOUNCE_MS) return;
@@ -124,9 +147,10 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 }, height: { ideal: 1080 },
-          // Non standard mais honore par Chrome Android, ignore ailleurs.
-          advanced: [{ focusMode: 'continuous' } as any],
+          /* 1280x720 plutot que 1080p : au-dela, chaque appel au detecteur
+             coute plus cher et on lit MOINS de codes par seconde. La
+             version precedente demandait 1920 et scannait moins bien. */
+          width: { ideal: 1280 }, height: { ideal: 720 },
         },
       });
       streamRef.current = stream;
@@ -174,7 +198,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
                les autres sont des voisins sur l'etiquette. */
             const plusGrand = codes.reduce((a: any, b: any) =>
               ((b.boundingBox?.width || 0) > (a.boundingBox?.width || 0) ? b : a));
-            emit(String(plusGrand.rawValue || '').trim());
+            emit(String(plusGrand.rawValue || '').trim(), plusGrand.format);
           }
         } catch { /* image illisible, on continue */ }
         finally { enCours = false; }
@@ -281,7 +305,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         <input
           value={manual}
           onChange={e => setManual(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && manual.trim()) { emit(manual.trim()); setManual(''); } }}
+          onKeyDown={e => { if (e.key === 'Enter' && manual.trim()) { emit(manual.trim(), undefined, true); setManual(''); } }}
           placeholder="ou saisir l'EAN…"
           inputMode="numeric"
           style={{
@@ -290,7 +314,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
             fontSize: 12.5, outline: 'none', fontVariantNumeric: 'tabular-nums',
           }} />
         <button
-          onClick={() => { if (manual.trim()) { emit(manual.trim()); setManual(''); } }}
+          onClick={() => { if (manual.trim()) { emit(manual.trim(), undefined, true); setManual(''); } }}
           style={{
             height: 34, padding: '0 12px', borderRadius: 7, border: '1px solid rgba(255,255,255,.16)',
             background: 'transparent', color: '#F4EEE1', fontSize: 12.5, cursor: 'pointer',

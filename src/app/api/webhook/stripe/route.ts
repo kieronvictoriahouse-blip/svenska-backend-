@@ -233,35 +233,56 @@ export async function POST(req: NextRequest) {
             </tr>`
           ).join('');
 
+          /* Notification interne — le seul email qui n'a pas de gabarit
+             au handoff, celui-ci ne couvrant que les emails clients.
+             Mis a la charte quand meme : c'est celui que tu vois le plus
+             souvent, et il doit se lire d'un coup d'oeil sur telephone. */
           const notifHtml = `
-            <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#222">
-              <h2 style="background:#1a1a2e;color:#fff;padding:16px 20px;margin:0;border-radius:6px 6px 0 0">
-                🛒 Nouvelle commande — ${existing?.order_number || ''}
-              </h2>
-              <div style="border:1px solid #ddd;border-top:none;padding:20px;border-radius:0 0 6px 6px">
-                <p><strong>Client :</strong> ${customerName}</p>
-                <p><strong>Email :</strong> ${customerEmail}</p>
-                ${customerPhone ? `<p><strong>Téléphone :</strong> ${customerPhone}</p>` : ''}
-                <p><strong>Adresse :</strong> ${effectiveAddress || '—'}</p>
-                <table style="width:100%;border-collapse:collapse;margin:12px 0">
-                  <thead>
-                    <tr style="background:#f5f5f5">
-                      <th style="padding:6px 8px;text-align:left">Produit</th>
-                      <th style="padding:6px 8px;text-align:center">Qté</th>
-                      <th style="padding:6px 8px;text-align:right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>${linesHtml}</tbody>
+            <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;background:#FDFBF5;border:1px solid #E3DCCB">
+              <div style="height:7px;background:#44573D"></div>
+              <div style="height:2px;background:#B49256"></div>
+              <div style="padding:22px 24px">
+                <div style="font-size:10px;letter-spacing:2.6px;text-transform:uppercase;color:#B49256;font-weight:bold">Nouvelle commande</div>
+                <div style="font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:36px;color:#1F231C;padding-top:8px">
+                  ${existing?.order_number || ''} · ${total.toFixed(2)} €
+                </div>
+
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:16px;background:#F4EEE1">
+                  <tr><td style="padding:13px 15px;font-size:13px;line-height:21px;color:#5F5A4E">
+                    <strong style="color:#1F231C">${customerName || '—'}</strong><br />
+                    ${customerEmail || ''}${customerPhone ? ' · ' + customerPhone : ''}<br />
+                    ${effectiveAddress || 'Adresse non renseignee'}
+                  </td></tr>
                 </table>
-                ${shippingCost > 0 ? `<p style="text-align:right;margin:4px 0">Livraison : <strong>${shippingCost.toFixed(2)} €</strong></p>` : ''}
-                <p style="text-align:right;font-size:1.1em">Total : <strong>${total.toFixed(2)} €</strong></p>
+
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin-top:16px">
+                  ${orderLines.map((l: any) => `
+                    <tr>
+                      <td style="padding:9px 0;border-bottom:1px solid #EFE9DC;font-size:13px;color:#1F231C">${l.name || l.product_name || ''}</td>
+                      <td style="padding:9px 8px;border-bottom:1px solid #EFE9DC;font-size:13px;color:#948B79;text-align:center">x${l.qty}</td>
+                      <td style="padding:9px 0;border-bottom:1px solid #EFE9DC;font-size:13px;color:#1F231C;text-align:right;font-weight:bold">${((l.price || 0) * (l.qty || 1)).toFixed(2)} €</td>
+                    </tr>`).join('')}
+                </table>
+
+                ${shippingCost > 0 ? `<div style="text-align:right;font-size:12.5px;color:#5F5A4E;padding-top:10px">Livraison ${shippingCost.toFixed(2)} €</div>` : ''}
+
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:14px;background:#44573D">
+                  <tr>
+                    <td style="padding:14px 16px;font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:#D8DCD2;font-weight:bold">Total</td>
+                    <td style="padding:14px 16px;text-align:right;font-family:Georgia,serif;font-size:24px;color:#FDFBF5">${total.toFixed(2)} €</td>
+                  </tr>
+                </table>
+
+                <div style="font-size:11px;color:#948B79;padding-top:14px">
+                  ${existing?.relay_point_name ? 'Point relais · ' + existing.relay_point_name : 'Livraison a domicile'}
+                </div>
               </div>
             </div>`;
 
           await sendEmail({
             from:    fromEmail,
             to:      'hej@swedishcravings.fr',
-            subject: `🛒 Nouvelle commande ${existing?.order_number || ''} — ${customerName} (${total.toFixed(2)} €)`,
+            subject: `Nouvelle commande ${existing?.order_number || ''} — ${customerName} (${total.toFixed(2)} €)`,
             html:    notifHtml,
           }, cfg);
         } catch (notifErr) {

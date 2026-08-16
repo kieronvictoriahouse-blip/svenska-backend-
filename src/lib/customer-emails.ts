@@ -199,6 +199,27 @@ export async function expeditionEmail(order: any) {
   };
 }
 
+/**
+ * Colis disponible en point relais.
+ *
+ * Pour une commande en relais, « livrée » côté back-office veut dire
+ * arrivée au relais — le client doit encore venir la chercher. C'est
+ * donc ce message-là qu'il attend, pas un « merci, c'est livré ».
+ */
+export async function colisDisponibleEmail(order: any) {
+  return {
+    sujet: await sujetDe('email-colis-disponible',
+      `Votre colis ${order?.order_number || ''} vous attend en point relais`.trim()),
+    html: await renderEmail('email-colis-disponible', {
+      prenom: prenomDe(order?.customer_name),
+      numero: order?.order_number || '',
+      suivi: order?.mondial_relay_tracking || order?.tracking_number || order?.logspher_tracking || '—',
+      point_relais: order?.relay_point_name || 'votre point relais',
+      adresse_html: adresseHtml(order || {}),
+    }),
+  };
+}
+
 /** Message libre — envoi manuel depuis la fiche commande. */
 export async function messageLibre(order: any, opts: { surtitre?: string; titre: string; corps: string }) {
   return {
