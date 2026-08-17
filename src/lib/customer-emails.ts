@@ -1,12 +1,10 @@
-import { renderEmail, loadOverrides, EmailTemplate } from '@/lib/email-templates';
-
-/* L'objet peut lui aussi etre personnalise depuis le back-office ; sans
-   surcharge on garde celui calcule ici. */
-async function sujetDe(key: EmailTemplate, defaut: string): Promise<string> {
-  const over = await loadOverrides();
-  const s = over[key]?.subject?.trim();
-  return s || defaut;
-}
+import { renderEmail, sujetPersonnalise, EmailTemplate } from '@/lib/email-templates';
+import { LangueClient, langueDeCommande } from '@/lib/langue-client';
+import {
+  TE, SANS_PRENOM, SUJETS, texte, mentionPaiement, libelleLivraison,
+  titreContenu, colisInfo, accrocheAvoir, corpsRupture,
+  formatEuro, formatDate, formatDateHeure,
+} from '@/lib/emails-i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    CONTEXTES DES EMAILS CLIENTS
@@ -14,24 +12,35 @@ async function sujetDe(key: EmailTemplate, defaut: string): Promise<string> {
    Un seul endroit qui traduit une commande / une facture en variables
    de gabarit. Les gabarits eux-mêmes ne connaissent pas la base : ils
    ne reçoivent que des chaînes déjà formatées.
+
+   Chaque fonction reçoit la langue du client — celle déduite de son pays
+   de livraison, ou celle choisie à la main sur la commande. Elle n'a
+   rien à voir avec la langue du back-office : un Suédois reçoit du
+   suédois même si l'on travaille en français.
+
+   Les montants et les dates suivent la même langue. « 1 234,50 € » le
+   12 août n'a pas sa place dans un email anglais.
    ═══════════════════════════════════════════════════════════════ */
 
-const eur = (n: unknown) =>
-  (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+/* L'objet peut lui aussi etre personnalise depuis le back-office ; sans
+   surcharge on garde celui calcule ici, dans la bonne langue. */
+async function sujetDe(key: EmailTemplate, defaut: string, lang: LangueClient): Promise<string> {
+  return (await sujetPersonnalise(key, lang)) || defaut;
+}
 
 const esc = (v: unknown) =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Prénom seul : « Bonjour Stephanie » plutôt que le nom complet. */
-export const prenomDe = (nom?: string | null) =>
-  String(nom || '').trim().split(/\s+/)[0] || 'à vous';
+export const prenomDe = (nom?: string | null, lang: LangueClient = 'fr') =>
+  String(nom || '').trim().split(/\s+/)[0] || SANS_PRENOM[lang];
 
 const parseLines = (v: any): any[] => {
   try { return typeof v === 'string' ? JSON.parse(v) : (Array.isArray(v) ? v : []); }
   catch { return []; }
 };
 
-const SHIPPING_WORDS = ['frais de livraison', 'frais de port', 'livraison'];
+const SHIPPING_WORDS = ['frais de livraison', 'frais de port', 'livraison', 'shipping', 'frakt'];
 const isShipping = (l: any) =>
   SHIPPING_WORDS.some(w => String(l?.desc || l?.name || '').toLowerCase().includes(w));
 
@@ -47,16 +56,30 @@ export function adresseHtml(order: any): string {
   return parts.map(esc).join('<br />');
 }
 
+/**
+ * Nom d'un article dans la langue du client.
+ *
+ * Les lignes de commande ne stockent que le nom français. Le nom suédois
+ * ou anglais doit donc venir de la fiche produit quand elle est fournie ;
+ * sinon on garde le français plutôt que de laisser un blanc.
+ */
+function nomLigne(l: any, lang: LangueClient, produits?: Record<string, any>): string {
+  const p = produits?.[l?.product_id];
+  const traduit = lang === 'sv' ? (p?.name_sv || l?.name_sv)
+    : lang === 'en' ? (p?.name_en || l?.name_en) : null;
+  return traduit || l?.name || l?.desc || l?.name_fr || texte('article', lang);
+}
+
 /** Lignes d'articles, hors frais de port. `brut` sert au sous-total. */
-function lignesDe(order: any) {
+function lignesDe(order: any, lang: LangueClient, produits?: Record<string, any>) {
   return parseLines(order?.lines).filter(l => !isShipping(l)).map(l => {
     const qte = Number(l.qty) || 1;
     const pu = Number(l.price ?? l.unit_price) || 0;
     return {
-      nom: l.name || l.desc || l.name_fr || 'Article',
+      nom: nomLigne(l, lang, produits),
       qte: String(qte),
-      pu: eur(pu),
-      montant: eur(qte * pu),
+      pu: formatEuro(pu, lang),
+      montant: formatEuro(qte * pu, lang),
       brut: qte * pu,
     };
   });
@@ -64,68 +87,99 @@ function lignesDe(order: any) {
 
 const sousTotalDe = (lignes: Array<{ brut: number }>) => lignes.reduce((s, l) => s + l.brut, 0);
 
+/** Options communes : la langue peut être imposée (aperçu, renvoi). */
+export type OptEmail = { lang?: LangueClient; produits?: Record<string, any>; mentionTva?: string };
+
+const langueDe = (order: any, o?: OptEmail): LangueClient => o?.lang || langueDeCommande(order);
+
+const TVA_DEFAUT = 'TVA non applicable, art. 293 B du CGI';
+
 /** Confirmation de commande — déclenchée par le paiement accepté. */
-export async function confirmationCommande(order: any) {
-  const lignes = lignesDe(order);
+export async function confirmationCommande(order: any, o: OptEmail = {}) {
+  const lang = langueDe(order, o);
+  const lignes = lignesDe(order, lang, o.produits);
   const sousTotal = sousTotalDe(lignes);
   const livraison = Number(order.shipping) || 0;
   return {
-    sujet: await sujetDe('email-confirmation-commande', `Commande ${order.order_number} confirmée — merci !`),
+    lang,
+    sujet: await sujetDe('email-confirmation-commande',
+      SUJETS.confirmation(order.order_number || '', lang), lang),
     html: await renderEmail('email-confirmation-commande', {
-      prenom: prenomDe(order.customer_name),
+      prenom: prenomDe(order.customer_name, lang),
       client: order.customer_name || '',
       numero: order.order_number || '',
       lignes,
-      sous_total: eur(sousTotal),
-      livraison: livraison > 0 ? eur(livraison) : 'Offerte',
-      total: eur(order.total),
+      sous_total: formatEuro(sousTotal, lang),
+      livraison: livraison > 0 ? formatEuro(livraison, lang) : texte('offerte', lang),
+      libelle_livraison: libelleLivraison(order, lang),
+      total: formatEuro(order.total, lang),
       adresse_html: adresseHtml(order),
-    }),
+      /* La date était figée dans le gabarit : toutes les confirmations
+         annonçaient un paiement du 12 août 2026. */
+      mention_paiement: mentionPaiement(
+        order.paid_at || order.created_at, lang, o.mentionTva || TVA_DEFAUT),
+    }, lang),
   };
 }
 
 /** Facture — envoyée après encaissement, PDF en pièce jointe. */
-export async function factureEmail(order: any, invoice: any) {
-  const lignes = lignesDe({ lines: invoice?.lines ?? order?.lines });
+export async function factureEmail(order: any, invoice: any, o: OptEmail = {}) {
+  const lang = langueDe(order, o);
+  const lignes = lignesDe({ lines: invoice?.lines ?? order?.lines }, lang, o.produits);
   const livraison = Number(order?.shipping) || 0;
   const total = Number(invoice?.total_ttc ?? order?.total) || 0;
   return {
-    sujet: await sujetDe('email-facture', `Votre facture ${invoice?.number || ''}`.trim()),
+    lang,
+    sujet: await sujetDe('email-facture', SUJETS.facture(invoice?.number || '', lang), lang),
     html: await renderEmail('email-facture', {
-      prenom: prenomDe(invoice?.client_name || order?.customer_name),
+      prenom: prenomDe(invoice?.client_name || order?.customer_name, lang),
       client: invoice?.client_name || order?.customer_name || '',
       numero: order?.order_number || invoice?.order_number || '',
       numero_facture: invoice?.number || '',
       lignes,
-      sous_total: eur(total - livraison),
-      livraison: livraison > 0 ? eur(livraison) : 'Offerte',
-      total: eur(total),
+      sous_total: formatEuro(total - livraison, lang),
+      livraison: livraison > 0 ? formatEuro(livraison, lang) : texte('offerte', lang),
+      total: formatEuro(total, lang),
       adresse_html: adresseHtml(order || {}),
-    }),
+      // Était figée au 12 août 2026 dans le gabarit.
+      date_emission: formatDate(invoice?.date || invoice?.created_at || order?.created_at, lang),
+    }, lang),
   };
 }
 
 /** Avoir / remboursement — émis depuis la facturation. */
-export async function avoirEmail(avoir: any, factureNumero: string, items: any[] = []) {
+export async function avoirEmail(
+  avoir: any, factureNumero: string, items: any[] = [], o: OptEmail = {},
+) {
+  const lang = o.lang || 'fr';
   const lignes = (items.length ? items : parseLines(avoir?.lines)).map((l: any) => {
     const qte = Number(l.qty) || 1;
     const pu = Number(l.price ?? l.unit_price) || 0;
     return {
-      nom: l.name || l.desc || 'Article', qte: String(qte), pu: eur(pu),
-      montant: eur(qte * pu),
-      motif: l.motif || l.reason || 'Remboursement',
+      nom: nomLigne(l, lang, o.produits), qte: String(qte), pu: formatEuro(pu, lang),
+      montant: formatEuro(qte * pu, lang),
+      motif: l.motif || l.reason || texte('remboursement', lang),
     };
   });
+  const prenom = prenomDe(avoir?.client_name, lang);
+  const numero = avoir?.order_number || '';
   return {
-    sujet: await sujetDe('email-avoir-remboursement', `Votre remboursement ${avoir?.number || ''}`.trim()),
+    lang,
+    sujet: await sujetDe('email-avoir-remboursement', SUJETS.avoir(avoir?.number || '', lang), lang),
     html: await renderEmail('email-avoir-remboursement', {
-      prenom: prenomDe(avoir?.client_name),
+      prenom,
       client: avoir?.client_name || '',
+      numero,
       numero_avoir: avoir?.number || '',
       numero_facture: factureNumero || '',
       lignes,
-      total: eur(Math.abs(Number(avoir?.total_ttc) || 0)),
-    }),
+      total: formatEuro(Math.abs(Number(avoir?.total_ttc) || 0), lang),
+      /* Le gabarit portait « Bonjour Julie … commande n° 2412 » en dur :
+         tous les avoirs partaient avec ce prénom et ce numéro. */
+      accroche: accrocheAvoir(prenom, numero, lang),
+      motif: avoir?.motif || avoir?.reason || texte('remboursement', lang),
+      moyen_paiement: texte('carteBancaire', lang),
+    }, lang),
   };
 }
 
@@ -136,8 +190,9 @@ export async function avoirEmail(avoir: any, factureNumero: string, items: any[]
  */
 export async function ruptureEmail(
   order: any,
-  o: { choice: any; token: string; titre: string; corps: string; baseUrl: string },
+  o: { choice: any; token: string; titre: string; corps: string; baseUrl: string; lang?: LangueClient },
 ) {
+  const lang = o.lang || langueDeCommande(order);
   /* Le gabarit ecrit `{{ base_lien }}?{{ lien }}` : la base ne porte donc
      pas le « ? », et chaque lien apporte le jeton + le choix. Le « & » est
      laisse brut : l echappement HTML est fait par le moteur de rendu. */
@@ -151,32 +206,34 @@ export async function ruptureEmail(
     return {
       nom: opt.nom,
       note: opt.note || '',
-      prix: eur(opt.prix),
+      prix: formatEuro(opt.prix, lang),
       // Un écart nul ne s'affiche pas : « − 0,00 € » ne veut rien dire.
-      ecart: ecart > 0 ? `− ${eur(ecart)}` : ecart < 0 ? 'Même prix pour vous' : '',
+      ecart: ecart > 0 ? `− ${formatEuro(ecart, lang)}`
+        : ecart < 0 ? texte('memePrix', lang) : '',
       lien: `${jeton}&choix=${encodeURIComponent(opt.product_id)}`,
     };
   });
 
   return {
-    sujet: `${o.titre} — commande ${order?.order_number || ''}`.trim(),
+    lang,
+    sujet: `${o.titre} — ${order?.order_number || ''}`.trim(),
     html: await renderEmail('email-message-libre', {
-      prenom: prenomDe(order?.customer_name),
+      prenom: prenomDe(order?.customer_name, lang),
       numero: order?.order_number || '',
-      surtitre: `COMMANDE N° ${order?.order_number || ''} · VOTRE AVIS`,
+      surtitre: `${texte('commandeNo', lang)} ${order?.order_number || ''} · ${texte('votreAvis', lang)}`,
       titre: o.titre,
-      corps: o.corps || `En préparant votre colis, je me suis aperçue que le <strong style="color:#1F231C;">${esc(o.choice.line_name)}</strong> était épuisé. Je ne voulais pas retarder votre commande sans vous demander votre avis, alors voici ce que je peux vous proposer à la place.`,
+      corps: o.corps || corpsRupture(esc(o.choice.line_name), lang),
       article: o.choice.line_name,
       article_ref: o.choice.line_ref || '—',
       article_qte: String(qte),
-      article_pu: eur(pu),
-      article_montant: eur(qte * pu),
+      article_pu: formatEuro(pu, lang),
+      article_montant: formatEuro(qte * pu, lang),
       options,
       base_lien: base,
       lien_rembourser: `${jeton}&choix=rembourser`,
       lien_attendre: `${jeton}&choix=attendre`,
-      note_ecart: "L'écart de prix est pour nous — c'est nous qui sommes en rupture, pas vous.",
-    }),
+      note_ecart: texte('ecartPourNous', lang),
+    }, lang),
   };
 }
 
@@ -184,18 +241,34 @@ export async function ruptureEmail(
  * Expédition — déclenché quand la commande passe à « expédiée ».
  * Le suivi peut venir de trois transporteurs selon le mode choisi.
  */
-export async function expeditionEmail(order: any) {
+export async function expeditionEmail(order: any, o: OptEmail = {}) {
+  const lang = langueDe(order, o);
   const suivi = order?.tracking_number || order?.mondial_relay_tracking
     || order?.logspher_tracking || '';
+  const lignes = lignesDe(order, lang, o.produits);
+  const nbArticles = lignes.reduce((s, l) => s + (Number(l.qte) || 0), 0);
+
   return {
-    sujet: await sujetDe('email-expedition', `Votre commande ${order?.order_number || ''} est en route`),
+    lang,
+    sujet: await sujetDe('email-expedition', SUJETS.expedition(order?.order_number || '', lang), lang),
     html: await renderEmail('email-expedition', {
-      prenom: prenomDe(order?.customer_name),
+      prenom: prenomDe(order?.customer_name, lang),
       numero: order?.order_number || '',
       suivi: suivi || '—',
-      point_relais: order?.relay_point_name || 'Livraison à domicile',
+      point_relais: order?.relay_point_name || texte('livraisonDomicile', lang),
       adresse_html: adresseHtml(order || {}),
-    }),
+      /* Le suivi était entièrement inventé dans le gabarit : trois dates
+         d'août 2026 et quatre produits fixes, envoyés à tout le monde. */
+      lignes,
+      titre_contenu: titreContenu(nbArticles, lang),
+      colis_info: colisInfo(Number(order?.weight_g) || null, lang),
+      date_confirmee: formatDateHeure(order?.created_at, lang),
+      date_preparee: formatDateHeure(order?.picked_at || order?.created_at, lang),
+      date_remise: formatDateHeure(order?.shipped_at || new Date().toISOString(), lang),
+      attente_retrait: texte('attenteRetrait', lang),
+      etape_remise: texte('etapeRemise', lang),
+      etape_remise_note: texte('etapeRemiseNote', lang),
+    }, lang),
   };
 }
 
@@ -206,30 +279,37 @@ export async function expeditionEmail(order: any) {
  * arrivée au relais — le client doit encore venir la chercher. C'est
  * donc ce message-là qu'il attend, pas un « merci, c'est livré ».
  */
-export async function colisDisponibleEmail(order: any) {
+export async function colisDisponibleEmail(order: any, o: OptEmail = {}) {
+  const lang = langueDe(order, o);
   return {
+    lang,
     sujet: await sujetDe('email-colis-disponible',
-      `Votre colis ${order?.order_number || ''} vous attend en point relais`.trim()),
+      SUJETS.colisDisponible(order?.order_number || '', lang), lang),
     html: await renderEmail('email-colis-disponible', {
-      prenom: prenomDe(order?.customer_name),
+      prenom: prenomDe(order?.customer_name, lang),
       numero: order?.order_number || '',
       suivi: order?.mondial_relay_tracking || order?.tracking_number || order?.logspher_tracking || '—',
-      point_relais: order?.relay_point_name || 'votre point relais',
+      point_relais: order?.relay_point_name || texte('votrePointRelais', lang),
       adresse_html: adresseHtml(order || {}),
-    }),
+    }, lang),
   };
 }
 
 /** Message libre — envoi manuel depuis la fiche commande. */
-export async function messageLibre(order: any, opts: { surtitre?: string; titre: string; corps: string }) {
+export async function messageLibre(
+  order: any, opts: { surtitre?: string; titre: string; corps: string; lang?: LangueClient },
+) {
+  const lang = opts.lang || langueDeCommande(order);
   return {
+    lang,
     sujet: opts.titre,
     html: await renderEmail('email-message-libre', {
-      prenom: prenomDe(order?.customer_name),
+      prenom: prenomDe(order?.customer_name, lang),
       numero: order?.order_number || '',
-      surtitre: (opts.surtitre || `Commande n° ${order?.order_number || ''}`).toUpperCase(),
+      surtitre: (opts.surtitre
+        || `${texte('commandeNo', lang)} ${order?.order_number || ''}`).toUpperCase(),
       titre: opts.titre,
       corps: opts.corps,
-    }),
+    }, lang),
   };
 }

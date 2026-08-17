@@ -7,6 +7,9 @@ import { resolveShipping } from '@/lib/shipping';
 // Thème importé sous alias :  est déjà pris par le dictionnaire de traductions.
 import { T as TH, BADGE, ORDER_STATUS, thumbStyle, initials } from '@/lib/admin-theme';
 import { SqueletteTable } from '@/components/Squelette';
+import {
+  LANGUES_CLIENT, NOM_LANGUE, langueDeCommande, paysDeLivraison, type LangueClient,
+} from '@/lib/langue-client';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,6 +20,7 @@ type Order = {
   id: string; order_number: string; status: string;
   customer_name: string; customer_email: string; customer_phone?: string;
   shipping_address?: string; customer_address?: string;
+  lang?: LangueClient; shipping_country?: string;
   lines: any[]; subtotal: number; shipping: number; total: number;
   notes?: string; source?: string; created_at: string;
   tracking_number?: string; delivery_mode?: string;
@@ -118,6 +122,10 @@ const T = {
   msgMaxRefund:  { fr: 'Maximum remboursable', en: 'Maximum refundable', sv: 'Högsta återbetalning' },
   msgRefundedOk: { fr: 'remboursés', en: 'refunded', sv: 'återbetalda' },
   msgNotified:   { fr: 'client notifié', en: 'customer notified', sv: 'kunden meddelad' },
+  langueClient:  { fr: 'Langue du client', en: 'Customer language', sv: 'Kundens språk' },
+  langueChoisie: { fr: 'Choisie à la main — cliquer à nouveau pour revenir à la déduction', en: 'Set manually — click again to return to automatic', sv: 'Vald manuellt — klicka igen för att återgå till automatiskt' },
+  langueDeduite: { fr: 'Déduite du pays de livraison :', en: 'Derived from the delivery country:', sv: 'Härledd från leveranslandet:' },
+  msgLangueKo:   { fr: 'Langue non enregistrée', en: 'Language not saved', sv: 'Språket sparades inte' },
   allOrders:     { fr: 'Toutes les commandes', en: 'All orders', sv: 'Alla order' },
   invoice:       { fr: 'Facture', en: 'Invoice', sv: 'Faktura' },
   invoiceEditor: { fr: 'Facture (éditeur)', en: 'Invoice (editor)', sv: 'Faktura (redigerare)' },
@@ -297,6 +305,17 @@ export default function CommandesPage() {
     const data = await res.json();
     setOrders(data.orders || []);
     setLoading(false);
+  }
+
+  /* Poser NULL rend la commande a la deduction automatique : c'est ce
+     qui permet de revenir en arriere apres une correction. */
+  async function reglerLangue(id: string, lang: LangueClient | null) {
+    setOrders(os => os.map(o => o.id === id ? { ...o, lang: lang || undefined } : o));
+    const res = await adminFetch(`/api/orders/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang }),
+    });
+    if (!res.ok) { showToast(t('msgLangueKo')); load(); }
   }
 
   async function updateStatus(id: string, status: string) {
@@ -1367,6 +1386,30 @@ export default function CommandesPage() {
                               </div>
                             );
                           })}
+                          {/* Langue du client — celle de ses emails et de ses
+                              documents, pas celle du back-office. Deduite du pays
+                              de livraison tant qu'on n'a rien choisi. */}
+                          <div style={{ marginTop: 8, paddingTop: 10, borderTop: `1px solid ${TH.borderFaint}` }}>
+                            <label className="sc-label">{t('langueClient')}</label>
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                              {LANGUES_CLIENT.map(l => {
+                                const active = langueDeCommande(o) === l;
+                                return (
+                                  <button key={l} className={`sc-chip${active ? ' on' : ''}`}
+                                          style={{ height: 26, fontSize: 11, padding: '0 9px' }}
+                                          onClick={() => reglerLangue(o.id, o.lang === l ? null : l)}>
+                                    {NOM_LANGUE[l]}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: TH.muted, marginTop: 5 }}>
+                              {o.lang
+                                ? t('langueChoisie')
+                                : `${t('langueDeduite')} ${paysDeLivraison(o) || '—'}`}
+                            </div>
+                          </div>
+
                           <div style={{ marginTop: 8, paddingTop: 10, borderTop: `1px solid ${TH.borderFaint}` }}>
                             <label className="sc-label">{t('changeStatus')}</label>
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>

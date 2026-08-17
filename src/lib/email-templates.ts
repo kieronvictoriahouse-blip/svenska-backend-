@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '@/lib/supabase';
+import type { LangueClient } from '@/lib/langue-client';
 
 /* ═══════════════════════════════════════════════════════════════
    GABARITS D'EMAIL
@@ -33,13 +34,27 @@ export type EmailTemplate =
 
 const cacheFichier = new Map<string, string>();
 
-/** Gabarit livre — la reference, jamais modifiee. */
-export function loadDefault(name: EmailTemplate): string {
-  const hit = cacheFichier.get(name);
+/**
+ * Gabarit livre — la reference, jamais modifiee.
+ *
+ * Les versions traduites vivent a cote sous `<nom>.en.html` et
+ * `<nom>.sv.html`. Une version manquante retombe sur le francais : mieux
+ * vaut un email lisible dans la mauvaise langue que pas d'email du tout.
+ */
+export function loadDefault(name: EmailTemplate, lang: LangueClient = 'fr'): string {
+  const cle = `${name}.${lang}`;
+  const hit = cacheFichier.get(cle);
   if (hit) return hit;
-  const raw = fs.readFileSync(path.join(DIR, `${name}.html`), 'utf8');
-  cacheFichier.set(name, raw);
-  return raw;
+
+  const candidats = lang === 'fr' ? [`${name}.html`] : [`${name}.${lang}.html`, `${name}.html`];
+  for (const f of candidats) {
+    const chemin = path.join(DIR, f);
+    if (!fs.existsSync(chemin)) continue;
+    const raw = fs.readFileSync(chemin, 'utf8');
+    cacheFichier.set(cle, raw);
+    return raw;
+  }
+  throw new Error(`Gabarit introuvable : ${name}`);
 }
 
 /* Surcharges du back-office, gardees 60 s en memoire : l'envoi d'un email
@@ -51,8 +66,13 @@ let surchargesAt = 0;
 export async function loadOverrides(force = false) {
   if (!force && Date.now() - surchargesAt < 60_000) return surcharges;
   try {
-    const { data } = await supabaseAdmin.from('email_templates').select('key, subject, html');
-    surcharges = Object.fromEntries((data || []).map(r => [r.key, { subject: r.subject, html: r.html }]));
+    const { data } = await supabaseAdmin.from('email_templates').select('key, subject, html, lang');
+    /* Indexees par `cle@langue` : personnaliser la version francaise ne
+       doit pas ecraser la suedoise. Les lignes anterieures a la
+       migration 038 n'ont pas de langue — elles valent pour le
+       francais, qui etait la seule qui existait. */
+    surcharges = Object.fromEntries((data || []).map(r =>
+      [`${r.key}@${r.lang || 'fr'}`, { subject: r.subject, html: r.html }]));
     surchargesAt = Date.now();
   } catch {
     /* Table absente ou base injoignable : on continue sur les fichiers.
@@ -86,11 +106,23 @@ const get = (ctx: Record<string, any>, key: string) =>
 export async function renderEmail(
   name: EmailTemplate,
   ctx: Record<string, any>,
+  lang: LangueClient = 'fr',
   baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr',
 ): Promise<string> {
   const over = await loadOverrides();
-  let html = over[name]?.html || loadDefault(name);
+  /* Une personnalisation faite dans la langue du client prime ; sinon on
+     prend le gabarit livre de cette langue, pas la personnalisation
+     francaise — elle porterait le mauvais texte. */
+  const html = over[`${name}@${lang}`]?.html || loadDefault(name, lang);
   return renderSource(html, ctx, baseUrl);
+}
+
+/** Objet personnalise pour une langue donnee, s'il existe. */
+export async function sujetPersonnalise(
+  name: EmailTemplate, lang: LangueClient = 'fr',
+): Promise<string | null> {
+  const over = await loadOverrides();
+  return over[`${name}@${lang}`]?.subject?.trim() || null;
 }
 
 /** Rend une source donnee — sert aussi a previsualiser un brouillon. */
