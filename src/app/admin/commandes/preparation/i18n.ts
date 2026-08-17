@@ -5,9 +5,9 @@ import type { AdminLang } from '@/lib/admin-i18n';
 export const TP = {
   titre: { fr: 'Préparation de commande', en: 'Order picking', sv: 'Orderplockning' },
   sous: {
-    fr: 'Scanne chaque article avec le téléphone : la ligne se coche seule et le stock se décrémente à la validation.',
-    en: 'Scan each item with your phone: the line ticks itself and stock is deducted on validation.',
-    sv: 'Skanna varje artikel med mobilen: raden bockas av automatiskt och lagret dras av vid godkännande.',
+    fr: 'Scanne chaque article avec le téléphone : la ligne se coche seule. Le stock a déjà été déduit au paiement.',
+    en: 'Scan each item with your phone: the line ticks itself. Stock was already deducted at payment.',
+    sv: 'Skanna varje artikel med mobilen: raden bockas av automatiskt. Lagret drogs av redan vid betalningen.',
   },
   feuille: { fr: 'Feuille de picking', en: 'Picking sheet', sv: 'Plocklista' },
   vide: {
@@ -26,9 +26,9 @@ export const TP = {
   dejaAtteint: { fr: 'Quantité déjà atteinte', en: 'Quantity already reached', sv: 'Antalet är redan uppnått' },
   emballage: { fr: 'Emballage', en: 'Packing', sv: 'Paketering' },
   emballageD: {
-    fr: 'Tous les articles sont scannés. La validation décrémente le stock et passe la commande en expédiée.',
-    en: 'All items are scanned. Validating deducts stock and marks the order as shipped.',
-    sv: 'Alla artiklar är skannade. Godkännandet drar av lagret och märker ordern som skickad.',
+    fr: 'Tous les articles sont scannés. La validation passe la commande en expédiée et prévient le client.',
+    en: 'All items are scanned. Validating marks the order as shipped and notifies the customer.',
+    sv: 'Alla artiklar är skannade. Godkännandet märker ordern som skickad och meddelar kunden.',
   },
   valider: { fr: 'Valider & expédier', en: 'Validate & ship', sv: 'Godkänn och skicka' },
   validation: { fr: 'Validation…', en: 'Validating…', sv: 'Godkänner…' },
@@ -37,7 +37,7 @@ export const TP = {
   etape1: { fr: 'Active la caméra et vise le code-barres.', en: 'Turn on the camera and aim at the barcode.', sv: 'Slå på kameran och rikta mot streckkoden.' },
   etape2: { fr: 'La ligne se coche seule, avec un bip et une vibration.', en: 'The line ticks itself, with a beep and a vibration.', sv: 'Raden bockas av automatiskt, med ett pip och en vibration.' },
   etape3: { fr: 'Un article hors commande est refusé.', en: 'An item not in the order is rejected.', sv: 'En artikel utanför ordern avvisas.' },
-  etape4: { fr: 'À 100 %, valide : le stock se décrémente.', en: 'At 100%, validate: stock is deducted.', sv: 'Vid 100 %, godkänn: lagret dras av.' },
+  etape4: { fr: 'À 100 %, valide : la commande passe en expédiée.', en: 'At 100%, validate: the order becomes shipped.', sv: 'Vid 100 %, godkänn: ordern blir skickad.' },
   aPrelever: { fr: 'Articles à prélever', en: 'Items to pick', sv: 'Artiklar att plocka' },
   enregAvanc: { fr: 'Enregistrer l’avancement', en: 'Save progress', sv: 'Spara framsteg' },
   aucuneLigne: { fr: 'Aucune ligne rattachée à un produit.', en: 'No line linked to a product.', sv: 'Ingen rad kopplad till en produkt.' },

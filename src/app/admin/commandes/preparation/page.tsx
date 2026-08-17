@@ -165,17 +165,14 @@ export default function PreparationPage() {
 
     setBusy(true);
     try {
-      for (const [productId, n] of Object.entries(colis)) {
-        const p = products.find(x => x.id === productId);
-        if (!p?.track_stock) continue;
-        await adminFetch('/api/stock/movement', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_id: productId, delta: -(n as number),
-            reason: 'picking', reference: active.order_number,
-          }),
-        }).catch(() => {});
-      }
+      /* AUCUN mouvement de stock ici — c'est deliberé.
+         Le stock est deja deduit AU PAIEMENT par le webhook Stripe
+         (`applySaleStock`, idempotent), sur la totalite de la commande.
+         Le decrementer une seconde fois au picking retirait les memes
+         unites deux fois : 40 unites fantomes sur 16 produits avant
+         correction, dont 8 produits affiches a zero alors qu'il en
+         restait. Le stock peut passer negatif, et ce negatif est
+         precisement la trace de ce qu'on doit encore. */
 
       // Le cumul sert au reste du ; le dernier colis alimente le bon de
       // livraison, qui decrit un colis et non un historique.
