@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
-import { nomProduit, useAdminLang } from '@/lib/admin-i18n';
+import { nomProduit, useT } from '@/lib/admin-i18n';
+import { TTI, lignesLues, commandeCreee, ecartPrix } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ACHATS › SAISIE TICKET DE CAISSE
@@ -46,7 +47,7 @@ const STATUS_META: Record<Status, { border: string; label: string; tone: keyof t
 };
 
 export default function TicketPage() {
-  const lang = useAdminLang();
+  const { t, tc, lang } = useT(TTI);
   const [mode, setMode] = useState<'photo' | 'quick'>('photo');
   const [store, setStore] = useState(STORES[0]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -111,7 +112,7 @@ export default function TicketPage() {
         const d = await res.json();
         if (d.url) urls.push(d.url);
       }
-      if (!urls.length) { say('Envoi de la photo impossible'); return; }
+      if (!urls.length) { say(t('msgPhotoKo')); return; }
       setImages(prev => [...prev, ...urls]);
 
       // Lecture OCR — l'endpoint indique clairement s'il n'est pas configuré.
@@ -129,7 +130,7 @@ export default function TicketPage() {
         await addRawLines(d.lines.map((l: any) => ({
           raw_label: l.label, qty: Number(l.qty) || 1, unit_sek: Number(l.unit_price) || 0,
         })));
-        say(`${d.lines.length} ligne(s) lue(s) sur le ticket`);
+        say(lignesLues(d.lines.length, lang));
       }
     } catch (e: any) {
       say(e?.message || 'Lecture du ticket impossible');
@@ -196,7 +197,7 @@ export default function TicketPage() {
     const name = qName.trim();
     const price = parseFloat(qPrice.replace(',', '.')) || 0;
     const qty = parseInt(qQty) || 1;
-    if (!name || !price) { say('Nom et prix requis'); return; }
+    if (!name || !price) { say(t('msgNomPrix')); return; }
 
     // Garde-fou du handoff : écart de plus de 15 % avec le dernier PA connu.
     if (qPick?.cost_price && rateNum > 0) {
@@ -204,8 +205,8 @@ export default function TicketPage() {
       const drift = Math.abs(newPa - qPick.cost_price) / qPick.cost_price;
       if (drift > 0.15) {
         const ok = window.confirm(
-          `Le prix saisi donne un PA de ${eur(newPa)}, soit ${Math.round(drift * 100)} % d'écart ` +
-          `avec le dernier connu (${eur(qPick.cost_price)}).\n\nConfirmer ?`);
+          ecartPrix(eur(newPa), Math.round(drift * 100), lang)
+          + `\n\n(${eur(qPick.cost_price)})`);
         if (!ok) return;
       }
     }
@@ -222,8 +223,8 @@ export default function TicketPage() {
 
   /* ── Enregistrement ─────────────────────────────────────── */
   async function submit(draft: boolean) {
-    if (!lines.length) { say('Aucune ligne'); return; }
-    if (!draft && !rateNum) { say('Renseigne le taux de change'); return; }
+    if (!lines.length) { say(t('msgAucuneLigne')); return; }
+    if (!draft && !rateNum) { say(t('msgTaux')); return; }
     setBusy(true);
     try {
       const res = await adminFetch('/api/tickets', {
@@ -239,8 +240,8 @@ export default function TicketPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Erreur');
-      if (draft) { say('Brouillon enregistré'); return; }
-      say(`Commande ${d.purchase_order?.number} créée · stock mis à jour${d.warning ? ' — ' + d.warning : ''}`);
+      if (draft) { say(t('msgBrouillon')); return; }
+      say(commandeCreee(d.purchase_order?.number, d.warning || '', lang));
       setLines([]); setImages([]); setTotalOcr('');
     } catch (e: any) { say(e.message); }
     finally { setBusy(false); }
@@ -256,7 +257,7 @@ export default function TicketPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Saisie d’un ticket de caisse</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             Photographie le ticket : les lignes sont lues, converties en euros et rapprochées de ton catalogue.
           </div>
@@ -277,7 +278,7 @@ export default function TicketPage() {
               </button>
             ))}
           </div>
-          <a className="sc-btn sc-btn-secondary" href="/admin/achats"><span className="ms">arrow_back</span>Achats</a>
+          <a className="sc-btn sc-btn-secondary" href="/admin/achats"><span className="ms">arrow_back</span>{t('achats')}</a>
         </div>
       </div>
 
@@ -288,24 +289,24 @@ export default function TicketPage() {
         overflow: 'hidden', marginBottom: 12,
       }}>
         <div style={cell}>
-          <div style={cellLabel}>Magasin</div>
+          <div style={cellLabel}>{t('magasin')}</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={store} onChange={e => setStore(e.target.value)}>
             {STORES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div style={cell}>
-          <div style={cellLabel}>Date d’achat</div>
+          <div style={cellLabel}>{t('dateAchat')}</div>
           <input className="sc-input" type="date" style={{ height: 30 }} value={date} onChange={e => setDate(e.target.value)} />
         </div>
         <div style={cell}>
-          <div style={cellLabel}>Taux SEK → EUR</div>
+          <div style={cellLabel}>{t('taux')}</div>
           <input className="sc-input sc-num" style={{ height: 30 }} value={rate} onChange={e => setRate(e.target.value)} placeholder="0,0876" />
         </div>
         <div style={cell}>
           <div style={cellLabel}>TVA suédoise</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={vat} onChange={e => setVat(e.target.value)}>
-            <option value="12">Alimentaire 12 %</option>
-            <option value="25">Standard 25 %</option>
+            <option value="12">{t('alimentaire')}</option>
+            <option value="25">{t('standard')}</option>
           </select>
         </div>
       </div>
@@ -360,16 +361,16 @@ export default function TicketPage() {
             {/* Contrôle du ticket */}
             <div className="sc-card">
               <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-                <span className="sc-card-title">Contrôle du ticket</span>
+                <span className="sc-card-title">{t('controle')}</span>
               </div>
               <div style={{ padding: '13px 15px' }}>
                 <div style={{ marginBottom: 10 }}>
-                  <label className="sc-label">Total lu sur le ticket</label>
+                  <label className="sc-label">{t('totalLu')}</label>
                   <input className="sc-input sc-num" value={totalOcr} onChange={e => setTotalOcr(e.target.value)}
                          placeholder="1 526,80" />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: T.text2b, padding: '5px 0' }}>
-                  <span>Total des lignes saisies</span>
+                  <span>{t('totalSaisi')}</span>
                   <span className="sc-num">{kr(totalLines)}</span>
                 </div>
 
@@ -388,7 +389,7 @@ export default function TicketPage() {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.borderFaint}` }}>
-                  <span style={{ fontSize: 12, color: T.text2b }}>Marchandises HT converties</span>
+                  <span style={{ fontSize: 12, color: T.text2b }}>{t('marchandises')}</span>
                   <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.green }}>{eur(goodsEur)}</span>
                 </div>
                 <div style={{ fontSize: 10.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
@@ -414,7 +415,7 @@ export default function TicketPage() {
             <div className="sc-card" style={{ overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap' }}>
                 <div>
-                  <span className="sc-card-title">Lignes reconnues</span>
+                  <span className="sc-card-title">{t('lignesReconnues')}</span>
                   <div style={{ fontSize: 10.5, color: T.muted }}>
                     {toReview} à vérifier · {isNew} nouveau produit
                   </div>
@@ -425,7 +426,7 @@ export default function TicketPage() {
                 </button>
                 <button className="sc-btn" onClick={validateAll}
                         style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
-                  <span className="ms">done_all</span>Tout valider
+                  <span className="ms">done_all</span>{t('toutValider')}
                 </button>
               </div>
 
@@ -474,7 +475,7 @@ export default function TicketPage() {
                     {/* Quantité */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                       <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
-                              onClick={() => patch(l.key, { qty: Math.max(1, l.qty - 1) })} aria-label="Moins">
+                              onClick={() => patch(l.key, { qty: Math.max(1, l.qty - 1) })} aria-label={t('moins')}>
                         <span className="ms">remove</span>
                       </button>
                       <span className="sc-num" style={{ fontSize: 14, fontWeight: 700, minWidth: 20, textAlign: 'center' }}>{l.qty}</span>
@@ -521,7 +522,7 @@ export default function TicketPage() {
                   Entrée valider la ligne · ⌘ Entrée tout valider
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>Coût d’achat total</div>
+                  <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{t('coutTotal')}</div>
                   <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: T.ink }}>{eur(goodsEur)}</div>
                 </div>
                 <button className="sc-btn sc-btn-secondary" onClick={() => submit(true)} disabled={busy || !lines.length}>
@@ -544,9 +545,9 @@ export default function TicketPage() {
               <div style={{ background: T.surfaceAlt, padding: '13px 15px', borderBottom: `1px solid ${T.border}`, position: 'relative' }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <div style={{ flex: 3, minWidth: 180, position: 'relative' }}>
-                    <label className="sc-label">Produit</label>
+                    <label className="sc-label">{tc('product')}</label>
                     <input ref={nameRef} className="sc-input" style={{ height: 36 }}
-                           value={qName} placeholder="Tape les 3 premières lettres…"
+                           value={qName} placeholder={t('phRecherche')}
                            onChange={e => { setQName(e.target.value); setQPick(null); setSugOpen(true); }}
                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (suggestions.length && sugOpen && !qPick) pickSuggestion(suggestions[0]); else addQuickLine(); } }} />
                     {sugOpen && suggestions.length > 0 && (
@@ -580,18 +581,18 @@ export default function TicketPage() {
                            onKeyDown={e => { if (e.key === 'Enter') addQuickLine(); }} />
                   </div>
                   <div style={{ width: 120 }}>
-                    <label className="sc-label">Prix ticket · kr</label>
+                    <label className="sc-label">{t('prixTicket')}</label>
                     <input className="sc-input sc-num" style={{ height: 36, textAlign: 'right' }}
                            value={qPrice} onChange={e => setQPrice(e.target.value)}
                            onKeyDown={e => { if (e.key === 'Enter') addQuickLine(); }} />
                   </div>
                   <button className="sc-btn sc-btn-primary" style={{ height: 36 }} onClick={addQuickLine}>
-                    <span className="ms">add</span>Ajouter
+                    <span className="ms">add</span>{t('ajouter')}
                   </button>
                 </div>
               </div>
 
-              {lines.length === 0 && <div className="sc-empty">Aucune ligne saisie.</div>}
+              {lines.length === 0 && <div className="sc-empty">{t('aucuneLigne')}</div>}
 
               {lines.map(l => (
                 <div key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 15px', borderBottom: `1px solid ${T.borderFaint}` }}>
@@ -604,7 +605,7 @@ export default function TicketPage() {
                   <span className="sc-num" style={{ fontSize: 13, fontWeight: 700, color: T.green, minWidth: 80, textAlign: 'right' }}>
                     {eur(lineEur(l))}
                   </span>
-                  <button className="sc-iconbtn" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))} aria-label="Retirer">
+                  <button className="sc-iconbtn" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))} aria-label={t('retirer')}>
                     <span className="ms" style={{ color: T.red }}>close</span>
                   </button>
                 </div>
@@ -615,7 +616,7 @@ export default function TicketPage() {
                 <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>Total {kr(totalLines)}</span>
                 <span style={{ flex: 1 }} />
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>Coût HT</div>
+                  <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{t('coutHt')}</div>
                   <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: T.green }}>{eur(goodsEur)}</div>
                 </div>
                 <button className="sc-btn sc-btn-green" onClick={() => submit(false)} disabled={busy || !lines.length}>
@@ -627,7 +628,7 @@ export default function TicketPage() {
 
           <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="sc-card" style={{ padding: '13px 15px' }}>
-              <div className="sc-card-title" style={{ marginBottom: 9 }}>Raccourcis</div>
+              <div className="sc-card-title" style={{ marginBottom: 9 }}>{t('raccourcis')}</div>
               {[['Entrée', 'valider la ligne et enchaîner'], ['Tab', 'champ suivant'], ['↑ ↓', 'naviguer dans les suggestions']].map(([k, d]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 7 }}>
                   <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 5, padding: '2px 7px', fontSize: 11, fontWeight: 600 }}>{k}</span>
@@ -636,7 +637,7 @@ export default function TicketPage() {
               ))}
             </div>
             <div className="sc-card" style={{ padding: '13px 15px' }}>
-              <div className="sc-card-title" style={{ marginBottom: 7 }}>Derniers achats · rappel</div>
+              <div className="sc-card-title" style={{ marginBottom: 7 }}>{t('derniersAchats')}</div>
               <div style={{ fontSize: 11.5, color: T.text2b, lineHeight: 1.6 }}>
                 Le prix proposé vient du dernier prix d’achat connu du produit, reconverti en couronnes.
                 Un écart de plus de 15 % déclenche une confirmation avant d’ajouter la ligne — c’est le

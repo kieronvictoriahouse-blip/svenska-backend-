@@ -1,0 +1,17 @@
+export const TSU = {
+  titre: { fr: 'Suggestions produits', en: 'Product suggestions', sv: 'Produktförslag' },
+  actualiser: { fr: 'Actualiser', en: 'Refresh', sv: 'Uppdatera' },
+  toutes: { fr: 'Toutes', en: 'All', sv: 'Alla' },
+  produitSuggere: { fr: 'Produit suggéré', en: 'Suggested product', sv: 'Föreslagen produkt' },
+  contact: { fr: 'Contact', en: 'Contact', sv: 'Kontakt' },
+  langue: { fr: 'Langue', en: 'Language', sv: 'Språk' },
+  recueLe: { fr: 'Reçue le', en: 'Received on', sv: 'Mottagen den' },
+  anonyme: { fr: 'Anonyme', en: 'Anonymous', sv: 'Anonym' },
+  traitee: { fr: 'Traitée', en: 'Handled', sv: 'Hanterad' },
+  rouvrir: { fr: 'Rouvrir', en: 'Reopen', sv: 'Öppna igen' },
+  chercher: { fr: 'Rechercher…', en: 'Search…', sv: 'Sök…' },
+  msgChargement: { fr: 'Chargement impossible', en: 'Loading failed', sv: 'Kunde inte läsa in' },
+  msgStatut: { fr: 'Statut mis à jour', en: 'Status updated', sv: 'Status uppdaterad' },
+  msgConfirmDel: { fr: 'Supprimer cette suggestion ?', en: 'Delete this suggestion?', sv: 'Ta bort förslaget?' },
+  msgSupprimee: { fr: 'Suggestion supprimée', en: 'Suggestion deleted', sv: 'Förslaget borttaget' },
+};

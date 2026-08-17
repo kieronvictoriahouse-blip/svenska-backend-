@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TIM, ajouteAuCatalogue } from './i18n';
 
 type Category = { id: string; name_fr: string; slug: string };
 
@@ -13,6 +15,7 @@ const LANGS: Array<{ code: 'fr' | 'sv' | 'en'; label: string }> = [
 const isWebpUrl = (u: string) => /\.webp(\?|$)/i.test(u);
 
 export default function ImportPage() {
+  const { t, tc, lang: langUi } = useT(TIM);
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -93,7 +96,7 @@ export default function ImportPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error('Erreur lors de la sauvegarde');
-      showToast(`« ${product.name_fr} » ajouté au catalogue`);
+      showToast(ajouteAuCatalogue(product.name_fr, langUi));
       setProduct(null); setUrl('');
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
@@ -129,7 +132,7 @@ export default function ImportPage() {
 
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>Import depuis une URL</div>
+          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
           <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
             Colle un lien produit : la fiche est extraite et traduite, tu valides avant publication.
           </div>
@@ -172,7 +175,7 @@ export default function ImportPage() {
         <div className="im-card">
           <div style={{ padding: '54px 20px', textAlign: 'center' }}>
             <span className="ms" style={{ fontSize: 34, color: T.borderField, display: 'block', marginBottom: 10 }}>auto_awesome</span>
-            <div style={{ fontSize: 13, color: T.text2b }}>Analyse de la page en cours…</div>
+            <div style={{ fontSize: 13, color: T.text2b }}>{t('analyse')}</div>
             <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4 }}>
               Extraction, traduction FR / SV / EN, détection des allergènes et de la nutrition
             </div>
@@ -199,11 +202,11 @@ export default function ImportPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
               <div className="im-card">
-                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>badge</span>Identité produit</span></div>
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>badge</span>{t('identite')}</span></div>
                 <div className="im-body">
                   <div className="im-row" style={{ gridTemplateColumns: '58px minmax(0,1fr) minmax(0,1fr)', alignItems: 'end' }}>
                     <div>
-                      <label className="im-label">Emoji</label>
+                      <label className="im-label">{t('emoji')}</label>
                       <input className="sc-input" style={{ width: '100%', textAlign: 'center', fontSize: 18, padding: 0 }}
                              value={p.emoji || ''} onChange={e => setProduct({ ...p, emoji: e.target.value })} />
                     </div>
@@ -212,41 +215,41 @@ export default function ImportPage() {
                       <input className="sc-input" style={{ width: '100%' }} value={get('name')} onChange={e => set('name', e.target.value)} />
                     </div>
                     <div>
-                      <label className="im-label">Marque</label>
+                      <label className="im-label">{t('marque')}</label>
                       <input className="sc-input" style={{ width: '100%' }} value={p.brand || ''} onChange={e => setProduct({ ...p, brand: e.target.value })} />
                     </div>
                   </div>
 
                   <div>
-                    <label className="im-label">Accroche</label>
+                    <label className="im-label">{t('accroche')}</label>
                     <input className="sc-input" style={{ width: '100%' }} value={get('subtitle')} onChange={e => set('subtitle', e.target.value)} />
                   </div>
 
                   <div>
-                    <label className="im-label">Description</label>
+                    <label className="im-label">{t('description')}</label>
                     <textarea className="sc-input" rows={4} style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
                               value={get('desc')} onChange={e => set('desc', e.target.value)} />
                   </div>
 
                   <div className="im-row" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
                     <div>
-                      <label className="im-label">Prix de vente (€)</label>
+                      <label className="im-label">{t('prixVente')}</label>
                       <input className="sc-input sc-num" type="number" step="0.01" style={{ width: '100%' }}
                              value={p.price || 0} onChange={e => setProduct({ ...p, price: parseFloat(e.target.value) })} />
                     </div>
                     <div>
-                      <label className="im-label">Poids / format</label>
+                      <label className="im-label">{t('poidsFormat')}</label>
                       <input className="sc-input" style={{ width: '100%' }} placeholder="24 g, 250 ml…"
                              value={p.weight || ''} onChange={e => setProduct({ ...p, weight: e.target.value })} />
                     </div>
                     <div>
-                      <label className="im-label">Origine</label>
+                      <label className="im-label">{t('origine')}</label>
                       <input className="sc-input" style={{ width: '100%' }} value={get('origin')} onChange={e => set('origin', e.target.value)} />
                     </div>
                   </div>
 
                   <div>
-                    <label className="im-label">Catégorie</label>
+                    <label className="im-label">{t('categorie')}</label>
                     <select className="sc-input" style={{ width: '100%' }} value={categoryId} onChange={e => setCategoryId(e.target.value)}>
                       <option value="">— Choisir une catégorie —</option>
                       {categories.map(c => <option key={c.id} value={c.id}>{c.name_fr}</option>)}
@@ -256,18 +259,18 @@ export default function ImportPage() {
               </div>
 
               <div className="im-card">
-                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>science</span>Ingrédients &amp; allergènes</span></div>
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>science</span>{t('ingredientsAllergenes')}</span></div>
                 <div className="im-body">
                   <div>
-                    <label className="im-label">Ingrédients</label>
+                    <label className="im-label">{t('ingredients')}</label>
                     <textarea className="sc-input" rows={4} style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
                               value={get('ingredients')} onChange={e => set('ingredients', e.target.value)}
-                              placeholder="Sel, maltodextrine, poudre d'oignon…" />
+                              placeholder={t('phIngredients')} />
                   </div>
                   <div>
-                    <label className="im-label">Allergènes</label>
+                    <label className="im-label">{t('allergenes')}</label>
                     <input className="sc-input" style={{ width: '100%' }} value={get('allergens')} onChange={e => set('allergens', e.target.value)}
-                           placeholder="Contient : gluten, lait…" />
+                           placeholder={t('phAllergenes')} />
                   </div>
                   {p.labels?.length > 0 && (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -280,18 +283,18 @@ export default function ImportPage() {
               </div>
 
               <div className="im-card">
-                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>package_2</span>Conservation &amp; utilisation</span></div>
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>package_2</span>{t('conservationUtil')}</span></div>
                 <div className="im-body">
                   <div>
-                    <label className="im-label">Conservation</label>
+                    <label className="im-label">{t('conservation')}</label>
                     <input className="sc-input" style={{ width: '100%' }} value={get('storage')} onChange={e => set('storage', e.target.value)}
-                           placeholder="Conserver à l'abri de la chaleur…" />
+                           placeholder={t('phConservation')} />
                   </div>
                   <div>
-                    <label className="im-label">Suggestions d&rsquo;utilisation</label>
+                    <label className="im-label">{t('suggestions')}</label>
                     <textarea className="sc-input" rows={3} style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
                               value={get('usage')} onChange={e => set('usage', e.target.value)}
-                              placeholder="Parfait avec des chips, en trempette…" />
+                              placeholder={t('phSuggestions')} />
                   </div>
                 </div>
               </div>
@@ -299,7 +302,7 @@ export default function ImportPage() {
               {Object.values(nutri).some((v: any) => v) && (
                 <div className="im-card">
                   <div className="im-head">
-                    <span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>monitoring</span>Valeurs nutritionnelles</span>
+                    <span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>monitoring</span>{t('nutrition')}</span>
                     {nutri.portion && <span style={{ fontSize: 11, color: T.muted }}>pour {nutri.portion}</span>}
                   </div>
                   <div className="im-body">
@@ -341,10 +344,10 @@ export default function ImportPage() {
             {/* ── Colonne latérale : images + validation ─────── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
               <div className="im-card">
-                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>image</span>Images</span></div>
+                <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>image</span>{t('images')}</span></div>
                 <div className="im-body">
                   <div>
-                    <div className="im-eyebrow">Image principale</div>
+                    <div className="im-eyebrow">{t('imagePrincipale')}</div>
                     <div style={{
                       background: T.surfaceAlt, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12,
                       minHeight: 138, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8,
@@ -352,7 +355,7 @@ export default function ImportPage() {
                       {selectedImg
                         ? <img src={selectedImg} alt="" onError={handleMainImgError}
                                style={{ maxHeight: 130, maxWidth: '100%', objectFit: 'contain' }} />
-                        : <span style={{ fontSize: 12, color: T.muted }}>Aucune image sélectionnée</span>}
+                        : <span style={{ fontSize: 12, color: T.muted }}>{t('aucuneImage')}</span>}
                     </div>
                     <input className="sc-input" placeholder="https://…" value={selectedImg}
                            onChange={e => setSelectedImg(e.target.value)}
@@ -366,7 +369,7 @@ export default function ImportPage() {
 
                   {p.image_urls?.length > 0 && (
                     <div>
-                      <div className="im-eyebrow">Images trouvées sur la page</div>
+                      <div className="im-eyebrow">{t('imagesTrouvees')}</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                         {p.image_urls.slice(0, 12).map((u: string, i: number) => (
                           <div key={i} className={`im-thumb${selectedImg === u ? ' sel' : ''}`}>
@@ -385,7 +388,7 @@ export default function ImportPage() {
                                 background: 'var(--accent)', borderRadius: '50%', padding: 1,
                               }}>star</span>
                             ) : (
-                              <input type="checkbox" checked={extraImgs.has(u)} title="Ajouter à la galerie"
+                              <input type="checkbox" checked={extraImgs.has(u)} title={t('ajouterGalerie')}
                                      onChange={() => setExtraImgs(prev => {
                                        const next = new Set(prev);
                                        if (next.has(u)) next.delete(u); else next.add(u);
@@ -407,7 +410,7 @@ export default function ImportPage() {
 
               <div className="im-card">
                 <div style={{ padding: '11px 15px' }}>
-                  <div className="im-eyebrow" style={{ marginBottom: 4 }}>Source</div>
+                  <div className="im-eyebrow" style={{ marginBottom: 4 }}>{t('source')}</div>
                   <a href={p.source_url} target="_blank" rel="noopener noreferrer"
                      style={{ fontSize: 11, color: 'var(--accent)', wordBreak: 'break-all', textDecoration: 'none' }}>
                     {p.source_url}

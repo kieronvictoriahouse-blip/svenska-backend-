@@ -1,0 +1,36 @@
+/* Attention : cet écran édite du contenu multilingue. Les libellés
+   « Titre FR / SV / EN » désignent les champs à remplir, pas la langue
+   de l'interface — ils gardent donc leur suffixe de langue quelle que
+   soit la langue choisie. Seul le mot « Titre » se traduit. */
+export const TPA = {
+  titre: { fr: 'Pages', en: 'Pages', sv: 'Sidor' },
+  nouvellePage: { fr: 'Nouvelle page', en: 'New page', sv: 'Ny sida' },
+  aucunePage: { fr: 'Aucune page. Crée la première.', en: 'No page yet. Create the first one.', sv: 'Inga sidor än. Skapa den första.' },
+  colTitre: { fr: 'Titre', en: 'Title', sv: 'Rubrik' },
+  traductions: { fr: 'Traductions', en: 'Translations', sv: 'Översättningar' },
+  navigation: { fr: 'Navigation', en: 'Navigation', sv: 'Navigering' },
+  identNav: { fr: 'Identifiant & Navigation', en: 'Identifier & Navigation', sv: 'Identifierare och navigering' },
+  slugReq: { fr: 'Slug *', en: 'Slug *', sv: 'Slug *' },
+  ordreTri: { fr: 'Ordre de tri', en: 'Sort order', sv: 'Sorteringsordning' },
+  titrePage: { fr: 'Titre de la page', en: 'Page title', sv: 'Sidans rubrik' },
+  libelleNav: { fr: 'Libellé de navigation', en: 'Navigation label', sv: 'Navigeringsetikett' },
+  texteMenu: {
+    fr: 'Texte affiché dans le menu (si vide, utilise le titre)',
+    en: 'Text shown in the menu (falls back to the title)',
+    sv: 'Text som visas i menyn (annars används rubriken)',
+  },
+  sectionHero: { fr: 'Section Hero', en: 'Hero section', sv: 'Hero-sektion' },
+  imageFond: { fr: 'Image de fond (URL)', en: 'Background image (URL)', sv: 'Bakgrundsbild (URL)' },
+  blocsContenu: { fr: 'Blocs de contenu', en: 'Content blocks', sv: 'Innehållsblock' },
+  supprimerPage: { fr: 'Supprimer cette page ?', en: 'Delete this page?', sv: 'Ta bort sidan?' },
+  imageUrl: { fr: 'Image (URL, optionnel)', en: 'Image (URL, optional)', sv: 'Bild (URL, valfritt)' },
+  legendeAlt: { fr: 'Légende (alt)', en: 'Caption (alt)', sv: 'Bildtext (alt)' },
+  phTitre: { fr: 'Titre (optionnel)', en: 'Title (optional)', sv: 'Rubrik (valfritt)' },
+  msgChargement: { fr: 'Erreur de chargement', en: 'Loading error', sv: 'Fel vid inläsning' },
+  msgSlugRequis: { fr: 'Le slug est requis', en: 'The slug is required', sv: 'Slug krävs' },
+  msgErreur: { fr: 'Erreur : ', en: 'Error: ', sv: 'Fel: ' },
+  msgSauvee: { fr: 'Page sauvegardée !', en: 'Page saved!', sv: 'Sidan sparad!' },
+  msgErrSauve: { fr: 'Erreur lors de la sauvegarde', en: 'Save failed', sv: 'Kunde inte spara' },
+  msgSupprimee: { fr: 'Page supprimée', en: 'Page deleted', sv: 'Sidan borttagen' },
+  msgErrSuppr: { fr: 'Erreur lors de la suppression', en: 'Deletion failed', sv: 'Borttagningen misslyckades' },
+};

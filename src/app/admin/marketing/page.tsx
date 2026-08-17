@@ -3,6 +3,8 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TMA, confirmerSuppressionCode, codeSupprime, relanceEnvoyee } from './i18n';
 
 type Campaign = {
   id: string; name: string; type: string; status: string; subject?: string;
@@ -29,6 +31,7 @@ const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '�
 const fmtPct = (n: number) => (n || 0).toFixed(1) + '%';
 
 function MarketingInner() {
+  const { t, tc, lang } = useT(TMA);
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') || 'campaigns');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -68,11 +71,11 @@ function MarketingInner() {
   async function saveShipPromo() {
     const thr = ship.ship_promo_threshold === '' ? null : Number(ship.ship_promo_threshold);
     if (ship.ship_promo_active && thr === null && ship.ship_promo_threshold_intl === '') {
-      showToast('⚠️ Renseignez au moins un seuil (France ou international)'); return;
+      showToast(t('msgSeuil')); return;
     }
-    if (thr !== null && (Number.isNaN(thr) || thr < 0)) { showToast('⚠️ Seuil France invalide'); return; }
+    if (thr !== null && (Number.isNaN(thr) || thr < 0)) { showToast(t('msgSeuilFr')); return; }
     if (ship.ship_promo_from && ship.ship_promo_until && ship.ship_promo_from > ship.ship_promo_until) {
-      showToast('⚠️ La date de fin précède la date de début'); return;
+      showToast(t('msgDates')); return;
     }
     setSavingShip(true);
     try {
@@ -90,7 +93,7 @@ function MarketingInner() {
           ship_promo_label_en: ship.ship_promo_label_en || null,
         }),
       });
-      if (!res.ok) { showToast('❌ Erreur enregistrement'); return; }
+      if (!res.ok) { showToast(t('msgErrEnreg')); return; }
       showToast(
         !shipPromoLive ? "✅ Opération enregistrée (hors période aujourd'hui)"
         : !shipFrOk    ? '⚠️ Enregistré, mais sans seuil France : rien ne change pour la France'
@@ -141,10 +144,10 @@ function MarketingInner() {
   }
 
   async function saveCampaign() {
-    if (!campForm.name) { showToast('⚠️ Nom requis'); return; }
+    if (!campForm.name) { showToast(t('msgNomRequis')); return; }
     const res = await adminFetch('/api/marketing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campForm) });
-    if (!res.ok) { showToast('❌ Erreur'); return; }
-    showToast('✅ Campagne créée !');
+    if (!res.ok) { showToast(t('msgErreur')); return; }
+    showToast(t('msgCampagneOk'));
     setShowModal(false);
     loadData();
   }
@@ -177,14 +180,14 @@ function MarketingInner() {
   async function saveCode() {
     const isGift = codeForm.type === 'gift';
     if (isGift) {
-      if (!codeForm.gift_product_ids || codeForm.gift_product_ids.length === 0) { showToast('⚠️ Choisissez au moins 1 produit cadeau'); return; }
+      if (!codeForm.gift_product_ids || codeForm.gift_product_ids.length === 0) { showToast(t('msgCadeau')); return; }
     } else if (!codeForm.code) {
-      showToast('Code requis'); return;
+      showToast(t('msgCodeRequis')); return;
     } else if (codeForm.type !== 'free_shipping' && !codeForm.value) {
       /* « Livraison offerte » n'a pas de montant : le type porte toute
          l'information, comme pour le cadeau. Exiger une valeur ici
          obligeait a saisir un chiffre qui ne servait a rien. */
-      showToast('Valeur requise pour ce type de code'); return;
+      showToast(t('msgValeurRequise')); return;
     }
     const autoCode = codeForm.code || (isGift ? ('CADEAU-' + Math.random().toString(36).slice(2, 7).toUpperCase()) : '');
     const payload = {
@@ -202,7 +205,7 @@ function MarketingInner() {
     const url = editingCode ? `/api/marketing?tab=promo&id=${editingCode.id}` : '/api/marketing?tab=promo';
     const method = editingCode ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!res.ok) { showToast('❌ Erreur'); return; }
+    if (!res.ok) { showToast(t('msgErreur')); return; }
     showToast(editingCode ? '✅ Code mis à jour !' : '✅ Code promo créé !');
     setShowCodeModal(false);
     setEditingCode(null);
@@ -210,10 +213,10 @@ function MarketingInner() {
   }
 
   async function deleteCode(c: PromoCode) {
-    if (!confirm(`Supprimer le code "${c.code}" ? Cette action est irréversible.`)) return;
+    if (!confirm(confirmerSuppressionCode(c.code, lang))) return;
     const res = await adminFetch(`/api/marketing?tab=promo&id=${c.id}`, { method: 'DELETE' });
-    if (!res.ok) { showToast('❌ Erreur lors de la suppression'); return; }
-    showToast(`🗑 Code "${c.code}" supprimé`);
+    if (!res.ok) { showToast(t('msgErrSuppr')); return; }
+    showToast(codeSupprime(c.code, lang));
     loadData();
   }
 
@@ -223,7 +226,7 @@ function MarketingInner() {
   }
 
   async function sendRelance(cartId: string, step: number) {
-    showToast(`📧 Relance J+${step === 1 ? 1 : step === 2 ? 3 : 7} envoyée (simulation)`);
+    showToast(relanceEnvoyee(step === 1 ? 1 : step === 2 ? 3 : 7, lang));
     await adminFetch(`/api/marketing?tab=abandoned&id=${cartId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [`email_${step}_sent_at`]: new Date().toISOString() }) });
     loadData();
   }
@@ -285,7 +288,7 @@ function MarketingInner() {
 
       <div className="sc-head">
         <div>
-          <div className="sc-title">Marketing</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             {tab === 'campaigns' ? `${campaigns.length} campagne(s) · ROAS ${roas}`
               : tab === 'promo' ? `${codes.length} code(s) · ${codes.filter(c => c.is_active).length} actif(s)`
@@ -295,12 +298,12 @@ function MarketingInner() {
         <div className="sc-actions">
           {tab === 'campaigns' && (
             <button className="sc-btn sc-btn-primary" onClick={() => setShowModal(true)}>
-              <span className="ms">add</span>Nouvelle campagne
+              <span className="ms">add</span>{t('nouvelleCampagne')}
             </button>
           )}
           {tab === 'promo' && (
             <button className="sc-btn sc-btn-primary" onClick={openNewCode}>
-              <span className="ms">add</span>Nouveau code promo
+              <span className="ms">add</span>{t('nouveauCode')}
             </button>
           )}
         </div>
@@ -338,8 +341,8 @@ function MarketingInner() {
             ))}
           </div>
 
-          {loading && <div className="sc-empty">Chargement…</div>}
-          {!loading && campaigns.length === 0 && <div className="sc-empty">Aucune campagne.</div>}
+          {loading && <div className="sc-empty">{tc('loading')}</div>}
+          {!loading && campaigns.length === 0 && <div className="sc-empty">{t('aucuneCampagne')}</div>}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {campaigns.map(c => {
@@ -360,19 +363,19 @@ function MarketingInner() {
 
                   <div style={{ textAlign: 'center', minWidth: 70 }}>
                     <div className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: TH.ink }}>{c.sent_count || 0}</div>
-                    <div style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>Envoyés</div>
+                    <div style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>{t('envoyes')}</div>
                   </div>
 
                   <div style={{ flex: '1 1 120px', minWidth: 100 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
-                      <span>Ouvertures</span><span className="sc-num">{fmtPct(openRate)}</span>
+                      <span>{t('ouvertures')}</span><span className="sc-num">{fmtPct(openRate)}</span>
                     </div>
                     <Gauge value={openRate} max={100} color="var(--accent)" />
                   </div>
 
                   <div style={{ flex: '1 1 120px', minWidth: 100 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
-                      <span>Clics</span><span className="sc-num">{fmtPct(clickRate)}</span>
+                      <span>{t('clics')}</span><span className="sc-num">{fmtPct(clickRate)}</span>
                     </div>
                     {/* Échelle ×2 : les taux de clic sont bas, sinon la barre est illisible */}
                     <Gauge value={clickRate * 2} max={100} color={TH.blue} />
@@ -424,32 +427,32 @@ function MarketingInner() {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginTop: 14 }}>
                   <div>
-                    <label className="sc-label">Seuil France (€) *</label>
+                    <label className="sc-label">{t('seuilFr')}</label>
                     <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="25"
                            value={ship.ship_promo_threshold}
                            onChange={e => setShip(s => ({ ...s, ship_promo_threshold: e.target.value }))} />
                   </div>
                   <div>
-                    <label className="sc-label">Seuil international (€)</label>
+                    <label className="sc-label">{t('seuilIntl')}</label>
                     <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="vide = inchangé"
                            value={ship.ship_promo_threshold_intl}
                            onChange={e => setShip(s => ({ ...s, ship_promo_threshold_intl: e.target.value }))} />
                   </div>
                   <div>
-                    <label className="sc-label">Du (inclus)</label>
+                    <label className="sc-label">{t('du')}</label>
                     <input className="sc-input" type="date" value={ship.ship_promo_from}
                            onChange={e => setShip(s => ({ ...s, ship_promo_from: e.target.value }))} />
                   </div>
                   <div>
-                    <label className="sc-label">Au (inclus)</label>
+                    <label className="sc-label">{t('au')}</label>
                     <input className="sc-input" type="date" value={ship.ship_promo_until}
                            onChange={e => setShip(s => ({ ...s, ship_promo_until: e.target.value }))} />
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12, marginTop: 10 }}>
                   <div>
-                    <label className="sc-label">Message bandeau FR</label>
-                    <input className="sc-input" placeholder="Livraison offerte dès 25 € !"
+                    <label className="sc-label">{t('messageBandeau')}</label>
+                    <input className="sc-input" placeholder={t('phBandeau')}
                            value={ship.ship_promo_label_fr}
                            onChange={e => setShip(s => ({ ...s, ship_promo_label_fr: e.target.value }))} />
                   </div>
@@ -493,8 +496,8 @@ function MarketingInner() {
             </div>
           </div>
 
-          {loading && <div className="sc-empty">Chargement…</div>}
-          {!loading && codes.length === 0 && <div className="sc-empty">Aucun code promo.</div>}
+          {loading && <div className="sc-empty">{tc('loading')}</div>}
+          {!loading && codes.length === 0 && <div className="sc-empty">{t('aucunCode')}</div>}
 
           {!loading && codes.length > 0 && (
             <div className="sc-card" style={{ overflow: 'hidden' }}>
@@ -503,11 +506,11 @@ function MarketingInner() {
                   <thead>
                     <tr>
                       <th style={{ width: 130 }}>Code</th>
-                      <th style={{ width: 120 }}>Remise</th>
-                      <th style={{ width: 130 }}>Condition</th>
-                      <th style={{ width: 150 }}>Utilisations</th>
-                      <th style={{ width: 170 }}>Validité</th>
-                      <th style={{ width: 90 }}>Statut</th>
+                      <th style={{ width: 120 }}>{t('remise')}</th>
+                      <th style={{ width: 130 }}>{t('condition')}</th>
+                      <th style={{ width: 150 }}>{t('utilisations')}</th>
+                      <th style={{ width: 170 }}>{t('validite')}</th>
+                      <th style={{ width: 90 }}>{tc('status')}</th>
                       <th style={{ width: 70 }} />
                     </tr>
                   </thead>
@@ -554,8 +557,8 @@ function MarketingInner() {
                           </td>
                           <td>
                             <div style={{ display: 'flex', gap: 2 }}>
-                              <button className="sc-iconbtn" onClick={() => openEditCode(c)} aria-label="Modifier"><span className="ms">edit</span></button>
-                              <button className="sc-iconbtn" onClick={() => deleteCode(c)} aria-label="Supprimer"><span className="ms">delete</span></button>
+                              <button className="sc-iconbtn" onClick={() => openEditCode(c)} aria-label={tc('edit')}><span className="ms">edit</span></button>
+                              <button className="sc-iconbtn" onClick={() => deleteCode(c)} aria-label={tc('delete')}><span className="ms">delete</span></button>
                             </div>
                           </td>
                         </tr>
@@ -586,8 +589,8 @@ function MarketingInner() {
             ))}
           </div>
 
-          {loading && <div className="sc-empty">Chargement…</div>}
-          {!loading && carts.length === 0 && <div className="sc-empty">Aucun panier abandonné.</div>}
+          {loading && <div className="sc-empty">{tc('loading')}</div>}
+          {!loading && carts.length === 0 && <div className="sc-empty">{t('aucunPanier')}</div>}
 
           {!loading && carts.length > 0 && (
             <div className="sc-card" style={{ overflow: 'hidden' }}>
@@ -595,11 +598,11 @@ function MarketingInner() {
                 <table className="sc-table" style={{ minWidth: 700 }}>
                   <thead>
                     <tr>
-                      <th>Client</th>
-                      <th className="sc-right" style={{ width: 100 }}>Panier</th>
-                      <th style={{ width: 120 }}>Abandonné le</th>
-                      <th style={{ width: 130 }}>Relances</th>
-                      <th style={{ width: 110 }}>Statut</th>
+                      <th>{tc('client')}</th>
+                      <th className="sc-right" style={{ width: 100 }}>{t('panier')}</th>
+                      <th style={{ width: 120 }}>{t('abandonneLe')}</th>
+                      <th style={{ width: 130 }}>{t('relances')}</th>
+                      <th style={{ width: 110 }}>{tc('status')}</th>
                       <th style={{ width: 160 }} />
                     </tr>
                   </thead>
@@ -626,11 +629,11 @@ function MarketingInner() {
                             <div style={{ display: 'flex', gap: 4 }}>
                               {!c.email_1_sent_at && (
                                 <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
-                                        onClick={() => sendRelance(c.id, 1)}>Relance 1</button>
+                                        onClick={() => sendRelance(c.id, 1)}>{t('relance1')}</button>
                               )}
                               {c.email_1_sent_at && !c.email_2_sent_at && (
                                 <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
-                                        onClick={() => sendRelance(c.id, 2)}>Relance 2</button>
+                                        onClick={() => sendRelance(c.id, 2)}>{t('relance2')}</button>
                               )}
                             </div>
                           )}
@@ -648,9 +651,9 @@ function MarketingInner() {
         {showModal && (
           <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
             <div className="modal">
-              <div className="modal-header"><span className="modal-title">Nouvelle campagne</span><button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>✕</button></div>
+              <div className="modal-header"><span className="modal-title">{t('nouvelleCampagne')}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>✕</button></div>
               <div className="modal-body">
-                <div className="form-group"><label className="form-label">Nom *</label><input className="form-control" value={campForm.name} onChange={e => setCampForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Newsletter Noël 2024" /></div>
+                <div className="form-group"><label className="form-label">{t('nomReq')}</label><input className="form-control" value={campForm.name} onChange={e => setCampForm(f => ({ ...f, name: e.target.value }))} placeholder={t('phCampagne')} /></div>
                 <div className="grid-2">
                   <div className="form-group">
                     <label className="form-label">Type</label>
@@ -659,22 +662,22 @@ function MarketingInner() {
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Segment cible</label>
+                    <label className="form-label">{t('segment')}</label>
                     <select className="form-control" value={campForm.target_segment} onChange={e => setCampForm(f => ({ ...f, target_segment: e.target.value }))}>
                       {Object.entries(SEGMENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                     </select>
                   </div>
                 </div>
                 {campForm.type === 'email' && <>
-                  <div className="form-group"><label className="form-label">Objet de l'email</label><input className="form-control" value={campForm.subject} onChange={e => setCampForm(f => ({ ...f, subject: e.target.value }))} /></div>
-                  <div className="form-group"><label className="form-label">Contenu (HTML)</label><textarea className="form-control" value={campForm.content} onChange={e => setCampForm(f => ({ ...f, content: e.target.value }))} placeholder="<h1>Bonjour !</h1>..." /></div>
+                  <div className="form-group"><label className="form-label">{t('objetEmail')}</label><input className="form-control" value={campForm.subject} onChange={e => setCampForm(f => ({ ...f, subject: e.target.value }))} /></div>
+                  <div className="form-group"><label className="form-label">{t('contenuHtml')}</label><textarea className="form-control" value={campForm.content} onChange={e => setCampForm(f => ({ ...f, content: e.target.value }))} placeholder="<h1>{t('bonjour')}</h1>..." /></div>
                 </>}
                 {['meta_ads', 'google_ads', 'social_ads'].includes(campForm.type) && (
-                  <div className="form-group"><label className="form-label">Budget (€)</label><input type="number" className="form-control" value={campForm.budget} onChange={e => setCampForm(f => ({ ...f, budget: e.target.value }))} placeholder="500" /></div>
+                  <div className="form-group"><label className="form-label">{t('budget')}</label><input type="number" className="form-control" value={campForm.budget} onChange={e => setCampForm(f => ({ ...f, budget: e.target.value }))} placeholder="500" /></div>
                 )}
               </div>
               <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Annuler</button>
+                <button className="btn btn-secondary" onClick={() => setShowModal(false)}>{tc('cancel')}</button>
                 <button className="btn btn-primary" onClick={saveCampaign}>💾 Créer</button>
               </div>
             </div>
@@ -689,31 +692,31 @@ function MarketingInner() {
               <div className="modal-body">
                 <div className="grid-2">
                   {codeForm.type !== 'gift' && (
-                  <div className="form-group"><label className="form-label">Code *</label><input className="form-control mono" value={codeForm.code} style={{ textTransform: 'uppercase' }} onChange={e => setCodeForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="EX: NOEL10" /></div>
+                  <div className="form-group"><label className="form-label">{t('codeReq')}</label><input className="form-control mono" value={codeForm.code} style={{ textTransform: 'uppercase' }} onChange={e => setCodeForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder={t('phCode')} /></div>
                   )}
                   <div className="form-group">
                     <label className="form-label">Type</label>
                     <select className="form-control" value={codeForm.type} onChange={e => setCodeForm(f => ({ ...f, type: e.target.value }))}>
-                      <option value="percent">Pourcentage (%)</option>
-                      <option value="fixed">Montant fixe (€)</option>
-                      <option value="free_shipping">Livraison offerte</option>
+                      <option value="percent">{t('pourcentage')}</option>
+                      <option value="fixed">{t('montantFixe')}</option>
+                      <option value="free_shipping">{t('livraisonOfferte')}</option>
                       <option value="gift">🎁 Cadeau offert</option>
                     </select>
                   </div>
                   {codeForm.type !== 'gift' && (
-                  <div className="form-group"><label className="form-label">Valeur *</label><input type="number" className="form-control mono" value={codeForm.value} onChange={e => setCodeForm(f => ({ ...f, value: e.target.value }))} placeholder={codeForm.type === 'percent' ? '10' : '5'} /></div>
+                  <div className="form-group"><label className="form-label">{t('valeurReq')}</label><input type="number" className="form-control mono" value={codeForm.value} onChange={e => setCodeForm(f => ({ ...f, value: e.target.value }))} placeholder={codeForm.type === 'percent' ? '10' : '5'} /></div>
                   )}
                   <div className="form-group"><label className="form-label">{codeForm.type === 'gift' ? 'Cadeau offert dès (€) *' : 'Commande minimum (€)'}</label><input type="number" className="form-control mono" value={codeForm.min_order} onChange={e => setCodeForm(f => ({ ...f, min_order: e.target.value }))} placeholder={codeForm.type === 'gift' ? '10' : ''} /></div>
-                  <div className="form-group"><label className="form-label">Nb utilisations max</label><input type="number" className="form-control mono" value={codeForm.max_uses} onChange={e => setCodeForm(f => ({ ...f, max_uses: e.target.value }))} placeholder="Illimité" /></div>
-                  <div className="form-group"><label className="form-label">Valide du</label><input type="date" className="form-control" value={codeForm.valid_from} onChange={e => setCodeForm(f => ({ ...f, valid_from: e.target.value }))} /></div>
-                  <div className="form-group"><label className="form-label">Valide jusqu'au</label><input type="date" className="form-control" value={codeForm.valid_until} onChange={e => setCodeForm(f => ({ ...f, valid_until: e.target.value }))} /></div>
+                  <div className="form-group"><label className="form-label">{t('maxUtil')}</label><input type="number" className="form-control mono" value={codeForm.max_uses} onChange={e => setCodeForm(f => ({ ...f, max_uses: e.target.value }))} placeholder={t('phIllimite')} /></div>
+                  <div className="form-group"><label className="form-label">{t('valideDu')}</label><input type="date" className="form-control" value={codeForm.valid_from} onChange={e => setCodeForm(f => ({ ...f, valid_from: e.target.value }))} /></div>
+                  <div className="form-group"><label className="form-label">{t('valideAu')}</label><input type="date" className="form-control" value={codeForm.valid_until} onChange={e => setCodeForm(f => ({ ...f, valid_until: e.target.value }))} /></div>
                 </div>
                 {codeForm.type === 'gift' && (
                   <div className="form-group">
-                    <label className="form-label">Produits offerts éligibles * <span style={{ fontWeight: 400, color: '#6A7280' }}>(le client en choisit un dans le panier)</span></label>
+                    <label className="form-label">{t('cadeauxEligibles')} * <span style={{ fontWeight: 400, color: '#6A7280' }}>(le client en choisit un dans le panier)</span></label>
                     <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #E8E0D0', borderRadius: 6, padding: '8px 10px' }}>
                       {products.length === 0
-                        ? <div style={{ fontSize: 12, color: '#6A7280' }}>Chargement des produits…</div>
+                        ? <div style={{ fontSize: 12, color: '#6A7280' }}>{t('chargementProduits')}</div>
                         : products.map(p => {
                             const on = codeForm.gift_product_ids.includes(p.id);
                             return (
@@ -734,12 +737,12 @@ function MarketingInner() {
                   </label>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>🔒 Usage unique par client</div>
-                    <div style={{ fontSize: 11, color: '#6A7280' }}>Un client ne peut utiliser ce code qu'une seule fois (vérifié par email)</div>
+                    <div style={{ fontSize: 11, color: '#6A7280' }}>{t('uneSeuleFois')}</div>
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>Annuler</button>
+                <button className="btn btn-secondary" onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>{tc('cancel')}</button>
                 <button className="btn btn-primary" onClick={saveCode}>{editingCode ? '💾 Mettre à jour' : '💾 Créer le code'}</button>
               </div>
             </div>
@@ -754,4 +757,5 @@ function MarketingInner() {
     </>
   );
 }
-export default function MarketingPage() { return <Suspense><MarketingInner /></Suspense>; }
+export default function MarketingPage() {
+  return <Suspense><MarketingInner /></Suspense>; }

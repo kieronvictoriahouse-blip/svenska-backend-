@@ -4,6 +4,8 @@ import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone, initials, eur, thumbStyle } from '@/lib/admin-theme';
 import { SqueletteTable } from '@/components/Squelette';
+import { useT } from '@/lib/admin-i18n';
+import { TCO, confirmerSuppressionContact } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRANS 17 & 18 — CLIENTS / FOURNISSEURS
@@ -38,6 +40,7 @@ function segmentOf(c: Contact): { label: string; tone: BadgeTone } {
 }
 
 function ContactsInner() {
+  const { t, tc, lang } = useT(TCO);
   const searchParams = useSearchParams();
   const typeFilter = searchParams.get('type') || '';
 
@@ -77,7 +80,7 @@ function ContactsInner() {
   }
 
   async function save() {
-    if (!form.email && !form.company && !form.last_name) { say('Renseigne au moins un nom ou un email'); return; }
+    if (!form.email && !form.company && !form.last_name) { say(t('msgNomOuEmail')); return; }
     setSaving(true);
     try {
       const url = form.id ? `/api/contacts/${form.id}` : '/api/contacts';
@@ -89,16 +92,16 @@ function ContactsInner() {
       if (!res.ok) throw new Error();
       say(form.id ? 'Contact mis à jour' : 'Contact créé');
       setShowModal(false); setForm(EMPTY); load();
-    } catch { say('Enregistrement impossible'); }
+    } catch { say(t('msgEnregKo')); }
     finally { setSaving(false); }
   }
 
   async function remove(c: Contact) {
-    if (!window.confirm(`Supprimer « ${fullName(c)} » ?`)) return;
+    if (!window.confirm(confirmerSuppressionContact(fullName(c), lang))) return;
     await adminFetch(`/api/contacts/${c.id}`, { method: 'DELETE' });
     setContacts(cs => cs.filter(x => x.id !== c.id));
     setDetail(null);
-    say('Contact supprimé');
+    say(t('msgSupprime'));
   }
 
   function exportCsv() {
@@ -123,16 +126,16 @@ function ContactsInner() {
         </div>
         <div className="sc-actions">
           <input className="sc-input" style={{ height: 32, width: 220, background: '#F7F4EF' }}
-                 placeholder="Rechercher…" value={search} onChange={e => setSearch(e.target.value)} />
-          <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>Exporter</button>
+                 placeholder={t('chercher')} value={search} onChange={e => setSearch(e.target.value)} />
+          <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>{t('exporter')}</button>
           <button className="sc-btn sc-btn-primary" onClick={() => { setForm({ ...EMPTY, type: filter || 'client' }); setShowModal(true); }}>
-            <span className="ms">person_add</span>Ajouter
+            <span className="ms">person_add</span>{t('ajouter')}
           </button>
         </div>
       </div>
 
       {loading && <SqueletteTable lignes={7} colonnes={4} vignette />}
-      {!loading && contacts.length === 0 && <div className="sc-empty">Aucun contact.</div>}
+      {!loading && contacts.length === 0 && <div className="sc-empty">{t('aucun')}</div>}
 
       {/* ── Fournisseurs : grille de cartes ─────────────── */}
       {!loading && isSupplier && contacts.length > 0 && (
@@ -180,13 +183,13 @@ function ContactsInner() {
             <table className="sc-table" style={{ minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th>Client</th>
-                  <th style={{ width: 200 }}>Email</th>
-                  <th style={{ width: 120 }}>Ville</th>
+                  <th>{tc('client')}</th>
+                  <th style={{ width: 200 }}>{tc('email')}</th>
+                  <th style={{ width: 120 }}>{t('ville')}</th>
                   <th style={{ width: 70, textAlign: 'center' }}>Cmd</th>
-                  <th className="sc-right" style={{ width: 110 }}>Total dépensé</th>
-                  <th style={{ width: 110 }}>Inscrit le</th>
-                  <th style={{ width: 100 }}>Segment</th>
+                  <th className="sc-right" style={{ width: 110 }}>{t('totalDepense')}</th>
+                  <th style={{ width: 110 }}>{t('inscritLe')}</th>
+                  <th style={{ width: 100 }}>{t('segment')}</th>
                   <th style={{ width: 44 }} />
                 </tr>
               </thead>
@@ -214,7 +217,7 @@ function ContactsInner() {
                       </td>
                       <td><span className="sc-badge" style={{ background: BADGE[seg.tone].bg, color: BADGE[seg.tone].fg }}>{seg.label}</span></td>
                       <td onClick={e => e.stopPropagation()}>
-                        <button className="sc-iconbtn" onClick={() => { setForm(c); setShowModal(true); }} aria-label="Modifier">
+                        <button className="sc-iconbtn" onClick={() => { setForm(c); setShowModal(true); }} aria-label={tc('edit')}>
                           <span className="ms">edit</span>
                         </button>
                       </td>
@@ -234,7 +237,7 @@ function ContactsInner() {
           <div className="sc-card" style={{ width: '100%', maxWidth: 560, margin: 'auto' }}>
             <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="sc-card-title">{fullName(detail.contact)}</span>
-              <button className="sc-iconbtn" onClick={() => setDetail(null)} aria-label="Fermer"><span className="ms">close</span></button>
+              <button className="sc-iconbtn" onClick={() => setDetail(null)} aria-label={tc('close')}><span className="ms">close</span></button>
             </div>
             <div style={{ padding: 18 }}>
               <div style={{ fontSize: 12.5, color: T.text2b, lineHeight: 1.7 }}>
@@ -264,10 +267,10 @@ function ContactsInner() {
             </div>
             <div style={{ padding: '13px 18px', borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="sc-btn sc-btn-danger" onClick={() => remove(detail.contact)}>
-                <span className="ms">delete</span>Supprimer
+                <span className="ms">delete</span>{tc('delete')}
               </button>
               <button className="sc-btn sc-btn-secondary" onClick={() => { setForm(detail.contact); setDetail(null); setShowModal(true); }}>
-                <span className="ms">edit</span>Modifier
+                <span className="ms">edit</span>{tc('edit')}
               </button>
             </div>
           </div>
@@ -286,19 +289,19 @@ function ContactsInner() {
               <div>
                 <label className="sc-label">Type</label>
                 <select className="sc-input sc-select" value={form.type || 'client'} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                  <option value="client">Client</option>
-                  <option value="supplier">Fournisseur</option>
-                  <option value="both">Les deux</option>
+                  <option value="client">{tc('client')}</option>
+                  <option value="supplier">{tc('supplier')}</option>
+                  <option value="both">{t('lesDeux')}</option>
                 </select>
               </div>
-              <div><label className="sc-label">Société</label><input className="sc-input" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} /></div>
-              <div><label className="sc-label">Prénom</label><input className="sc-input" value={form.first_name || ''} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} /></div>
+              <div><label className="sc-label">{t('societe')}</label><input className="sc-input" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} /></div>
+              <div><label className="sc-label">{t('prenom')}</label><input className="sc-input" value={form.first_name || ''} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} /></div>
               <div><label className="sc-label">Nom</label><input className="sc-input" value={form.last_name || ''} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} /></div>
-              <div><label className="sc-label">Email</label><input className="sc-input" type="email" value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
-              <div><label className="sc-label">Téléphone</label><input className="sc-input" value={form.phone || ''} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
-              <div style={{ gridColumn: '1 / -1' }}><label className="sc-label">Adresse</label><input className="sc-input" value={form.address || ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
-              <div><label className="sc-label">Code postal</label><input className="sc-input" value={form.zip || ''} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} /></div>
-              <div><label className="sc-label">Ville</label><input className="sc-input" value={form.city || ''} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} /></div>
+              <div><label className="sc-label">{tc('email')}</label><input className="sc-input" type="email" value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
+              <div><label className="sc-label">{tc('phone')}</label><input className="sc-input" value={form.phone || ''} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
+              <div style={{ gridColumn: '1 / -1' }}><label className="sc-label">{tc('address')}</label><input className="sc-input" value={form.address || ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
+              <div><label className="sc-label">{t('codePostal')}</label><input className="sc-input" value={form.zip || ''} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} /></div>
+              <div><label className="sc-label">{t('ville')}</label><input className="sc-input" value={form.city || ''} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} /></div>
               <div>
                 <label className="sc-label">Pays</label>
                 <select className="sc-input sc-select" value={form.country || 'France'} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}>
@@ -307,12 +310,12 @@ function ContactsInner() {
               </div>
               <div><label className="sc-label">SIRET</label><input className="sc-input sc-num" value={form.siret || ''} onChange={e => setForm(f => ({ ...f, siret: e.target.value }))} /></div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label className="sc-label">Notes</label>
+                <label className="sc-label">{tc('notes')}</label>
                 <textarea className="sc-input sc-textarea" rows={3} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
             <div style={{ padding: '13px 18px', borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="sc-btn sc-btn-secondary" onClick={() => setShowModal(false)}>Annuler</button>
+              <button className="sc-btn sc-btn-secondary" onClick={() => setShowModal(false)}>{tc('cancel')}</button>
               <button className="sc-btn sc-btn-green" onClick={save} disabled={saving}>
                 <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}
               </button>
@@ -331,5 +334,5 @@ function ContactsInner() {
 }
 
 export default function ContactsPage() {
-  return <Suspense fallback={<div className="sc-empty">Chargement…</div>}><ContactsInner /></Suspense>;
+  return <Suspense fallback={<div className="sc-empty" />}><ContactsInner /></Suspense>;
 }

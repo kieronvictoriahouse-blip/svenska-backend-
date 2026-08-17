@@ -3,6 +3,8 @@ import { adminFetch, downloadAuth } from '@/lib/auth-client';
 import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useT } from '@/lib/admin-i18n';
+import { TGE } from './i18n';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,6 +55,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function GestionPage() {
+  const { t, tc, lang } = useT(TGE);
   const [page, setPage] = useState<'dashboard' | 'factures' | 'achats' | 'marges' | 'transport' | 'params'>('dashboard');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -160,7 +163,7 @@ export default function GestionPage() {
   }
 
   async function saveInvoice() {
-    if (!invForm.client_name.trim()) { showToast('⚠️ Nom du client requis'); return; }
+    if (!invForm.client_name.trim()) { showToast(t('msgClientRequis')); return; }
     const { ht, tva, ttc } = calcInvoiceTotals(invoiceLines);
     const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -181,17 +184,17 @@ export default function GestionPage() {
     }
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      showToast('❌ Erreur : ' + (e?.error || res.status)); return;
+      showToast(t('msgErreur') + (e?.error || res.status)); return;
     }
     setShowInvoiceModal(false);
-    showToast('✅ Facture sauvegardée !');
+    showToast(t('msgFactureOk'));
     loadAll();
   }
 
   async function deleteInvoice(id: string) {
-    if (!confirm('Supprimer cette facture ?')) return;
+    if (!confirm(t('msgFactureDel'))) return;
     await supabase.from('invoices').delete().eq('id', id);
-    showToast('🗑 Facture supprimée');
+    showToast(t('msgFactureDelOk'));
     loadAll();
   }
 
@@ -203,23 +206,23 @@ export default function GestionPage() {
   }
 
   async function savePurchase() {
-    if (!purForm.supplier.trim()) { showToast('⚠️ Fournisseur requis'); return; }
+    if (!purForm.supplier.trim()) { showToast(t('msgFournisseurReq')); return; }
     const { error } = await supabase.from('purchases').insert({
       id: uid(), supplier: purForm.supplier, date: purForm.date, ref: purForm.ref,
       status: purForm.status, amount: parseFloat(purForm.amount) || 0,
       transport: parseFloat(purForm.transport) || 0, total: parseFloat(purForm.total) || 0,
       products: purForm.products, notes: purForm.notes,
     });
-    if (error) { showToast('❌ Erreur : ' + error.message); return; }
+    if (error) { showToast(t('msgErreur') + error.message); return; }
     setShowPurchaseModal(false);
-    showToast('✅ Achat enregistré !');
+    showToast(t('msgAchatOk'));
     loadAll();
   }
 
   async function deletePurchase(id: string) {
-    if (!confirm('Supprimer cet achat ?')) return;
+    if (!confirm(t('msgAchatDel'))) return;
     await supabase.from('purchases').delete().eq('id', id);
-    showToast('🗑 Achat supprimé');
+    showToast(t('msgAchatDelOk'));
     loadAll();
   }
 
@@ -254,7 +257,7 @@ export default function GestionPage() {
   }
 
   async function saveProduct() {
-    if (!mpForm.name || !mpForm.buy || !mpForm.sell) { showToast('⚠️ Nom, prix achat et vente requis'); return; }
+    if (!mpForm.name || !mpForm.buy || !mpForm.sell) { showToast(t('msgProduitReq')); return; }
     const buy = parseFloat(mpForm.buy) || 0;
     const trans = parseFloat(mpForm.trans) || 0;
     const other = parseFloat(mpForm.other) || 0;
@@ -264,16 +267,16 @@ export default function GestionPage() {
       buy, trans, other, revient, sell: parseFloat(mpForm.sell) || 0, stock: parseInt(mpForm.stock) || 0,
     };
     const { error } = await supabase.from('margin_products').upsert(prod);
-    if (error) { showToast('❌ Erreur : ' + error.message); return; }
+    if (error) { showToast(t('msgErreur') + error.message); return; }
     setShowMarginModal(false);
-    showToast('✅ Produit enregistré !');
+    showToast(t('msgProduitOk'));
     loadAll();
   }
 
   async function deleteProduct(id: string) {
-    if (!confirm('Supprimer ce produit ?')) return;
+    if (!confirm(t('msgProduitDel'))) return;
     await supabase.from('margin_products').delete().eq('id', id);
-    showToast('🗑 Produit supprimé');
+    showToast(t('msgProduitDelOk'));
     loadAll();
   }
 
@@ -288,7 +291,7 @@ export default function GestionPage() {
       else if (trMethod === 'value') totalBase += (parseFloat(l.value) || 0) * qty;
       else totalBase += qty;
     });
-    if (totalBase === 0) { showToast('⚠️ Saisissez des valeurs'); return; }
+    if (totalBase === 0) { showToast(t('msgValeurs')); return; }
     const rows = trLines.map(l => {
       const qty = l.qty || 1;
       let base = 0;
@@ -307,8 +310,8 @@ export default function GestionPage() {
   async function saveParamsToDb() {
     const entries = Object.entries(params).map(([key, value]) => ({ key, value: String(value) }));
     const { error } = await supabase.from('company_settings').upsert(entries);
-    if (error) { showToast('❌ Erreur : ' + error.message); return; }
-    showToast('✅ Paramètres sauvegardés !');
+    if (error) { showToast(t('msgErreur') + error.message); return; }
+    showToast(t('msgParamsOk'));
   }
 
   // ── MARGIN COLOR ───────────────────────────────────────
@@ -433,7 +436,7 @@ export default function GestionPage() {
 
       <div className="sc-head">
         <div>
-          <div className="sc-title">Facturation</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             {invoices.length} facture(s) · {fmt(pending)} en attente d'encaissement
           </div>
@@ -441,21 +444,21 @@ export default function GestionPage() {
         <div className="sc-actions">
           {page === 'factures' && (
             <button className="sc-btn sc-btn-primary" onClick={openNewInvoice}>
-              <span className="ms">add</span>Nouvelle facture
+              <span className="ms">add</span>{t('nouvelleFacture')}
             </button>
           )}
           {page === 'marges' && (
             <button className="sc-btn sc-btn-secondary" onClick={openNewProduct}>
-              <span className="ms">calculate</span>Simulation manuelle
+              <span className="ms">calculate</span>{t('simulation')}
             </button>
           )}
           {page === 'params' && (
             <button className="sc-btn sc-btn-green" onClick={saveParamsToDb}>
-              <span className="ms">save</span>Sauvegarder
+              <span className="ms">save</span>{t('sauvegarder')}
             </button>
           )}
           <a className="sc-btn sc-btn-secondary" href="/admin/achats">
-            <span className="ms">shopping_basket</span>Achats
+            <span className="ms">shopping_basket</span>{t('achats')}
           </a>
         </div>
       </div>
@@ -495,7 +498,7 @@ export default function GestionPage() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   <div className="g-card">
-                    <div className="g-card-header"><span className="g-card-title">Dernières factures</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('factures')}>Voir tout →</button></div>
+                    <div className="g-card-header"><span className="g-card-title">{t('dernieres')}</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('factures')}>{t('voirTout')}</button></div>
                     {invoices.slice(0, 5).map(i => (
                       <div key={i.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid var(--linen)' }}>
                         <div><div style={{ fontSize: 13, fontWeight: 600 }}>{i.client_name || '—'}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>{i.number} · {fmtDate(i.date)}</div></div>
@@ -505,10 +508,10 @@ export default function GestionPage() {
                         </div>
                       </div>
                     ))}
-                    {!invoices.length && <div className="empty">Aucune facture</div>}
+                    {!invoices.length && <div className="empty">{t('aucuneFacture')}</div>}
                   </div>
                   <div className="g-card">
-                    <div className="g-card-header"><span className="g-card-title">🏆 Top marges</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('marges')}>Voir tout →</button></div>
+                    <div className="g-card-header"><span className="g-card-title">🏆 Top marges</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('marges')}>{t('voirTout')}</button></div>
                     {[...marginsSource].sort((a, b) => (b.sell - b.revient) / b.sell - (a.sell - a.revient) / a.sell).slice(0, 5).map(p => {
                       const pct = (p.sell - p.revient) / p.sell * 100;
                       return (
@@ -519,7 +522,7 @@ export default function GestionPage() {
                         </div>
                       );
                     })}
-                    {!marginsSource.length && <div className="empty">Aucune donnée — réceptionnez des produits pour calculer le PMP</div>}
+                    {!marginsSource.length && <div className="empty">{t('aucuneDonnee')}</div>}
                   </div>
                 </div>
               </>
@@ -529,7 +532,7 @@ export default function GestionPage() {
             {page === 'factures' && (
               <div className="g-card">
                 <table className="g-table">
-                  <thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Échéance</th><th style={{ textAlign: 'right' }}>HT</th><th style={{ textAlign: 'right' }}>TVA</th><th style={{ textAlign: 'right' }}>TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+                  <thead><tr><th>N°</th><th>{tc('client')}</th><th>Date</th><th>{t('echeance')}</th><th style={{ textAlign: 'right' }}>HT</th><th style={{ textAlign: 'right' }}>TVA</th><th style={{ textAlign: 'right' }}>TTC</th><th>{tc('status')}</th><th>{tc('actions')}</th></tr></thead>
                   <tbody>
                     {invoices.map(i => {
                       const echeance = i.date ? new Date(new Date(i.date + 'T12:00').getTime() + (params.payment_days || 30) * 86400000).toISOString().slice(0, 10) : undefined;
@@ -545,23 +548,23 @@ export default function GestionPage() {
                           <td><span className={`badge ${STATUS_BADGE[i.status] || ''}`}>{STATUS_LABEL[i.status] || i.status}</span></td>
                           <td>
                             <div style={{ display: 'flex', gap: 4 }}>
-                              <button className="btn btn-secondary btn-sm" title="Modifier" onClick={() => openEditInvoice(i)}>
+                              <button className="btn btn-secondary btn-sm" title={tc('edit')} onClick={() => openEditInvoice(i)}>
                                 <span className="ms" style={{ fontSize: 16 }}>edit</span>
                               </button>
-                              <button className="btn btn-secondary btn-sm" title="Aperçu" onClick={() => setPreviewInvoice(i)}>
+                              <button className="btn btn-secondary btn-sm" title={t('apercu')} onClick={() => setPreviewInvoice(i)}>
                                 <span className="ms" style={{ fontSize: 16 }}>visibility</span>
                               </button>
                               {/* Document A4 : le meme rendu que le PDF envoye au client. */}
-                              <a className="btn btn-secondary btn-sm" title="Document A4 à imprimer"
+                              <a className="btn btn-secondary btn-sm" title={t('docA4')}
                                  href={`/admin/documents/${i.status === 'avoir' ? 'avoir' : 'facture'}/${i.id}`}
                                  target="_blank" rel="noopener">
                                 <span className="ms" style={{ fontSize: 16 }}>print</span>
                               </a>
-                              <button className="btn btn-secondary btn-sm" title="Télécharger le PDF"
+                              <button className="btn btn-secondary btn-sm" title={t('telechargerPdf')}
                                       onClick={() => downloadAuth(`/api/invoices/${i.id}/pdf`, `${i.status === 'avoir' ? 'avoir' : 'facture'}-${i.number}.pdf`).catch(e => showToast(e.message))}>
                                 <span className="ms" style={{ fontSize: 16 }}>picture_as_pdf</span>
                               </button>
-                              <button className="btn btn-danger btn-sm" title="Supprimer" onClick={() => deleteInvoice(i.id)}>
+                              <button className="btn btn-danger btn-sm" title={tc('delete')} onClick={() => deleteInvoice(i.id)}>
                                 <span className="ms" style={{ fontSize: 16 }}>delete</span>
                               </button>
                             </div>
@@ -569,7 +572,7 @@ export default function GestionPage() {
                         </tr>
                       );
                     })}
-                    {!invoices.length && <tr><td colSpan={9}><div className="empty">Aucune facture — cliquez sur "+ Nouvelle facture"</div></td></tr>}
+                    {!invoices.length && <tr><td colSpan={9}><div className="empty">{t('aucuneFactureCta')}</div></td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -580,7 +583,7 @@ export default function GestionPage() {
               <>
                 <div className="g-card" style={{ padding: '40px 32px', textAlign: 'center', marginBottom: 24 }}>
                   <div style={{ fontSize: 48, marginBottom: 16 }}></div>
-                  <div style={{ fontFamily: 'var(--font-d)', fontSize: 24, fontWeight: 600, marginBottom: 10 }}>Module Achats fournisseurs</div>
+                  <div style={{ fontFamily: 'var(--font-d)', fontSize: 24, fontWeight: 600, marginBottom: 10 }}>{t('moduleAchats')}</div>
                   <p style={{ color: 'var(--dust)', marginBottom: 24, maxWidth: 480, margin: '0 auto 24px' }}>
                     Les commandes fournisseurs, réceptions et calcul automatique du PMP sont gérés dans le module Achats dédié.
                     Chaque réception met à jour le stock et le Prix Moyen Pondéré en temps réel.
@@ -595,7 +598,7 @@ export default function GestionPage() {
                       <span className="g-card-title">Archives — Anciennes saisies manuelles ({purchases.length})</span>
                     </div>
                     <table className="g-table">
-                      <thead><tr><th>Date</th><th>Fournisseur</th><th>Réf.</th><th>Produits</th><th style={{ textAlign: 'right' }}>Montant</th><th style={{ textAlign: 'right' }}>Transport</th><th style={{ textAlign: 'right' }}>Total</th><th>Statut</th><th></th></tr></thead>
+                      <thead><tr><th>Date</th><th>{tc('supplier')}</th><th>Réf.</th><th>{tc('products')}</th><th style={{ textAlign: 'right' }}>{tc('total')}</th><th style={{ textAlign: 'right' }}>{t('transport')}</th><th style={{ textAlign: 'right' }}>{tc('total')}</th><th>{tc('status')}</th><th></th></tr></thead>
                       <tbody>
                         {purchases.map(p => (
                           <tr key={p.id}>
@@ -638,13 +641,13 @@ export default function GestionPage() {
                     <table className="g-table">
                       <thead>
                         <tr>
-                          <th>Produit</th>
-                          <th>Catégorie</th>
+                          <th>{tc('product')}</th>
+                          <th>{t('categorie')}</th>
                           <th style={{ textAlign: 'right' }}>PMP (coût)</th>
-                          <th style={{ textAlign: 'right' }}>Prix vente</th>
-                          <th style={{ textAlign: 'right' }}>Stock</th>
-                          <th style={{ textAlign: 'right' }}>Marge €</th>
-                          <th style={{ textAlign: 'right' }}>Marge %</th>
+                          <th style={{ textAlign: 'right' }}>{t('prixVente')}</th>
+                          <th style={{ textAlign: 'right' }}>{tc('stock')}</th>
+                          <th style={{ textAlign: 'right' }}>{t('margeEur')}</th>
+                          <th style={{ textAlign: 'right' }}>{t('margePct')}</th>
                           <th></th>
                           <th></th>
                         </tr>
@@ -669,7 +672,7 @@ export default function GestionPage() {
                               <td style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
                               <td><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
                               <td>
-                                <a href={`/admin/produits/${p.id}`} className="btn btn-secondary btn-sm" title="Éditer le produit">✏️</a>
+                                <a href={`/admin/produits/${p.id}`} className="btn btn-secondary btn-sm" title={t('editerProduit')}>✏️</a>
                               </td>
                             </tr>
                           );
@@ -681,7 +684,7 @@ export default function GestionPage() {
                   <div className="g-card">
                     <div className="empty" style={{ padding: 48 }}>
                       Aucun produit avec PMP calculé.<br />
-                      <span style={{ fontSize: 12 }}>Réceptionnez des commandes fournisseurs pour calculer le coût d'achat réel.</span>
+                      <span style={{ fontSize: 12 }}>{t('receptionnez')}</span>
                       {products.length > 0 && (
                         <div style={{ marginTop: 16, fontSize: 12, color: 'var(--dust)' }}>
                           Données manuelles disponibles : {products.length} entrée(s) — utilisez "+ Ajouter" pour simuler.
@@ -697,7 +700,7 @@ export default function GestionPage() {
                       <span className="g-card-title" style={{ fontSize: 12, color: 'var(--dust)' }}>Simulations manuelles ({products.length})</span>
                     </div>
                     <table className="g-table">
-                      <thead><tr><th>Produit</th><th>Catégorie</th><th style={{ textAlign: 'right' }}>Achat</th><th style={{ textAlign: 'right' }}>Transport</th><th style={{ textAlign: 'right' }}>Autres</th><th style={{ textAlign: 'right' }}>Revient</th><th style={{ textAlign: 'right' }}>Vente</th><th style={{ textAlign: 'right' }}>Marge €</th><th style={{ textAlign: 'right' }}>Marge %</th><th></th><th></th></tr></thead>
+                      <thead><tr><th>{tc('product')}</th><th>{t('categorie')}</th><th style={{ textAlign: 'right' }}>{t('achat')}</th><th style={{ textAlign: 'right' }}>{t('transport')}</th><th style={{ textAlign: 'right' }}>{t('autres')}</th><th style={{ textAlign: 'right' }}>{t('revient')}</th><th style={{ textAlign: 'right' }}>{t('vente')}</th><th style={{ textAlign: 'right' }}>{t('margeEur')}</th><th style={{ textAlign: 'right' }}>{t('margePct')}</th><th></th><th></th></tr></thead>
                       <tbody>
                         {products.map(p => {
                           const pct = (p.sell - p.revient) / p.sell * 100;
@@ -735,22 +738,22 @@ export default function GestionPage() {
                 <div>
                   <div className="g-card" style={{ padding: 20 }}>
                     <div className="form-group">
-                      <label className="form-label">Coût total transport *</label>
-                      <input type="number" className="form-control mono" placeholder="Ex: 450.00" step="0.01" value={trCost} onChange={e => setTrCost(e.target.value)} />
+                      <label className="form-label">{t('coutTransport')}</label>
+                      <input type="number" className="form-control mono" placeholder={t('exMontant')} step="0.01" value={trCost} onChange={e => setTrCost(e.target.value)} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Méthode de répartition</label>
+                      <label className="form-label">{t('methodeRepart')}</label>
                       <select className="form-control" value={trMethod} onChange={e => { setTrMethod(e.target.value); setTrResult([]); }}>
-                        <option value="weight">Au poids (kg)</option>
+                        <option value="weight">{t('auPoids')}</option>
                         <option value="value">À la valeur (€ achat)</option>
-                        <option value="equal">Parts égales par unité</option>
+                        <option value="equal">{t('partsEgales')}</option>
                       </select>
                     </div>
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--dust)', marginBottom: 8 }}>Produits</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--dust)', marginBottom: 8 }}>{tc('products')}</div>
                       {trLines.map((l, i) => (
                         <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 60px 28px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                          <input className="form-control" style={{ fontSize: 12 }} value={l.name} onChange={e => { const nl = [...trLines]; nl[i].name = e.target.value; setTrLines(nl); }} placeholder="Produit" />
+                          <input className="form-control" style={{ fontSize: 12 }} value={l.name} onChange={e => { const nl = [...trLines]; nl[i].name = e.target.value; setTrLines(nl); }} placeholder={tc('product')} />
                           <input type="number" className="form-control mono" style={{ fontSize: 12 }} value={trMethod === 'weight' ? l.weight : l.value} step="0.01" onChange={e => { const nl = [...trLines]; if (trMethod === 'weight') nl[i].weight = e.target.value; else nl[i].value = e.target.value; setTrLines(nl); }} placeholder="0.00" />
                           <input type="number" className="form-control mono" style={{ fontSize: 12 }} value={l.qty} min={1} onChange={e => { const nl = [...trLines]; nl[i].qty = parseInt(e.target.value) || 1; setTrLines(nl); }} />
                           <button onClick={() => setTrLines(trLines.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14 }}>✕</button>
@@ -758,15 +761,15 @@ export default function GestionPage() {
                       ))}
                       <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }} onClick={() => setTrLines([...trLines, { name: '', weight: '', value: '', qty: 1 }])}>+ Ajouter</button>
                     </div>
-                    <button className="btn btn-primary" style={{ width: '100%' }} onClick={calcTransport}>Calculer la répartition</button>
+                    <button className="btn btn-primary" style={{ width: '100%' }} onClick={calcTransport}>{t('calculerRepart')}</button>
                   </div>
                 </div>
                 <div>
                   {trResult.length > 0 && (
                     <div className="g-card" style={{ padding: 20 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Résultat de répartition</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>{t('resultatRepart')}</div>
                       <table className="g-table">
-                        <thead><tr><th>Produit</th><th>Qté</th><th>%</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>/ unité</th></tr></thead>
+                        <thead><tr><th>{tc('product')}</th><th>Qté</th><th>%</th><th style={{ textAlign: 'right' }}>{tc('total')}</th><th style={{ textAlign: 'right' }}>/ unité</th></tr></thead>
                         <tbody>
                           {trResult.map((r, i) => (
                             <tr key={i}>
@@ -795,26 +798,26 @@ export default function GestionPage() {
                 <div className="g-card" style={{ padding: 20, marginBottom: 16 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>🏢 Informations société</div>
                   <div className="g-grid-2">
-                    <div className="form-group"><label className="form-label">Raison sociale</label><input className="form-control" value={params.company} onChange={e => setParams(p => ({ ...p, company: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">Statut juridique</label><input className="form-control" value={params.legal} onChange={e => setParams(p => ({ ...p, legal: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('raisonSociale')}</label><input className="form-control" value={params.company} onChange={e => setParams(p => ({ ...p, company: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('statutJuridique')}</label><input className="form-control" value={params.legal} onChange={e => setParams(p => ({ ...p, legal: e.target.value }))} /></div>
                     <div className="form-group"><label className="form-label">SIRET</label><input className="form-control mono" value={params.siret} onChange={e => setParams(p => ({ ...p, siret: e.target.value }))} /></div>
                     <div className="form-group"><label className="form-label">N° TVA intracommunautaire</label><input className="form-control mono" value={params.tva} onChange={e => setParams(p => ({ ...p, tva: e.target.value }))} /></div>
-                    <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">Adresse</label><textarea className="form-control" value={params.address} onChange={e => setParams(p => ({ ...p, address: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">Email</label><input className="form-control" value={params.email} onChange={e => setParams(p => ({ ...p, email: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">Téléphone</label><input className="form-control" value={params.phone} onChange={e => setParams(p => ({ ...p, phone: e.target.value }))} /></div>
+                    <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{tc('address')}</label><textarea className="form-control" value={params.address} onChange={e => setParams(p => ({ ...p, address: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" value={params.email} onChange={e => setParams(p => ({ ...p, email: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{tc('phone')}</label><input className="form-control" value={params.phone} onChange={e => setParams(p => ({ ...p, phone: e.target.value }))} /></div>
                     <div className="form-group"><label className="form-label">IBAN</label><input className="form-control mono" value={params.iban} onChange={e => setParams(p => ({ ...p, iban: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">Taux TVA (%)</label><input type="number" className="form-control mono" value={params.tva_rate} onChange={e => setParams(p => ({ ...p, tva_rate: parseFloat(e.target.value) || 20 }))} /></div>
-                    <div className="form-group"><label className="form-label">Délai paiement (jours)</label><input type="number" className="form-control mono" value={params.payment_days} onChange={e => setParams(p => ({ ...p, payment_days: parseInt(e.target.value) || 30 }))} /></div>
-                    <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">Mentions légales (pied de facture)</label><textarea className="form-control" value={params.legal_mention} onChange={e => setParams(p => ({ ...p, legal_mention: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('tauxTva')}</label><input type="number" className="form-control mono" value={params.tva_rate} onChange={e => setParams(p => ({ ...p, tva_rate: parseFloat(e.target.value) || 20 }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('delaiPaiement')}</label><input type="number" className="form-control mono" value={params.payment_days} onChange={e => setParams(p => ({ ...p, payment_days: parseInt(e.target.value) || 30 }))} /></div>
+                    <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{t('mentions')}</label><textarea className="form-control" value={params.legal_mention} onChange={e => setParams(p => ({ ...p, legal_mention: e.target.value }))} /></div>
                   </div>
                 </div>
                 <div className="g-card" style={{ padding: 20 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>🔢 Numérotation des factures</div>
                   <div className="g-grid-2">
-                    <div className="form-group"><label className="form-label">Préfixe</label><input className="form-control mono" value={params.inv_prefix} onChange={e => setParams(p => ({ ...p, inv_prefix: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">Prochain numéro</label><input type="number" className="form-control mono" value={params.inv_next} onChange={e => setParams(p => ({ ...p, inv_next: parseInt(e.target.value) || 1 }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('prefixe')}</label><input className="form-control mono" value={params.inv_prefix} onChange={e => setParams(p => ({ ...p, inv_prefix: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('prochainNum')}</label><input type="number" className="form-control mono" value={params.inv_next} onChange={e => setParams(p => ({ ...p, inv_next: parseInt(e.target.value) || 1 }))} /></div>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--dust)', marginTop: 4 }}>Prochaine facture : <strong className="mono">{params.inv_prefix}{String(params.inv_next).padStart(4, '0')}</strong></div>
+                  <div style={{ fontSize: 12, color: 'var(--dust)', marginTop: 4 }}>{t('prochaineFacture')} <strong className="mono">{params.inv_prefix}{String(params.inv_next).padStart(4, '0')}</strong></div>
                 </div>
               </div>
             )}
@@ -833,19 +836,19 @@ export default function GestionPage() {
               <div className="g-grid-3" style={{ marginBottom: 14 }}>
                 <div className="form-group"><label className="form-label">N° facture</label><input className="form-control mono" value={invForm.number} onChange={e => setInvForm(f => ({ ...f, number: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">Date</label><input type="date" className="form-control" value={invForm.date} onChange={e => setInvForm(f => ({ ...f, date: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Statut</label>
+                <div className="form-group"><label className="form-label">{tc('status')}</label>
                   <select className="form-control" value={invForm.status} onChange={e => setInvForm(f => ({ ...f, status: e.target.value }))}>
-                    <option value="draft">Brouillon</option><option value="sent">Envoyée</option><option value="paid">Payée</option><option value="late">En retard</option>
+                    <option value="draft">{t('brouillon')}</option><option value="sent">{t('envoyee')}</option><option value="paid">{t('payee')}</option><option value="late">{t('enRetard')}</option>
                   </select>
                 </div>
               </div>
               <div className="g-grid-3" style={{ marginBottom: 14 }}>
-                <div className="form-group"><label className="form-label">Client *</label><input className="form-control" value={invForm.client_name} onChange={e => setInvForm(f => ({ ...f, client_name: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Email</label><input className="form-control" value={invForm.client_email} onChange={e => setInvForm(f => ({ ...f, client_email: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Adresse</label><input className="form-control" value={invForm.client_address} onChange={e => setInvForm(f => ({ ...f, client_address: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{t('clientReq')}</label><input className="form-control" value={invForm.client_name} onChange={e => setInvForm(f => ({ ...f, client_name: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" value={invForm.client_email} onChange={e => setInvForm(f => ({ ...f, client_email: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{tc('address')}</label><input className="form-control" value={invForm.client_address} onChange={e => setInvForm(f => ({ ...f, client_address: e.target.value }))} /></div>
               </div>
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--dust)', marginBottom: 8 }}>Lignes</div>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--dust)', marginBottom: 8 }}>{t('lignes')}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr>{['Description', 'Qté', 'P.U. HT', 'TVA %', 'Total', ''].map(h => <th key={h} style={{ padding: '4px 6px', textAlign: 'left', color: 'var(--dust)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -853,7 +856,7 @@ export default function GestionPage() {
                       const update = (field: string, val: any) => { const nl = [...invoiceLines]; (nl[i] as any)[field] = val; setInvoiceLines(nl); };
                       return (
                         <tr key={i}>
-                          <td style={{ padding: '3px 4px' }}><input className="form-control" style={{ fontSize: 12 }} value={l.desc} onChange={e => update('desc', e.target.value)} placeholder="Description" /></td>
+                          <td style={{ padding: '3px 4px' }}><input className="form-control" style={{ fontSize: 12 }} value={l.desc} onChange={e => update('desc', e.target.value)} placeholder={t('phDescription')} /></td>
                           <td style={{ padding: '3px 4px', width: 60 }}><input type="number" className="form-control mono" style={{ fontSize: 12, width: 60 }} value={l.qty} min={1} onChange={e => update('qty', parseFloat(e.target.value) || 1)} /></td>
                           <td style={{ padding: '3px 4px', width: 90 }}><input type="number" className="form-control mono" style={{ fontSize: 12, width: 90 }} value={l.price} step="0.01" onChange={e => update('price', parseFloat(e.target.value) || 0)} /></td>
                           <td style={{ padding: '3px 4px', width: 65 }}><input type="number" className="form-control mono" style={{ fontSize: 12, width: 65 }} value={l.tva} min={0} max={100} onChange={e => update('tva', parseFloat(e.target.value) || 0)} /></td>
@@ -869,20 +872,20 @@ export default function GestionPage() {
               {(() => { const { ht, tva, ttc } = calcInvoiceTotals(invoiceLines); return (
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <div className="result-box" style={{ minWidth: 220 }}>
-                    <div className="result-row"><span>Total HT</span><span className="mono">{fmt(ht)}</span></div>
+                    <div className="result-row"><span>{t('totalHt')}</span><span className="mono">{fmt(ht)}</span></div>
                     <div className="result-row"><span>TVA</span><span className="mono">{fmt(tva)}</span></div>
-                    <div className="result-row result-total"><span>Total TTC</span><span className="mono">{fmt(ttc)}</span></div>
+                    <div className="result-row result-total"><span>{t('totalTtc')}</span><span className="mono">{fmt(ttc)}</span></div>
                   </div>
                 </div>
               ); })()}
               <div className="form-group" style={{ marginTop: 14 }}>
                 <label className="form-label">Note</label>
-                <textarea className="form-control" value={invForm.note} onChange={e => setInvForm(f => ({ ...f, note: e.target.value }))} placeholder="Note interne ou mention sur la facture" />
+                <textarea className="form-control" value={invForm.note} onChange={e => setInvForm(f => ({ ...f, note: e.target.value }))} placeholder={t('phNote')} />
               </div>
             </div>
             <div className="g-modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowInvoiceModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={saveInvoice}>Sauvegarder</button>
+              <button className="btn btn-secondary" onClick={() => setShowInvoiceModal(false)}>{tc('cancel')}</button>
+              <button className="btn btn-primary" onClick={saveInvoice}>{t('sauvegarder')}</button>
             </div>
           </div>
         </div>
@@ -892,27 +895,27 @@ export default function GestionPage() {
       {showPurchaseModal && (
         <div className="g-modal-overlay" onClick={e => e.target === e.currentTarget && setShowPurchaseModal(false)}>
           <div className="g-modal">
-            <div className="g-modal-header"><span className="g-modal-title">Saisir un achat fournisseur</span><button className="btn btn-secondary btn-sm" onClick={() => setShowPurchaseModal(false)}>✕</button></div>
+            <div className="g-modal-header"><span className="g-modal-title">{t('saisirAchat')}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowPurchaseModal(false)}>✕</button></div>
             <div className="g-modal-body">
               <div className="g-grid-2">
-                <div className="form-group"><label className="form-label">Fournisseur *</label><input className="form-control" value={purForm.supplier} onChange={e => setPurForm(f => ({ ...f, supplier: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{t('fournisseurReq')}</label><input className="form-control" value={purForm.supplier} onChange={e => setPurForm(f => ({ ...f, supplier: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">Date</label><input type="date" className="form-control" value={purForm.date} onChange={e => setPurForm(f => ({ ...f, date: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">N° facture fournisseur</label><input className="form-control mono" value={purForm.ref} onChange={e => setPurForm(f => ({ ...f, ref: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Statut</label>
+                <div className="form-group"><label className="form-label">{tc('status')}</label>
                   <select className="form-control" value={purForm.status} onChange={e => setPurForm(f => ({ ...f, status: e.target.value }))}>
-                    <option value="received">Reçue</option><option value="pending">En attente</option><option value="paid">Payée</option>
+                    <option value="received">{t('recue')}</option><option value="pending">{t('enAttente')}</option><option value="paid">{t('payee')}</option>
                   </select>
                 </div>
-                <div className="form-group"><label className="form-label">Montant HT</label><input type="number" className="form-control mono" value={purForm.amount} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, amount: v, total: calcPurchaseTotal(v, f.transport) })); }} /></div>
-                <div className="form-group"><label className="form-label">Frais de transport</label><input type="number" className="form-control mono" value={purForm.transport} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, transport: v, total: calcPurchaseTotal(f.amount, v) })); }} /></div>
-                <div className="form-group"><label className="form-label">Total</label><input type="number" className="form-control mono" value={purForm.total} readOnly style={{ background: 'var(--cream)' }} /></div>
-                <div className="form-group"><label className="form-label">Produits (liste)</label><input className="form-control" value={purForm.products} onChange={e => setPurForm(f => ({ ...f, products: e.target.value }))} placeholder="Cardamome, Wasa, Daim…" /></div>
-                <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">Notes</label><textarea className="form-control" value={purForm.notes} onChange={e => setPurForm(f => ({ ...f, notes: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{t('montantHt')}</label><input type="number" className="form-control mono" value={purForm.amount} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, amount: v, total: calcPurchaseTotal(v, f.transport) })); }} /></div>
+                <div className="form-group"><label className="form-label">{t('fraisTransport')}</label><input type="number" className="form-control mono" value={purForm.transport} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, transport: v, total: calcPurchaseTotal(f.amount, v) })); }} /></div>
+                <div className="form-group"><label className="form-label">{tc('total')}</label><input type="number" className="form-control mono" value={purForm.total} readOnly style={{ background: 'var(--cream)' }} /></div>
+                <div className="form-group"><label className="form-label">{t('produitsListe')}</label><input className="form-control" value={purForm.products} onChange={e => setPurForm(f => ({ ...f, products: e.target.value }))} placeholder={t('phProduits')} /></div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{tc('notes')}</label><textarea className="form-control" value={purForm.notes} onChange={e => setPurForm(f => ({ ...f, notes: e.target.value }))} /></div>
               </div>
             </div>
             <div className="g-modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowPurchaseModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={savePurchase}>Enregistrer</button>
+              <button className="btn btn-secondary" onClick={() => setShowPurchaseModal(false)}>{tc('cancel')}</button>
+              <button className="btn btn-primary" onClick={savePurchase}>{tc('save')}</button>
             </div>
           </div>
         </div>
@@ -925,26 +928,26 @@ export default function GestionPage() {
             <div className="g-modal-header"><span className="g-modal-title">{editingProduct ? 'Éditer — ' + editingProduct.name : 'Nouveau produit'}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowMarginModal(false)}>✕</button></div>
             <div className="g-modal-body">
               <div className="g-grid-2">
-                <div className="form-group"><label className="form-label">Nom *</label><input className="form-control" value={mpForm.name} onChange={e => { const f = { ...mpForm, name: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">Catégorie</label><input className="form-control" value={mpForm.cat} onChange={e => setMpForm(f => ({ ...f, cat: e.target.value }))} placeholder="Épices, Confiseries…" /></div>
-                <div className="form-group"><label className="form-label">Prix achat HT *</label><input type="number" className="form-control mono" value={mpForm.buy} step="0.01" onChange={e => { const f = { ...mpForm, buy: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">Quote-part transport</label><input type="number" className="form-control mono" value={mpForm.trans} step="0.01" onChange={e => { const f = { ...mpForm, trans: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">Autres coûts</label><input type="number" className="form-control mono" value={mpForm.other} step="0.01" onChange={e => { const f = { ...mpForm, other: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">Prix de vente *</label><input type="number" className="form-control mono" value={mpForm.sell} step="0.01" onChange={e => { const f = { ...mpForm, sell: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">Stock</label><input type="number" className="form-control mono" value={mpForm.stock} onChange={e => setMpForm(f => ({ ...f, stock: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{t('nomReq')}</label><input className="form-control" value={mpForm.name} onChange={e => { const f = { ...mpForm, name: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('categorie')}</label><input className="form-control" value={mpForm.cat} onChange={e => setMpForm(f => ({ ...f, cat: e.target.value }))} placeholder={t('phCategories')} /></div>
+                <div className="form-group"><label className="form-label">{t('prixAchatReq')}</label><input type="number" className="form-control mono" value={mpForm.buy} step="0.01" onChange={e => { const f = { ...mpForm, buy: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('quotePart')}</label><input type="number" className="form-control mono" value={mpForm.trans} step="0.01" onChange={e => { const f = { ...mpForm, trans: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('autresCouts')}</label><input type="number" className="form-control mono" value={mpForm.other} step="0.01" onChange={e => { const f = { ...mpForm, other: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('prixVenteReq')}</label><input type="number" className="form-control mono" value={mpForm.sell} step="0.01" onChange={e => { const f = { ...mpForm, sell: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{tc('stock')}</label><input type="number" className="form-control mono" value={mpForm.stock} onChange={e => setMpForm(f => ({ ...f, stock: e.target.value }))} /></div>
               </div>
               {mpResult && (
                 <div className="result-box">
-                  <div className="result-row"><span>Prix de revient</span><span className="mono" style={{ fontWeight: 600 }}>{fmt(mpResult.revient)}</span></div>
-                  <div className="result-row"><span>Marge brute</span><span className="mono">{fmt(mpResult.marginEur)}</span></div>
-                  <div className="result-row result-total"><span>Marge %</span><span className="mono" style={{ color: marginColor(mpResult.marginPct), fontWeight: 700 }}>{fmtPct(mpResult.marginPct)}</span></div>
+                  <div className="result-row"><span>{t('prixRevient')}</span><span className="mono" style={{ fontWeight: 600 }}>{fmt(mpResult.revient)}</span></div>
+                  <div className="result-row"><span>{t('margeBrute')}</span><span className="mono">{fmt(mpResult.marginEur)}</span></div>
+                  <div className="result-row result-total"><span>{t('margePct')}</span><span className="mono" style={{ color: marginColor(mpResult.marginPct), fontWeight: 700 }}>{fmtPct(mpResult.marginPct)}</span></div>
                   <div className="result-row" style={{ marginTop: 8, color: 'var(--dust)', fontSize: 12 }}><span>Prix suggéré ({marginTarget}% marge)</span><span className="mono">{fmt(mpResult.suggested)}</span></div>
                 </div>
               )}
             </div>
             <div className="g-modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowMarginModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={saveProduct}>Enregistrer</button>
+              <button className="btn btn-secondary" onClick={() => setShowMarginModal(false)}>{tc('cancel')}</button>
+              <button className="btn btn-primary" onClick={saveProduct}>{tc('save')}</button>
             </div>
           </div>
         </div>
@@ -967,7 +970,7 @@ export default function GestionPage() {
                   <div style={{ textAlign: 'right' }}><div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>FACTURE {previewInvoice.number}</div><div style={{ fontSize: 12, color: 'var(--dust)' }}>Date : {fmtDate(previewInvoice.date)}</div></div>
                 </div>
                 <div style={{ marginBottom: 24, padding: 12, background: 'var(--cream)', borderRadius: 'var(--r)' }}>
-                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--dust)', marginBottom: 4 }}>Facturé à</div>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--dust)', marginBottom: 4 }}>{t('factureA')}</div>
                   <div style={{ fontWeight: 600 }}>{previewInvoice.client_name}</div>
                   <div style={{ fontSize: 12, color: 'var(--dust)', whiteSpace: 'pre-line' }}>{previewInvoice.client_address}</div>
                 </div>
@@ -987,12 +990,12 @@ export default function GestionPage() {
                 </table>
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <div style={{ minWidth: 220 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}><span>Total HT</span><span className="mono">{fmt(previewInvoice.total_ht)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}><span>{t('totalHt')}</span><span className="mono">{fmt(previewInvoice.total_ht)}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}><span>TVA</span><span className="mono">{fmt(previewInvoice.total_tva)}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 15, fontWeight: 700, borderTop: '2px solid var(--midnight)', marginTop: 4 }}><span>Total TTC</span><span className="mono">{fmt(previewInvoice.total_ttc)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 15, fontWeight: 700, borderTop: '2px solid var(--midnight)', marginTop: 4 }}><span>{t('totalTtc')}</span><span className="mono">{fmt(previewInvoice.total_ttc)}</span></div>
                   </div>
                 </div>
-                {params.iban && <div style={{ marginTop: 16, padding: '10px 12px', background: 'var(--cream)', borderRadius: 4, fontSize: 12 }}><strong>Virement :</strong> {params.iban}</div>}
+                {params.iban && <div style={{ marginTop: 16, padding: '10px 12px', background: 'var(--cream)', borderRadius: 4, fontSize: 12 }}><strong>{t('virement')}</strong> {params.iban}</div>}
                 {params.legal_mention && <div style={{ marginTop: 16, fontSize: 11, color: 'var(--dust)' }}>{params.legal_mention}</div>}
               </div>
             </div>

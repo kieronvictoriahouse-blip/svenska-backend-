@@ -6,6 +6,8 @@ import {
   C, COULEUR_ETIQ, couleurDe, initiales, quand, depuis,
   Msg, ItemNav, GroupeNav, LigneMessage, Vide,
 } from './ui';
+import { useT } from '@/lib/admin-i18n';
+import { TBM } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    BOÎTE MAIL — hej@swedishcravings.fr
@@ -32,6 +34,7 @@ const VUES = [
 const TAILLE = 50;
 
 export default function BoiteMailPage() {
+  const { t, tc, lang } = useT(TBM);
   const [vue, setVue] = useState('INBOX');
   const [filtre, setFiltre] = useState('tous');
   const [etiquette, setEtiquette] = useState('');
@@ -95,7 +98,7 @@ export default function BoiteMailPage() {
         setCompteurs(d.compteurs || {});
         setEtat(d.etat || []);
       }
-    } catch { say('Chargement impossible'); }
+    } catch { say(t('msgChargement')); }
     finally { setChargement(false); }
   }, [vue, filtre, recherche, etiquette, say]);
 
@@ -131,7 +134,7 @@ export default function BoiteMailPage() {
           body: JSON.stringify({ folder: d.path }),
         });
         setDossiers(ds => ds.map(x => (x.path === d.path ? { ...x, enCache: 1 } : x)));
-      } catch { say('Dossier illisible'); }
+      } catch { say(t('msgDossier')); }
       charger(0);
     }
   }
@@ -148,7 +151,7 @@ export default function BoiteMailPage() {
         setMessages(ms => ms.map(x => (x.id === m.id ? { ...x, seen: true } : x)));
         if (!m.seen) setCompteurs((c: any) => ({ ...c, nonLus: Math.max(0, c.nonLus - 1) }));
       }
-    } catch { say('Message illisible'); }
+    } catch { say(t('msgMessage')); }
   }
 
   async function agir(action: string, ids?: string[], label?: string) {
@@ -173,7 +176,7 @@ export default function BoiteMailPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: liste, action, label }),
       });
-    } catch { say('Action non enregistrée'); charger(0); }
+    } catch { say(t('msgAction')); charger(0); }
   }
 
   async function annulerProgramme(id: string) {
@@ -181,7 +184,7 @@ export default function BoiteMailPage() {
       const res = await adminFetch(`/api/inbox/scheduled?id=${id}`, { method: 'DELETE' });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error);
-      say('Envoi annulé');
+      say(t('msgEnvoiAnnule'));
       charger(0);
     } catch (e: any) { say(e.message); }
   }
@@ -189,7 +192,7 @@ export default function BoiteMailPage() {
   async function supprimerBrouillon(id: string) {
     await adminFetch(`/api/inbox/drafts?id=${id}`, { method: 'DELETE' });
     setBrouillons(b => b.filter(x => x.id !== id));
-    say('Brouillon supprimé');
+    say(t('msgBrouillonSuppr'));
   }
 
   function repondre(m: Msg, tous = false) {
@@ -221,7 +224,7 @@ export default function BoiteMailPage() {
       <div style={{ padding: 12, borderBottom: `1px solid ${C.ligneFaible}` }}>
         <button className="sc-btn" style={{ width: '100%', height: 38, justifyContent: 'center', background: C.ink, color: '#fff', border: 'none' }}
                 onClick={() => { setRedac({ to: '', cc: '', subject: '', corps: '' }); setTiroir(false); }}>
-          <span className="ms">edit</span>Nouveau message
+          <span className="ms">edit</span>{t('nouveauMessage')}
         </button>
         <button className="sc-btn sc-btn-secondary" onClick={relever} disabled={synchro}
                 style={{ width: '100%', height: 30, marginTop: 8, justifyContent: 'center', fontSize: 11.5 }}>
@@ -272,7 +275,7 @@ export default function BoiteMailPage() {
       <div style={{ flexShrink: 0, background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '11px 14px' }}>
         {mobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
-            <button className="sc-iconbtn" aria-label="Dossiers" onClick={() => setTiroir(true)}>
+            <button className="sc-iconbtn" aria-label={t('dossiers')} onClick={() => setTiroir(true)}>
               <span className="ms">menu</span>
             </button>
             <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }}
@@ -283,7 +286,7 @@ export default function BoiteMailPage() {
             <span style={{ flex: 1 }} />
             <button className="sc-btn" style={{ background: C.ink, color: '#fff', border: 'none', padding: '6px 12px', fontSize: 11.5 }}
                     onClick={() => setRedac({ to: '', cc: '', subject: '', corps: '' })}>
-              <span className="ms">edit</span>Écrire
+              <span className="ms">edit</span>{t('ecrire')}
             </button>
           </div>
         )}
@@ -303,7 +306,7 @@ export default function BoiteMailPage() {
               <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
               <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
                      onKeyDown={e => e.key === 'Enter' && setRecherche(q)}
-                     placeholder="Rechercher puis Entrée" style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12 }} />
+                     placeholder={t('phRecherche')} style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12 }} />
             </div>
 
             <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
@@ -323,10 +326,10 @@ export default function BoiteMailPage() {
         {sel.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8, background: C.selFond, border: `1px solid ${C.selBord}`, borderRadius: 7, padding: '6px 9px' }}>
             <span style={{ flex: 1, fontSize: 11.5, color: C.selTexte, fontWeight: 600 }}>{sel.size} sélectionné{sel.size > 1 ? 's' : ''}</span>
-            <button className="sc-iconbtn" title="Marquer lu" onClick={() => agir('lu')}><span className="ms">mark_email_read</span></button>
-            <button className="sc-iconbtn" title="Marquer non lu" onClick={() => agir('non-lu')}><span className="ms">mark_email_unread</span></button>
-            <button className="sc-iconbtn" title="Corbeille" onClick={() => agir('corbeille')}><span className="ms" style={{ color: C.rouge }}>delete</span></button>
-            <button className="sc-iconbtn" title="Annuler" onClick={() => setSel(new Set())}><span className="ms">close</span></button>
+            <button className="sc-iconbtn" title={t('marquerLu')} onClick={() => agir('lu')}><span className="ms">mark_email_read</span></button>
+            <button className="sc-iconbtn" title={t('marquerNonLu')} onClick={() => agir('non-lu')}><span className="ms">mark_email_unread</span></button>
+            <button className="sc-iconbtn" title={t('corbeille')} onClick={() => agir('corbeille')}><span className="ms" style={{ color: C.rouge }}>delete</span></button>
+            <button className="sc-iconbtn" title={tc('cancel')} onClick={() => setSel(new Set())}><span className="ms">close</span></button>
           </div>
         )}
       </div>
@@ -370,14 +373,14 @@ export default function BoiteMailPage() {
                     : s.status === 'cancelled' ? 'Annulé' : s.status === 'sending' ? 'En cours' : 'En attente'}
                 </span>
                 {s.status === 'pending' && (
-                  <button className="sc-iconbtn" title="Annuler" onClick={() => annulerProgramme(s.id)}>
+                  <button className="sc-iconbtn" title={tc('cancel')} onClick={() => annulerProgramme(s.id)}>
                     <span className="ms" style={{ color: C.rouge }}>cancel</span>
                   </button>
                 )}
               </div>
             ))
         ) : chargement && messages.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', fontSize: 12.5, color: C.t4 }}>Chargement…</div>
+          <div style={{ padding: 40, textAlign: 'center', fontSize: 12.5, color: C.t4 }}>{tc('loading')}</div>
         ) : messages.length === 0 ? (
           <Vide icone="inbox" texte="Aucun message" />
         ) : (
@@ -410,13 +413,13 @@ export default function BoiteMailPage() {
       {!ouvert ? (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: C.t4 }}>
           <span className="ms" style={{ fontSize: 44, color: C.t6 }}>mail</span>
-          <div style={{ fontSize: 13, marginTop: 10 }}>Sélectionne un message</div>
+          <div style={{ fontSize: 13, marginTop: 10 }}>{t('selectionne')}</div>
         </div>
       ) : (
         <div style={{ padding: mobile ? 14 : 26 }}>
           {mobile && (
             <button className="sc-btn sc-btn-secondary" style={{ marginBottom: 12 }} onClick={() => setOuvert(null)}>
-              <span className="ms">arrow_back</span>Retour
+              <span className="ms">arrow_back</span>{tc('back')}
             </button>
           )}
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -437,18 +440,18 @@ export default function BoiteMailPage() {
 
                 <select value={ouvert.label || ''} className="sc-input" style={{ height: 28, fontSize: 11, maxWidth: 130 }}
                         onChange={e => { const l = e.target.value; setOuvert({ ...ouvert, label: l || null }); agir('etiquette', [ouvert.id], l); }}>
-                  <option value="">Sans étiquette</option>
+                  <option value="">{t('sansEtiquette')}</option>
                   {Object.keys(COULEUR_ETIQ).map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
                 <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }} onClick={() => repondre(ouvert)}>
-                  <span className="ms">reply</span>Répondre
+                  <span className="ms">reply</span>{t('repondre')}
                 </button>
-                <button className="sc-iconbtn" title="Répondre à tous" onClick={() => repondre(ouvert, true)}><span className="ms">reply_all</span></button>
-                <button className="sc-iconbtn" title="Transférer" onClick={() => transferer(ouvert)}><span className="ms">forward</span></button>
-                <button className="sc-iconbtn" title="Suivre" onClick={() => agir('etoile', [ouvert.id])}>
+                <button className="sc-iconbtn" title={t('repondreTous')} onClick={() => repondre(ouvert, true)}><span className="ms">reply_all</span></button>
+                <button className="sc-iconbtn" title={t('transferer')} onClick={() => transferer(ouvert)}><span className="ms">forward</span></button>
+                <button className="sc-iconbtn" title={t('suivre')} onClick={() => agir('etoile', [ouvert.id])}>
                   <span className="ms" style={{ color: ouvert.flagged ? C.etoile : C.t6, fontVariationSettings: ouvert.flagged ? "'FILL' 1" : "'FILL' 0" }}>star</span>
                 </button>
-                <button className="sc-iconbtn" title="Supprimer" onClick={() => agir('corbeille', [ouvert.id])}>
+                <button className="sc-iconbtn" title={tc('delete')} onClick={() => agir('corbeille', [ouvert.id])}>
                   <span className="ms" style={{ color: C.rouge }}>delete</span>
                 </button>
               </div>
@@ -456,7 +459,7 @@ export default function BoiteMailPage() {
 
             {/* Le HTML d'un message reçu est du code tiers : iframe sandbox. */}
             {ouvert.body_html ? (
-              <iframe srcDoc={ouvert.body_html} title="Message" sandbox=""
+              <iframe srcDoc={ouvert.body_html} title={t('message')} sandbox=""
                       style={{ width: '100%', height: mobile ? 420 : 620, border: 'none', background: '#fff' }} />
             ) : (
               <div style={{ padding: '20px 22px', fontSize: 14, lineHeight: 1.72, color: C.corps, whiteSpace: 'pre-wrap' }}>

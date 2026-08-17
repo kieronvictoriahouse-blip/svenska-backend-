@@ -3,6 +3,8 @@ import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { T as TH } from '@/lib/admin-theme';
 import { adminFetch } from '@/lib/auth-client';
+import { useT } from '@/lib/admin-i18n';
+import { TWL } from './i18n';
 
 type Config = {
   site_name: string; site_slogan: string; logo_url: string; favicon_url: string; front_url: string;
@@ -37,6 +39,7 @@ const DEFAULT_CONFIG: Config = {
 };
 
 function WhiteLabelInner() {
+  const { t, tc, lang } = useT(TWL);
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') || 'identity');
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
@@ -61,8 +64,8 @@ function WhiteLabelInner() {
     setSaving(true);
     const res = await adminFetch('/api/white-label', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
     setSaving(false);
-    if (res.ok) showToast('✅ Configuration sauvegardée !');
-    else showToast('❌ Erreur lors de la sauvegarde');
+    if (res.ok) showToast(t('msgSauve'));
+    else showToast(t('msgErrSauve'));
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -76,7 +79,7 @@ function WhiteLabelInner() {
 
     // Parse CSV simple
     const lines = text.split('\n').filter(l => l.trim());
-    if (lines.length < 2) { showToast('⚠️ Fichier vide'); setImporting(false); return; }
+    if (lines.length < 2) { showToast(t('msgFichierVide')); setImporting(false); return; }
     const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
     for (let i = 1; i < lines.length; i++) {
       const vals = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
@@ -142,8 +145,8 @@ function WhiteLabelInner() {
 
       <div className="sc-head">
         <div>
-          <div className="sc-title">White label</div>
-          <div className="sc-sub">Identité visuelle, informations légales et paramètres d’envoi</div>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">{t('sous')}</div>
         </div>
         <div className="sc-actions">
           <button className="sc-btn sc-btn-green" onClick={save} disabled={saving}>
@@ -173,15 +176,15 @@ function WhiteLabelInner() {
           <div style={{ flex: '2 1 420px', minWidth: 0 }}>
 
             <div className="card">
-              <div className="card-header"><span className="card-title">Marque</span></div>
+              <div className="card-header"><span className="card-title">{t('marque')}</span></div>
               <div className="card-body">
                 <div className="grid-2">
                   <div className="form-group">
-                    <label className="form-label">Nom de la boutique</label>
+                    <label className="form-label">{t('nomBoutique')}</label>
                     <input className="form-control" value={config.site_name} onChange={e => update('site_name', e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Slogan</label>
+                    <label className="form-label">{t('slogan')}</label>
                     <input className="form-control" value={config.site_slogan} onChange={e => update('site_slogan', e.target.value)} />
                   </div>
                   <div className="form-group">
@@ -193,7 +196,7 @@ function WhiteLabelInner() {
             </div>
 
             <div className="card">
-              <div className="card-header"><span className="card-title">Couleurs</span></div>
+              <div className="card-header"><span className="card-title">{t('couleurs')}</span></div>
               <div className="card-body">
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 12 }}>
                   {SWATCHES.map(s => (
@@ -217,23 +220,23 @@ function WhiteLabelInner() {
             </div>
 
             <div className="card">
-              <div className="card-header"><span className="card-title">Typographie & logo</span></div>
+              <div className="card-header"><span className="card-title">{t('typoLogo')}</span></div>
               <div className="card-body">
                 <div className="grid-2">
                   <div className="form-group">
-                    <label className="form-label">Police des titres</label>
+                    <label className="form-label">{t('policeTitres')}</label>
                     <select className="form-control" value={config.font_display} onChange={e => update('font_display', e.target.value)}>
                       {FONTS_DISPLAY.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Police du texte</label>
+                    <label className="form-label">{t('policeTexte')}</label>
                     <select className="form-control" value={config.font_body} onChange={e => update('font_body', e.target.value)}>
                       {FONTS_BODY.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Police d’interface</label>
+                    <label className="form-label">{t('policeUi')}</label>
                     <select className="form-control" value={config.font_ui} onChange={e => update('font_ui', e.target.value)}>
                       {FONTS_UI.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
@@ -241,11 +244,11 @@ function WhiteLabelInner() {
                 </div>
                 <div className="grid-2" style={{ marginTop: 4 }}>
                   <div className="form-group">
-                    <label className="form-label">Logo principal (SVG ou PNG)</label>
+                    <label className="form-label">{t('logoPrincipal')}</label>
                     <input className="form-control" value={config.logo_url} onChange={e => update('logo_url', e.target.value)} placeholder="https://…" />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Favicon (512 px)</label>
+                    <label className="form-label">{t('favicon')}</label>
                     <input className="form-control" value={config.favicon_url} onChange={e => update('favicon_url', e.target.value)} placeholder="https://…" />
                   </div>
                 </div>
@@ -253,7 +256,7 @@ function WhiteLabelInner() {
             </div>
 
             <div className="card">
-              <div className="card-header"><span className="card-title">Bandeau d’annonce</span></div>
+              <div className="card-header"><span className="card-title">{t('bandeau')}</span></div>
               <div className="card-body">
                 {(['fr', 'sv', 'en'] as const).map(l => (
                   <div className="form-group" key={l}>
@@ -269,7 +272,7 @@ function WhiteLabelInner() {
           {/* Aperçu en direct */}
           <div style={{ flex: '1 1 280px', minWidth: 0, position: 'sticky', top: 8 }}>
             <div className="card">
-              <div className="card-header"><span className="card-title">Aperçu</span></div>
+              <div className="card-header"><span className="card-title">{t('apercu')}</span></div>
               <div className="card-body">
                 <div style={{
                   background: config.color_bg || '#F6F1E9', borderRadius: 10, padding: 20,
@@ -291,12 +294,12 @@ function WhiteLabelInner() {
                       background: config.color_primary, color: '#fff', borderRadius: 7,
                       padding: '8px 14px', fontSize: 12.5, fontWeight: 500,
                       fontFamily: `'${config.font_ui}', sans-serif`,
-                    }}>Découvrir</span>
+                    }}>{t('decouvrir')}</span>
                     <span style={{
                       background: config.color_secondary + '22', color: config.color_secondary,
                       borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 600,
                       fontFamily: `'${config.font_ui}', sans-serif`,
-                    }}>Nouveauté</span>
+                    }}>{t('nouveaute')}</span>
                   </div>
                 </div>
                 <div className="sc-num" style={{ fontSize: 10.5, color: TH.muted, marginTop: 8, textAlign: 'center' }}>
@@ -312,19 +315,19 @@ function WhiteLabelInner() {
       {tab === 'contact' && (
         <div style={{ maxWidth: 720 }}>
           <div className="card">
-            <div className="card-header"><span className="card-title">Coordonnées</span></div>
+            <div className="card-header"><span className="card-title">{t('coordonnees')}</span></div>
             <div className="card-body">
               <div className="grid-2">
-                <div className="form-group"><label className="form-label">Email</label><input className="form-control" value={config.email} onChange={e => update('email', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">Téléphone</label><input className="form-control" value={config.phone} onChange={e => update('phone', e.target.value)} /></div>
-                <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">Adresse</label><input className="form-control" value={config.address} onChange={e => update('address', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" value={config.email} onChange={e => update('email', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">{tc('phone')}</label><input className="form-control" value={config.phone} onChange={e => update('phone', e.target.value)} /></div>
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{tc('address')}</label><input className="form-control" value={config.address} onChange={e => update('address', e.target.value)} /></div>
                 <div className="form-group"><label className="form-label">SIRET</label><input className="form-control sc-num" value={config.siret} onChange={e => update('siret', e.target.value)} /></div>
                 <div className="form-group"><label className="form-label">N° TVA</label><input className="form-control sc-num" value={config.tva} onChange={e => update('tva', e.target.value)} /></div>
               </div>
             </div>
           </div>
           <div className="card">
-            <div className="card-header"><span className="card-title">Réseaux sociaux</span></div>
+            <div className="card-header"><span className="card-title">{t('reseaux')}</span></div>
             <div className="card-body">
               <div className="grid-2">
                 <div className="form-group"><label className="form-label">Instagram</label><input className="form-control" value={config.instagram} onChange={e => update('instagram', e.target.value)} /></div>
@@ -334,22 +337,22 @@ function WhiteLabelInner() {
             </div>
           </div>
           <div className="card">
-            <div className="card-header"><span className="card-title">Commerce</span></div>
+            <div className="card-header"><span className="card-title">{t('commerce')}</span></div>
             <div className="card-body">
               <div className="grid-2">
-                <div className="form-group"><label className="form-label">Devise</label><input className="form-control" value={config.currency} onChange={e => update('currency', e.target.value)} /></div>
-                <div className="form-group"><label className="form-label">Taux de TVA (%)</label><input className="form-control sc-num" type="number" value={config.tva_rate} onChange={e => update('tva_rate', parseFloat(e.target.value) || 0)} /></div>
+                <div className="form-group"><label className="form-label">{t('devise')}</label><input className="form-control" value={config.currency} onChange={e => update('currency', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">{t('tauxTva')}</label><input className="form-control sc-num" type="number" value={config.tva_rate} onChange={e => update('tva_rate', parseFloat(e.target.value) || 0)} /></div>
                 <div className="form-group">
-                  <label className="form-label">Livraison gratuite dès (€)</label>
+                  <label className="form-label">{t('franco')}</label>
                   <input className="form-control sc-num" type="number" value={config.free_shipping_threshold}
                          onChange={e => update('free_shipping_threshold', parseFloat(e.target.value) || 50)} />
-                  <div className="form-hint">Seuil habituel. Une opération temporaire se règle dans Marketing → Codes promo.</div>
+                  <div className="form-hint">{t('francoNote')}</div>
                 </div>
               </div>
             </div>
           </div>
           <div className="card">
-            <div className="card-header"><span className="card-title">Pied de page</span></div>
+            <div className="card-header"><span className="card-title">{t('piedPage')}</span></div>
             <div className="card-body">
               {(['fr', 'sv', 'en'] as const).map(l => (
                 <div className="grid-2" key={l}>
@@ -381,13 +384,13 @@ function WhiteLabelInner() {
       {tab === 'import' && (
         <div style={{ maxWidth: 620 }}>
           <div className="card">
-            <div className="card-header"><span className="card-title">Import de données</span></div>
+            <div className="card-header"><span className="card-title">{t('importDonnees')}</span></div>
             <div className="card-body">
               <div className="form-group">
-                <label className="form-label">Type de données</label>
+                <label className="form-label">{t('typeDonnees')}</label>
                 <select className="form-control" value={importType} onChange={e => setImportType(e.target.value)}>
-                  <option value="products">Produits</option>
-                  <option value="contacts">Contacts</option>
+                  <option value="products">{tc('products')}</option>
+                  <option value="contacts">{t('contacts')}</option>
                 </select>
               </div>
               <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
@@ -415,10 +418,12 @@ function WhiteLabelInner() {
     </>
   );
 }
-export default function WhiteLabelPage() { return <Suspense><WhiteLabelInner /></Suspense>; }
+export default function WhiteLabelPage() {
+  return <Suspense><WhiteLabelInner /></Suspense>; }
 
 
 function SmtpSection({ config, update }: { config: any; update: (k: keyof Config, v: any) => void }) {
+  const { t } = useT(TWL);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState('');
 
@@ -467,7 +472,7 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
 
       {/* Presets fournisseurs */}
       <div style={{ marginBottom: 20 }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Choisir un fournisseur</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>{t('choisirFournisseur')}</p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {PROVIDERS.map(p => (
             <button
@@ -491,7 +496,7 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
         <div className="wl-section-title">⚙️ Paramètres SMTP</div>
         <div className="grid-2">
           <div className="form-group">
-            <label className="form-label">Serveur SMTP (Host)</label>
+            <label className="form-label">{t('serveurSmtp')}</label>
             <input className="form-control mono" value={config.smtp_host || ''} onChange={e => update('smtp_host', e.target.value)} placeholder="smtp.gmail.com" />
           </div>
           <div className="form-group">
@@ -499,15 +504,15 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
             <input className="form-control mono" value={config.smtp_port || '587'} onChange={e => update('smtp_port', e.target.value)} placeholder="587" />
           </div>
           <div className="form-group">
-            <label className="form-label">Utilisateur (email de connexion)</label>
+            <label className="form-label">{t('utilisateur')}</label>
             <input className="form-control" value={config.smtp_user || ''} onChange={e => update('smtp_user', e.target.value)} placeholder="contact@monsite.fr" />
           </div>
           <div className="form-group">
-            <label className="form-label">Mot de passe SMTP</label>
+            <label className="form-label">{t('motDePasse')}</label>
             <input className="form-control" type="password" value={config.smtp_pass || ''} onChange={e => update('smtp_pass', e.target.value)} placeholder="••••••••••••" />
           </div>
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-            <label className="form-label">Email expéditeur affiché</label>
+            <label className="form-label">{t('expediteur')}</label>
             <input className="form-control" value={config.smtp_from || ''} onChange={e => update('smtp_from', e.target.value)} placeholder={`Svenska Delikatessen <noreply@votre-domaine.fr>`} />
             <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Format recommandé : Nom Boutique {'<'}adresse@domaine.fr{'>'}</p>
           </div>

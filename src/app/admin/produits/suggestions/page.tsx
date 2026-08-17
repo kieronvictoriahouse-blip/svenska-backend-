@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TSU } from './i18n';
 
 type Suggestion = {
   id: string;
@@ -29,6 +31,7 @@ const fmtTime = (d: string) =>
   new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 export default function SuggestionsPage() {
+  const { t, tc, lang } = useT(TSU);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -43,7 +46,7 @@ export default function SuggestionsPage() {
       const res = await adminFetch('/api/product-suggestions');
       const data = await res.json();
       setSuggestions(data.suggestions || []);
-    } catch { say('Chargement impossible'); }
+    } catch { say(t('msgChargement')); }
     finally { setLoading(false); }
   }
 
@@ -56,14 +59,14 @@ export default function SuggestionsPage() {
       body: JSON.stringify({ id, status }),
     });
     setSuggestions(s => s.map(x => (x.id === id ? { ...x, status: status as Suggestion['status'] } : x)));
-    say('Statut mis à jour');
+    say(t('msgStatut'));
   }
 
   async function deleteSuggestion(id: string) {
-    if (!confirm('Supprimer cette suggestion ?')) return;
+    if (!confirm(t('msgConfirmDel'))) return;
     await adminFetch(`/api/product-suggestions?id=${id}`, { method: 'DELETE' });
     setSuggestions(s => s.filter(x => x.id !== id));
-    say('Suggestion supprimée');
+    say(t('msgSupprimee'));
   }
 
   const counts = useMemo(() => ({
@@ -101,7 +104,7 @@ export default function SuggestionsPage() {
 
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>Suggestions produits</div>
+          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
           <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
             Ce que les clients aimeraient trouver en boutique
           </div>
@@ -110,10 +113,10 @@ export default function SuggestionsPage() {
           <div style={{ position: 'relative' }}>
             <span className="ms" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 17, color: T.muted }}>search</span>
             <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
-                   placeholder="Rechercher…" style={{ paddingLeft: 32, width: 210 }} />
+                   placeholder={t('chercher')} style={{ paddingLeft: 32, width: 210 }} />
           </div>
           <button className="sc-btn sc-btn-secondary" onClick={load}>
-            <span className="ms">refresh</span>Actualiser
+            <span className="ms">refresh</span>{t('actualiser')}
           </button>
         </div>
       </div>
@@ -122,7 +125,7 @@ export default function SuggestionsPage() {
       <div className="sg-stats">
         <div className={`sg-stat${filter === '' ? ' active' : ''}`} onClick={() => setFilter('')}>
           <div className="sg-stat-num">{suggestions.length}</div>
-          <div className="sg-stat-label">Toutes</div>
+          <div className="sg-stat-label">{t('toutes')}</div>
         </div>
         {(Object.keys(STATUS) as Array<Suggestion['status']>).map(key => (
           <div key={key} className={`sg-stat${filter === key ? ' active' : ''}`}
@@ -135,7 +138,7 @@ export default function SuggestionsPage() {
 
       <div className="sc-card" style={{ overflow: 'hidden' }}>
         {loading ? (
-          <div className="sc-empty">Chargement…</div>
+          <div className="sc-empty">{tc('loading')}</div>
         ) : filtered.length === 0 ? (
           <div className="sc-empty">
             <span className="ms" style={{ fontSize: 34, color: T.borderField, display: 'block', marginBottom: 8 }}>lightbulb</span>
@@ -147,11 +150,11 @@ export default function SuggestionsPage() {
             <table className="sc-table">
               <thead>
                 <tr>
-                  <th>Produit suggéré</th>
-                  <th style={{ width: 200 }}>Contact</th>
-                  <th style={{ width: 100 }}>Langue</th>
-                  <th style={{ width: 110 }}>Statut</th>
-                  <th style={{ width: 90 }}>Reçue le</th>
+                  <th>{t('produitSuggere')}</th>
+                  <th style={{ width: 200 }}>{t('contact')}</th>
+                  <th style={{ width: 100 }}>{t('langue')}</th>
+                  <th style={{ width: 110 }}>{tc('status')}</th>
+                  <th style={{ width: 90 }}>{t('recueLe')}</th>
                   <th style={{ width: 168 }}></th>
                 </tr>
               </thead>
@@ -173,7 +176,7 @@ export default function SuggestionsPage() {
                       <td>
                         {s.customer_email
                           ? <a href={`mailto:${s.customer_email}`} style={{ fontSize: 12, color: T.blue, textDecoration: 'none' }}>{s.customer_email}</a>
-                          : <span style={{ fontSize: 12, color: T.muted }}>Anonyme</span>}
+                          : <span style={{ fontSize: 12, color: T.muted }}>{t('anonyme')}</span>}
                       </td>
                       <td style={{ fontSize: 12, color: T.text2b }}>{LANG[s.lang] || s.lang?.toUpperCase()}</td>
                       <td>
@@ -193,13 +196,13 @@ export default function SuggestionsPage() {
                           )}
                           {s.status !== 'done' ? (
                             <button className="sc-btn sc-btn-green" style={{ padding: '5px 10px', fontSize: 11.5 }}
-                                    onClick={() => setStatus(s.id, 'done')}>Traitée</button>
+                                    onClick={() => setStatus(s.id, 'done')}>{t('traitee')}</button>
                           ) : (
                             <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }}
-                                    onClick={() => setStatus(s.id, 'new')}>Rouvrir</button>
+                                    onClick={() => setStatus(s.id, 'new')}>{t('rouvrir')}</button>
                           )}
                           <button className="sc-iconbtn" onClick={() => deleteSuggestion(s.id)}
-                                  title="Supprimer" aria-label="Supprimer">
+                                  title={tc('delete')} aria-label={tc('delete')}>
                             <span className="ms" style={{ color: T.red }}>delete</span>
                           </button>
                         </div>

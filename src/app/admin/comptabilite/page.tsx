@@ -3,6 +3,8 @@ import { adminFetch } from '@/lib/auth-client';
 import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 import { SqueletteTable, SqueletteKpis } from '@/components/Squelette';
+import { useT } from '@/lib/admin-i18n';
+import { TCP, entreesImportees } from './i18n';
 
 type Entry = {
   id: string;
@@ -71,6 +73,7 @@ const REF_LABELS: Record<string, string> = {
 };
 
 export default function ComptabilitePage() {
+  const { t, tc, lang } = useT(TCP);
   const year = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(year);
   const [tab, setTab] = useState<'dashboard' | 'recettes' | 'achats'>('dashboard');
@@ -120,14 +123,14 @@ export default function ComptabilitePage() {
   async function downloadFile(url: string, filename: string) {
     try {
       const res = await fetch(url, { headers: authHeaders() });
-      if (!res.ok) { showToast('❌ Export échoué (session expirée ?)'); return; }
+      if (!res.ok) { showToast(t('msgExportSession')); return; }
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = objUrl; a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(objUrl);
-    } catch { showToast('❌ Export échoué'); }
+    } catch { showToast(t('msgExportKo')); }
   }
 
   useEffect(() => { load(); }, [load]);
@@ -138,10 +141,10 @@ export default function ComptabilitePage() {
       const res = await adminFetch('/api/accounting/sync', { method: 'POST', headers: authHeaders() });
       const data = await res.json();
       if (res.ok) {
-        showToast(`✅ ${data.count} nouvelles entrées importées`);
+        showToast(entreesImportees(data.count, lang));
         load();
       } else {
-        showToast('❌ Erreur lors de la synchronisation');
+        showToast(t('msgSyncKo'));
       }
     } finally {
       setSyncing(false);
@@ -149,7 +152,7 @@ export default function ComptabilitePage() {
   }
 
   async function addEntry() {
-    if (!fDate || !fDesc || !fAmount) { showToast('⚠️ Tous les champs sont requis'); return; }
+    if (!fDate || !fDesc || !fAmount) { showToast(t('msgChamps')); return; }
     setSaving(true);
     try {
       const res = await adminFetch('/api/accounting/entries', {
@@ -158,7 +161,7 @@ export default function ComptabilitePage() {
         body: JSON.stringify({ date: fDate, type: formType, category: fCat, description: fDesc, amount: parseFloat(fAmount) }),
       });
       if (res.ok) {
-        showToast('✅ Entrée ajoutée');
+        showToast(t('msgAjoutee'));
         setShowForm(false);
         setFDesc(''); setFAmount(''); setFCat('autre');
         load();
@@ -172,9 +175,9 @@ export default function ComptabilitePage() {
   }
 
   async function deleteEntry(id: string) {
-    if (!confirm('Supprimer cette entrée ?')) return;
+    if (!confirm(t('msgConfirmDel'))) return;
     const res = await adminFetch(`/api/accounting/entries?id=${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) { showToast('🗑️ Supprimé'); load(); }
+    if (res.ok) { showToast(t('msgSupprime')); load(); }
     else { const e = await res.json().catch(() => ({})); showToast('❌ ' + (e?.error || 'Erreur suppression')); }
   }
 
@@ -251,8 +254,8 @@ export default function ComptabilitePage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Comptabilité</div>
-          <div className="sc-sub">Micro-entreprise · BIC marchandises · TVA non applicable (art. 293 B)</div>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">{t('sous')}</div>
         </div>
         <div className="sc-actions">
           <select className="sc-input sc-select" style={{ width: 100, height: 32 }}
@@ -264,7 +267,7 @@ export default function ComptabilitePage() {
           </button>
           <button className="sc-btn sc-btn-secondary"
                   onClick={() => downloadFile(`/api/accounting/export-excel?year=${selectedYear}`, `Comptabilite_${selectedYear}.xlsx`)}>
-            <span className="ms">download</span>Export comptable
+            <span className="ms">download</span>{t('export')}
           </button>
           <button className="sc-btn sc-btn-secondary"
                   onClick={() => downloadFile(`/api/accounting/fec?year=${selectedYear}`, `FEC_${selectedYear}.txt`)}>
@@ -340,7 +343,7 @@ export default function ComptabilitePage() {
             {/* Dernières écritures */}
             <div className="sc-card" style={{ flex: '1 1 280px', minWidth: 0, overflow: 'hidden' }}>
               <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
-                <span className="sc-card-title">Dernières écritures</span>
+                <span className="sc-card-title">{t('dernieres')}</span>
               </div>
               {entries.slice(0, 6).map(e => (
                 <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 15px', borderBottom: `1px solid ${TH.borderFaint}` }}>
@@ -356,14 +359,14 @@ export default function ComptabilitePage() {
                   }}>{e.type === 'income' ? '+' : '−'}{eurC(Math.abs(e.amount))}</span>
                 </div>
               ))}
-              {entries.length === 0 && <div className="sc-empty" style={{ padding: 28 }}>Aucune écriture</div>}
+              {entries.length === 0 && <div className="sc-empty" style={{ padding: 28 }}>{t('aucune')}</div>}
             </div>
           </div>
 
           {/* Cotisations & seuils */}
           <div className="sc-card" style={{ marginTop: 12 }}>
             <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
-              <span className="sc-card-title">Cotisations & seuils</span>
+              <span className="sc-card-title">{t('cotisations')}</span>
             </div>
             <div style={{ padding: '15px' }}>
               {GAUGES.map(g => {
@@ -409,20 +412,20 @@ export default function ComptabilitePage() {
                     <input className="sc-input" type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
                   </div>
                   <div style={{ gridColumn: 'span 2' }}>
-                    <label className="sc-label">Description</label>
-                    <input className="sc-input" value={fDesc} onChange={e => setFDesc(e.target.value)} placeholder="Achat marchandises…" />
+                    <label className="sc-label">{t('description')}</label>
+                    <input className="sc-input" value={fDesc} onChange={e => setFDesc(e.target.value)} placeholder={t('phDescription')} />
                   </div>
                   <div>
-                    <label className="sc-label">Montant</label>
+                    <label className="sc-label">{t('montant')}</label>
                     <input className="sc-input sc-num" type="number" step="0.01" value={fAmount} onChange={e => setFAmount(e.target.value)} />
                   </div>
                   <div>
-                    <label className="sc-label">Catégorie</label>
+                    <label className="sc-label">{t('categorie')}</label>
                     <input className="sc-input" value={fCat} onChange={e => setFCat(e.target.value)} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                  <button className="sc-btn sc-btn-secondary" onClick={() => setShowForm(false)}>Annuler</button>
+                  <button className="sc-btn sc-btn-secondary" onClick={() => setShowForm(false)}>{tc('cancel')}</button>
                   <button className="sc-btn sc-btn-green" onClick={addEntry} disabled={saving}>
                     <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}
                   </button>
@@ -436,15 +439,15 @@ export default function ComptabilitePage() {
                   <thead>
                     <tr>
                       <th style={{ width: 110 }}>Date</th>
-                      <th>Description</th>
-                      <th style={{ width: 150 }}>Catégorie</th>
-                      <th className="sc-right" style={{ width: 110 }}>Montant</th>
+                      <th>{t('description')}</th>
+                      <th style={{ width: 150 }}>{t('categorie')}</th>
+                      <th className="sc-right" style={{ width: 110 }}>{t('montant')}</th>
                       <th style={{ width: 44 }} />
                     </tr>
                   </thead>
                   <tbody>
                     {list.length === 0 && (
-                      <tr><td colSpan={5}><div className="sc-empty">Aucune écriture</div></td></tr>
+                      <tr><td colSpan={5}><div className="sc-empty">{t('aucune')}</div></td></tr>
                     )}
                     {list.map(e => (
                       <tr key={e.id}>
@@ -457,7 +460,7 @@ export default function ComptabilitePage() {
                           fontWeight: 600, color: e.type === 'income' ? TH.green : TH.red,
                         }}>{e.type === 'income' ? '+' : '−'}{eurC(Math.abs(e.amount))}</td>
                         <td>
-                          <button className="sc-iconbtn" onClick={() => deleteEntry(e.id)} aria-label="Supprimer">
+                          <button className="sc-iconbtn" onClick={() => deleteEntry(e.id)} aria-label={tc('delete')}>
                             <span className="ms">delete</span>
                           </button>
                         </td>

@@ -2,6 +2,8 @@
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
+import { useT } from '@/lib/admin-i18n';
+import { TPA } from './i18n';
 
 type Block =
   | { id: string; type: 'text'; title_fr: string; title_sv: string; title_en: string; body_fr: string; body_sv: string; body_en: string; image: string }
@@ -96,6 +98,7 @@ const css = `
   `;
 
 export default function PagesAdminPage() {
+  const { t, tc, lang } = useT(TPA);
   const [pages, setPages] = useState<CmsPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'editor'>('list');
@@ -140,12 +143,12 @@ export default function PagesAdminPage() {
         setView('editor');
       }
     } catch {
-      showToast('Erreur de chargement');
+      showToast(t('msgChargement'));
     }
   }
 
   async function savePage() {
-    if (!editPage.slug.trim()) { showToast('Le slug est requis'); return; }
+    if (!editPage.slug.trim()) { showToast(t('msgSlugRequis')); return; }
     setSaving(true);
     try {
       const method = isNew ? 'POST' : 'PUT';
@@ -156,14 +159,14 @@ export default function PagesAdminPage() {
         body: JSON.stringify(editPage),
       });
       const data = await res.json();
-      if (data.error) { showToast('Erreur : ' + data.error); }
+      if (data.error) { showToast(t('msgErreur') + data.error); }
       else {
-        showToast('Page sauvegardée !');
+        showToast(t('msgSauvee'));
         await loadPages();
         setView('list');
       }
     } catch {
-      showToast('Erreur lors de la sauvegarde');
+      showToast(t('msgErrSauve'));
     }
     setSaving(false);
   }
@@ -172,10 +175,10 @@ export default function PagesAdminPage() {
     try {
       const res = await adminFetch(`/api/pages/${slug}`, { method: 'DELETE' });
       const data = await res.json();
-      if (data.error) showToast('Erreur : ' + data.error);
-      else { showToast('Page supprimée'); await loadPages(); }
+      if (data.error) showToast(t('msgErreur') + data.error);
+      else { showToast(t('msgSupprimee')); await loadPages(); }
     } catch {
-      showToast('Erreur lors de la suppression');
+      showToast(t('msgErrSuppr'));
     }
     setConfirmSlug(null);
   }
@@ -222,7 +225,7 @@ export default function PagesAdminPage() {
           <div className="block-actions">
             <button className="btn btn-secondary btn-xs" onClick={() => moveBlock(block.id, -1)} disabled={idx === 0}>&#8593;</button>
             <button className="btn btn-secondary btn-xs" onClick={() => moveBlock(block.id, 1)} disabled={idx === editPage.blocks.length - 1}>&#8595;</button>
-            <button className="btn btn-danger btn-xs" onClick={() => removeBlock(block.id)}>Supprimer</button>
+            <button className="btn btn-danger btn-xs" onClick={() => removeBlock(block.id)}>{tc('delete')}</button>
           </div>
         </div>
 
@@ -231,7 +234,7 @@ export default function PagesAdminPage() {
             <div className="grid-3" style={{ marginBottom: 10 }}>
               <div className="form-group">
                 <label className="form-label">Titre FR</label>
-                <input className="form-control" value={block.title_fr} onChange={e => updBlock(block.id, 'title_fr', e.target.value)} placeholder="Titre (optionnel)" />
+                <input className="form-control" value={block.title_fr} onChange={e => updBlock(block.id, 'title_fr', e.target.value)} placeholder={t('phTitre')} />
               </div>
               <div className="form-group">
                 <label className="form-label">Titre SV</label>
@@ -257,7 +260,7 @@ export default function PagesAdminPage() {
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Image (URL, optionnel)</label>
+              <label className="form-label">{t('imageUrl')}</label>
               <input className="form-control" value={block.image} onChange={e => updBlock(block.id, 'image', e.target.value)} placeholder="https://..." />
               {block.image && <img src={block.image} alt="" className="img-preview" />}
             </div>
@@ -289,7 +292,7 @@ export default function PagesAdminPage() {
               {block.url && <img src={block.url} alt="" className="img-preview" />}
             </div>
             <div className="form-group">
-              <label className="form-label">Légende (alt)</label>
+              <label className="form-label">{t('legendeAlt')}</label>
               <input className="form-control" value={block.alt} onChange={e => updBlock(block.id, 'alt', e.target.value)} />
             </div>
           </div>
@@ -308,18 +311,18 @@ export default function PagesAdminPage() {
           <>
             <div className="sc-head">
               <div>
-                <div className="sc-title">Pages</div>
+                <div className="sc-title">{t('titre')}</div>
                 <div className="sc-sub">{pages.length} page(s) statique(s) — CGV, mentions légales, pages libres</div>
               </div>
               <div className="sc-actions">
                 <button className="sc-btn sc-btn-primary" onClick={openNew}>
-                  <span className="ms">add</span>Nouvelle page
+                  <span className="ms">add</span>{t('nouvellePage')}
                 </button>
               </div>
             </div>
 
-            {loading && <div className="sc-empty">Chargement…</div>}
-            {!loading && pages.length === 0 && <div className="sc-empty">Aucune page. Crée la première.</div>}
+            {loading && <div className="sc-empty">{tc('loading')}</div>}
+            {!loading && pages.length === 0 && <div className="sc-empty">{t('aucunePage')}</div>}
 
             {!loading && pages.length > 0 && (
               <div className="sc-card" style={{ overflow: 'hidden' }}>
@@ -327,10 +330,10 @@ export default function PagesAdminPage() {
                   <table className="sc-table" style={{ minWidth: 660 }}>
                     <thead>
                       <tr>
-                        <th>Titre</th>
+                        <th>{t('colTitre')}</th>
                         <th style={{ width: 170 }}>URL</th>
-                        <th style={{ width: 130 }}>Traductions</th>
-                        <th style={{ width: 120 }}>Navigation</th>
+                        <th style={{ width: 130 }}>{t('traductions')}</th>
+                        <th style={{ width: 120 }}>{t('navigation')}</th>
                         <th style={{ width: 96 }} />
                       </tr>
                     </thead>
@@ -362,10 +365,10 @@ export default function PagesAdminPage() {
                             </td>
                             <td>
                               <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-                                <button className="sc-iconbtn" onClick={() => openEdit(p.slug)} aria-label="Modifier">
+                                <button className="sc-iconbtn" onClick={() => openEdit(p.slug)} aria-label={tc('edit')}>
                                   <span className="ms">edit</span>
                                 </button>
-                                <button className="sc-iconbtn" onClick={() => setConfirmSlug(p.slug)} aria-label="Supprimer">
+                                <button className="sc-iconbtn" onClick={() => setConfirmSlug(p.slug)} aria-label={tc('delete')}>
                                   <span className="ms">delete</span>
                                 </button>
                               </div>
@@ -404,10 +407,10 @@ export default function PagesAdminPage() {
             {tab === 'info' && (
               <>
                 <div className="pg-section">
-                  <div className="pg-section-title">Identifiant & Navigation</div>
+                  <div className="pg-section-title">{t('identNav')}</div>
                   <div className="grid-2" style={{ marginBottom: 14 }}>
                     <div className="form-group">
-                      <label className="form-label">Slug *</label>
+                      <label className="form-label">{t('slugReq')}</label>
                       <input
                         className="form-control"
                         value={editPage.slug}
@@ -418,7 +421,7 @@ export default function PagesAdminPage() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Ordre de tri</label>
+                      <label className="form-label">{t('ordreTri')}</label>
                       <input
                         type="number"
                         className="form-control"
@@ -440,7 +443,7 @@ export default function PagesAdminPage() {
                 </div>
 
                 <div className="pg-section">
-                  <div className="pg-section-title">Titre de la page</div>
+                  <div className="pg-section-title">{t('titrePage')}</div>
                   <div className="grid-3">
                     <div className="form-group">
                       <label className="form-label">Titre FR</label>
@@ -458,8 +461,8 @@ export default function PagesAdminPage() {
                 </div>
 
                 <div className="pg-section">
-                  <div className="pg-section-title">Libellé de navigation</div>
-                  <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 12 }}>Texte affiché dans le menu (si vide, utilise le titre)</div>
+                  <div className="pg-section-title">{t('libelleNav')}</div>
+                  <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 12 }}>{t('texteMenu')}</div>
                   <div className="grid-3">
                     <div className="form-group">
                       <label className="form-label">Nav FR</label>
@@ -481,9 +484,9 @@ export default function PagesAdminPage() {
             {/* HERO TAB */}
             {tab === 'hero' && (
               <div className="pg-section">
-                <div className="pg-section-title">Section Hero</div>
+                <div className="pg-section-title">{t('sectionHero')}</div>
                 <div className="form-group">
-                  <label className="form-label">Image de fond (URL)</label>
+                  <label className="form-label">{t('imageFond')}</label>
                   <input className="form-control" value={editPage.hero_image} onChange={e => upd('hero_image', e.target.value)} placeholder="https://images.unsplash.com/..." />
                   {editPage.hero_image && (
                     <img src={editPage.hero_image} alt="Hero preview" className="img-preview" style={{ maxWidth: '100%', maxHeight: 200, marginTop: 10 }} />
@@ -523,7 +526,7 @@ export default function PagesAdminPage() {
             {/* BLOCKS TAB */}
             {tab === 'blocks' && (
               <div className="pg-section">
-                <div className="pg-section-title">Blocs de contenu</div>
+                <div className="pg-section-title">{t('blocsContenu')}</div>
                 {editPage.blocks.length === 0 && (
                   <div style={{ textAlign: 'center', padding: '28px 0', color: '#6A7280', fontSize: 13 }}>
                     Aucun bloc — ajoutez-en un ci-dessous
@@ -544,13 +547,13 @@ export default function PagesAdminPage() {
         {confirmSlug && (
           <div className="confirm-overlay" onClick={() => setConfirmSlug(null)}>
             <div className="confirm-box" onClick={e => e.stopPropagation()}>
-              <div className="confirm-title">Supprimer cette page ?</div>
+              <div className="confirm-title">{t('supprimerPage')}</div>
               <div className="confirm-sub">
                 La page <strong>{confirmSlug}</strong> sera supprimée définitivement.
               </div>
               <div className="confirm-btns">
-                <button className="btn btn-secondary" onClick={() => setConfirmSlug(null)}>Annuler</button>
-                <button className="btn btn-danger" onClick={() => deletePage(confirmSlug)}>Supprimer</button>
+                <button className="btn btn-secondary" onClick={() => setConfirmSlug(null)}>{tc('cancel')}</button>
+                <button className="btn btn-danger" onClick={() => deletePage(confirmSlug)}>{tc('delete')}</button>
               </div>
             </div>
           </div>
