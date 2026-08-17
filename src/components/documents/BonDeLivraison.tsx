@@ -8,7 +8,13 @@ import {
    Aucun prix. Colonnes Commandé / Livré / Lot-DLC, encart colisage,
    avertissement réserves transporteur, cadre de signature de réception. */
 
-export type BLLine = DocLine & { ordered?: number | string; shipped?: number | string; batch?: string };
+export type BLLine = DocLine & {
+  ordered?: number | string;
+  shipped?: number | string;
+  /** Quantite encore due au client apres ce colis. */
+  remaining?: number;
+  batch?: string;
+};
 
 export type BonDeLivraisonData = {
   number: string;
@@ -30,6 +36,9 @@ export type BonDeLivraisonData = {
 };
 
 export default function BonDeLivraison({ d }: { d: BonDeLivraisonData }) {
+  /* Un reliquat existe des qu'une ligne reste due. */
+  const avecReliquat = d.lines.some(l => Number(l.remaining) > 0);
+
   return (
     <A4Page>
       <Rails tone="green" />
@@ -51,6 +60,9 @@ export default function BonDeLivraison({ d }: { d: BonDeLivraisonData }) {
         { label: 'Suivi',             value: d.tracking || '—' },
       ]} />
 
+      {/* La colonne « Reste à livrer » n'apparaît que s'il y a réellement
+          un reliquat : sur une expédition complète elle n'afficherait que
+          des zéros, et une colonne de zéros inquiète le client pour rien. */}
       <LinesTable
         tone="green"
         lines={d.lines}
@@ -59,9 +71,31 @@ export default function BonDeLivraison({ d }: { d: BonDeLivraisonData }) {
           { label: 'Réf.',      width: 96,  small: true, cell: l => l.ref || '—' },
           { label: 'Commandé',  width: 96,  align: 'center', cell: l => l.ordered ?? l.qty },
           { label: 'Livré',     width: 80,  align: 'center', bold: true, cell: l => l.shipped ?? l.qty },
+          ...(avecReliquat ? [{
+            label: 'Reste à livrer', width: 112, align: 'center' as const,
+            cell: (l: BLLine) => Number(l.remaining) > 0
+              ? <span style={{ color: D.gold, fontWeight: 600 }}>{l.remaining}</span>
+              : '—',
+          }] : []),
           { label: 'Lot / DLC', width: 110, small: true, cell: l => l.batch || '—' },
         ]}
       />
+
+      {avecReliquat && (
+        <div style={{
+          marginTop: 14, borderLeft: `2px solid ${D.gold}`, padding: '11px 15px',
+          background: D.cream,
+        }}>
+          <div style={{ fontSize: 8.5, letterSpacing: '.24em', textTransform: 'uppercase', color: D.label, fontWeight: 600, marginBottom: 5 }}>
+            Livraison incomplète
+          </div>
+          <div style={{ fontSize: 11, lineHeight: 1.55, color: D.body }}>
+            Les articles de la colonne « Reste à livrer » ne sont pas dans ce colis.
+            Ils vous seront expédiés dès leur retour en stock, sans frais supplémentaires
+            et sans démarche de votre part. Vous n’avez rien à payer de plus.
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 22, marginTop: 22, alignItems: 'stretch' }}>
         <div style={{ flex: 1, border: `1px solid ${D.rule}`, padding: '13px 15px' }}>

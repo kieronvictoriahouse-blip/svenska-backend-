@@ -256,6 +256,12 @@ export default function DocumentPrintPage() {
     /* Un tiers du catalogue n'a pas de poids : afficher un total sec
        laisserait croire a une pesee. Le « environ » dit ce qu'il vaut. */
     const poidsTexte = poidsColis > 0 ? (incomplet ? '~ ' : '') + fmtPoids(poidsColis) : '—';
+    /* Absentes sur les commandes anterieures a la 040 : on retombe alors
+       sur « tout a ete livre », ce qui etait vrai puisque le partiel
+       n'existait pas. */
+    const dernierColis: Record<string, number> | null = doc.last_shipment || null;
+    const expedie: Record<string, number> | null = doc.shipped_qty || doc.last_shipment || null;
+
     return wrap(<BonDeLivraison d={{
       number: `BL-${String(doc.order_number || '').replace(/^SD-/, '')}`,
       shippedAt: doc.updated_at || doc.created_at,
@@ -267,7 +273,21 @@ export default function DocumentPrintPage() {
         name: doc.customer_name || '—',
         lines: [...splitAddress(doc.shipping_address || doc.customer_address), doc.customer_phone || ''].filter(Boolean),
       },
-      lines: lines.map(l => ({ ...l, ordered: l.qty, shipped: l.qty })),
+      /* Le bon decrit UN COLIS, pas un historique : « Livre » vaut ce que
+         contient ce colis-ci, et « Reste a livrer » ce qui reste du apres
+         lui. Les deux colonnes portaient jusqu'ici la meme valeur, si
+         bien qu'une livraison partielle s'annoncait complete. */
+      lines: productLines.map((l, i) => {
+        const commande = Number(l.qty) || 1;
+        const ceColis = dernierColis ? (Number(dernierColis[l.product_id]) || 0) : commande;
+        const cumul = expedie ? (Number(expedie[l.product_id]) || 0) : commande;
+        return {
+          ...lines[i],
+          ordered: commande,
+          shipped: ceColis,
+          remaining: Math.max(0, commande - cumul),
+        };
+      }),
       parcels: '1 / 1',
       weight: poidsTexte,
       format: doc.parcel_format || 'Colis standard',

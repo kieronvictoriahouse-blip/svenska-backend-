@@ -156,3 +156,19 @@ export function formatDateHeure(d: any, lang: LangueClient): string {
   const heure = x.toLocaleTimeString(LOCALE_CLIENT[lang], { hour: '2-digit', minute: '2-digit' });
   return `${jour} · ${heure}`;
 }
+
+/* ── Reliquat ───────────────────────────────────────────────── */
+
+export const titreReliquat = (lang: LangueClient) =>
+  lang === 'sv' ? 'SKICKAS SENARE'
+  : lang === 'en' ? 'TO FOLLOW'
+  : 'CE QUI SUIVRA';
+
+/** Le client a payé la commande entière : il faut le rassurer sur les
+ *  deux points qui inquiètent — le prix et la démarche à faire. */
+export const noteReliquat = (lang: LangueClient) =>
+  lang === 'sv'
+    ? 'Dessa artiklar var slut när vi packade. Vi skickar dem så snart de är i lager igen, utan extra fraktkostnad och utan att du behöver göra något.'
+  : lang === 'en'
+    ? 'These items were out of stock when we packed your parcel. We will send them as soon as they are back in stock, at no extra delivery cost and with nothing for you to do.'
+    : 'Ces articles étaient épuisés au moment de préparer votre colis. Nous vous les expédions dès leur retour en stock, sans frais de port supplémentaires et sans démarche de votre part.';

@@ -49,6 +49,20 @@ export const TP = {
   },
   expediee: { fr: 'expédiée · stock décrémenté', en: 'shipped · stock deducted', sv: 'skickad · lagret avdraget' },
   echecValid: { fr: 'Validation impossible', en: 'Validation failed', sv: 'Godkännandet misslyckades' },
+  reliquat: { fr: 'Reliquat', en: 'Backorder', sv: 'Restorder' },
+  envoiPartiel: { fr: 'Envoi partiel', en: 'Partial shipment', sv: 'Delleverans' },
+  envoiPartielD: {
+    fr: 'Envoie ce qui est prêt maintenant. Le reste devient un reliquat : la commande reste dans la file et tu prépares le solde quand le réassort arrive.',
+    en: 'Ship what is ready now. The rest becomes a backorder: the order stays in the queue and you pack the remainder when the restock arrives.',
+    sv: 'Skicka det som är klart nu. Resten blir en restorder: ordern stannar i kön och du packar resten när påfyllningen kommer.',
+  },
+  expedierPret: { fr: 'Expédier ce qui est prêt', en: 'Ship what is ready', sv: 'Skicka det som är klart' },
+  confirmReliquat: {
+    fr: 'Ces articles resteront dus au client et n’apparaîtront pas dans ce colis :',
+    en: 'These items will remain owed to the customer and will not be in this parcel:',
+    sv: 'Dessa artiklar förblir skyldiga kunden och ingår inte i detta paket:',
+  },
+  reliquatCree: { fr: 'reliquat créé, articles restant dus', en: 'backorder created, items still owed', sv: 'restorder skapad, artiklar kvar att leverera' },
   moins: { fr: 'Moins', en: 'Less', sv: 'Färre' },
   plus: { fr: 'Plus', en: 'More', sv: 'Fler' },
 };

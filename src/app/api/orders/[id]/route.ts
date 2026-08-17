@@ -39,6 +39,24 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const newStatus = data?.status;
   const triggerStatuses = ['shipped', 'delivered', 'confirmed'];
 
+  /* ── Expedition partielle ──────────────────────────────────────
+     Traitee a part des declencheurs ci-dessous : le client recoit un
+     colis, il doit avoir son suivi et savoir ce qui reste a venir. Mais
+     la facture, elle, n'a pas a etre emise a ce moment-la — elle suivra
+     au solde, sur le statut « expediee ». */
+  if (newStatus === 'partial' && newStatus !== prevStatus && data?.customer_email) {
+    try {
+      const cfg = await getWhiteLabelConfig();
+      const fromEmail = (cfg.email_from as string) || 'Swedish Cravings <hej@swedishcravings.fr>';
+      const mail = await expeditionEmail({ ...data, ...body });
+      await sendEmail({ from: fromEmail, to: data.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+    } catch (e) {
+      /* Un email qui ne part pas ne doit pas annuler l'expedition : le
+         colis est deja parti, le stock deja decremente. */
+      console.error('[orders] email d expedition partielle :', e);
+    }
+  }
+
   // ── Déclencheurs au changement de statut ────────────────────────
   if (newStatus && newStatus !== prevStatus && triggerStatuses.includes(newStatus)) {
     const order = data;

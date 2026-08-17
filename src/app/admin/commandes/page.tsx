@@ -147,6 +147,7 @@ const toAddrStr = (v: any): string => !v ? '' : typeof v === 'string' ? v : [v.l
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#F59E0B', paid: '#10B981', confirmed: '#3B82F6',
+  preparing: '#0EA5E9', partial: '#D97706',
   shipped: '#8B5CF6', delivered: '#10B981', cancelled: '#EF4444', refunded: '#6B7280',
   abandoned: '#B0AEA8',
 };
@@ -320,7 +321,16 @@ export default function CommandesPage() {
 
   async function updateStatus(id: string, status: string) {
     const token = localStorage.getItem('sd_admin_token') || '';
-    await adminFetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
+    const res = await adminFetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
+    /* La reponse n'etait pas regardee : un statut refuse par la base
+       affichait quand meme « ✅ » et la liste se rechargeait inchangee.
+       Les statuts « Confirmee » et « En preparation » etaient dans ce cas
+       jusqu'a la migration 040. */
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast('❌ ' + (d.error || tc('status')));
+      return;
+    }
     showToast('✅ ' + tc('status'));
     load();
     if (selected?.id === id) setSelected(o => o ? { ...o, status } : null);

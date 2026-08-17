@@ -141,6 +141,7 @@ export const T_ORDER_STATUS = {
   paid:      { fr: 'Payée', en: 'Paid', sv: 'Betald' },
   confirmed: { fr: 'Confirmée', en: 'Confirmed', sv: 'Bekräftad' },
   preparing: { fr: 'En préparation', en: 'Preparing', sv: 'Förbereds' },
+  partial:   { fr: 'Partiellement expédiée', en: 'Partially shipped', sv: 'Delvis skickad' },
   shipped:   { fr: 'Expédiée', en: 'Shipped', sv: 'Skickad' },
   delivered: { fr: 'Livrée', en: 'Delivered', sv: 'Levererad' },
   cancelled: { fr: 'Annulée', en: 'Cancelled', sv: 'Avbruten' },

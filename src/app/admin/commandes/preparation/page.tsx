@@ -21,10 +21,22 @@ import { SqueletteTable } from '@/components/Squelette';
 type Order = {
   id: string; order_number: string; status: string; customer_name?: string;
   lines: any; created_at: string; picking?: Record<string, number>;
+  /** Cumul deja expedie, par produit. Alimente le calcul du reliquat. */
+  shipped_qty?: Record<string, number>;
 };
-type PickLine = { product_id: string; name: string; qty: number; ean?: string; image_url?: string; ref?: string };
+type PickLine = {
+  product_id: string; name: string; ean?: string; image_url?: string; ref?: string;
+  /** Quantite commandee a l'origine. */
+  commande: number;
+  /** Deja parti lors d'une expedition precedente. */
+  dejaExpedie: number;
+  /** Ce qu'il reste a prelever aujourd'hui. */
+  qty: number;
+};
 
-const PAID = ['paid', 'confirmed'];
+/* Une commande partiellement expediee revient dans la file : c'est la
+   qu'on prepare son reliquat quand le reassort arrive. */
+const PAID = ['paid', 'confirmed', 'preparing', 'partial'];
 
 export default function PreparationPage() {
   const { t, tc, lang } = useT(TP);
@@ -66,23 +78,33 @@ export default function PreparationPage() {
     if (!active) return [];
     let raw: any[] = [];
     try { raw = typeof active.lines === 'string' ? JSON.parse(active.lines) : (active.lines || []); } catch { raw = []; }
+    const deja = active.shipped_qty || {};
     return raw.filter(l => l.product_id).map(l => {
       const p = products.find(x => x.id === l.product_id);
+      const commande = Number(l.qty) || 1;
+      const dejaExpedie = Math.min(commande, Number(deja[l.product_id]) || 0);
       return {
         product_id: l.product_id,
         name: nomProduit(l, p, lang),
-        qty: Number(l.qty) || 1,
+        commande,
+        dejaExpedie,
+        // Sur un reliquat, on ne represente que ce qui reste a envoyer.
+        qty: commande - dejaExpedie,
         ean: p?.ean || undefined,
         image_url: l.image_url || p?.image_url,
         ref: p?.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : undefined,
       };
-    });
+    }).filter(l => l.qty > 0);
   }, [active, products, lang]);
 
   const totalQty = lines.reduce((s, l) => s + l.qty, 0);
   const doneQty = lines.reduce((s, l) => s + Math.min(l.qty, picked[l.product_id] || 0), 0);
   const pct = totalQty ? Math.round((doneQty / totalQty) * 100) : 0;
   const complete = totalQty > 0 && doneQty >= totalQty;
+  /* Il y a de quoi expedier, mais pas tout : c'est le cas du reliquat. */
+  const partiel = doneQty > 0 && !complete;
+  const resteApres = totalQty - doneQty;
+  const enReliquat = lines.some(l => l.dejaExpedie > 0);
 
   /** Scan : déduplication et plafonnement dans la mise à jour fonctionnelle. */
   function onScan(code: string) {
@@ -117,34 +139,83 @@ export default function PreparationPage() {
     } catch { /* la reprise de session est un confort */ }
   }
 
-  async function finish() {
-    if (!active || !complete) return;
+  /**
+   * Expedie ce qui est dans le carton.
+   *
+   * `tout` distingue les deux gestes : l'expedition complete solde la
+   * commande, l'expedition partielle cree le reliquat et la laisse dans
+   * la file. Dans les deux cas le stock se decremente sur ce qui PART
+   * reellement — l'ancien code retirait la quantite COMMANDEE, ce qui
+   * aurait fait disparaitre du stock des articles restes en rayon des
+   * lors que l'envoi partiel devenait possible.
+   */
+  async function expedier(tout: boolean) {
+    if (!active || (tout ? !complete : !partiel)) return;
+
+    const colis = Object.fromEntries(
+      lines.map(l => [l.product_id, Math.min(l.qty, picked[l.product_id] || 0)])
+           .filter(([, n]) => (n as number) > 0));
+
+    if (!tout) {
+      const manque = lines
+        .filter(l => (picked[l.product_id] || 0) < l.qty)
+        .map(l => `${l.name} — ${l.qty - (picked[l.product_id] || 0)}`);
+      if (!window.confirm(`${t('confirmReliquat')}\n\n${manque.join('\n')}`)) return;
+    }
+
     setBusy(true);
     try {
-      // Décrément du stock, tracé
-      for (const l of lines) {
-        const p = products.find(x => x.id === l.product_id);
+      for (const [productId, n] of Object.entries(colis)) {
+        const p = products.find(x => x.id === productId);
         if (!p?.track_stock) continue;
         await adminFetch('/api/stock/movement', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            product_id: l.product_id, delta: -l.qty,
+            product_id: productId, delta: -(n as number),
             reason: 'picking', reference: active.order_number,
           }),
         }).catch(() => {});
       }
+
+      // Le cumul sert au reste du ; le dernier colis alimente le bon de
+      // livraison, qui decrit un colis et non un historique.
+      const cumul = { ...(active.shipped_qty || {}) };
+      for (const [productId, n] of Object.entries(colis)) {
+        cumul[productId] = (Number(cumul[productId]) || 0) + (n as number);
+      }
+
       const res = await adminFetch(`/api/orders/${active.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'shipped', picking: picked, picked_at: new Date().toISOString() }),
+        body: JSON.stringify({
+          status: tout ? 'shipped' : 'partial',
+          picking: tout ? picked : {},
+          shipped_qty: cumul,
+          last_shipment: colis,
+          picked_at: new Date().toISOString(),
+          ...(tout ? {} : { backorder_at: new Date().toISOString() }),
+        }),
       });
       if (!res.ok) throw new Error();
-      say(`${active.order_number} ${t('expediee')}`);
-      setOrders(os => os.filter(o => o.id !== active.id));
-      const rest = orders.filter(o => o.id !== active.id);
-      if (rest.length) selectOrder(rest[0]); else { setActiveId(null); setPicked({}); }
+
+      if (tout) {
+        say(`${active.order_number} ${t('expediee')}`);
+        setOrders(os => os.filter(o => o.id !== active.id));
+        const rest = orders.filter(o => o.id !== active.id);
+        if (rest.length) selectOrder(rest[0]); else { setActiveId(null); setPicked({}); }
+      } else {
+        /* La commande RESTE dans la file : le reliquat s'y prepare quand
+           le reassort arrive. Rien n'est envoye automatiquement. */
+        say(`${active.order_number} — ${t('reliquatCree')} (${resteApres})`);
+        const maj = { ...active, status: 'partial', shipped_qty: cumul };
+        setOrders(os => os.map(o => o.id === active.id ? maj : o));
+        setPicked({});
+        setFeedback(null);
+      }
     } catch { say(t('echecValid')); }
     finally { setBusy(false); }
   }
+
+  const finish = () => expedier(true);
 
   return (
     <>
@@ -207,7 +278,10 @@ export default function PreparationPage() {
                 <div className="sc-card" style={{ padding: '13px 15px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{tc('order')} {active.order_number}</span>
-                    <span className="sc-badge" style={{ background: BADGE.blue.bg, color: BADGE.blue.fg }}>{t('aPreparer')}</span>
+                    <span className="sc-badge" style={{
+                      background: enReliquat ? BADGE.amber.bg : BADGE.blue.bg,
+                      color: enReliquat ? BADGE.amber.fg : BADGE.blue.fg,
+                    }}>{enReliquat ? t('reliquat') : t('aPreparer')}</span>
                     <span style={{ flex: 1 }} />
                     <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>{doneQty} / {totalQty} {t('scannes')}</span>
                     <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }}
@@ -258,6 +332,32 @@ export default function PreparationPage() {
                            href={`/admin/documents/bon-de-livraison/${active.id}`} target="_blank" rel="noopener">
                           <span className="ms">print</span>{t('imprimerBL')}
                         </a>
+                      </div>
+                    ) : partiel ? (
+                      /* Il manque un article : on envoie ce qui est pret
+                         plutot que de retenir tout le colis. */
+                      <div className="sc-card" style={{ borderColor: '#E8CFA8', padding: '13px 15px' }}>
+                        <div className="sc-card-title" style={{ color: '#8A5B08', marginBottom: 8 }}>{t('envoiPartiel')}</div>
+                        <div style={{ fontSize: 11.5, color: T.text2b, marginBottom: 10 }}>
+                          {t('envoiPartielD')}
+                        </div>
+                        <div style={{ background: '#FDF6EA', borderRadius: 7, padding: '8px 11px', marginBottom: 10 }}>
+                          {lines.filter(l => (picked[l.product_id] || 0) < l.qty).map(l => (
+                            <div key={l.product_id} style={{ display: 'flex', gap: 8, fontSize: 11.5, color: '#8A5B08' }}>
+                              <span style={{ flex: 1, minWidth: 0 }}>{l.name}</span>
+                              <span className="sc-num" style={{ fontWeight: 700 }}>
+                                {l.qty - (picked[l.product_id] || 0)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button className="sc-btn" style={{
+                          width: '100%', justifyContent: 'center',
+                          background: '#8A5B08', color: '#fff', border: 'none',
+                        }} onClick={() => expedier(false)} disabled={busy}>
+                          <span className="ms">local_shipping</span>
+                          {busy ? t('validation') : t('expedierPret')}
+                        </button>
                       </div>
                     ) : (
                       <div className="sc-card" style={{ padding: '13px 15px' }}>

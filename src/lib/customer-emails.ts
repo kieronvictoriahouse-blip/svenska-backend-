@@ -2,7 +2,7 @@ import { renderEmail, sujetPersonnalise, EmailTemplate } from '@/lib/email-templ
 import { LangueClient, langueDeCommande } from '@/lib/langue-client';
 import {
   TE, SANS_PRENOM, SUJETS, texte, mentionPaiement, libelleLivraison,
-  titreContenu, colisInfo, accrocheAvoir, corpsRupture,
+  titreContenu, colisInfo, accrocheAvoir, corpsRupture, titreReliquat, noteReliquat,
   formatEuro, formatDate, formatDateHeure,
 } from '@/lib/emails-i18n';
 
@@ -245,7 +245,29 @@ export async function expeditionEmail(order: any, o: OptEmail = {}) {
   const lang = langueDe(order, o);
   const suivi = order?.tracking_number || order?.mondial_relay_tracking
     || order?.logspher_tracking || '';
-  const lignes = lignesDe(order, lang, o.produits);
+
+  /* Un colis partiel ne contient pas la commande entiere : l'email doit
+     lister ce qui est DANS LE CARTON, et dire ce qui suivra. Annoncer les
+     articles manquants comme expedies serait le pire des messages. */
+  const colis: Record<string, number> | null = order?.last_shipment || null;
+  const cumul: Record<string, number> | null = order?.shipped_qty || colis;
+
+  const toutes = lignesDe(order, lang, o.produits);
+  const brutes = parseLines(order?.lines).filter(l => !isShipping(l));
+
+  const lignes = colis
+    ? toutes.map((l, i) => ({ ...l, qte: String(colis[brutes[i]?.product_id] ?? 0) }))
+            .filter(l => Number(l.qte) > 0)
+    : toutes;
+
+  const reste = cumul
+    ? toutes.map((l, i) => {
+        const commande = Number(brutes[i]?.qty) || 0;
+        const parti = Number(cumul[brutes[i]?.product_id]) || 0;
+        return { nom: l.nom, qte: String(Math.max(0, commande - parti)) };
+      }).filter(l => Number(l.qte) > 0)
+    : [];
+
   const nbArticles = lignes.reduce((s, l) => s + (Number(l.qte) || 0), 0);
 
   return {
@@ -266,6 +288,12 @@ export async function expeditionEmail(order: any, o: OptEmail = {}) {
       date_preparee: formatDateHeure(order?.picked_at || order?.created_at, lang),
       date_remise: formatDateHeure(order?.shipped_at || new Date().toISOString(), lang),
       attente_retrait: texte('attenteRetrait', lang),
+      /* Le bloc « ce qui suivra » ne s'affiche que s'il reste quelque
+         chose : sur un envoi complet il n'aurait rien a dire. */
+      a_reliquat: reste.length > 0,
+      reste,
+      titre_reliquat: titreReliquat(lang),
+      note_reliquat: noteReliquat(lang),
       etape_remise: texte('etapeRemise', lang),
       etape_remise_note: texte('etapeRemiseNote', lang),
     }, lang),

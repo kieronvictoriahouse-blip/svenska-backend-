@@ -135,6 +135,21 @@
               <!--/each-->
             </table>
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:12px; line-height:19px; mso-line-height-rule:exactly; color:#948B79; padding-top:12px;">{{ colis_info }}</div>
+
+            <!--#if a_reliquat-->
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; border-collapse:collapse; margin-top:22px;">
+              <tr>
+                <td colspan="2" style="padding:0 0 9px 0; border-bottom:1px solid #B49256; font-family:Arial,Helvetica,sans-serif; font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A6A1F; font-weight:bold;">{{ titre_reliquat }}</td>
+              </tr>
+              <!--#each reste-->
+              <tr>
+                <td style="padding:11px 10px 11px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C;">{{ nom }}</td>
+                <td align="right" width="60" style="width:60px; padding:11px 0; border-bottom:1px solid #EFE9DC; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:20px; mso-line-height-rule:exactly; color:#8A6A1F; font-weight:bold;">× {{ qte }}</td>
+              </tr>
+              <!--/each-->
+            </table>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:12px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:12px;">{{ note_reliquat }}</div>
+            <!--/if-->
           </td>
         </tr>
 
