@@ -48,8 +48,7 @@ const NOMS_PAYS = {
 const PAYS_FR = new Set(['FR', 'BE', 'CH', 'LU', 'MC', 'GP', 'MQ', 'RE', 'YT', 'GF', 'NC', 'PF']);
 
 function paysDeLivraison(o) {
-  const direct = o.shipping_country || o.relay_point_pays;
-  if (direct) return String(direct).trim().toUpperCase().slice(0, 2);
+  if (o.shipping_country) return String(o.shipping_country).trim().toUpperCase().slice(0, 2);
 
   let a = o.shipping_address ?? o.billing_address;
   if (typeof a === 'string' && a.trim().startsWith('{')) {
@@ -75,9 +74,40 @@ function paysDeLivraison(o) {
 
 const langueDePays = p => !p ? 'fr' : PAYS_FR.has(p) ? 'fr' : p === 'SE' ? 'sv' : 'en';
 
+/* `customer_profiles.country` porte DEFAULT 'FR' : un profil sans adresse
+   affiche « FR » sans que le client l'ait dit. On n'accepte ce pays que
+   lorsqu'une adresse l'accompagne. */
+function paysDeProfil(p) {
+  if (!p || !p.country) return null;
+  if (!(p.address1 || p.city || p.postal_code)) return null;
+  return String(p.country).trim().toUpperCase().slice(0, 2);
+}
+
 (async () => {
   const { data: commandes, error } = await sb.from('orders')
-    .select('id, order_number, lang, shipping_country, shipping_address, billing_address, relay_point_pays');
+    .select('id, order_number, customer_email, lang, shipping_country, shipping_address, billing_address, relay_point_pays, relay_point_name');
+
+  /* Le profil boutique, indexe par email, sert de repli au pays quand
+     l'adresse de la commande ne dit rien. */
+  /* La colonne `lang` n'existe qu'apres la 039. Sans ce repli, la
+     requete echoue EN ENTIER et le script perd les 19 profils sans rien
+     dire — exactement le silence qu'on cherche a eviter. */
+  let profils = null;
+  {
+    const avecLang = await sb.from('customer_profiles')
+      .select('email, lang, country, address1, city, postal_code');
+    if (avecLang.error) {
+      console.log('(migration 039 pas encore appliquee — la langue du profil sera ignoree)');
+      const sansLang = await sb.from('customer_profiles')
+        .select('email, country, address1, city, postal_code');
+      if (sansLang.error) console.log('(profils illisibles :', sansLang.error.message + ')');
+      profils = sansLang.data;
+    } else {
+      profils = avecLang.data;
+    }
+  }
+  const parMail = Object.fromEntries((profils || [])
+    .map(p => [String(p.email || '').toLowerCase(), p]));
   if (error) {
     console.error('Lecture impossible :', error.message);
     console.error('La migration 038 a-t-elle été appliquée ?');
@@ -92,7 +122,9 @@ const langueDePays = p => !p ? 'fr' : PAYS_FR.has(p) ? 'fr' : p === 'SE' ? 'sv' 
     /* Un choix manuel ne se recalcule jamais : sinon corriger la langue
        d'un client ne servirait qu'une fois. */
     if (o.lang) { dejaChoisies++; continue; }
-    const pays = paysDeLivraison(o);
+    const profil = parMail[String(o.customer_email || '').toLowerCase()];
+    if (profil && profil.lang) { aEcrire.push({ id: o.id, lang: profil.lang, shipping_country: paysDeLivraison(o) }); continue; }
+    const pays = paysDeLivraison(o) || paysDeProfil(profil);
     const langue = langueDePays(pays);
     if (!pays) sansPays.push(o.order_number);
     compte[`${pays || '?'} → ${langue}`] = (compte[`${pays || '?'} → ${langue}`] || 0) + 1;

@@ -51,8 +51,11 @@ const NOMS_PAYS: Record<string, string> = {
 export function paysDeLivraison(order: any): string | null {
   if (!order) return null;
 
-  const direct = order.shipping_country || order.relay_point_pays;
-  if (direct) return String(direct).trim().toUpperCase().slice(0, 2);
+  /* Seule la colonne dédiée fait foi d'emblée : elle n'existe que parce
+     qu'on l'a calculée. */
+  if (order.shipping_country) {
+    return String(order.shipping_country).trim().toUpperCase().slice(0, 2);
+  }
 
   let a = order.shipping_address ?? order.billing_address;
   if (typeof a === 'string' && a.trim().startsWith('{')) {
@@ -81,6 +84,14 @@ export function paysDeLivraison(order: any): string | null {
     if (/\b\d{5}\b/.test(texte) && !/\b[A-Z]{1,2}\d/i.test(texte)) return 'FR';
   }
 
+  /* `relay_point_pays` en tout dernier recours, et seulement si un point
+     relais est réellement nommé. Mesuré : il vaut « FR » sur 108
+     commandes sur 109, y compris deux livraisons à Leeds et Altrincham.
+     Le lire avant l'adresse rendait ces clients britanniques français. */
+  if (order.relay_point_pays && order.relay_point_name) {
+    return String(order.relay_point_pays).trim().toUpperCase().slice(0, 2);
+  }
+
   return null;
 }
 
@@ -102,24 +113,59 @@ export function langueDePays(pays: string | null | undefined): LangueClient {
 }
 
 /**
+ * Pays déclaré par un profil client — **seulement s'il est crédible**.
+ *
+ * `customer_profiles.country` porte `DEFAULT 'FR'` : un profil créé sans
+ * adresse affiche « FR » sans que le client l'ait jamais dit. Sur les 19
+ * profils existants, 12 sont dans ce cas. On n'accepte donc ce pays que
+ * lorsqu'une adresse l'accompagne — sinon on lit une valeur par défaut
+ * en croyant lire une donnée.
+ */
+export function paysDeProfil(profil: any): string | null {
+  if (!profil?.country) return null;
+  const aUneAdresse = !!(profil.address1 || profil.city || profil.postal_code);
+  if (!aUneAdresse) return null;
+  return String(profil.country).trim().toUpperCase().slice(0, 2);
+}
+
+/** Sources de langue, du plus explicite au plus déduit. */
+export type SourcesLangue = {
+  /** Profil boutique, indexé par email — survit d'une commande à l'autre. */
+  profil?: any;
+  /** Fiche du carnet d'adresses, quand le client y figure. */
+  contact?: any;
+};
+
+/**
  * Langue à utiliser pour une commande.
  *
- * Priorité : le choix manuel porté par la commande, puis celui du
- * contact, puis la déduction. Le choix explicite gagne toujours —
- * c'est ce qui permet de corriger un cas particulier sans se battre
- * contre l'automatisme.
+ * Ordre : le choix porté par la commande, puis celui du profil client,
+ * puis celui du contact, puis la déduction depuis le pays. Un choix
+ * explicite gagne toujours — c'est ce qui permet de corriger un cas
+ * particulier sans se battre contre l'automatisme.
+ *
+ * Le pays de livraison prime sur celui du profil : un client peut se
+ * faire livrer ailleurs que chez lui, et le colis part avec le document.
  */
-export function langueDeCommande(order: any, contact?: any): LangueClient {
-  const choix = order?.lang || contact?.lang;
-  if (choix && LANGUES_CLIENT.includes(choix)) return choix as LangueClient;
-  return langueDePays(paysDeLivraison(order) || contact?.country);
+export function langueDeCommande(order: any, s: SourcesLangue | any = {}): LangueClient {
+  // Tolère l'ancien appel `langueDeCommande(order, contact)`.
+  const src: SourcesLangue = s && (s.profil || s.contact) ? s : { contact: s };
+
+  for (const choix of [order?.lang, src.profil?.lang, src.contact?.lang]) {
+    if (choix && LANGUES_CLIENT.includes(choix)) return choix as LangueClient;
+  }
+  const pays = paysDeLivraison(order)
+    || paysDeProfil(src.profil)
+    || (src.contact?.country ? String(src.contact.country).trim().toUpperCase().slice(0, 2) : null);
+  return langueDePays(pays);
 }
 
 /** Vrai quand la langue vient d'un choix, pas d'une déduction — l'écran
  *  doit pouvoir dire laquelle des deux il affiche. */
-export function langueChoisie(order: any, contact?: any): boolean {
-  const choix = order?.lang || contact?.lang;
-  return !!choix && LANGUES_CLIENT.includes(choix);
+export function langueChoisie(order: any, s: SourcesLangue | any = {}): boolean {
+  const src: SourcesLangue = s && (s.profil || s.contact) ? s : { contact: s };
+  return [order?.lang, src.profil?.lang, src.contact?.lang]
+    .some(c => c && LANGUES_CLIENT.includes(c));
 }
 
 export const NOM_LANGUE: Record<LangueClient, string> = {
