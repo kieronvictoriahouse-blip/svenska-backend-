@@ -21,7 +21,17 @@ const JSX = />[A-ZÀ-Ü][a-zà-ÿ][^<>{}]{3,}</g;
 const ATTRS = /(placeholder|title|aria-label)="[A-ZÀ-Ü][^"]{4,}"/g;
 const TOASTS = /(showToast|say|alert)\(\s*'[^']*[A-ZÀ-Üa-zà-ÿ]{4,}[^']*'/g;
 
-const IGNORE = /Content-Type|application\/json|SWEDISH|EAN|Stripe|Mondial|http/;
+/* Ce qui n'est PAS à traduire, et qu'il faut donc arrêter de compter :
+   · noms de marques et de produits (Instagram, Shopflow…) ;
+   · exemples de contenu propres à une langue — le champ « Nom SV »
+     s'illustre avec « Kryddor », le traduire n'aurait aucun sens ;
+   · en-têtes techniques. */
+const IGNORE = new RegExp([
+  'Content-Type', 'application/json', 'http',
+  'SWEDISH', 'EAN', 'Stripe', 'Mondial', 'Shopflow',
+  'Instagram', 'Facebook', 'Pinterest',
+  'Kryddor', 'Spices', 'Épices & aromates',
+].join('|'));
 
 function fichiers(dir) {
   const out = [];

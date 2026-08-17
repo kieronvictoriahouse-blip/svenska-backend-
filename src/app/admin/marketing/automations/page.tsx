@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TAU, cronExecute } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 13 — AUTOMATIONS
@@ -59,6 +61,7 @@ const Pill = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default function AutomationsPage() {
+  const { t, tc, lang } = useT(TAU);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
@@ -86,12 +89,12 @@ export default function AutomationsPage() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: a.id, status }),
     });
-    if (!res.ok) { say('Changement impossible'); load(); return; }
+    if (!res.ok) { say(t('msgChangement')); load(); return; }
     say(status === 'active' ? 'Automation activée' : 'Automation en pause');
   }
 
   async function activate(p: Preset) {
-    if (automations.find(a => a.type === p.type)) { say('Cette automation existe déjà'); return; }
+    if (automations.find(a => a.type === p.type)) { say(t('msgExisteDeja')); return; }
     const res = await adminFetch('/api/marketing/automations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -99,8 +102,8 @@ export default function AutomationsPage() {
         subject: p.defaultSubject, status: 'active',
       }),
     });
-    if (res.ok) { await load(); say('Automation créée et activée'); }
-    else say('Création impossible');
+    if (res.ok) { await load(); say(t('msgCreee')); }
+    else say(t('msgCreationKo'));
   }
 
   async function saveEdit() {
@@ -111,14 +114,14 @@ export default function AutomationsPage() {
     });
     setEditId(null);
     await load();
-    say('Automation mise à jour');
+    say(t('msgMaj'));
   }
 
   async function remove(id: string) {
-    if (!window.confirm('Supprimer cette automation ?')) return;
+    if (!window.confirm(t('msgConfirmDel'))) return;
     await adminFetch(`/api/marketing/automations?id=${id}`, { method: 'DELETE' });
     await load();
-    say('Automation supprimée');
+    say(t('msgSupprimee'));
   }
 
   async function runNow() {
@@ -126,7 +129,7 @@ export default function AutomationsPage() {
     try {
       const d = await adminFetch('/api/cron/marketing').then(r => r.json());
       setLastRun(`${d.sent || 0} email(s) · ${new Date().toLocaleTimeString('fr-FR')}`);
-      say(`Cron exécuté : ${d.sent || 0} email(s) envoyé(s)`);
+      say(cronExecute(d.sent || 0, lang));
     } finally { setRunning(false); }
   }
 
@@ -137,7 +140,7 @@ export default function AutomationsPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Automations</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             {automations.filter(a => a.status === 'active').length} séquence(s) active(s)
             {lastRun ? ` · dernier envoi : ${lastRun}` : ''}
@@ -150,7 +153,7 @@ export default function AutomationsPage() {
         </div>
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <div className="sc-empty">{tc('loading')}</div>}
 
       {!loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -196,8 +199,8 @@ export default function AutomationsPage() {
                           onClick={() => toggle(a)} aria-label={`Activer ${a.name}`} />
 
                   <button className="sc-iconbtn" onClick={() => { setEditId(isEditing ? null : a.id); setEditData({ delay_hours: a.delay_hours, subject: a.subject }); }}
-                          aria-label="Modifier"><span className="ms">{isEditing ? 'expand_less' : 'edit'}</span></button>
-                  <button className="sc-iconbtn" onClick={() => remove(a.id)} aria-label="Supprimer">
+                          aria-label={tc('edit')}><span className="ms">{isEditing ? 'expand_less' : 'edit'}</span></button>
+                  <button className="sc-iconbtn" onClick={() => remove(a.id)} aria-label={tc('delete')}>
                     <span className="ms">delete</span>
                   </button>
                 </div>
@@ -210,13 +213,13 @@ export default function AutomationsPage() {
                              onChange={e => setEditData(d => ({ ...d, delay_hours: parseInt(e.target.value) || 0 }))} />
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label className="sc-label">Objet de l’email</label>
+                      <label className="sc-label">{t('objetEmail')}</label>
                       <input className="sc-input" value={editData.subject ?? ''}
                              onChange={e => setEditData(d => ({ ...d, subject: e.target.value }))} />
                     </div>
                     <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                      <button className="sc-btn sc-btn-secondary" onClick={() => setEditId(null)}>Annuler</button>
-                      <button className="sc-btn sc-btn-green" onClick={saveEdit}><span className="ms">save</span>Enregistrer</button>
+                      <button className="sc-btn sc-btn-secondary" onClick={() => setEditId(null)}>{tc('cancel')}</button>
+                      <button className="sc-btn sc-btn-green" onClick={saveEdit}><span className="ms">save</span>{tc('save')}</button>
                     </div>
                   </div>
                 )}
@@ -226,7 +229,7 @@ export default function AutomationsPage() {
 
           {inactive.length > 0 && (
             <>
-              <div className="sc-label" style={{ marginTop: 8 }}>Séquences disponibles</div>
+              <div className="sc-label" style={{ marginTop: 8 }}>{t('sequences')}</div>
               {inactive.map(p => (
                 <div key={p.type} className="sc-card" style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '13px 15px', opacity: .78 }}>
                   <div style={{
@@ -241,7 +244,7 @@ export default function AutomationsPage() {
                     <div style={{ fontSize: 11, color: T.muted }}>{p.desc}</div>
                   </div>
                   <button className="sc-btn sc-btn-secondary" onClick={() => activate(p)}>
-                    <span className="ms">add</span>Activer
+                    <span className="ms">add</span>{t('activer')}
                   </button>
                 </div>
               ))}

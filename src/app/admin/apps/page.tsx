@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, initials } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TAP } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 20 — PARAMÈTRES
@@ -15,6 +17,7 @@ import { T, BADGE, initials } from '@/lib/admin-theme';
 type Cfg = Record<string, any>;
 
 export default function ParametresPage() {
+  const { t, tc, lang } = useT(TAP);
   const [cfg, setCfg] = useState<Cfg>({});
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(true);
@@ -70,12 +73,12 @@ export default function ParametresPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Paramètres</div>
-          <div className="sc-sub">Configuration de la boutique et des accès</div>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">{t('sous')}</div>
         </div>
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <div className="sc-empty">{tc('loading')}</div>}
 
       {!loading && (
         <>
@@ -103,8 +106,8 @@ export default function ParametresPage() {
 
           <div className="sc-card">
             <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="sc-card-title">Accès & utilisateurs</span>
-              <span style={{ fontSize: 11.5, color: T.muted }}>Gestion multi-utilisateurs non activée</span>
+              <span className="sc-card-title">{t('acces')}</span>
+              <span style={{ fontSize: 11.5, color: T.muted }}>{t('multiUtilisateurs')}</span>
             </div>
             <div style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{
@@ -116,7 +119,7 @@ export default function ParametresPage() {
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{email.split('@')[0] || 'Administrateur'}</div>
                 <div style={{ fontSize: 11, color: T.muted, wordBreak: 'break-all' }}>{email || '—'}</div>
               </div>
-              <span className="sc-badge" style={{ background: BADGE.plum.bg, color: BADGE.plum.fg }}>Propriétaire</span>
+              <span className="sc-badge" style={{ background: BADGE.plum.bg, color: BADGE.plum.fg }}>{t('proprietaire')}</span>
             </div>
             <div style={{ padding: '11px 15px', borderTop: `1px solid ${T.borderFaint}`, background: T.surfaceAlt, fontSize: 11.5, color: T.muted }}>
               Le back-office fonctionne avec un compte unique. Inviter d’autres utilisateurs demanderait

@@ -9,6 +9,8 @@ import BonDeCommande from '@/components/documents/BonDeCommande';
 import BonDeLivraison from '@/components/documents/BonDeLivraison';
 import Devis from '@/components/documents/Devis';
 import BonDeRetour from '@/components/documents/BonDeRetour';
+import { traduire, useAdminLang } from '@/lib/admin-i18n';
+import { TDO } from '@/app/admin/factures/[id]/i18n';
 
 /* Route d'impression : /admin/documents/<type>/<id>
    types : facture · avoir · bon-de-commande · bon-de-livraison · devis · bon-de-retour
@@ -57,6 +59,7 @@ const splitAddress = (v: any): string[] => {
 };
 
 export default function DocumentPrintPage() {
+  const langue = useAdminLang();
   const params = useParams<{ type: string; id: string }>();
   const qs = useSearchParams();
   const type = String(params?.type || '');
@@ -97,7 +100,7 @@ export default function DocumentPrintPage() {
   }, [id, type, source]);
 
   if (error) return <div style={{ padding: 40, fontFamily: 'Jost, sans-serif' }}>⚠️ {error}</div>;
-  if (!doc) return <div style={{ padding: 40, fontFamily: 'Jost, sans-serif' }}>Chargement…</div>;
+  if (!doc) return <div style={{ padding: 40, fontFamily: 'Jost, sans-serif' }}>{'…'}</div>;
 
   /* ── Identité de l'émetteur ─────────────────────────── */
   const sellerName = doc.seller_name || cfg.site_name || 'Swedish Cravings';
@@ -169,7 +172,7 @@ export default function DocumentPrintPage() {
 
   const toolbar = (
     <div className="doc-toolbar">
-      <button onClick={() => window.print()}>Imprimer / PDF</button>
+      <button onClick={() => window.print()}>{traduire(TDO.imprimer, langue)}</button>
       <a href={source === 'purchase' ? '/admin/achats' : source === 'invoice' ? '/admin/gestion' : '/admin/commandes'}>← Retour</a>
       <span style={{ flex: 1 }} />
       <span style={{ opacity: .6 }}>{TITLES[type]} {doc.number || doc.order_number}</span>
@@ -317,5 +320,5 @@ export default function DocumentPrintPage() {
     }} />);
   }
 
-  return <div style={{ padding: 40, fontFamily: 'Jost, sans-serif' }}>Type inconnu.</div>;
+  return <div style={{ padding: 40, fontFamily: 'Jost, sans-serif' }}>{traduire(TDO.typeInconnu, langue)}</div>;
 }

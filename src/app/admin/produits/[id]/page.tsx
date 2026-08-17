@@ -5,6 +5,8 @@ import Link from 'next/link';
 import ProductForm, { ProductTab } from '@/components/ProductForm';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TFP } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 3 — FICHE PRODUIT
@@ -29,6 +31,7 @@ const since = (iso?: string) => {
 };
 
 export default function EditProduitPage() {
+  const { t, tc, lang } = useT(TFP);
   const router = useRouter();
   const params = useParams();
   const id = params?.id as string;
@@ -82,27 +85,27 @@ export default function EditProduitPage() {
         throw new Error(d.error || 'Erreur serveur');
       }
       setProduct((p: any) => ({ ...p, ...data, updated_at: new Date().toISOString() }));
-      say('Produit enregistré');
+      say(t('msgEnregistre'));
     } catch (e: any) {
       say(e.message || 'Enregistrement impossible');
     } finally { setSaving(false); }
   }
 
   async function handleDelete() {
-    if (!window.confirm('Supprimer définitivement ce produit ? Cette action est irréversible.')) return;
+    if (!window.confirm(t('msgConfirmDel'))) return;
     setDeleting(true);
     try {
       const res = await adminFetch(`/api/products/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
       router.push('/admin/produits');
     } catch {
-      say('Suppression impossible');
+      say(t('msgSupprKo'));
       setDeleting(false);
     }
   }
 
-  if (loading) return <div className="sc-empty">Chargement…</div>;
-  if (!product) return <div className="sc-empty">Produit introuvable.</div>;
+  if (loading) return <div className="sc-empty">{tc('loading')}</div>;
+  if (!product) return <div className="sc-empty">{t('introuvable')}</div>;
 
   const category = categories.find(c => c.id === product.category_id);
 
@@ -116,7 +119,7 @@ export default function EditProduitPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Link href="/admin/produits" className="sc-iconbtn"
-                style={{ width: 30, height: 30, border: `1px solid ${T.borderField}` }} aria-label="Retour aux produits">
+                style={{ width: 30, height: 30, border: `1px solid ${T.borderField}` }} aria-label={t('retourProduits')}>
             <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
           </Link>
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -138,7 +141,7 @@ export default function EditProduitPage() {
               <span className="ms">delete</span>{deleting ? '…' : 'Supprimer'}
             </button>
             <a className="sc-btn sc-btn-secondary" href={`${frontUrl}/produit.html?id=${id}`} target="_blank" rel="noopener">
-              <span className="ms">visibility</span>Aperçu
+              <span className="ms">visibility</span>{t('apercu')}
             </a>
             <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving}>
               <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}

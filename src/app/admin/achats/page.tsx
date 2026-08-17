@@ -5,6 +5,8 @@ import { T as TH, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, AdminLang, nomProduit } from '@/lib/admin-i18n';
 import { SqueletteTable } from '@/components/Squelette';
+import { TAC, tauxDuJour } from './i18n2';
+import { traduire } from '@/lib/admin-i18n';
 
 type PurchaseOrder = {
   id: string; number: string; status: string; supplier_id?: string; supplier_name?: string;
@@ -97,6 +99,7 @@ export default function AchatsPage() {
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
+  const t2 = (key: keyof typeof TAC) => traduire(TAC[key], L);
   const tc = (key: keyof typeof T_COMMON) => T_COMMON[key][L] || T_COMMON[key].fr;
 
   useEffect(() => {
@@ -152,10 +155,10 @@ export default function AchatsPage() {
             total: parseFloat((l.qty * l.unit_cost * rate).toFixed(2)),
           })),
         }));
-        showToast(`✅ 1 ${curr} = ${rate} EUR (${data.date})`);
+        showToast(tauxDuJour(curr, rate, data.date, L));
       }
     } catch {
-      showToast('❌ Impossible de récupérer le taux');
+      showToast(t2('msgTauxKo'));
     }
     setFetchingRate(false);
   }
@@ -185,7 +188,7 @@ export default function AchatsPage() {
 
   async function saveOrder() {
     if (!form.supplier_id) { showToast('⚠️ ' + t('supplier')); return; }
-    if (currency !== 'EUR' && !exchangeRate) { showToast('⚠️ Taux de change non chargé — sélectionnez la devise à nouveau'); return; }
+    if (currency !== 'EUR' && !exchangeRate) { showToast(t2('msgTauxManquant')); return; }
     const token = localStorage.getItem('sd_admin_token') || '';
     const supplier = suppliers.find(s => s.id === form.supplier_id);
     const url = editingOrder ? `/api/purchase-orders/${editingOrder.id}` : '/api/purchase-orders';
@@ -259,12 +262,12 @@ export default function AchatsPage() {
 
   async function downloadPdf(order: PurchaseOrder, lang: 'sv' | 'en') {
     const token = localStorage.getItem('sd_admin_token') || '';
-    showToast('⏳ Génération PDF…');
+    showToast(t2('msgPdfGen'));
     try {
       const res = await adminFetch(`/api/purchase-orders/${order.id}/pdf?lang=${lang}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) { showToast('❌ Erreur génération PDF'); return; }
+      if (!res.ok) { showToast(t2('msgPdfGenKo')); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -274,9 +277,9 @@ export default function AchatsPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast('✅ PDF téléchargé');
+      showToast(t2('msgPdfOk'));
     } catch {
-      showToast('❌ Erreur téléchargement PDF');
+      showToast(t2('msgPdfKo'));
     }
   }
 
@@ -292,13 +295,13 @@ export default function AchatsPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        showToast('✅ PDF envoyé par email');
+        showToast(t2('msgMailOk'));
         setShowSendModal(false);
       } else {
         showToast('❌ ' + (data.error || 'Erreur envoi'));
       }
     } catch {
-      showToast('❌ Erreur envoi email');
+      showToast(t2('msgMailKo'));
     } finally {
       setSendingPdf(false);
     }
@@ -434,8 +437,8 @@ export default function AchatsPage() {
             <option value="">{t('allStatuses')}</option>
             {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
           </select>
-          <Link className="sc-btn" href="/admin/achats/conditionnements" title="Unités par carton">
-            <span className="ms">inventory_2</span>Conditionnements
+          <Link className="sc-btn" href="/admin/achats/conditionnements" title={t2('conditionnementsTitre')}>
+            <span className="ms">inventory_2</span>{t2('conditionnements')}
           </Link>
           {/* La saisie manuelle reste accessible : elle sert aux cas que
               le réappro ne couvre pas, et c'est le seul chemin d'édition
@@ -445,7 +448,7 @@ export default function AchatsPage() {
             setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
             setEditingOrder(null); setShowModal(true);
           }}>
-            <span className="ms">edit_note</span>Saisie manuelle
+            <span className="ms">edit_note</span>{t2('saisieManuelle')}
           </button>
           <Link href="/admin/achats/nouvelle" className="sc-btn sc-btn-primary">
             <span className="ms">auto_awesome</span>{t('newBtn')}
@@ -473,7 +476,7 @@ export default function AchatsPage() {
           <button onClick={() => setShowSuggestions(s => !s)}
             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '12px 15px', border: 'none', background: '#FFF7ED', cursor: 'pointer', textAlign: 'left' }}>
             <span className="ms" style={{ fontSize: 18, color: BADGE.orange.fg }}>trending_up</span>
-            <span className="sc-card-title">Suggestions de réapprovisionnement</span>
+            <span className="sc-card-title">{t2('suggestions')}</span>
             <span className="sc-badge" style={{ background: BADGE.red.bg, color: BADGE.red.fg }}>
               {suggestions.filter(s => s.urgency === 'rupture').length} rupture(s)
             </span>
@@ -489,12 +492,12 @@ export default function AchatsPage() {
               <table className="sc-table" style={{ minWidth: 760 }}>
                 <thead>
                   <tr>
-                    <th>Produit</th>
-                    <th style={{ width: 110 }}>Urgence</th>
-                    <th className="sc-right" style={{ width: 100 }}>Stock</th>
-                    <th className="sc-right" style={{ width: 90 }}>Ventes 90 j</th>
-                    <th className="sc-right" style={{ width: 90 }}>Par jour</th>
-                    <th className="sc-right" style={{ width: 90 }}>Autonomie</th>
+                    <th>{tc('product')}</th>
+                    <th style={{ width: 110 }}>{t2('urgence')}</th>
+                    <th className="sc-right" style={{ width: 100 }}>{tc('stock')}</th>
+                    <th className="sc-right" style={{ width: 90 }}>{t2('ventes90')}</th>
+                    <th className="sc-right" style={{ width: 90 }}>{t2('parJour')}</th>
+                    <th className="sc-right" style={{ width: 90 }}>{t2('autonomie')}</th>
                     <th className="sc-right" style={{ width: 90 }}>Qté</th>
                     <th style={{ width: 110 }} />
                   </tr>
@@ -540,7 +543,7 @@ export default function AchatsPage() {
                             setCurrency('EUR'); setExchangeRate(1);
                             setEditingOrder(null); setShowModal(true);
                           }}>
-                            <span className="ms" style={{ fontSize: 15 }}>add</span>Commander
+                            <span className="ms" style={{ fontSize: 15 }}>add</span>{t2('commander')}
                           </button>
                         </td>
                       </tr>
@@ -562,7 +565,7 @@ export default function AchatsPage() {
                 <th style={{ width: 130 }}>{t('colNum')}</th>
                 <th>{t('colSupplier')}</th>
                 <th style={{ width: 110 }}>{t('colExpected')}</th>
-                <th className="sc-right" style={{ width: 70 }}>Lignes</th>
+                <th className="sc-right" style={{ width: 70 }}>{t2('lignes')}</th>
                 <th className="sc-right" style={{ width: 110 }}>{t('colTotal')}</th>
                 <th style={{ width: 130 }}>{tc('status')}</th>
                 <th style={{ width: 210 }}>{tc('actions')}</th>
@@ -605,7 +608,7 @@ export default function AchatsPage() {
                                 value={o.status} onChange={e => updateStatus(o.id, e.target.value)}>
                           {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
                         </select>
-                        <a className="sc-iconbtn" href={`/admin/documents/bon-de-commande/${o.id}`} target="_blank" rel="noopener" title="Bon de commande A4">
+                        <a className="sc-iconbtn" href={`/admin/documents/bon-de-commande/${o.id}`} target="_blank" rel="noopener" title={t2('bonA4')}>
                           <span className="ms">print</span>
                         </a>
                         {/* On modifie là où l'on voit la couverture et les
@@ -621,7 +624,7 @@ export default function AchatsPage() {
                             <span className="ms">edit</span>
                           </button>
                         )}
-                        <button className="sc-iconbtn" onClick={() => openSendModal(o)} title="PDF / Envoyer">
+                        <button className="sc-iconbtn" onClick={() => openSendModal(o)} title={t2('pdfEnvoyer')}>
                           <span className="ms">send</span>
                         </button>
                         {['confirmed', 'partial'].includes(o.status) && (
@@ -766,7 +769,7 @@ export default function AchatsPage() {
               </div>
               <div className="modal-body">
                 <div className="form-group">
-                  <label className="form-label">Langue du document</label>
+                  <label className="form-label">{t2('langueDoc')}</label>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
                       className={`btn ${sendLang === 'sv' ? 'btn-primary' : 'btn-secondary'}`}
@@ -785,7 +788,7 @@ export default function AchatsPage() {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Email fournisseur (pour envoi)</label>
+                  <label className="form-label">{t2('emailFournisseur')}</label>
                   <input
                     type="email"
                     className="form-control"
@@ -806,7 +809,7 @@ export default function AchatsPage() {
                   ⬇️ Télécharger PDF
                 </button>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-secondary" onClick={() => setShowSendModal(false)}>Annuler</button>
+                  <button className="btn btn-secondary" onClick={() => setShowSendModal(false)}>{tc('cancel')}</button>
                   <button
                     className="btn btn-primary"
                     disabled={!sendEmailInput || sendingPdf}

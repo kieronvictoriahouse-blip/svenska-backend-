@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TME, imagesEnvoyees, confirmerSuppressionFichier, ceFichier } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 16 — MÉDIATHÈQUE
@@ -19,6 +21,7 @@ const fmtSize = (b?: number) =>
   !b ? '—' : b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} Mo` : `${Math.round(b / 1024)} Ko`;
 
 export default function MediasPage() {
+  const { t, tc, lang } = useT(TME);
   const [media, setMedia] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -54,18 +57,18 @@ export default function MediasPage() {
       if (res.ok) ok++;
     }
     setUploading(false);
-    say(`${ok} image${ok > 1 ? 's' : ''} envoyée${ok > 1 ? 's' : ''}`);
+    say(imagesEnvoyees(ok, lang));
     load();
   }
 
   async function remove(item: Media) {
-    if (!window.confirm(`Supprimer « ${item.filename || 'ce fichier'} » ?`)) return;
+    if (!window.confirm(confirmerSuppressionFichier(item.filename || ceFichier(lang), lang))) return;
     await adminFetch('/api/upload', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mediaId: item.id }),
     });
     setMedia(m => m.filter(x => x.id !== item.id));
-    say('Fichier supprimé');
+    say(t('msgSupprime'));
   }
 
   const filtered = media.filter(m =>
@@ -75,7 +78,7 @@ export default function MediasPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Médiathèque</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             {filtered.length} fichier{filtered.length > 1 ? 's' : ''}
             {filtered.length !== media.length ? ` sur ${media.length}` : ''}
@@ -83,7 +86,7 @@ export default function MediasPage() {
         </div>
         <div className="sc-actions">
           <input className="sc-input" style={{ height: 32, width: 220, background: '#F7F4EF' }}
-                 placeholder="Rechercher un fichier…" value={search} onChange={e => setSearch(e.target.value)} />
+                 placeholder={t('chercher')} value={search} onChange={e => setSearch(e.target.value)} />
           <button className="sc-btn sc-btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
             <span className="ms">upload_file</span>{uploading ? 'Envoi…' : 'Ajouter'}
           </button>
@@ -111,8 +114,8 @@ export default function MediasPage() {
       <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
              onChange={e => upload(e.target.files)} />
 
-      {loading && <div className="sc-empty">Chargement…</div>}
-      {!loading && filtered.length === 0 && <div className="sc-empty">Aucun fichier.</div>}
+      {loading && <div className="sc-empty">{tc('loading')}</div>}
+      {!loading && filtered.length === 0 && <div className="sc-empty">{t('aucun')}</div>}
 
       {!loading && filtered.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
@@ -129,10 +132,10 @@ export default function MediasPage() {
                 )}
                 <div style={{ position: 'absolute', top: 5, right: 5, display: 'flex', gap: 3 }}>
                   <button className="sc-iconbtn" style={{ background: 'rgba(255,255,255,.92)' }}
-                          onClick={() => { navigator.clipboard?.writeText(m.url); say('URL copiée'); }}
-                          aria-label="Copier l’URL"><span className="ms">content_copy</span></button>
+                          onClick={() => { navigator.clipboard?.writeText(m.url); say(t('msgUrlCopiee')); }}
+                          aria-label={t('copierUrl')}><span className="ms">content_copy</span></button>
                   <button className="sc-iconbtn" style={{ background: 'rgba(255,255,255,.92)' }}
-                          onClick={() => remove(m)} aria-label="Supprimer"><span className="ms">delete</span></button>
+                          onClick={() => remove(m)} aria-label={tc('delete')}><span className="ms">delete</span></button>
                 </div>
               </div>
               <div style={{ padding: '8px 10px' }}>

@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { C } from './ui';
+import { useT } from '@/lib/admin-i18n';
+import { TRD, envoiProgramme, modeleInsere } from './i18n-redaction';
 
 /* Fenêtre de rédaction — 660 × 640 en surimpression, comme le handoff.
    Elle porte aussi l'enregistrement en brouillon et la programmation :
@@ -30,6 +32,7 @@ export default function Redaction(p: {
   onEnvoye: () => void;
   say: (m: string) => void;
 }) {
+  const { t: tr, lang } = useT(TRD);
   const { valeur: v } = p;
   const [busy, setBusy] = useState('');
   const [quand, setQuand] = useState('');
@@ -66,7 +69,7 @@ export default function Redaction(p: {
     try {
       const d = await appel('/api/inbox/drafts', charge(), 'brouillon');
       p.onChange({ ...v, id: d.brouillon?.id });
-      p.say('Brouillon enregistré');
+      p.say(tr('msgBrouillon'));
     } catch (e: any) { p.say(e.message); }
   }
 
@@ -74,7 +77,7 @@ export default function Redaction(p: {
     if (!quand) { setQuand(dansUneHeure()); return; }
     try {
       await appel('/api/inbox/scheduled', { ...charge(), sendAt: new Date(quand).toISOString(), draftId: v.id }, 'prog');
-      p.say(`Envoi programmé pour le ${new Date(quand).toLocaleString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}`);
+      p.say(envoiProgramme(quand, lang));
       p.onEnvoye();
     } catch (e: any) { p.say(e.message); }
   }
@@ -88,8 +91,8 @@ export default function Redaction(p: {
         body: JSON.stringify({ html: t.html }),
       }).then(r => r.text());
       p.onChange({ ...v, corps: html, subject: v.subject || t.label });
-      p.say(`Modèle « ${t.label} » inséré — relis avant d’envoyer`);
-    } catch { p.say('Modèle illisible'); }
+      p.say(modeleInsere(t.label, lang));
+    } catch { p.say(tr('msgModeleKo')); }
   }
 
   async function ajouterPj(files: FileList | null) {
@@ -145,7 +148,7 @@ export default function Redaction(p: {
       </div>
 
       <textarea value={v.corps} onChange={e => p.onChange({ ...v, corps: e.target.value })}
-                placeholder="Écris ton message…"
+                placeholder={tr('phMessage')}
                 style={{
                   flex: 1, border: 'none', outline: 'none', resize: 'none', padding: '14px 15px',
                   fontSize: 14, lineHeight: 1.72, color: C.corps, fontFamily: 'inherit',
@@ -186,23 +189,23 @@ export default function Redaction(p: {
                 style={{ background: C.vert, color: '#fff', border: 'none' }}>
           <span className="ms">send</span>{busy === 'envoi' ? 'Envoi…' : 'Envoyer'}
         </button>
-        <button className="sc-iconbtn" title="Programmer l’envoi" onClick={programmer}>
+        <button className="sc-iconbtn" title={tr('programmer')} onClick={programmer}>
           <span className="ms">schedule_send</span>
         </button>
-        <button className="sc-iconbtn" title="Enregistrer comme brouillon" onClick={enregistrer} disabled={!!busy}>
+        <button className="sc-iconbtn" title={tr('brouillon')} onClick={enregistrer} disabled={!!busy}>
           <span className="ms">save</span>
         </button>
-        <label className="sc-iconbtn" title="Joindre un fichier" style={{ cursor: 'pointer' }}>
+        <label className="sc-iconbtn" title={tr('joindre')} style={{ cursor: 'pointer' }}>
           <span className="ms">attach_file</span>
           <input type="file" multiple hidden onChange={e => { ajouterPj(e.target.files); e.currentTarget.value = ''; }} />
         </label>
         <select onChange={e => { inserer(e.target.value); e.currentTarget.value = ''; }} defaultValue=""
                 className="sc-input" style={{ height: 30, fontSize: 11.5, maxWidth: 160 }}>
-          <option value="">Modèle…</option>
+          <option value="">{tr('modele')}</option>
           {p.modeles.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
         </select>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 10.5, color: C.t4 }}>Signature ajoutée à l’envoi</span>
+        <span style={{ fontSize: 10.5, color: C.t4 }}>{tr('signature')}</span>
       </div>
     </div>
   );

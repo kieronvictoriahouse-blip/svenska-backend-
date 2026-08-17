@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, thumbStyle, initials } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TCA, confirmerSuppressionCategorie } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 6 — CATÉGORIES
@@ -22,6 +24,7 @@ const slugify = (v: string) =>
    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export default function CategoriesPage() {
+  const { t, tc, lang } = useT(TCA);
   const [cats, setCats] = useState<Category[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -69,7 +72,7 @@ export default function CategoriesPage() {
         }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Erreur'); }
-      say('Catégorie créée');
+      say(t('msgCreee'));
       setForm({ slug: '', emoji: '', name_fr: '', name_sv: '', name_en: '' });
       setShowForm(false);
       load();
@@ -83,16 +86,16 @@ export default function CategoriesPage() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) { say('Enregistrement impossible'); load(); }
+    if (!res.ok) { say(t('msgEnregKo')); load(); }
   }
 
   async function remove(c: Category) {
-    if (!window.confirm(`Supprimer la catégorie « ${c.name_fr} » ?`)) return;
+    if (!window.confirm(confirmerSuppressionCategorie(c.name_fr, lang))) return;
     const res = await adminFetch(`/api/categories/${c.id}`, { method: 'DELETE' });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { say(d.error || 'Suppression impossible'); return; }
     setCats(cs => cs.filter(x => x.id !== c.id));
-    say('Catégorie supprimée');
+    say(t('msgSupprimee'));
   }
 
   /* ── Glisser-déposer : réordonne puis persiste les sort_order ── */
@@ -115,14 +118,14 @@ export default function CategoriesPage() {
         }).catch(() => {});
       }
     });
-    say('Ordre mis à jour');
+    say(t('msgOrdre'));
   }
 
   return (
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Catégories</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
             {cats.length} catégorie{cats.length > 1 ? 's' : ''} · glisse une ligne pour changer l’ordre en boutique
           </div>
@@ -138,17 +141,17 @@ export default function CategoriesPage() {
         <form className="sc-card" style={{ padding: 15, marginBottom: 12 }} onSubmit={createCategory}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
             <div>
-              <label className="sc-label">Nom FR *</label>
+              <label className="sc-label">{t('nomFr')}</label>
               <input className="sc-input" required value={form.name_fr}
                      onChange={e => setForm(f => ({ ...f, name_fr: e.target.value, slug: slugify(e.target.value) }))}
                      placeholder="Épices & aromates" />
             </div>
             <div>
-              <label className="sc-label">Nom SV</label>
+              <label className="sc-label">{t('nomSv')}</label>
               <input className="sc-input" value={form.name_sv} onChange={e => setForm(f => ({ ...f, name_sv: e.target.value }))} placeholder="Kryddor" />
             </div>
             <div>
-              <label className="sc-label">Nom EN</label>
+              <label className="sc-label">{t('nomEn')}</label>
               <input className="sc-input" value={form.name_en} onChange={e => setForm(f => ({ ...f, name_en: e.target.value }))} placeholder="Spices" />
             </div>
             <div>
@@ -157,7 +160,7 @@ export default function CategoriesPage() {
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <button type="button" className="sc-btn sc-btn-secondary" onClick={() => setShowForm(false)}>Annuler</button>
+            <button type="button" className="sc-btn sc-btn-secondary" onClick={() => setShowForm(false)}>{tc('cancel')}</button>
             <button type="submit" className="sc-btn sc-btn-green" disabled={saving}>
               <span className="ms">save</span>{saving ? 'Création…' : 'Créer'}
             </button>
@@ -165,8 +168,8 @@ export default function CategoriesPage() {
         </form>
       )}
 
-      {loading && <div className="sc-empty">Chargement…</div>}
-      {!loading && cats.length === 0 && <div className="sc-empty">Aucune catégorie.</div>}
+      {loading && <div className="sc-empty">{tc('loading')}</div>}
+      {!loading && cats.length === 0 && <div className="sc-empty">{t('aucune')}</div>}
 
       {!loading && cats.length > 0 && (
         <div className="sc-card" style={{ overflow: 'hidden' }}>
@@ -175,11 +178,11 @@ export default function CategoriesPage() {
               <thead>
                 <tr>
                   <th style={{ width: 34 }} />
-                  <th>Catégorie</th>
-                  <th style={{ width: 150 }}>Nom SV</th>
+                  <th>{t('categorie')}</th>
+                  <th style={{ width: 150 }}>{t('nomSv')}</th>
                   <th style={{ width: 180 }}>URL</th>
-                  <th style={{ width: 90 }}>Produits</th>
-                  <th style={{ width: 90 }}>Visible</th>
+                  <th style={{ width: 90 }}>{tc('products')}</th>
+                  <th style={{ width: 90 }}>{t('visible')}</th>
                   <th style={{ width: 50 }} />
                 </tr>
               </thead>

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react
 import { CLAUDE_EMAIL_BRIEF } from '@/lib/email-brief';
 import dynamic from 'next/dynamic';
 import { adminFetch } from '@/lib/auth-client';
+import { useT } from '@/lib/admin-i18n';
+import { TED, testEnvoye, confirmerEnvoi, emailsEnvoyes } from './i18n';
 
 const EmailEditor = dynamic<any>(() => import('react-email-editor').then((m: any) => ({ default: m.default })), {
   ssr: false,
@@ -31,6 +33,7 @@ const SEGMENTS: Record<string, string> = {
 };
 
 export default function EmailEditorPage() {
+  const { t, tc, lang } = useT(TED);
   const editorRef = useRef<any>(null);
   const barsRef = useRef<HTMLDivElement>(null);
   const [editorHeight, setEditorHeight] = useState(600);
@@ -113,7 +116,7 @@ export default function EmailEditorPage() {
   }, [selectedId, editorReady, campaigns, loadCampaignIntoEditor]);
 
   async function saveHtml() {
-    if (!htmlContent) { showToast('⚠️ Contenu vide'); return; }
+    if (!htmlContent) { showToast(t('msgVide')); return; }
     const content = JSON.stringify({ html: htmlContent, design: null });
     setSaving(true);
     try {
@@ -133,12 +136,12 @@ export default function EmailEditorPage() {
           body: JSON.stringify({ subject, target_segment: segment, content }),
         });
       }
-      showToast('✅ Sauvegardé !');
+      showToast(t('msgSauve'));
     } finally { setSaving(false); }
   }
 
   async function sendTestEmail(html: string) {
-    if (!testEmail) { showToast('⚠️ Saisissez votre email de test'); return; }
+    if (!testEmail) { showToast(t('msgEmailTest')); return; }
     setSendingTest(true);
     try {
       const res = await adminFetch('/api/email', {
@@ -146,15 +149,15 @@ export default function EmailEditorPage() {
         body: JSON.stringify({ type: 'test_campaign', to: testEmail, html, subject }),
       });
       const d = await res.json();
-      if (res.ok) showToast(`✅ Email de test envoyé à ${testEmail}`);
+      if (res.ok) showToast(testEnvoye(testEmail, lang));
       else showToast(`❌ ${d.error}`);
     } finally { setSendingTest(false); }
   }
 
   async function sendHtml() {
-    if (!htmlContent) { showToast('⚠️ Contenu vide'); return; }
-    if (!selectedId) { showToast('⚠️ Sauvegardez d\'abord'); return; }
-    if (!confirm(`Envoyer cette campagne à "${SEGMENTS[segment]}" ?`)) return;
+    if (!htmlContent) { showToast(t('msgVide')); return; }
+    if (!selectedId) { showToast(t('msgSauveDabord')); return; }
+    if (!confirm(confirmerEnvoi(SEGMENTS[segment], lang))) return;
     setSending(true); setSendResult('');
     try {
       const res = await adminFetch('/api/email', {
@@ -162,20 +165,20 @@ export default function EmailEditorPage() {
         body: JSON.stringify({ type: 'campaign', campaign_id: selectedId, custom_html: htmlContent }),
       });
       const result = await res.json();
-      if (res.ok) { setSendResult(`✅ Envoyé à ${result.sent} / ${result.total} destinataires`); showToast(`✅ ${result.sent} emails envoyés !`); }
+      if (res.ok) { setSendResult(`✅ Envoyé à ${result.sent} / ${result.total} destinataires`); showToast(emailsEnvoyes(result.sent, lang)); }
       else { setSendResult(`❌ ${result.error}`); showToast(`❌ ${result.error}`); }
     } finally { setSending(false); }
   }
 
   function exportAndSave() {
-    if (!editorRef.current?.editor) { showToast('⚠️ Éditeur non prêt'); return; }
+    if (!editorRef.current?.editor) { showToast(t('msgEditeur')); return; }
     editorRef.current.editor.exportHtml(async (data: any) => {
       const { design, html } = data;
       const content = JSON.stringify({ html, design });
       setSaving(true);
       try {
         if (mode === 'new') {
-          if (!campName) { showToast('⚠️ Saisissez un nom de campagne'); return; }
+          if (!campName) { showToast(t('msgNomCampagne')); return; }
           const res = await adminFetch('/api/marketing', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -188,16 +191,16 @@ export default function EmailEditorPage() {
             const res2 = await adminFetch('/api/marketing');
             const d = await res2.json();
             setCampaigns((d.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
-            showToast('✅ Campagne créée et sauvegardée !');
+            showToast(t('msgCampagneCreee'));
           }
         } else {
-          if (!selectedId) { showToast('⚠️ Sélectionnez une campagne'); return; }
+          if (!selectedId) { showToast(t('msgSelectCampagne')); return; }
           await adminFetch(`/api/marketing?id=${selectedId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ subject, target_segment: segment, content }),
           });
-          showToast('✅ Campagne sauvegardée !');
+          showToast(t('msgCampagneSauve'));
         }
       } finally {
         setSaving(false);
@@ -206,10 +209,10 @@ export default function EmailEditorPage() {
   }
 
   function exportAndSend() {
-    if (!editorRef.current?.editor) { showToast('⚠️ Éditeur non prêt'); return; }
+    if (!editorRef.current?.editor) { showToast(t('msgEditeur')); return; }
     const campId = selectedId;
-    if (!campId) { showToast('⚠️ Sauvegardez d\'abord la campagne'); return; }
-    if (!confirm(`Envoyer cette campagne à "${SEGMENTS[segment]}" ?`)) return;
+    if (!campId) { showToast(t('msgSauveDabord')); return; }
+    if (!confirm(confirmerEnvoi(SEGMENTS[segment], lang))) return;
     editorRef.current.editor.exportHtml(async (data: any) => {
       const { html } = data;
       setSending(true); setSendResult('');
@@ -222,7 +225,7 @@ export default function EmailEditorPage() {
         const result = await res.json();
         if (res.ok) {
           setSendResult(`✅ Envoyé à ${result.sent} / ${result.total} destinataires`);
-          showToast(`✅ ${result.sent} emails envoyés !`);
+          showToast(emailsEnvoyes(result.sent, lang));
         } else {
           setSendResult(`❌ ${result.error}`);
           showToast(`❌ ${result.error}`);
@@ -232,8 +235,8 @@ export default function EmailEditorPage() {
   }
 
   async function generateAndSavePromo() {
-    if (selectedProducts.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
-    if (!campName && mode === 'new') { showToast('⚠️ Saisissez un nom de campagne'); return; }
+    if (selectedProducts.length === 0) { showToast(t('msgSelectProduit')); return; }
+    if (!campName && mode === 'new') { showToast(t('msgNomCampagne')); return; }
     setGeneratingPromo(true);
     try {
       const prods = products.filter(p => selectedProducts.includes(p.id));
@@ -270,7 +273,7 @@ export default function EmailEditorPage() {
           body: JSON.stringify({ subject: campSubject, target_segment: segment, content }),
         });
       }
-      showToast('✅ Email promo généré et sauvegardé !');
+      showToast(t('msgPromoGenere'));
       setSelectedProducts([]);
     } finally {
       setGeneratingPromo(false);
@@ -289,7 +292,7 @@ export default function EmailEditorPage() {
   }
 
   function generateForClaude() {
-    if (selectedProducts.length === 0) { showToast('⚠️ Sélectionnez au moins un produit'); return; }
+    if (selectedProducts.length === 0) { showToast(t('msgSelectProduit')); return; }
     const prods = products.filter(p => selectedProducts.includes(p.id));
 
     const prodsYaml = prods.map(p => {
@@ -367,10 +370,10 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
             {campaigns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.status})</option>)}
           </select>
         ) : (
-          <input value={campName} onChange={e => setCampName(e.target.value)} placeholder="Nom de la campagne…" style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, minWidth: 200 }} />
+          <input value={campName} onChange={e => setCampName(e.target.value)} placeholder={t('phNomCampagne')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, minWidth: 200 }} />
         )}
 
-        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Objet de l'email…" style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, flex: 1, minWidth: 180 }} />
+        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={t('phObjet')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, flex: 1, minWidth: 180 }} />
 
         <select value={segment} onChange={e => setSegment(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }}>
           {Object.entries(SEGMENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -425,7 +428,7 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
           >
             {sendingTest ? '⏳…' : '📨 Envoyer à moi'}
           </button>
-          <span style={{ fontSize: 11, color: '#92400e' }}>Seul cet email recevra le test — vos clients ne seront pas contactés.</span>
+          <span style={{ fontSize: 11, color: '#92400e' }}>{t('testSeul')}</span>
         </div>
       )}
 
@@ -436,11 +439,11 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
         <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: 16, overflow: 'auto', maxHeight: '60vh' }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>Objet de l'email promo</label>
-              <input value={promoSubject} onChange={e => setPromoSubject(e.target.value)} placeholder="Nos sélections du moment 🛍️" style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>{t('objetPromo')}</label>
+              <input value={promoSubject} onChange={e => setPromoSubject(e.target.value)} placeholder={t('phIntro')} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
             </div>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>Introduction</label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>{t('introduction')}</label>
               <input value={promoIntro} onChange={e => setPromoIntro(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -523,7 +526,7 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
                       {copiedWhat === 'html' ? '✓ Copié !' : '📋 Copier le HTML'}
                     </button>
                     <button
-                      onClick={() => { setHtmlContent(claudeBlock.html); setPromoMode('html'); setClaudeBlock(null); showToast('✅ HTML ouvert dans l\'éditeur'); }}
+                      onClick={() => { setHtmlContent(claudeBlock.html); setPromoMode('html'); setClaudeBlock(null); showToast(t('msgHtmlOuvert')); }}
                       style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: '#f59e0b', color: '#fff', fontSize: 11, fontWeight: 700 }}
                     >
                       → Ouvrir dans l'éditeur HTML
@@ -535,7 +538,7 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
 
               <div style={{ background: '#f0fdf4', padding: '10px 16px', borderTop: '1px solid #bbf7d0' }}>
                 <p style={{ margin: 0, fontSize: 12, color: '#166534' }}>
-                  <strong>Workflow :</strong> Copie le prompt → colle dans Claude → Claude génère l'email stylisé → copie le HTML → reviens ici → onglet <strong>&lt;&gt; Code HTML</strong> → colle → Prévisualise → Envoie 🚀
+                  <strong>{t('workflow')}</strong> Copie le prompt → colle dans Claude → Claude génère l'email stylisé → copie le HTML → reviens ici → onglet <strong>&lt;&gt; Code HTML</strong> → colle → Prévisualise → Envoie 🚀
                 </p>
               </div>
             </div>
@@ -550,7 +553,7 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
           <div style={{ display: 'flex', flexDirection: 'column', width: '50%', background: '#1e293b', borderRight: '2px solid #0f172a' }}>
             <div style={{ padding: '6px 14px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', fontWeight: 700 }}>HTML</span>
-              <span style={{ fontSize: 11, color: '#475569' }}>Éditez le code — la prévisualisation se met à jour en direct →</span>
+              <span style={{ fontSize: 11, color: '#475569' }}>{t('editezCode')}</span>
             </div>
             <textarea
               value={htmlContent}
@@ -575,13 +578,13 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
           {/* Preview pane */}
           <div style={{ display: 'flex', flexDirection: 'column', width: '50%', background: '#f1f5f9' }}>
             <div style={{ padding: '6px 14px', background: '#e2e8f0', flexShrink: 0 }}>
-              <span style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>👁 Prévisualisation</span>
+              <span style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>👁 {t('previsualisation')}</span>
             </div>
             <iframe
-              srcDoc={htmlContent || '<div style="font-family:sans-serif;color:#94a3b8;padding:40px;text-align:center">Aucun contenu HTML</div>'}
+              srcDoc={htmlContent || `<div style="font-family:sans-serif;color:#94a3b8;padding:40px;text-align:center">${t('aucunHtml')}</div>`}
               sandbox="allow-same-origin"
               style={{ flex: 1, border: 'none', background: '#fff' }}
-              title="Email preview"
+              title={t('titreApercu')}
             />
           </div>
         </div>
@@ -612,7 +615,7 @@ signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
       {promoMode === 'promo' && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: '#94a3b8', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 48 }}>🛍️</div>
-          <p style={{ fontSize: 14 }}>Sélectionnez vos produits ci-dessus et cliquez sur <strong>Générer l'email</strong>.</p>
+          <p style={{ fontSize: 14 }}>{t('selectionnez')} <strong>{t('genererEmail')}</strong>.</p>
           <p style={{ fontSize: 12 }}>L'email sera sauvegardé comme campagne prête à envoyer.</p>
         </div>
       )}

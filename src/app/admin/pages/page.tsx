@@ -233,29 +233,29 @@ export default function PagesAdminPage() {
           <>
             <div className="grid-3" style={{ marginBottom: 10 }}>
               <div className="form-group">
-                <label className="form-label">Titre FR</label>
+                <label className="form-label">{t('champTitre')} FR</label>
                 <input className="form-control" value={block.title_fr} onChange={e => updBlock(block.id, 'title_fr', e.target.value)} placeholder={t('phTitre')} />
               </div>
               <div className="form-group">
-                <label className="form-label">Titre SV</label>
+                <label className="form-label">{t('champTitre')} SV</label>
                 <input className="form-control" value={block.title_sv} onChange={e => updBlock(block.id, 'title_sv', e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Titre EN</label>
+                <label className="form-label">{t('champTitre')} EN</label>
                 <input className="form-control" value={block.title_en} onChange={e => updBlock(block.id, 'title_en', e.target.value)} />
               </div>
             </div>
             <div className="grid-3" style={{ marginBottom: 10 }}>
               <div className="form-group">
-                <label className="form-label">Corps FR</label>
+                <label className="form-label">{t('champCorps')} FR</label>
                 <textarea className="form-control" value={block.body_fr} onChange={e => updBlock(block.id, 'body_fr', e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Corps SV</label>
+                <label className="form-label">{t('champCorps')} SV</label>
                 <textarea className="form-control" value={block.body_sv} onChange={e => updBlock(block.id, 'body_sv', e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Corps EN</label>
+                <label className="form-label">{t('champCorps')} EN</label>
                 <textarea className="form-control" value={block.body_en} onChange={e => updBlock(block.id, 'body_en', e.target.value)} />
               </div>
             </div>
@@ -270,15 +270,15 @@ export default function PagesAdminPage() {
         {block.type === 'quote' && (
           <div className="grid-3">
             <div className="form-group">
-              <label className="form-label">Citation FR</label>
+              <label className="form-label">{t('champCitation')} FR</label>
               <textarea className="form-control" value={block.text_fr} onChange={e => updBlock(block.id, 'text_fr', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Citation SV</label>
+              <label className="form-label">{t('champCitation')} SV</label>
               <textarea className="form-control" value={block.text_sv} onChange={e => updBlock(block.id, 'text_sv', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Citation EN</label>
+              <label className="form-label">{t('champCitation')} EN</label>
               <textarea className="form-control" value={block.text_en} onChange={e => updBlock(block.id, 'text_en', e.target.value)} />
             </div>
           </div>
@@ -446,15 +446,15 @@ export default function PagesAdminPage() {
                   <div className="pg-section-title">{t('titrePage')}</div>
                   <div className="grid-3">
                     <div className="form-group">
-                      <label className="form-label">Titre FR</label>
+                      <label className="form-label">{t('champTitre')} FR</label>
                       <input className="form-control" value={editPage.title_fr} onChange={e => upd('title_fr', e.target.value)} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Titre SV</label>
+                      <label className="form-label">{t('champTitre')} SV</label>
                       <input className="form-control" value={editPage.title_sv} onChange={e => upd('title_sv', e.target.value)} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Titre EN</label>
+                      <label className="form-label">{t('champTitre')} EN</label>
                       <input className="form-control" value={editPage.title_en} onChange={e => upd('title_en', e.target.value)} />
                     </div>
                   </div>
@@ -465,15 +465,15 @@ export default function PagesAdminPage() {
                   <div style={{ fontSize: 12, color: '#6A7280', marginBottom: 12 }}>{t('texteMenu')}</div>
                   <div className="grid-3">
                     <div className="form-group">
-                      <label className="form-label">Nav FR</label>
+                      <label className="form-label">{t('champNav')} FR</label>
                       <input className="form-control" value={editPage.nav_label_fr} onChange={e => upd('nav_label_fr', e.target.value)} placeholder={editPage.title_fr} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Nav SV</label>
+                      <label className="form-label">{t('champNav')} SV</label>
                       <input className="form-control" value={editPage.nav_label_sv} onChange={e => upd('nav_label_sv', e.target.value)} placeholder={editPage.title_sv} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Nav EN</label>
+                      <label className="form-label">{t('champNav')} EN</label>
                       <input className="form-control" value={editPage.nav_label_en} onChange={e => upd('nav_label_en', e.target.value)} placeholder={editPage.title_en} />
                     </div>
                   </div>
@@ -494,29 +494,29 @@ export default function PagesAdminPage() {
                 </div>
                 <div className="grid-3" style={{ marginTop: 16 }}>
                   <div className="form-group">
-                    <label className="form-label">Titre hero FR</label>
+                    <label className="form-label">{t('champTitreHero')} FR</label>
                     <input className="form-control" value={editPage.hero_title_fr} onChange={e => upd('hero_title_fr', e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Titre hero SV</label>
+                    <label className="form-label">{t('champTitreHero')} SV</label>
                     <input className="form-control" value={editPage.hero_title_sv} onChange={e => upd('hero_title_sv', e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Titre hero EN</label>
+                    <label className="form-label">{t('champTitreHero')} EN</label>
                     <input className="form-control" value={editPage.hero_title_en} onChange={e => upd('hero_title_en', e.target.value)} />
                   </div>
                 </div>
                 <div className="grid-3">
                   <div className="form-group">
-                    <label className="form-label">Sous-titre hero FR</label>
+                    <label className="form-label">{t('champSousTitreHero')} FR</label>
                     <input className="form-control" value={editPage.hero_subtitle_fr} onChange={e => upd('hero_subtitle_fr', e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Sous-titre hero SV</label>
+                    <label className="form-label">{t('champSousTitreHero')} SV</label>
                     <input className="form-control" value={editPage.hero_subtitle_sv} onChange={e => upd('hero_subtitle_sv', e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Sous-titre hero EN</label>
+                    <label className="form-label">{t('champSousTitreHero')} EN</label>
                     <input className="form-control" value={editPage.hero_subtitle_en} onChange={e => upd('hero_subtitle_en', e.target.value)} />
                   </div>
                 </div>

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, ORDER_STATUS, thumbStyle, initials, eur, num, stockColor } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TDB } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 1 — TABLEAU DE BORD
@@ -34,6 +36,7 @@ function pendingRefund(o: Order): number {
 }
 
 export default function AdminHome() {
+  const { t, tc, lang } = useT(TDB);
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -156,9 +159,9 @@ export default function AdminHome() {
           </div>
         </div>
         <div className="sc-actions">
-          <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>Nouveau produit</Link>
-          <Link href="/admin/home-cms" className="sc-btn sc-btn-secondary"><span className="ms">edit_note</span>Modifier la home</Link>
-          <Link href="/admin/medias" className="sc-btn sc-btn-secondary"><span className="ms">photo_library</span>Photos</Link>
+          <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>{t('nouveauProduit')}</Link>
+          <Link href="/admin/home-cms" className="sc-btn sc-btn-secondary"><span className="ms">edit_note</span>{t('modifierHome')}</Link>
+          <Link href="/admin/medias" className="sc-btn sc-btn-secondary"><span className="ms">photo_library</span>{t('photos')}</Link>
         </div>
       </div>
 
@@ -210,14 +213,14 @@ export default function AdminHome() {
         {/* Commandes récentes */}
         <div className="sc-card" style={{ flex: '2 1 460px', minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-            <span className="sc-card-title">Commandes récentes</span>
-            <Link href="/admin/commandes" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>Tout voir →</Link>
+            <span className="sc-card-title">{t('commandesRecentes')}</span>
+            <Link href="/admin/commandes" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>{t('toutVoir')}</Link>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="sc-table" style={{ minWidth: 520 }}>
               <tbody>
-                {loading && <tr><td colSpan={5}><div className="sc-empty">Chargement…</div></td></tr>}
-                {!loading && recent.length === 0 && <tr><td colSpan={5}><div className="sc-empty">Aucune commande</div></td></tr>}
+                {loading && <tr><td colSpan={5}><div className="sc-empty">{tc('loading')}</div></td></tr>}
+                {!loading && recent.length === 0 && <tr><td colSpan={5}><div className="sc-empty">{t('aucuneCommande')}</div></td></tr>}
                 {recent.map(o => {
                   const s = ORDER_STATUS[o.status] || { label: o.status, tone: 'gray' as const };
                   return (
@@ -244,10 +247,10 @@ export default function AdminHome() {
 
           <div className="sc-card">
             <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-              <span className="sc-card-title">Stock à réapprovisionner</span>
+              <span className="sc-card-title">{t('stockAReappro')}</span>
             </div>
             <div style={{ padding: '4px 0' }}>
-              {toRestock.length === 0 && <div className="sc-empty" style={{ padding: '24px 12px' }}>Aucune alerte de stock</div>}
+              {toRestock.length === 0 && <div className="sc-empty" style={{ padding: '24px 12px' }}>{t('aucuneAlerte')}</div>}
               {toRestock.map(p => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 15px' }}>
                   {p.image_url
@@ -264,16 +267,16 @@ export default function AdminHome() {
               ))}
             </div>
             <div style={{ borderTop: `1px solid ${T.borderFaint}`, padding: '9px 15px', background: T.surfaceAlt }}>
-              <Link href="/admin/achats" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>Créer une commande d’achat →</Link>
+              <Link href="/admin/achats" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>{t('creerCommande')}</Link>
             </div>
           </div>
 
           <div className="sc-card">
             <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-              <span className="sc-card-title">Top ventes · 30 j</span>
+              <span className="sc-card-title">{t('topVentes')}</span>
             </div>
             <div style={{ padding: '8px 15px 12px' }}>
-              {top.length === 0 && <div className="sc-empty" style={{ padding: '24px 0' }}>Pas encore de ventes</div>}
+              {top.length === 0 && <div className="sc-empty" style={{ padding: '24px 0' }}>{t('pasDeVentes')}</div>}
               {top.map((t, i) => (
                 <div key={i} style={{ marginBottom: 9 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>

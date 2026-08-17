@@ -1,6 +1,8 @@
 'use client';
 import { adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
+import { useT } from '@/lib/admin-i18n';
+import { THP } from './i18n';
 
 const SECTION_LABELS: Record<string, string> = {
   hero:           '🦸 Section Hero (bannière principale)',
@@ -9,6 +11,7 @@ const SECTION_LABELS: Record<string, string> = {
 };
 
 export default function HomepagePage() {
+  const { t, tc, lang } = useT(THP);
   const [sections, setSections]     = useState<any[]>([]);
   const [bestsellers, setBs]        = useState<any[]>([]);
   const [newArrivals, setNa]        = useState<any[]>([]);
@@ -87,14 +90,14 @@ export default function HomepagePage() {
     { code: 'en', label: '🇬🇧 EN' },
   ];
 
-  if (loading) return <div className="page-content" style={{ padding: 60, textAlign: 'center', color: 'var(--dust)' }}>Chargement…</div>;
+  if (loading) return <div className="page-content" style={{ padding: 60, textAlign: 'center', color: 'var(--dust)' }}>{tc('loading')}</div>;
 
   const sec = getSection(activeSection);
 
   return (
     <>
       <div className="topbar">
-        <div className="topbar-title">Gestion de la page d'accueil</div>
+        <div className="topbar-title">{t('titre')}</div>
         <div className="topbar-actions">
           <a href={process.env.NEXT_PUBLIC_FRONT_URL || '#'} target="_blank" className="btn btn-secondary btn-sm">🌐 Voir le site</a>
         </div>
@@ -106,7 +109,7 @@ export default function HomepagePage() {
           {/* Sidebar navigation sections */}
           <div>
             <div className="card">
-              <div className="card-header"><span className="card-title">Sections</span></div>
+              <div className="card-header"><span className="card-title">{t('sections')}</span></div>
               <div style={{ padding: '8px 0' }}>
                 {['hero', 'featured_band', 'fredagsmys_band'].map(key => (
                   <button key={key} onClick={() => setActiveS(key)}
@@ -178,21 +181,21 @@ export default function HomepagePage() {
                     <div key={lang.code} style={{ display: activeLang === lang.code ? 'block' : 'none' }}>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label className="form-label">Titre</label>
+                          <label className="form-label">{t('colTitre')}</label>
                           <input className="form-control" value={sec[`title_${lang.code}`] || ''} onChange={e => setField(activeSection, `title_${lang.code}`, e.target.value)} />
                         </div>
                         <div className="form-group">
-                          <label className="form-label">Sous-titre / Eyebrow</label>
+                          <label className="form-label">{t('eyebrow')}</label>
                           <input className="form-control" value={sec[`subtitle_${lang.code}`] || ''} onChange={e => setField(activeSection, `subtitle_${lang.code}`, e.target.value)} />
                         </div>
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Corps du texte</label>
+                        <label className="form-label">{t('corps')}</label>
                         <textarea className="form-control" rows={3} value={sec[`body_${lang.code}`] || ''} onChange={e => setField(activeSection, `body_${lang.code}`, e.target.value)} />
                       </div>
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label className="form-label">Texte du bouton CTA</label>
+                          <label className="form-label">{t('cta')}</label>
                           <input className="form-control" value={sec[`cta_label_${lang.code}`] || ''} onChange={e => setField(activeSection, `cta_label_${lang.code}`, e.target.value)} />
                         </div>
                         <div className="form-group">
@@ -203,7 +206,7 @@ export default function HomepagePage() {
                     </div>
                   ))}
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Image de fond (URL)</label>
+                    <label className="form-label">{t('imageFond')}</label>
                     <input className="form-control" value={sec.image_url || ''} onChange={e => setField(activeSection, 'image_url', e.target.value)} placeholder="https://…" />
                     {sec.image_url && <img src={sec.image_url} alt="" style={{ marginTop: 8, height: 80, width: '100%', objectFit: 'cover', borderRadius: 4 }} />}
                   </div>
@@ -220,7 +223,7 @@ export default function HomepagePage() {
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="data-table">
-                    <thead><tr><th>Image</th><th>Produit</th><th>Catégorie</th><th>Prix</th><th>Best-seller home</th></tr></thead>
+                    <thead><tr><th>{t('image')}</th><th>{tc('product')}</th><th>{t('categorie')}</th><th>Prix</th><th>{t('bestSeller')}</th></tr></thead>
                     <tbody>
                       {allProducts.map(p => (
                         <tr key={p.id}>
@@ -251,7 +254,7 @@ export default function HomepagePage() {
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="data-table">
-                    <thead><tr><th>Image</th><th>Produit</th><th>Catégorie</th><th>Prix</th><th>Nouveauté home</th></tr></thead>
+                    <thead><tr><th>{t('image')}</th><th>{tc('product')}</th><th>{t('categorie')}</th><th>Prix</th><th>{t('nouveaute')}</th></tr></thead>
                     <tbody>
                       {allProducts.map(p => (
                         <tr key={p.id}>

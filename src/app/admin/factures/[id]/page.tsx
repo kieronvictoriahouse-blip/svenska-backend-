@@ -2,6 +2,8 @@
 import { adminFetch } from '@/lib/auth-client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useT } from '@/lib/admin-i18n';
+import { TFA } from './i18n';
 
 type InvoiceLine = { desc: string; qty: number; price: number; tva: number; image_url?: string };
 
@@ -61,6 +63,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function FacturePage() {
+  const { t, tc, lang } = useT(TFA);
   const { id } = useParams<{ id: string }>();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [avoirId, setAvoirId] = useState<string | null>(null);
@@ -74,7 +77,7 @@ export default function FacturePage() {
     setDownloading(true);
     try {
       const res = await adminFetch(`/api/invoices/${id}/pdf`);
-      if (!res.ok) { alert('Erreur génération PDF'); return; }
+      if (!res.ok) { alert(t('msgPdfGenKo')); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -84,7 +87,7 @@ export default function FacturePage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch { alert('Erreur téléchargement PDF'); }
+    } catch { alert(t('msgPdfKo')); }
     finally { setDownloading(false); }
   }
 
@@ -121,7 +124,7 @@ export default function FacturePage() {
     setSaving(false);
   }
 
-  if (loading) return <div style={{ padding: 40, fontFamily: 'system-ui', color: '#64748b' }}>Chargement…</div>;
+  if (loading) return <div style={{ padding: 40, fontFamily: 'system-ui', color: '#64748b' }}>{tc('loading')}</div>;
   if (error || !invoice) return <div style={{ padding: 40, fontFamily: 'system-ui', color: '#ef4444' }}>❌ {error || 'Introuvable'}</div>;
 
   const lines: InvoiceLine[] = Array.isArray(invoice.lines) ? invoice.lines : [];
@@ -246,9 +249,9 @@ export default function FacturePage() {
               {invoice.number}
             </div>
             <div style={{ marginTop: 12, fontSize: 13, color: '#64748b' }}>
-              <div>Date : <strong style={{ color: '#0f172a' }}>{fmtDate(invoice.date)}</strong></div>
+              <div>{t('date')} <strong style={{ color: '#0f172a' }}>{fmtDate(invoice.date)}</strong></div>
               {invoice.order_id && (
-                <div style={{ marginTop: 2 }}>Réf. commande : <strong style={{ color: '#0f172a' }}>N° {invoice.order_id.slice(0, 8).toUpperCase()}</strong></div>
+                <div style={{ marginTop: 2 }}>{t('refCommande')} <strong style={{ color: '#0f172a' }}>N° {invoice.order_id.slice(0, 8).toUpperCase()}</strong></div>
               )}
             </div>
             <div style={{
@@ -340,7 +343,7 @@ export default function FacturePage() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 40 }}>
           <div style={{ minWidth: 280 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: 14, color: '#64748b' }}>
-              <span>Sous-total</span>
+              <span>{tc('subtotal')}</span>
               <span>{fmt(subtotal)}</span>
             </div>
             {!isMicro && (
@@ -355,7 +358,7 @@ export default function FacturePage() {
               background: '#0f172a', borderRadius: 8,
               fontSize: 16, fontWeight: 800, color: '#fff',
             }}>
-              <span>Total TTC</span>
+              <span>{t('totalTtc')}</span>
               <span>{fmt(invoice.total_ttc)}</span>
             </div>
           </div>
@@ -386,7 +389,7 @@ export default function FacturePage() {
             background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
             padding: '14px 16px', marginBottom: 24, fontSize: 13, color: '#475569',
           }}>
-            <strong>Note :</strong> {invoice.note}
+            <strong>{t('note')}</strong> {invoice.note}
           </div>
         )}
 

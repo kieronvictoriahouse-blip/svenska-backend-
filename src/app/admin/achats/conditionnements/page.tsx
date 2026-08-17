@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { C } from '../nouvelle/ui';
+import { useT } from '@/lib/admin-i18n';
+import { TCD, produitsEnregistres, boutonEnregistrer } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    CONDITIONNEMENTS
@@ -26,6 +28,7 @@ type Ligne = {
 const COURANTS = [1, 6, 10, 12, 20, 24];
 
 export default function Conditionnements() {
+  const { t, tc, lang } = useT(TCD);
   const [lignes, setLignes] = useState<Ligne[]>([]);
   const [valeurs, setValeurs] = useState<Record<string, number>>({});
   const [parMagasin, setParMagasin] = useState<Record<string, Record<string, number>>>({});
@@ -45,7 +48,7 @@ export default function Conditionnements() {
       setParMagasin(Object.fromEntries((d.lignes || []).map((l: Ligne) => [
         l.id, Object.fromEntries(l.magasins.filter(m => m.pack).map(m => [m.id, m.pack as number])),
       ])));
-    }).catch(() => say('Chargement impossible'))
+    }).catch(() => say(t('msgChargement')))
       .finally(() => setChargement(false));
   }, []);
 
@@ -83,7 +86,7 @@ export default function Conditionnements() {
   }
 
   async function enregistrer() {
-    if (!modifiees.length) { say('Rien de modifié'); return; }
+    if (!modifiees.length) { say(t('msgRienModifie')); return; }
     setEnvoi(true);
     try {
       const res = await adminFetch('/api/pack-sizes', {
@@ -102,12 +105,12 @@ export default function Conditionnements() {
             magasins: l.magasins.map(m => ({ ...m, pack: (parMagasin[l.id] || {})[m.id] || null })),
           }
         : l));
-      say(`${d.produits} produit(s) enregistré(s)`);
+      say(produitsEnregistres(d.produits, lang));
     } catch (e: any) { say(e.message); }
     finally { setEnvoi(false); }
   }
 
-  if (chargement) return <div className="sc-empty">Chargement du catalogue…</div>;
+  if (chargement) return <div className="sc-empty">{t('chargement')}</div>;
 
   return (
     <>
@@ -117,12 +120,12 @@ export default function Conditionnements() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Link href="/admin/achats" className="sc-iconbtn"
-                style={{ width: 30, height: 30, border: `1px solid ${C.champ}` }} aria-label="Retour aux achats">
+                style={{ width: 30, height: 30, border: `1px solid ${C.champ}` }} aria-label={t('retourAchats')}>
             <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
           </Link>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, color: C.t5 }}>Achats</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>Conditionnements</div>
+            <div style={{ fontSize: 10.5, color: C.t5 }}>{t('achats')}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>{t('titre')}</div>
           </div>
           <button onClick={enregistrer} disabled={!modifiees.length || envoi}
                   style={{
@@ -132,8 +135,8 @@ export default function Conditionnements() {
                     color: modifiees.length ? '#fff' : C.t6,
                     cursor: modifiees.length ? 'pointer' : 'not-allowed',
                   }}>
-            {envoi ? 'Enregistrement…'
-              : modifiees.length ? `Enregistrer ${modifiees.length} produit(s)` : 'Rien à enregistrer'}
+            {envoi ? t('enregistrement')
+              : modifiees.length ? boutonEnregistrer(modifiees.length, lang) : t('rienAEnregistrer')}
           </button>
         </div>
       </div>
@@ -144,11 +147,8 @@ export default function Conditionnements() {
       }}>
         <span className="ms" style={{ fontSize: 18, color: C.t4 }}>inventory_2</span>
         <div style={{ fontSize: 12, color: C.t3, lineHeight: 1.55 }}>
-          Combien d’unités par carton chez le fournisseur. L’écran de commande raisonne
-          en cartons : tant que la valeur est à 1, « 19 cartons » veut dire 19 unités.
-          <strong style={{ color: C.t1 }}> Laisse 1 si tu achètes bien à l’unité</strong> — c’est
-          souvent le cas en magasin. Les quantités déjà commandées sont là comme repère,
-          elles ne pré-remplissent rien : elles disent tes habitudes d’achat, pas le carton.
+          {t('explication1')}
+          <strong style={{ color: C.t1 }}> {t('explication2')}</strong> {t('explication3')}
         </div>
       </div>
 
@@ -156,7 +156,7 @@ export default function Conditionnements() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}`, flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: 280 }}>
             <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
-            <input className="sc-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher"
+            <input className="sc-input" value={q} onChange={e => setQ(e.target.value)} placeholder={t('rechercher')}
                    style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12, background: C.fond }} />
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.t3, cursor: 'pointer' }}>
@@ -196,7 +196,7 @@ export default function Conditionnements() {
 
                 {l.propose && l.propose !== v && (
                   <button onClick={() => poser(l.id, l.propose!)}
-                          title="Conditionnement lu dans le nom du produit"
+                          title={t('luDansNom')}
                           style={{
                             border: `1px solid ${C.or}`, background: '#FBF6EC', color: '#7A5F26',
                             borderRadius: 6, padding: '4px 9px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
@@ -226,7 +226,7 @@ export default function Conditionnements() {
 
                 {l.magasins.length > 1 && (
                   <button onClick={() => setDetaille(ouvert ? null : l.id)}
-                          title="Conditionnement différent selon le magasin"
+                          title={t('selonMagasin')}
                           className="sc-iconbtn" style={{ border: `1px solid ${C.champ}` }}>
                     <span className="ms" style={{ fontSize: 17, color: ouvert ? C.accent : C.t4 }}>storefront</span>
                   </button>

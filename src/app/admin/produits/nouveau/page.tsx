@@ -5,6 +5,8 @@ import Link from 'next/link';
 import ProductForm, { ProductTab } from '@/components/ProductForm';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TNP } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    CRÉATION D'ARTICLE
@@ -22,6 +24,7 @@ const TABS: Array<{ id: ProductTab; label: string }> = [
 ];
 
 export default function NouveauProduitPage() {
+  const { t, tc, lang } = useT(TNP);
   const router = useRouter();
   const [categories, setCategories] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -76,11 +79,11 @@ export default function NouveauProduitPage() {
         body: JSON.stringify(data),
       });
       const json = await res.json();
-      if (!res.ok) { showToast('Erreur : ' + (json.error || 'inconnue')); return; }
-      showToast('Produit créé');
+      if (!res.ok) { showToast(t('msgErreur') + (json.error || 'inconnue')); return; }
+      showToast(t('msgCree'));
       setTimeout(() => router.push('/admin/produits'), 1000);
     } catch {
-      showToast('Erreur réseau');
+      showToast(t('msgReseau'));
     } finally {
       setSaving(false);
     }
@@ -96,12 +99,12 @@ export default function NouveauProduitPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Link href="/admin/produits" className="sc-iconbtn"
-                style={{ width: 30, height: 30, border: `1px solid ${T.borderField}` }} aria-label="Retour aux produits">
+                style={{ width: 30, height: 30, border: `1px solid ${T.borderField}` }} aria-label={t('retourProduits')}>
             <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
           </Link>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 10.5, color: T.muted }}>Produits</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.ink }}>Nouvel article</div>
+            <div style={{ fontSize: 10.5, color: T.muted }}>{t('produits')}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: T.ink }}>{t('titre')}</div>
           </div>
           {ean && (
             <span className="sc-badge sc-num" style={{ background: '#F3EDF3', color: '#5E3B5E' }}>
@@ -110,7 +113,7 @@ export default function NouveauProduitPage() {
           )}
           <span style={{ fontSize: 11, color: T.muted }}>FR / SV / EN</span>
           <div className="sc-actions">
-            <Link href="/admin/produits" className="sc-btn sc-btn-secondary">Annuler</Link>
+            <Link href="/admin/produits" className="sc-btn sc-btn-secondary">{tc('cancel')}</Link>
             <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving}>
               <span className="ms">save</span>{saving ? 'Création…' : 'Créer le produit'}
             </button>
@@ -136,7 +139,7 @@ export default function NouveauProduitPage() {
 
       <div style={{ paddingTop: 14 }}>
         {!ready ? (
-          <div className="sc-empty">Lecture du code-barres…</div>
+          <div className="sc-empty">{t('lectureCode')}</div>
         ) : (
           <ProductForm
             initialData={initial || undefined}

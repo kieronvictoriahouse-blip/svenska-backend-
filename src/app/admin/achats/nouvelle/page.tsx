@@ -8,6 +8,8 @@ import {
   eur, kr, sekVersEur,
 } from './calculs';
 import { C, CarteFournisseur, LigneCatalogue, Controle, NomProduit, Vignette, Jauge } from './ui';
+import { useT } from '@/lib/admin-i18n';
+import { TNC, referencesAjoutees } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    NOUVELLE COMMANDE D'ACHAT
@@ -31,13 +33,14 @@ const FILTRES = [
    refuse de prérendre la page. */
 export default function NouvelleCommandeAchat() {
   return (
-    <Suspense fallback={<div className="sc-empty">Chargement du catalogue…</div>}>
+    <Suspense fallback={<div className="sc-empty" />}>
       <Composition />
     </Suspense>
   );
 }
 
 function Composition() {
+  const { t: tr, tc, lang } = useT(TNC);
   const router = useRouter();
   /* `?id=` ouvre une commande existante dans ce même écran : c'est ici
      qu'on voit la couverture et les ruptures, donc c'est ici qu'on doit
@@ -114,7 +117,7 @@ function Composition() {
            quantité, sinon toute commande saisie à la main reviendrait
            vide. */
         const { order } = await adminFetch(`/api/purchase-orders/${modifieId}`).then(r => r.json());
-        if (!order) { say('Commande introuvable'); return; }
+        if (!order) { say(tr('msgIntrouvable')); return; }
         setNumeroModifie(order.number || '');
         setSupId(order.supplier_id || '');
         if (order.coverage_weeks) setSemaines(Number(order.coverage_weeks));
@@ -140,7 +143,7 @@ function Composition() {
         setPanier(reprise);
         setPortExclus(exclus);
         setPerdues(orphelines);
-      } catch { say('Chargement impossible'); }
+      } catch { say(tr('msgChargement')); }
       finally { setChargement(false); }
     })();
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
@@ -180,7 +183,7 @@ function Composition() {
      diffèrent, mélanger n'aurait aucun sens. */
   function changerFournisseur(id: string) {
     if (id === supId) return;
-    if (Object.keys(panier).length && !window.confirm('Changer de magasin vide le panier — les prix et les cartons diffèrent. Continuer ?')) return;
+    if (Object.keys(panier).length && !window.confirm(tr('msgChangerMagasin'))) return;
     setSupId(id); setPanier({});
   }
 
@@ -204,9 +207,9 @@ function Composition() {
       if (n > 0) ajouts[p.id] = n;
     }
     const combien = Object.keys(ajouts).length;
-    if (!combien) { say('Rien à ajouter : tout ce qui presse est déjà au panier'); return; }
+    if (!combien) { say(tr('msgRienAAjouter')); return; }
     setPanier(c => ({ ...c, ...ajouts }));
-    say(`${combien} référence(s) ajoutée(s) d'après ton rythme de vente`);
+    say(referencesAjoutees(combien, lang));
   }
 
   async function envoyer() {
@@ -247,11 +250,11 @@ function Composition() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Link href="/admin/achats" className="sc-iconbtn"
-              style={{ width: 30, height: 30, border: `1px solid ${C.champ}` }} aria-label="Retour aux achats">
+              style={{ width: 30, height: 30, border: `1px solid ${C.champ}` }} aria-label={tr('retourAchats')}>
           <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
         </Link>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 10.5, color: C.t5 }}>Achats · Commandes d’achat</div>
+          <div style={{ fontSize: 10.5, color: C.t5 }}>{tr('filAriane')}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>
               {modifieId ? `Modifier ${numeroModifie}` : 'Nouvelle commande'}
@@ -313,7 +316,7 @@ function Composition() {
         <div style={{ maxHeight: mobile ? 'none' : 320, overflowY: 'auto' }}>
           {lignesPanier.length === 0 ? (
             <div style={{ padding: '26px 16px', fontSize: 12, color: C.t4, lineHeight: 1.6, textAlign: 'center' }}>
-              Panier vide. <strong style={{ color: C.t2 }}>Remplir automatiquement</strong> compose la commande
+              Panier vide. <strong style={{ color: C.t2 }}>{tr('remplirAuto')}</strong> compose la commande
               à partir de tes ruptures et de ton rythme de vente.
             </div>
           ) : lignesPanier.map(p => {
@@ -328,7 +331,7 @@ function Composition() {
                 {port.montant > 0 ? (
                   <input type="checkbox" checked={!portExclus[p.id]}
                          onChange={e => setPortExclus(x => ({ ...x, [p.id]: !e.target.checked }))}
-                         title="Cet article porte une part du transport"
+                         title={tr('portePartTransport')}
                          style={{ width: 15, height: 15, marginTop: 8, accentColor: C.accent, cursor: 'pointer', flexShrink: 0 }} />
                 ) : <Vignette p={p} taille={30} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -350,10 +353,10 @@ function Composition() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button onClick={() => regler(p.id, cartons - 1)} aria-label="Un carton de moins"
+                    <button onClick={() => regler(p.id, cartons - 1)} aria-label={tr('cartonMoins')}
                             style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.champ}`, background: '#fff', cursor: 'pointer', lineHeight: 1 }}>−</button>
                     <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 700, minWidth: 18, textAlign: 'center' }}>{cartons}</span>
-                    <button onClick={() => regler(p.id, cartons + 1)} aria-label="Un carton de plus"
+                    <button onClick={() => regler(p.id, cartons + 1)} aria-label={tr('cartonPlus')}
                             style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.champ}`, background: '#fff', cursor: 'pointer', lineHeight: 1 }}>+</button>
                   </div>
                   <span className="sc-num" style={{ fontSize: 11.5, fontWeight: 600, color: C.vert }}>
@@ -379,7 +382,7 @@ function Composition() {
         <div style={{ padding: '11px 13px', borderTop: `1px solid ${C.ligne}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="ms" style={{ fontSize: 17, color: C.t4 }}>local_shipping</span>
-            <label htmlFor="port" style={{ fontSize: 12, color: C.t2, flex: 1 }}>Transport (TNT, colis)</label>
+            <label htmlFor="port" style={{ fontSize: 12, color: C.t2, flex: 1 }}>{tr('transportTnt')}</label>
             <input id="port" inputMode="decimal" value={portTexte}
                    onChange={e => setPortTexte(e.target.value)} placeholder="0,00"
                    className="sc-input sc-num"
@@ -421,15 +424,15 @@ function Composition() {
         <div style={{ padding: '12px 13px', borderTop: `1px solid ${C.ligne}`, background: C.surfaceAlt }}>
           {t.sek > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.t3 }}>
-              <span>Marchandise (magasin)</span><span className="sc-num">{kr(t.sek)}</span>
+              <span>{tr('marchandiseMagasin')}</span><span className="sc-num">{kr(t.sek)}</span>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.t3, marginTop: 3 }}>
-            <span>Marchandise HT</span><span className="sc-num">{eur(t.eur)}</span>
+            <span>{tr('marchandiseHt')}</span><span className="sc-num">{eur(t.eur)}</span>
           </div>
           {t.port > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.t3, marginTop: 3 }}>
-              <span>Transport</span><span className="sc-num">{eur(t.port)}</span>
+              <span>{tr('transport')}</span><span className="sc-num">{eur(t.port)}</span>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 6 }}>
@@ -444,7 +447,7 @@ function Composition() {
           <div style={{ fontSize: 9.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600, marginBottom: 4 }}>
             Avant d’envoyer
           </div>
-          <Controle ok={t.lignes > 0}>Au moins une ligne</Controle>
+          <Controle ok={t.lignes > 0}>{tr('auMoinsUne')}</Controle>
           <Controle ok={t.minAtteint}>
             {fournisseur?.min ? `Minimum de commande — ${kr(fournisseur.min)}` : 'Pas de minimum de commande'}
           </Controle>
@@ -477,7 +480,7 @@ function Composition() {
   );
 
   /* ── Rendu ────────────────────────────────────────────── */
-  if (chargement) return <div className="sc-empty">Chargement du catalogue…</div>;
+  if (chargement) return <div className="sc-empty">{tr('chargement')}</div>;
 
   return (
     <>
@@ -548,7 +551,7 @@ function Composition() {
               <div style={{ position: 'relative', maxWidth: 260, flex: '1 1 180px' }}>
                 <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
                 <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
-                       placeholder="Rechercher" style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12, background: C.fond }} />
+                       placeholder={tr('rechercher')} style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12, background: C.fond }} />
               </div>
               {FILTRES.map(f => (
                 <button key={f.id} onClick={() => setFiltre(f.id)}
@@ -566,12 +569,12 @@ function Composition() {
                         background: '#F3EDF3', color: '#6E4470', borderRadius: 7, padding: '6px 12px',
                         fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                       }}>
-                <span className="ms" style={{ fontSize: 17 }}>bolt</span>Remplir automatiquement
+                <span className="ms" style={{ fontSize: 17 }}>bolt</span>{tr('remplirAuto')}
               </button>
             </div>
 
             {affiches.length === 0 ? (
-              <div className="sc-empty">Rien à réapprovisionner dans ce filtre — bonne nouvelle.</div>
+              <div className="sc-empty">{tr('rienAReappro')}</div>
             ) : affiches.map(p => (
               <LigneCatalogue key={p.id} p={p} semaines={semaines} cartons={panier[p.id] || 0}
                               onAdd={() => ajouter(p)} />
@@ -588,7 +591,7 @@ function Composition() {
             <div style={{ width: 46, height: 46, borderRadius: 23, background: '#E9F0E6', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
               <span className="ms" style={{ fontSize: 24, color: C.vert }}>mark_email_read</span>
             </div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: C.t1 }}>Commande enregistrée</div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: C.t1 }}>{tr('commandeEnregistree')}</div>
             <div style={{ fontSize: 12.5, color: C.t3, lineHeight: 1.6, marginTop: 8 }}>{confirme.message}</div>
             <button className="sc-btn sc-btn-primary" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }}
                     onClick={() => router.push('/admin/achats')}>

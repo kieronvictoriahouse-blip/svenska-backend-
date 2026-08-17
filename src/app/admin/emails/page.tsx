@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { TEM } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉDITION DES EMAILS
@@ -21,6 +23,7 @@ type Tpl = {
 };
 
 export default function EmailsPage() {
+  const { t, tc, lang } = useT(TEM);
   const [tpls, setTpls] = useState<Tpl[]>([]);
   const [sel, setSel] = useState('');
   const [html, setHtml] = useState('');
@@ -42,7 +45,7 @@ export default function EmailsPage() {
       const k = keepSel && sel ? sel : (list[0]?.key || '');
       const t = list.find(x => x.key === k);
       setSel(k); setHtml(t?.html || ''); setSubject(t?.subject || '');
-    } catch { say('Chargement impossible'); }
+    } catch { say(t('msgChargement')); }
   }
   useEffect(() => { load(false); }, []);
 
@@ -73,21 +76,21 @@ export default function EmailsPage() {
       });
       const d = await res.json();
       if (!res.ok) { setErreur(d.error || 'Enregistrement refusé'); return; }
-      say('Gabarit enregistré');
+      say(t('msgEnregistre'));
       await load();
     } catch (e: any) { setErreur(e.message); }
     finally { setBusy(false); }
   }
 
   async function reinitialiser() {
-    if (!window.confirm('Revenir au modèle d’origine ? Tes modifications seront perdues.')) return;
+    if (!window.confirm(t('msgConfirmReset'))) return;
     setBusy(true); setErreur('');
     try {
       const res = await adminFetch(`/api/email-templates?key=${encodeURIComponent(sel)}`, { method: 'DELETE' });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Erreur');
       setHtml(d.html || ''); setSubject('');
-      say('Modèle d’origine restauré');
+      say(t('msgRestaure'));
       await load();
     } catch (e: any) { setErreur(e.message); }
     finally { setBusy(false); }
@@ -97,18 +100,18 @@ export default function EmailsPage() {
     <>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>Emails</div>
+          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
           <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
             Les modèles livrés servent de référence — tu ne modifies que ce que tu veux changer.
           </div>
         </div>
         <div className="sc-actions">
           <button className="sc-btn sc-btn-secondary" onClick={previsualiser} disabled={busy}>
-            <span className="ms">visibility</span>Aperçu
+            <span className="ms">visibility</span>{t('apercu')}
           </button>
           {courant?.modifie && (
             <button className="sc-btn sc-btn-secondary" onClick={reinitialiser} disabled={busy}>
-              <span className="ms">restart_alt</span>Revenir au modèle
+              <span className="ms">restart_alt</span>{t('revenirModele')}
             </button>
           )}
           <button className="sc-btn sc-btn-green" onClick={enregistrer} disabled={busy || !modifieLocalement}>
@@ -155,7 +158,7 @@ export default function EmailsPage() {
               Objet du message
             </label>
             <input className="sc-input" style={{ width: '100%' }} value={subject}
-                   placeholder="Laisse vide pour l’objet calculé automatiquement"
+                   placeholder={t('phObjet')}
                    onChange={e => setSubject(e.target.value)} />
 
             {courant && (
@@ -194,7 +197,7 @@ export default function EmailsPage() {
                 Aperçu avec des données d’exemple
               </div>
               {/* Iframe isolée : le HTML d'un email ne doit pas déteindre sur le back-office. */}
-              <iframe srcDoc={apercu} title="Aperçu" style={{ width: '100%', height: 620, border: 'none', background: '#F1EEE9' }} />
+              <iframe srcDoc={apercu} title={t('apercu')} style={{ width: '100%', height: 620, border: 'none', background: '#F1EEE9' }} />
             </div>
           )}
         </div>

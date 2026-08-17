@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE } from '@/lib/admin-theme';
+import { useT } from '@/lib/admin-i18n';
+import { THC } from '../homepage/i18n';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 14 — PAGE D'ACCUEIL
@@ -18,6 +20,7 @@ type CmsItem = { key: string; label: string; type: string; value_fr: string; val
 type Lang = 'fr' | 'sv' | 'en';
 
 export default function HomeCmsPage() {
+  const { t, tc } = useT(THC);
   const [items, setItems] = useState<CmsItem[]>([]);
   const [editing, setEditing] = useState<Record<string, CmsItem>>({});
   const [loading, setLoading] = useState(true);
@@ -65,8 +68,8 @@ export default function HomeCmsPage() {
       });
       if (!res.ok) throw new Error();
       setItems(Object.values(editing));
-      say('Page d’accueil publiée');
-    } catch { say('Publication impossible'); }
+      say(t('msgPubliee'));
+    } catch { say(t('msgPublicationKo')); }
     finally { setSaving(false); }
   }
 
@@ -83,8 +86,8 @@ export default function HomeCmsPage() {
     try {
       const res = await adminFetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
       const d = await res.json();
-      if (d.url) { (['fr', 'sv', 'en'] as Lang[]).forEach(l => setVal(key, l, d.url)); say('Image remplacée — pense à publier'); }
-      else say('Upload impossible');
+      if (d.url) { (['fr', 'sv', 'en'] as Lang[]).forEach(l => setVal(key, l, d.url)); say(t('msgImageRemplacee')); }
+      else say(t('msgUploadKo'));
     } finally { setUploadingKey(null); }
   }
 
@@ -98,7 +101,7 @@ export default function HomeCmsPage() {
     <>
       <div className="sc-head">
         <div>
-          <div className="sc-title">Page d’accueil</div>
+          <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">{items.length} sections éditables · les modifications ne sont visibles qu’après publication</div>
         </div>
         <div className="sc-actions">
@@ -109,7 +112,7 @@ export default function HomeCmsPage() {
             ))}
           </div>
           <a className="sc-btn sc-btn-secondary" href={frontUrl} target="_blank" rel="noopener">
-            <span className="ms">visibility</span>Aperçu
+            <span className="ms">visibility</span>{t('apercu')}
           </a>
           <button className="sc-btn sc-btn-green" onClick={saveAll} disabled={saving || !dirty}>
             <span className="ms">publish</span>{saving ? 'Publication…' : dirty ? 'Publier' : 'À jour'}
@@ -117,7 +120,7 @@ export default function HomeCmsPage() {
         </div>
       </div>
 
-      {loading && <div className="sc-empty">Chargement…</div>}
+      {loading && <div className="sc-empty">{tc('loading')}</div>}
 
       {!loading && (
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -166,7 +169,7 @@ export default function HomeCmsPage() {
                             <img src={editing[i.key].value_fr} alt="" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 7, marginBottom: 10 }} />
                           )}
                           <div style={{ display: 'flex', gap: 8 }}>
-                            <input className="sc-input" placeholder="URL de l’image"
+                            <input className="sc-input" placeholder={t('phImage')}
                                    value={editing[i.key]?.value_fr || ''}
                                    onChange={e => (['fr', 'sv', 'en'] as Lang[]).forEach(l => setVal(i.key, l, e.target.value))} />
                             <button className="sc-btn sc-btn-secondary" disabled={uploadingKey === i.key}
@@ -198,7 +201,7 @@ export default function HomeCmsPage() {
           {/* Aperçu mobile schématique */}
           <div style={{ flex: '1 1 260px', minWidth: 0, position: 'sticky', top: 8 }}>
             <div className="sc-card" style={{ padding: 14 }}>
-              <div className="sc-card-title" style={{ marginBottom: 10 }}>Aperçu</div>
+              <div className="sc-card-title" style={{ marginBottom: 10 }}>{t('apercu')}</div>
               <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
                 <div style={{ height: 22, background: T.topbar }} />
                 <div style={{
