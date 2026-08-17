@@ -62,7 +62,7 @@ travailler en français et envoyer du suédois.
 | Catégories | 248 | Table réordonnable, noms trilingues, slug, visibilité, compteur de produits. |
 | Stocks | 494 | Quatre cartes de synthèse, tri par urgence, ajustement direct dans la liste avec enregistrement automatique, inventaire par scan, contrôle théorique contre réel, export CSV. |
 | Commandes | 1 743 | Le plus gros écran. Statuts, suivi transporteur, coûts réels et marge, remboursement total ou partiel, avoir, lien de paiement Stripe, étiquette transporteur, exclusion des statistiques, marquage test, langue du client, création manuelle. |
-| Préparation | 345 | File d'attente, scan au téléphone, plafonnement des quantités, refus des articles hors commande, barre de progression, décrément du stock à la validation, feuille de picking. |
+| Préparation | 400 | File d'attente, scan au téléphone, plafonnement des quantités, refus des articles hors commande, barre de progression, feuille de picking. **Expédition partielle avec reliquat** : on envoie ce qui est prêt, la commande reste dans la file et le solde se prépare au réassort. Le stock se décrémente sur ce qui part réellement. |
 | Ruptures | 295 | Signalement d'une rupture, proposition de remplacements par email avec choix en un clic sans connexion, suivi des réponses. |
 | Import URL | 442 | Analyse d'une page produit distante : nom, prix, poids, ingrédients, allergènes, images. Sélection des visuels et création de la fiche. |
 | Suggestions | 227 | Idées de produits envoyées par les clients, avec langue, contact et suivi. |
@@ -252,6 +252,11 @@ identique hors ligne.
 porte la photo du produit — c'est le document avec lequel on va en magasin.
 Les documents client suivent la langue du client, indépendamment de celle
 du back-office.
+
+**Reliquat.** Le bon de livraison affiche « Commandé », « Livré » (ce
+colis) et, uniquement s'il reste quelque chose, « Reste à livrer » avec
+une mention expliquant au client qu'il n'a ni frais ni démarche à
+prévoir.
 
 **Exports** : tableur comptable, fichier FEC, CSV du stock, contacts.
 
