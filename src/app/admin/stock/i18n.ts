@@ -26,6 +26,13 @@ export const TST = {
   seuil: { fr: 'Seuil', en: 'Threshold', sv: 'Tröskel' },
   ajuster: { fr: 'Ajuster', en: 'Adjust', sv: 'Justera' },
   valeur: { fr: 'Valeur', en: 'Value', sv: 'Värde' },
+  quantite: { fr: 'Quantité', en: 'Quantity', sv: 'Antal' },
+  ordreGele: {
+    fr: 'Ordre figé pendant la saisie — les lignes ne bougent plus.',
+    en: 'Order frozen while you type — rows stay put.',
+    sv: 'Ordningen är låst medan du skriver — raderna står stilla.',
+  },
+  reclasser: { fr: 'Reclasser', en: 'Re-sort', sv: 'Sortera om' },
   moins: { fr: 'Moins', en: 'Less', sv: 'Färre' },
   msgControleKo: { fr: 'Contrôle impossible', en: 'Check failed', sv: 'Kontrollen misslyckades' },
 };

@@ -46,6 +46,21 @@ export default function StockPage() {
   const [inv, setInv] = useState<Record<string, number>>({});
   const [invBusy, setInvBusy] = useState(false);
 
+  /* Saisie directe des quantites. Le brouillon garde ce qui est tape tant
+     qu'on n'a pas valide : sans lui, taper « 12 » ecrirait 1 puis 12. */
+  const [brouillon, setBrouillon] = useState<Record<string, string>>({});
+
+  /* Ordre fige. Le tri se fait par urgence, donc changer une quantite
+     deplace la ligne — et modifier dix articles la faisait sauter dix
+     fois. Des qu'on touche a une valeur, l'ordre se fige jusqu'a ce
+     qu'on demande explicitement de reclasser. */
+  const [ordreGele, setOrdreGele] = useState<string[] | null>(null);
+
+  /* Cible en attente d'ecriture, par produit. Deux clics rapides sur « + »
+     repartaient tous deux de la valeur du dernier rendu et n'en comptaient
+     qu'un : la temporisation n'envoyait que le dernier appel. */
+  const cibles = useRef<Record<string, number>>({});
+
   /* Controle du stock : theorique (recu - vendu) confronte a la base.
      Ne vaut que la ou des receptions existent — ailleurs le stock a ete
      saisi a la main et seul un comptage physique fait foi. */
@@ -75,7 +90,15 @@ export default function StockPage() {
   /** Ajustement immédiat côté écran, écriture différée de 700 ms.
    *  Borné à 0 minimum, comme spécifié. */
   function adjust(p: Product, delta: number) {
-    const next = Math.max(0, (p.stock ?? 0) + delta);
+    const base = cibles.current[p.id] ?? (p.stock ?? 0);
+    ecrire(p, Math.max(0, base + delta));
+  }
+
+  /** Pose une quantite absolue. Optimiste, puis temporisee. */
+  function ecrire(p: Product, next: number) {
+    if (next === (cibles.current[p.id] ?? p.stock ?? 0)) return;
+    cibles.current[p.id] = next;
+    geler();
     setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: next } : x));
     setSaving(s => new Set(s).add(p.id));
 
@@ -93,9 +116,23 @@ export default function StockPage() {
         setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: p.stock } : x));
         say(`Enregistrement impossible pour ${p.name_fr}`);
       } finally {
+        delete cibles.current[p.id];
         setSaving(s => { const n = new Set(s); n.delete(p.id); return n; });
       }
     }, 700);
+  }
+
+  /* On fige l'ordre au premier geste, pas au chargement : tant qu'on
+     lit, la liste doit rester triee par urgence. */
+  const geler = () => setOrdreGele(o => o || sorted.map(x => x.id));
+  const reclasser = () => { setOrdreGele(null); setBrouillon({}); };
+
+  /** Valide ce qui a ete tape dans une ligne. */
+  function validerSaisie(p: Product) {
+    const brut = brouillon[p.id];
+    setBrouillon(b => { const n = { ...b }; delete n[p.id]; return n; });
+    if (brut === undefined || brut === '') return;
+    ecrire(p, Math.max(0, Math.round(Number(brut) || 0)));
   }
 
   async function loadCtrl() {
@@ -182,6 +219,18 @@ export default function StockPage() {
     const rb = (b.stock ?? 0) / Math.max(1, (b.stock_alert ?? LOW));
     return ra - rb;
   }), [tracked]);
+
+  /* Les nouveaux produits (filtre change, rechargement) se placent apres
+     ceux deja affiches plutot que de disparaitre. */
+  const affichees = useMemo(() => {
+    if (!ordreGele) return sorted;
+    const rang = new Map(ordreGele.map((id, i) => [id, i]));
+    return [...sorted].sort((a, b) => {
+      const ra = rang.has(a.id) ? rang.get(a.id)! : Number.MAX_SAFE_INTEGER;
+      const rb = rang.has(b.id) ? rang.get(b.id)! : Number.MAX_SAFE_INTEGER;
+      return ra - rb;
+    });
+  }, [sorted, ordreGele]);
 
   const CARDS = [
     { label: 'Ruptures',        value: num(out.length),     tone: BADGE.red,    icon: 'error' },
@@ -422,6 +471,22 @@ export default function StockPage() {
         <div className="sc-empty">{t('aucun')}</div>
       )}
 
+      {/* L'ordre est fige des qu'on modifie une quantite : sans ca, le tri
+          par urgence deplace la ligne a chaque clic. */}
+      {!loading && ordreGele && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10,
+          background: '#FBF9F6', border: `1px solid ${T.border}`, borderRadius: 9, padding: '9px 13px',
+        }}>
+          <span className="ms" style={{ fontSize: 17, color: T.muted }}>lock</span>
+          <span style={{ fontSize: 12, color: T.text2b, flex: 1 }}>{t('ordreGele')}</span>
+          <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 11px', fontSize: 11.5 }}
+                  onClick={reclasser}>
+            <span className="ms" style={{ fontSize: 15 }}>sort</span>{t('reclasser')}
+          </button>
+        </div>
+      )}
+
       {!loading && sorted.length > 0 && (
         <div className="sc-card" style={{ overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
@@ -436,7 +501,7 @@ export default function StockPage() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(p => {
+                {affichees.map(p => {
                   const qty = p.stock ?? 0;
                   const thr = p.stock_alert ?? LOW;
                   const gaugeMax = Math.max(qty, thr * 4, 1);
@@ -456,7 +521,25 @@ export default function StockPage() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 700, color, minWidth: 28 }}>{qty}</span>
+                          <input
+                            className="sc-input sc-num"
+                            inputMode="numeric"
+                            aria-label={`${t('quantite')} — ${nomProduit(p, lang)}`}
+                            value={brouillon[p.id] ?? String(qty)}
+                            onChange={e => setBrouillon(b => ({ ...b, [p.id]: e.target.value.replace(/[^\d]/g, '') }))}
+                            onFocus={e => { geler(); e.currentTarget.select(); }}
+                            onBlur={() => validerSaisie(p)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.currentTarget.blur(); }
+                              else if (e.key === 'Escape') {
+                                setBrouillon(b => { const n = { ...b }; delete n[p.id]; return n; });
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            style={{
+                              width: 52, height: 28, padding: '0 4px', textAlign: 'center',
+                              fontSize: 12.5, fontWeight: 700, color,
+                            }} />
                           <div style={{ width: 90, height: 5, borderRadius: 2.5, background: T.borderFaint2 }}>
                             <div style={{ height: '100%', width: `${Math.min(100, (qty / gaugeMax) * 100)}%`, borderRadius: 2.5, background: color }} />
                           </div>
