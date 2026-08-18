@@ -38,6 +38,19 @@ export const parQuantite = (o: OffreCadeau) =>
   !!(Number(o?.gift_trigger_qty) > 0 && listeIds(o?.gift_trigger_product_ids).length);
 
 /**
+ * Offre incomplète : des produits déclencheurs sont désignés, mais pas
+ * la quantité qui les accompagne.
+ *
+ * Ce cas doit ÉCHOUER FERMÉ. Il s'est produit en vrai : le code PIFFI
+ * portait son produit déclencheur sans quantité, la règle retombait sur
+ * le montant, et `min_order` valant 0, un panier d'un seul Piffi —
+ * n'importe quel panier, en fait — repartait avec un dip offert. Un
+ * réglage a moitié saisi ne doit jamais devenir « cadeau pour tous ».
+ */
+export const offreIncomplete = (o: OffreCadeau) =>
+  !!(listeIds(o?.gift_trigger_product_ids).length && !(Number(o?.gift_trigger_qty) > 0));
+
+/**
  * Combien de cadeaux le panier mérite.
  *
  * Retourne 0 quand rien n'est acquis — jamais un nombre négatif, et
@@ -49,6 +62,7 @@ export function cadeauxDus(
   sousTotal: number,
 ): number {
   if (!offre) return 0;
+  if (offreIncomplete(offre)) return 0;
 
   let dus = 0;
 
@@ -79,6 +93,7 @@ export function resteAAtteindre(
   sousTotal: number,
 ): { type: 'quantite' | 'montant'; manque: number } | null {
   if (!offre) return null;
+  if (offreIncomplete(offre)) return null;
 
   if (parQuantite(offre)) {
     const declencheurs = new Set(listeIds(offre.gift_trigger_product_ids));

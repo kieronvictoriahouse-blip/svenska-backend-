@@ -47,6 +47,26 @@ export const TMA = {
   illimite: { fr: 'illimité', en: 'unlimited', sv: 'obegränsat' },
   produitsDeclencheurs: { fr: 'Produits qui déclenchent', en: 'Triggering products', sv: 'Produkter som utlöser' },
   sinonSeuil: { fr: 'Se déclenche à partir de', en: 'Triggers from', sv: 'Utlöses från' },
+  msgQteDeclencheur: {
+    fr: '⚠️ Indique combien il faut en acheter — sans quantité, tous les paniers gagneraient le cadeau',
+    en: '⚠️ Set how many must be bought — without a quantity, every cart would win the gift',
+    sv: '⚠️ Ange hur många som måste köpas — utan antal skulle varje kundvagn få gåvan',
+  },
+  msgProduitDeclencheur: {
+    fr: '⚠️ Coche au moins un produit déclencheur, ou vide la quantité',
+    en: '⚠️ Tick at least one triggering product, or clear the quantity',
+    sv: '⚠️ Kryssa i minst en utlösande produkt, eller töm antalet',
+  },
+  offreIncomplete: {
+    fr: 'Réglage incomplet — aucun cadeau ne sera accordé',
+    en: 'Incomplete setting — no gift will be granted',
+    sv: 'Ofullständig inställning — ingen gåva delas ut',
+  },
+  seuilZero: {
+    fr: 'Seuil à 0 € : tous les paniers gagneront le cadeau',
+    en: 'Threshold at €0: every cart will win the gift',
+    sv: 'Tröskel 0 €: alla kundvagnar får gåvan',
+  },
   cadeauxEligibles: { fr: 'Produits offerts éligibles', en: 'Eligible gift products', sv: 'Berättigade presentprodukter' },
   chargementProduits: { fr: 'Chargement des produits…', en: 'Loading products…', sv: 'Laddar produkter…' },
   uneSeuleFois: {

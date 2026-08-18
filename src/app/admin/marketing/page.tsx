@@ -184,6 +184,14 @@ function MarketingInner() {
     const isGift = codeForm.type === 'gift';
     if (isGift) {
       if (!codeForm.gift_product_ids || codeForm.gift_product_ids.length === 0) { showToast(t('msgCadeau')); return; }
+      /* Des produits declencheurs sans quantite ont deja produit un
+         « cadeau pour tous » en production : on refuse d enregistrer. */
+      if (codeForm.gift_trigger_product_ids.length && !(parseInt(codeForm.gift_trigger_qty) > 0)) {
+        showToast(t('msgQteDeclencheur')); return;
+      }
+      if (parseInt(codeForm.gift_trigger_qty) > 0 && !codeForm.gift_trigger_product_ids.length) {
+        showToast(t('msgProduitDeclencheur')); return;
+      }
     } else if (!codeForm.code) {
       showToast(t('msgCodeRequis')); return;
     } else if (codeForm.type !== 'free_shipping' && !codeForm.value) {
@@ -768,7 +776,11 @@ function MarketingInner() {
                     <div style={{ marginTop: 10, padding: '9px 12px', background: '#EDF1EA', borderRadius: 6, fontSize: 12.5, color: '#3E5238' }}>
                       {codeForm.gift_trigger_qty && codeForm.gift_trigger_product_ids.length
                         ? `${codeForm.gift_trigger_qty} × ${products.filter(p => codeForm.gift_trigger_product_ids.includes(p.id)).map(p => p.name_fr).join(' ou ')} achetés → 1 cadeau au choix`
-                        : `${t('sinonSeuil')} ${codeForm.min_order || 0} €`}
+                        : codeForm.gift_trigger_product_ids.length || codeForm.gift_trigger_qty
+                          ? `⚠️ ${t('offreIncomplete')}`
+                          : Number(codeForm.min_order) > 0
+                            ? `${t('sinonSeuil')} ${codeForm.min_order} €`
+                            : `⚠️ ${t('seuilZero')}`}
                     </div>
                   </div>
                 )}
