@@ -168,6 +168,9 @@ const TRAD = {
   "Un simple clic suffit, et si rien ne vous convient répondez à cet email : je m'en occupe personnellement. Votre colis reste en attente jusqu'à votre réponse.":
     { en: 'One click is enough, and if nothing suits you just reply to this email: I will handle it personally. Your parcel stays on hold until you answer.',
       sv: 'Ett klick räcker, och passar inget svarar du bara på mejlet: jag tar hand om det personligen. Ditt paket väntar tills du svarat.' },
+  '— une de chaque si vous préférez, vous choisissez la répartition.':
+    { en: '— one of each if you prefer, you choose how to split it.',
+      sv: '— en av varje om du vill, du bestämmer fördelningen.' },
   'Merci de votre patience — et désolée pour ce contretemps.':
     { en: 'Thank you for your patience — and sorry for the hiccup.',
       sv: 'Tack för ditt tålamod — och ursäkta krånglet.' },

@@ -2,7 +2,7 @@ import { renderEmail, sujetPersonnalise, EmailTemplate } from '@/lib/email-templ
 import { LangueClient, langueDeCommande } from '@/lib/langue-client';
 import {
   TE, SANS_PRENOM, SUJETS, texte, mentionPaiement, libelleLivraison,
-  titreContenu, colisInfo, accrocheAvoir, corpsRupture, titreReliquat, noteReliquat,
+  titreContenu, colisInfo, accrocheAvoir, corpsRupture, titreReliquat, noteReliquat, titrePanache,
   formatEuro, formatDate, formatDateHeure,
 } from '@/lib/emails-i18n';
 
@@ -232,6 +232,11 @@ export async function ruptureEmail(
       base_lien: base,
       lien_rembourser: `${jeton}&choix=rembourser`,
       lien_attendre: `${jeton}&choix=attendre`,
+      /* Panacher n'a de sens qu'a partir de deux unites : sur une seule,
+         le lien ouvrirait une page qui ne propose rien de plus. */
+      panachable: qte > 1,
+      lien_composer: `${jeton}&choix=composer`,
+      titre_panache: titrePanache(qte, lang),
       note_ecart: texte('ecartPourNous', lang),
     }, lang),
   };

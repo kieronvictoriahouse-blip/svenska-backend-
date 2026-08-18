@@ -172,3 +172,9 @@ export const noteReliquat = (lang: LangueClient) =>
   : lang === 'en'
     ? 'These items were out of stock when we packed your parcel. We will send them as soon as they are back in stock, at no extra delivery cost and with nothing for you to do.'
     : 'Ces articles étaient épuisés au moment de préparer votre colis. Nous vous les expédions dès leur retour en stock, sans frais de port supplémentaires et sans démarche de votre part.';
+
+/** Invitation a panacher, quand plusieurs unites sont concernees. */
+export const titrePanache = (qte: number, lang: LangueClient) =>
+  lang === 'sv' ? `Eller blanda dina ${qte} enheter som du vill`
+  : lang === 'en' ? `Or mix your ${qte} units as you like`
+  : `Ou répartissez vos ${qte} unités comme vous voulez`;

@@ -61,6 +61,67 @@ function dejaDecide(c: any) {
      Vous n’avez rien d’autre à faire — inutile de recliquer, votre réponse ne compte qu’une fois.`);
 }
 
+
+/** Page de composition : le client repartit lui-meme ses unites.
+ *  Un clic ne suffit pas pour panacher — il faut un formulaire. */
+function pageComposer(c: any, token: string, options: any[]) {
+  const qte = Number(c.line_qty) || 1;
+  const lignes = options.map((o, i) => `
+    <tr>
+      <td style="padding:12px 0;border-bottom:1px solid ${D.rule};">
+        <div style="font-size:15px;color:${D.ink};">${echap(o.nom)}</div>
+        ${o.note ? `<div style="font-size:12px;color:${D.body};padding-top:2px;">${echap(o.note)}</div>` : ''}
+      </td>
+      <td style="padding:12px 0;border-bottom:1px solid ${D.rule};text-align:right;white-space:nowrap;">
+        <input type="number" name="q_${echap(String(o.product_id))}" value="0" min="0" max="${qte}"
+               inputmode="numeric" class="q"
+               style="width:62px;height:38px;text-align:center;font-size:16px;border:1px solid ${D.rule};background:#fff;color:${D.ink};" />
+      </td>
+    </tr>`).join('');
+
+  return page('Composez votre remplacement', `
+    Vous aviez commandé <strong>${qte} × ${echap(c.line_name)}</strong>.
+    Répartissez ces ${qte} unités comme vous voulez — une de chaque, ou tout sur un seul.
+    <form method="POST" action="/api/remplacement" style="padding-top:18px;">
+      <input type="hidden" name="token" value="${echap(token)}" />
+      <table style="width:100%;border-collapse:collapse;">${lignes}</table>
+      <div style="padding:16px 0 4px;font-size:14px;color:${D.body};">
+        Total réparti : <strong id="tot" style="color:${D.ink};">0</strong> / ${qte}
+      </div>
+      <button type="submit" id="go" disabled
+              style="width:100%;height:48px;margin-top:10px;border:0;background:${D.green};color:#fff;font-size:15px;cursor:pointer;">
+        Valider mon choix
+      </button>
+      <div style="font-size:12.5px;color:${D.body};padding-top:12px;line-height:20px;">
+        L’écart de prix est pour nous — c’est nous qui sommes en rupture, pas vous.
+      </div>
+    </form>
+    <script>
+      (function () {
+        var champs = [].slice.call(document.querySelectorAll('.q'));
+        var tot = document.getElementById('tot'), go = document.getElementById('go');
+        function maj() {
+          var n = champs.reduce(function (s, c) { return s + (parseInt(c.value, 10) || 0); }, 0);
+          tot.textContent = n;
+          var ok = n === ${qte};
+          go.disabled = !ok;
+          go.style.opacity = ok ? '1' : '.45';
+          go.style.cursor = ok ? 'pointer' : 'not-allowed';
+        }
+        champs.forEach(function (c) { c.addEventListener('input', maj); });
+        maj();
+      })();
+    </script>`);
+}
+
+/** Le nom d'un produit vient de la base : on l'echappe avant de l'ecrire
+ *  dans une page HTML. */
+function echap(v: unknown) {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token') || '';
@@ -81,6 +142,15 @@ export async function GET(req: NextRequest) {
     return page('Lien inutilisable', 'Ce lien ne correspond pas à la commande attendue.', 'ko');
   }
   if (c.status !== 'pending') return dejaDecide(c);
+
+  /* ── Composer soi-meme sa repartition ─────────────────────── */
+  if (choix === 'composer') {
+    const options: any[] = Array.isArray(c.options) ? c.options : [];
+    if (!options.length) {
+      return page('Rien à composer', 'Aucune proposition n’accompagne cette demande.', 'ko');
+    }
+    return pageComposer(c, token, options);
+  }
 
   /* ── Attendre le réassort ─────────────────────────────────── */
   if (choix === 'attendre') {
@@ -147,4 +217,97 @@ export async function GET(req: NextRequest) {
     `<strong>${c.line_name}</strong> est remplacé par <strong>${prod.name_fr}</strong> dans votre commande.<br /><br />
      ${mot}<br /><br />
      Nous préparons votre colis et vous prévenons dès qu’il part.`);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VALIDATION D'UNE RÉPARTITION — ROUTE PUBLIQUE
+
+   Mêmes précautions que le clic simple, et une de plus : les quantités
+   viennent d'un formulaire, donc de l'extérieur. On les replafonne, on
+   vérifie que leur somme fait exactement la quantité commandée, et on
+   n'accepte que des articles réellement proposés dans l'email.
+   ═══════════════════════════════════════════════════════════════ */
+export async function POST(req: NextRequest) {
+  const form = await req.formData().catch(() => null);
+  if (!form) return page('Formulaire illisible', 'Réessayez depuis le lien de votre email.', 'ko');
+
+  const token = String(form.get('token') || '');
+  const v = verifyChoice(token);
+  if (!v.ok) {
+    return page('Lien inutilisable',
+      'Ce lien n’est plus valide. Écrivez-nous à <a href="mailto:hej@swedishcravings.fr" style="color:#44573D;">hej@swedishcravings.fr</a>.', 'ko');
+  }
+
+  const { data: c } = await supabaseAdmin
+    .from('order_line_choices').select('*').eq('id', v.payload.cid).maybeSingle();
+  if (!c) return page('Demande introuvable', 'Cette demande n’existe plus.', 'ko');
+  if (c.order_id !== v.payload.oid) {
+    return page('Lien inutilisable', 'Ce lien ne correspond pas à la commande attendue.', 'ko');
+  }
+  if (c.status !== 'pending') return dejaDecide(c);
+
+  const qteTotale = Number(c.line_qty) || 1;
+  const options: any[] = Array.isArray(c.options) ? c.options : [];
+
+  /* On ne lit que les articles proposés : un champ ajouté à la main dans
+     le formulaire ne peut pas faire entrer un autre produit. */
+  const demande: Array<{ product_id: string; qte: number }> = [];
+  for (const o of options) {
+    const n = Math.max(0, Math.round(Number(form.get(`q_${o.product_id}`)) || 0));
+    if (n > 0) demande.push({ product_id: String(o.product_id), qte: n });
+  }
+
+  const somme = demande.reduce((s, d) => s + d.qte, 0);
+  if (somme !== qteTotale) {
+    return page('Répartition incomplète',
+      `Vous avez réparti ${somme} unité(s) sur ${qteTotale}. Revenez en arrière et ajustez —
+       le total doit tomber juste pour que nous préparions le bon colis.`, 'ko');
+  }
+
+  /* Les prix viennent du catalogue, jamais du formulaire. */
+  const { data: prods } = await supabaseAdmin
+    .from('products').select('id, name_fr, price').in('id', demande.map(d => d.product_id));
+  const parId = Object.fromEntries((prods || []).map(p => [p.id, p]));
+
+  const manquant = demande.find(d => !parId[d.product_id]);
+  if (manquant) {
+    return page('Article indisponible',
+      'Une des propositions n’est plus disponible. Écrivez-nous et nous trouvons autre chose.', 'ko');
+  }
+
+  const mix = demande.map(d => ({
+    product_id: d.product_id,
+    nom: parId[d.product_id].name_fr,
+    qte: d.qte,
+    prix: Number(parId[d.product_id].price) || 0,
+  }));
+
+  const ancien = qteTotale * (Number(c.line_price) || 0);
+  const nouveau = mix.reduce((s, m) => s + m.qte * m.prix, 0);
+  const delta = ancien - nouveau;   // > 0 : la boutique doit la différence
+
+  const resume = mix.map(m => `${m.qte} × ${m.nom}`).join(', ');
+
+  await supabaseAdmin.from('order_line_choices').update({
+    status: 'replaced',
+    chosen_mix: mix,
+    /* Renseigné aussi quand le panachage tient sur un seul article : le
+       back-office et les écrans existants continuent de fonctionner. */
+    chosen_product_id: mix.length === 1 ? mix[0].product_id : null,
+    chosen_label: resume,
+    price_delta: delta,
+    decided_at: new Date().toISOString(),
+  }).eq('id', c.id);
+
+  const mot = delta > 0
+    ? `La différence de <strong>${eur(delta)}</strong> vous est remboursée — c’est nous qui sommes en rupture, pas vous.`
+    : delta < 0
+      ? 'La différence de prix est pour nous, vous n’avez rien de plus à régler.'
+      : 'Le prix est identique, il n’y a rien à régulariser.';
+
+  return page('Parfait, c’est noté',
+    `À la place de <strong>${echap(c.line_name)}</strong>, nous mettons dans votre colis :<br /><br />
+     <strong>${echap(resume)}</strong><br /><br />
+     ${mot}<br /><br />
+     Nous préparons votre commande et vous prévenons dès qu’elle part.`);
 }

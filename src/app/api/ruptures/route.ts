@@ -125,9 +125,22 @@ export async function PUT(req: NextRequest) {
     .from('orders').select('*').eq('id', choix.order_id).maybeSingle();
   if (!order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
 
-  const { data: remplacant } = await supabaseAdmin
-    .from('products').select('id, name_fr, price').eq('id', choix.chosen_product_id).maybeSingle();
-  if (!remplacant) return NextResponse.json({ error: 'Article de remplacement introuvable' }, { status: 404 });
+  /* Le client a pu panacher : une ligne remplacee par plusieurs. On
+     ramene les deux cas au meme format pour n'ecrire qu'un seul chemin. */
+  const mix: Array<{ product_id: string; nom: string; qte: number; prix: number }> =
+    Array.isArray(choix.chosen_mix) && choix.chosen_mix.length
+      ? choix.chosen_mix
+      : [];
+
+  if (!mix.length) {
+    const { data: remplacant } = await supabaseAdmin
+      .from('products').select('id, name_fr, price').eq('id', choix.chosen_product_id).maybeSingle();
+    if (!remplacant) return NextResponse.json({ error: 'Article de remplacement introuvable' }, { status: 404 });
+    mix.push({
+      product_id: remplacant.id, nom: remplacant.name_fr,
+      qte: Number(choix.line_qty) || 1, prix: Number(remplacant.price) || 0,
+    });
+  }
 
   /* On remplace la ligne, sans toucher au total : la boutique absorbe
      l'écart, c'est ce que dit l'email au client. Un trop-perçu se
@@ -140,14 +153,19 @@ export async function PUT(req: NextRequest) {
   }
 
   const ancienne = lignes[idx];
-  lignes[idx] = {
+  /* Le prix paye ne change pas : le client a regle l'ancien article, et
+     la boutique absorbe l'ecart. Sur un panachage, chaque nouvelle ligne
+     garde donc le prix unitaire d'origine — le total de la commande est
+     inchange, ce qui est exactement ce que l'email a promis. */
+  const nouvelles = mix.map(m => ({
     ...ancienne,
-    product_id: remplacant.id,
-    name: remplacant.name_fr,
-    // Le prix payé ne change pas : le client a réglé l'ancien article.
+    product_id: m.product_id,
+    name: m.nom,
+    qty: m.qte,
     price: Number(ancienne.price) || 0,
     remplace: choix.line_name,
-  };
+  }));
+  lignes.splice(idx, 1, ...nouvelles);
 
   const { error: majErr } = await supabaseAdmin.from('orders').update({
     lines: JSON.stringify(lignes),
@@ -164,13 +182,15 @@ export async function PUT(req: NextRequest) {
     if (choix.product_id) {
       await adjustStock(choix.product_id, qte, {
         reason: 'replacement', reference: ref,
-        note: `Article en rupture remis en stock — remplacé par ${remplacant.name_fr}`,
+        note: `Article en rupture remis en stock — remplacé par ${mix.map(m => m.nom).join(', ')}`,
       });
     }
-    await adjustStock(remplacant.id, -qte, {
-      reason: 'replacement', reference: ref,
-      note: `Remplace ${choix.line_name} sur ${order.order_number}`,
-    });
+    for (const m of mix) {
+      await adjustStock(m.product_id, -m.qte, {
+        reason: 'replacement', reference: ref,
+        note: `Remplace ${choix.line_name} sur ${order.order_number}`,
+      });
+    }
   } catch (e) {
     console.error('[ruptures] stock non ajusté', e);
   }
