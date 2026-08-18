@@ -46,7 +46,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const token = signChoice(choice.id, order.id);
+  /* La ligne est deja inserte — le jeton a besoin de son identifiant. Si
+     la signature echoue (secret absent), il resterait une demande qui a
+     l'air envoyee alors qu'aucun email n'est parti. On la retire. */
+  let token: string;
+  try {
+    token = signChoice(choice.id, order.id);
+  } catch (e: any) {
+    await supabaseAdmin.from('order_line_choices').delete().eq('id', choice.id);
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
+  }
   const cfg = await getWhiteLabelConfig();
   const from = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
 
@@ -57,7 +66,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr',
   });
 
-  await sendEmail({ from, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+  /* `sent_at` est pose par DEFAUT a l'insertion, donc avant l'envoi : il
+     dit qu'une demande existe, pas qu'un email est parti. `last_sent_at`
+     n'est ecrit qu'apres un envoi accepte par le serveur. */
+  try {
+    await sendEmail({ from, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+  } catch (e: any) {
+    await supabaseAdmin.from('order_line_choices')
+      .update({ last_send_error: String(e?.message || e).slice(0, 300) }).eq('id', choice.id);
+    return NextResponse.json(
+      { error: `Demande créée, mais l'email n'est pas parti : ${e?.message || e}`, choice_id: choice.id },
+      { status: 502 });
+  }
 
-  return NextResponse.json({ ok: true, choice_id: choice.id });
+  await supabaseAdmin.from('order_line_choices')
+    .update({ last_sent_at: new Date().toISOString() }).eq('id', choice.id);
+
+  return NextResponse.json({ ok: true, choice_id: choice.id, destinataire: order.customer_email });
 }

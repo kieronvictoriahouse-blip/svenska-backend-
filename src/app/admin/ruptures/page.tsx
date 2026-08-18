@@ -108,6 +108,31 @@ export default function RupturesPage() {
     } catch (e: any) { say(e.message); }
   }
 
+  /* Relance : la demande reste en attente, seul le compteur bouge. Le
+     jeton du lien est deterministe, donc le premier email recu par le
+     client reste valide. */
+  const [relance, setRelance] = useState<string | null>(null);
+  async function relancer(r: any) {
+    const dest = r.order?.customer_email || '';
+    if (!window.confirm(`${t('confirmRelance')}
+
+${dest}`)) return;
+    setRelance(r.id);
+    try {
+      const res = await adminFetch('/api/ruptures', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: r.id, action: 'relancer' }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Échec');
+      setRows(rs => rs.map(x => x.id === r.id
+        ? { ...x, relances: d.relances, last_sent_at: new Date().toISOString(), last_send_error: null }
+        : x));
+      say(`${t('relanceEnvoyee')} ${d.destinataire}`);
+    } catch (e: any) { say(e.message); }
+    finally { setRelance(null); }
+  }
+
   const enAttente = rows.filter(r => r.status === 'pending').length;
   const aTraiter = rows.filter(r => ['replaced', 'refund_requested', 'waiting'].includes(r.status)).length;
 
@@ -261,6 +286,13 @@ export default function RupturesPage() {
                                  href={`/admin/commandes?q=${encodeURIComponent(r.order.order_number)}`}>
                                 Rembourser
                               </a>
+                            )}
+                            {r.status === 'pending' && (
+                              <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
+                                      onClick={() => relancer(r)} disabled={relance === r.id}>
+                                <span className="ms" style={{ fontSize: 15 }}>outgoing_mail</span>
+                                {relance === r.id ? t('relanceEnCours') : t('relancer')}
+                              </button>
                             )}
                             {r.status !== 'pending' && r.status !== 'done' && (
                               <button className="sc-iconbtn" title={t('marquerTraite')} onClick={() => agir(r.id, 'clore')}>

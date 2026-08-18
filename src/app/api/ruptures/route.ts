@@ -50,6 +50,64 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  /* ── Relance ──────────────────────────────────────────────────
+     On renvoie EXACTEMENT le meme email, avec le meme jeton : celui-ci
+     est un HMAC de (demande, commande), donc deterministe. Le premier
+     lien recu par le client reste valide — le relancer ne doit pas
+     invalider ce qu'il a peut-etre deja ouvert. */
+  if (action === 'relancer') {
+    const { data: choix } = await supabaseAdmin
+      .from('order_line_choices').select('*').eq('id', id).maybeSingle();
+    if (!choix) return NextResponse.json({ error: 'Demande introuvable' }, { status: 404 });
+    if (['done', 'replaced', 'refund_requested', 'waiting'].includes(choix.status)) {
+      return NextResponse.json(
+        { error: 'Le client a déjà répondu — inutile de relancer.' }, { status: 409 });
+    }
+
+    const { data: order } = await supabaseAdmin
+      .from('orders').select('*').eq('id', choix.order_id).maybeSingle();
+    if (!order?.customer_email) {
+      return NextResponse.json({ error: 'Email client manquant' }, { status: 400 });
+    }
+
+    const { signChoice } = await import('@/lib/replacement-token');
+    const { ruptureEmail } = await import('@/lib/customer-emails');
+    const { sendEmail, getWhiteLabelConfig } = await import('@/lib/email-send');
+
+    const cfg = await getWhiteLabelConfig();
+    const from = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
+
+    const mail = await ruptureEmail(order, {
+      choice: choix,
+      token: signChoice(choix.id, order.id),
+      titre: 'Petit rappel — un article de votre commande est en rupture',
+      corps: '',
+      baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr',
+    });
+
+    try {
+      await sendEmail({ from, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+    } catch (e: any) {
+      /* L'echec est ecrit sur la demande : sans ca, il ne resterait
+         qu'un message fugace a l'ecran et plus aucune trace demain. */
+      await supabaseAdmin.from('order_line_choices')
+        .update({ last_send_error: String(e?.message || e).slice(0, 300) }).eq('id', id);
+      return NextResponse.json({ error: `Envoi refusé : ${e?.message || e}` }, { status: 502 });
+    }
+
+    const { data: maj } = await supabaseAdmin.from('order_line_choices').update({
+      last_sent_at: new Date().toISOString(),
+      relances: (Number(choix.relances) || 0) + 1,
+      last_send_error: null,
+    }).eq('id', id).select().single();
+
+    return NextResponse.json({
+      ok: true,
+      relances: maj?.relances ?? null,
+      destinataire: order.customer_email,
+    });
+  }
+
   if (action !== 'appliquer') {
     return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
   }
