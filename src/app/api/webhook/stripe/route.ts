@@ -120,13 +120,15 @@ export async function POST(req: NextRequest) {
       // (un webhook rejoué ne déduit pas deux fois). Un échec est journalisé
       // au lieu d'être avalé : c'est ce silence qui avait laissé le stock
       // dériver de +77 unités.
-      if (!isTestEvent && !existing?.is_test) {
-        try {
-          const { applySaleStock } = await import('@/lib/stock');
-          const r = await applySaleStock(orderLines, orderId, existing?.order_number);
-          if (r.failed.length) console.error('[webhook] stock non déduit:', orderId, r.failed);
-        } catch (e) { console.error('[webhook] déduction de stock impossible:', e); }
-      }
+      /* PLUS DE DEDUCTION ICI — c'est deliberé.
+         `products.stock` designe desormais ce qui est physiquement en
+         rayon. Une commande payee RESERVE sa marchandise (calcul dans
+         @/lib/reserve) mais ne la fait pas disparaitre : elle est encore
+         la, elle attend d'etre emballee. Le stock ne bouge qu'a
+         l'expedition, quand le carton part.
+         Deduire au paiement obligeait a compter de tete a chaque
+         inventaire, et faisait apparaitre a zero des produits encore
+         presents. */
 
       // Facture + compta : skip pour les commandes test
       if (isTestEvent || existing?.is_test) { /* skip */ } else

@@ -26,7 +26,9 @@ export const TST = {
   seuil: { fr: 'Seuil', en: 'Threshold', sv: 'Tröskel' },
   ajuster: { fr: 'Ajuster', en: 'Adjust', sv: 'Justera' },
   valeur: { fr: 'Valeur', en: 'Value', sv: 'Värde' },
-  quantite: { fr: 'Quantité', en: 'Quantity', sv: 'Antal' },
+  quantite: { fr: 'En rayon', en: 'On shelf', sv: 'I hyllan' },
+  reserve: { fr: 'Réservé', en: 'Reserved', sv: 'Reserverat' },
+  disponible: { fr: 'Vendable', en: 'Sellable', sv: 'Säljbart' },
   ordreGele: {
     fr: 'Ordre figé pendant la saisie — les lignes ne bougent plus.',
     en: 'Order frozen while you type — rows stay put.',

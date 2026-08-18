@@ -56,6 +56,11 @@ export default function StockPage() {
      qu'on demande explicitement de reclasser. */
   const [ordreGele, setOrdreGele] = useState<string[] | null>(null);
 
+  /* Quantites dues aux commandes payees non expediees. Calculees cote
+     serveur a partir des commandes : rien a maintenir, donc rien qui
+     puisse deriver. */
+  const [reserve, setReserve] = useState<Record<string, number>>({});
+
   /* Cible en attente d'ecriture, par produit. Deux clics rapides sur « + »
      repartaient tous deux de la valeur du dernier rendu et n'en comptaient
      qu'un : la temporisation n'envoyait que le dernier appel. */
@@ -76,12 +81,14 @@ export default function StockPage() {
   async function load() {
     setLoading(true);
     try {
-      const [p, c] = await Promise.all([
+      const [p, c, r] = await Promise.all([
         adminFetch('/api/products?limit=1000').then(r => r.json()).catch(() => ({})),
         adminFetch('/api/categories').then(r => r.json()).catch(() => ({})),
+        adminFetch('/api/stock/reserve').then(r => r.json()).catch(() => ({})),
       ]);
       setProducts(p.products || []);
       setCategories(c.categories || []);
+      setReserve(r.reserve || {});
     } finally { setLoading(false); }
   }
 
@@ -497,12 +504,18 @@ export default function StockPage() {
                   <th style={{ width: 160 }}>{t('niveau')}</th>
                   <th className="sc-right" style={{ width: 70 }}>{t('seuil')}</th>
                   <th style={{ width: 130 }}>{t('ajuster')}</th>
+                  <th className="sc-right" style={{ width: 78 }}>{t('reserve')}</th>
+                  <th className="sc-right" style={{ width: 84 }}>{t('disponible')}</th>
                   <th className="sc-right" style={{ width: 96 }}>{t('valeur')}</th>
                 </tr>
               </thead>
               <tbody>
                 {affichees.map(p => {
                   const qty = p.stock ?? 0;
+                  /* Trois nombres distincts : ce qu'il y a en rayon, ce
+                     qui est deja du, et ce qu'on peut encore vendre. */
+                  const dus = reserve[p.id] || 0;
+                  const dispo = qty - dus;
                   const thr = p.stock_alert ?? LOW;
                   const gaugeMax = Math.max(qty, thr * 4, 1);
                   const color = stockColor(qty, thr);
@@ -557,6 +570,13 @@ export default function StockPage() {
                           {saving.has(p.id) && <span style={{ fontSize: 10, color: T.muted }}>…</span>}
                         </div>
                       </td>
+                      <td className="sc-num sc-right" style={{ color: dus > 0 ? '#8A5B08' : T.muted3 }}>
+                        {dus > 0 ? dus : '—'}
+                      </td>
+                      <td className="sc-num sc-right" style={{
+                        fontWeight: 700,
+                        color: dispo <= 0 ? T.red : dispo <= thr ? '#8A5B08' : T.ink,
+                      }}>{dispo}</td>
                       <td className="sc-num sc-right">{p.cost_price ? eur((Number(p.cost_price) || 0) * qty) : '—'}</td>
                     </tr>
                   );

@@ -76,6 +76,11 @@ export async function POST(req: NextRequest) {
     let subtotal = 0;
     let hasPickupOnly = false;
     const stockErrors: Array<{ name: string; available: number; requested: number }> = [];
+
+    /* Calculé une fois pour tout le panier : le réservé se déduit des
+       commandes, il ne dépend pas de la ligne qu'on examine. */
+    const { quantitesReservees } = await import('@/lib/reserve');
+    const reserve = await quantitesReservees();
     const giftClaims: Array<{ id: string }> = [];
 
     for (const item of items) {
@@ -89,13 +94,17 @@ export async function POST(req: NextRequest) {
       if (!product) continue;
       if (product.pickup_only) hasPickupOnly = true;
 
-      // Contrôle de stock côté serveur (l'UI peut être contournée) : on refuse toute
-      // quantité supérieure au stock réel pour les produits en suivi de stock.
+      /* Contrôle de stock côté serveur (l'UI peut être contournée).
+         On compare au DISPONIBLE — stock physique moins ce qui est déjà
+         dû à des commandes payées non expédiées. Comparer au stock brut
+         laisserait vendre deux fois la même boîte : elle est encore en
+         rayon, mais elle appartient déjà à quelqu'un. */
       if (product.track_stock === true && typeof product.stock === 'number') {
-        if (product.stock <= 0 || item.quantity > product.stock) {
+        const dispo = product.stock - (reserve[product.id] || 0);
+        if (dispo <= 0 || item.quantity > dispo) {
           stockErrors.push({
             name: product.name_fr || product.id,
-            available: Math.max(0, product.stock),
+            available: Math.max(0, dispo),
             requested: item.quantity,
           });
         }
