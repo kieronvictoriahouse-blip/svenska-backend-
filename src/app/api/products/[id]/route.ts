@@ -62,14 +62,23 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   ];
   fields.forEach(f => { if (body[f] !== undefined) updateData[f] = body[f]; });
 
-  const { data: product, error } = await supabaseAdmin
-    .from('products')
-    .update(updateData)
-    .eq('id', params.id)
-    .select()
-    .single();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  /* Ne rien mettre a jour n'est pas une erreur, mais PostgREST refuse un
+     PATCH vide : « Cannot coerce the result to a single JSON object ».
+     C'est exactement le cas de l'ecran Stocks, qui n'envoie que `stock`
+     — un champ traite plus bas, hors liste blanche. On se contente alors
+     de relire le produit. */
+  let product: any = null;
+  if (Object.keys(updateData).length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('products').update(updateData).eq('id', params.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    product = data;
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from('products').select('*').eq('id', params.id).single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    product = data;
+  }
 
   /* Le stock ne s'ecrit pas comme un champ ordinaire : toute variation
      doit laisser une trace datee, sinon un ecart devient inexplicable.
