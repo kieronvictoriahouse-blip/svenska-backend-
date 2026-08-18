@@ -279,6 +279,9 @@ export default function StockPage() {
                   onClick={() => { const n = !ctrlOpen; setCtrlOpen(n); if (n && !ctrl) loadCtrl(); }}>
             <span className="ms">fact_check</span>{t('controle')}
           </button>
+          <Link className="sc-btn sc-btn-secondary" href="/admin/stock/historique">
+            <span className="ms">history</span>{t('historique')}
+          </Link>
           <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>{t('exporter')}</button>
         </div>
       </div>
@@ -507,6 +510,7 @@ export default function StockPage() {
                   <th className="sc-right" style={{ width: 78 }}>{t('reserve')}</th>
                   <th className="sc-right" style={{ width: 84 }}>{t('disponible')}</th>
                   <th className="sc-right" style={{ width: 96 }}>{t('valeur')}</th>
+                  <th style={{ width: 44 }} />
                 </tr>
               </thead>
               <tbody>
@@ -578,6 +582,12 @@ export default function StockPage() {
                         color: dispo <= 0 ? T.red : dispo <= thr ? '#8A5B08' : T.ink,
                       }}>{dispo}</td>
                       <td className="sc-num sc-right">{p.cost_price ? eur((Number(p.cost_price) || 0) * qty) : '—'}</td>
+                      <td>
+                        <Link className="sc-iconbtn" title={t('historiqueDe')}
+                              href={`/admin/stock/historique?produit=${p.id}`}>
+                          <span className="ms" style={{ fontSize: 17 }}>history</span>
+                        </Link>
+                      </td>
                     </tr>
                   );
                 })}

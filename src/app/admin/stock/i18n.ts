@@ -28,6 +28,8 @@ export const TST = {
   valeur: { fr: 'Valeur', en: 'Value', sv: 'Värde' },
   quantite: { fr: 'En rayon', en: 'On shelf', sv: 'I hyllan' },
   reserve: { fr: 'Réservé', en: 'Reserved', sv: 'Reserverat' },
+  historique: { fr: 'Historique', en: 'History', sv: 'Historik' },
+  historiqueDe: { fr: 'Historique de cet article', en: 'History of this item', sv: 'Historik för artikeln' },
   disponible: { fr: 'Vendable', en: 'Sellable', sv: 'Säljbart' },
   ordreGele: {
     fr: 'Ordre figé pendant la saisie — les lignes ne bougent plus.',
