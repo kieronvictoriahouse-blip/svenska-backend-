@@ -55,6 +55,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     'storage_sv', 'storage_fr', 'storage_en',
     'allergens_sv', 'allergens_fr', 'allergens_en',
     'nutrition', 'extra_images', 'ean', 'sku',
+    /* Ces quatre-la manquaient : le formulaire produit les envoyait, la
+       route les jetait, et repondait 200. Cocher « suivi de stock » ou
+       changer un seuil n'avait aucun effet, sans le moindre message. */
+    'track_stock', 'stock_alert', 'pack_size',
   ];
   fields.forEach(f => { if (body[f] !== undefined) updateData[f] = body[f]; });
 
@@ -66,6 +70,31 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  /* Le stock ne s'ecrit pas comme un champ ordinaire : toute variation
+     doit laisser une trace datee, sinon un ecart devient inexplicable.
+     Il etait absent de la liste blanche ci-dessus, donc silencieusement
+     ignore — le « + » de l'ecran Stocks n'ecrivait rien et n'affichait
+     aucune erreur. On le route ici vers le journal. */
+  if (body.stock !== undefined && body.stock !== null) {
+    const vise = Math.max(0, Math.round(Number(body.stock) || 0));
+    const actuel = Number(product?.stock) || 0;
+    if (vise !== actuel) {
+      const { adjustStock } = await import('@/lib/stock');
+      const m = await adjustStock(params.id, vise - actuel, {
+        reason: body.stock_reason || 'manual',
+        reference: body.stock_reference || null,
+        note: body.stock_note || 'Saisie depuis le back-office',
+      });
+      if (!m) {
+        /* Le silence est ce qui a coute le plus cher ici : un ajustement
+           refuse doit se voir, pas se deviner au rechargement. */
+        return NextResponse.json(
+          { error: 'Stock non enregistre — le mouvement a echoue.' }, { status: 500 });
+      }
+      (product as any).stock = m.after;
+    }
+  }
 
   // Mise à jour variantes (remplace tout)
   if (body.variants !== undefined) {
