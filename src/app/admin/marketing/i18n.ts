@@ -36,6 +36,17 @@ export const TMA = {
   maxUtil: { fr: 'Nb utilisations max', en: 'Max uses', sv: 'Max antal användningar' },
   valideDu: { fr: 'Valide du', en: 'Valid from', sv: 'Giltig från' },
   valideAu: { fr: 'Valide jusqu’au', en: 'Valid until', sv: 'Giltig till' },
+  declencheur: { fr: 'Quand le cadeau se déclenche', en: 'When the gift is triggered', sv: 'När gåvan utlöses' },
+  declencheurAide: {
+    fr: 'Laisse vide pour déclencher sur le montant de la commande. Renseigne une quantité et des produits pour « 2 achetés, 1 offert ».',
+    en: 'Leave empty to trigger on the order amount. Set a quantity and products for “buy 2, get 1 free”.',
+    sv: 'Lämna tomt för att utlösa på ordersumman. Ange antal och produkter för ”köp 2, få 1 gratis”.',
+  },
+  qteDeclencheur: { fr: 'Quantité', en: 'Quantity', sv: 'Antal' },
+  maxCadeaux: { fr: 'Max par commande', en: 'Max per order', sv: 'Max per order' },
+  illimite: { fr: 'illimité', en: 'unlimited', sv: 'obegränsat' },
+  produitsDeclencheurs: { fr: 'Produits qui déclenchent', en: 'Triggering products', sv: 'Produkter som utlöser' },
+  sinonSeuil: { fr: 'Se déclenche à partir de', en: 'Triggers from', sv: 'Utlöses från' },
   cadeauxEligibles: { fr: 'Produits offerts éligibles', en: 'Eligible gift products', sv: 'Berättigade presentprodukter' },
   chargementProduits: { fr: 'Chargement des produits…', en: 'Loading products…', sv: 'Laddar produkter…' },
   uneSeuleFois: {

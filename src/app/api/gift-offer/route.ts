@@ -52,11 +52,32 @@ export async function GET() {
 
     if (eligible.length === 0) return NextResponse.json({ offer: null });
 
+    /* Le panier a besoin de savoir COMMENT l'offre se declenche pour
+       ecrire « encore 1 Piffi » plutot que « encore 12 € ». Les anciens
+       champs restent en place : le front qui ne connait que `threshold`
+       continue de fonctionner. */
+    const { listeIds, parQuantite } = await import('@/lib/cadeau');
+    const declencheurs = listeIds((promo as any).gift_trigger_product_ids);
+    const parQte = parQuantite(promo as any);
+
+    let declencheursDetail: any[] = [];
+    if (parQte) {
+      const { data: dp } = await supabaseAdmin
+        .from('products').select('id, name_fr, name_sv, name_en, image_url')
+        .in('id', declencheurs);
+      declencheursDetail = dp || [];
+    }
+
     return NextResponse.json({
       offer: {
         id: promo.id,
         threshold: parseFloat(promo.min_order) || 0,
         products: eligible,
+        // Nouveau : declenchement par quantite.
+        mode: parQte ? 'quantite' : 'montant',
+        trigger_qty: parQte ? Number((promo as any).gift_trigger_qty) : null,
+        trigger_products: declencheursDetail,
+        max: (promo as any).gift_max ? Number((promo as any).gift_max) : null,
       },
     });
   } catch (e: any) {

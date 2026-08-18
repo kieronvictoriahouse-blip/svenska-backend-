@@ -159,19 +159,31 @@ export async function POST(req: NextRequest) {
             (!p.valid_until || now <= new Date(String(p.valid_until).slice(0, 10) + 'T23:59:59'));
           return dateOk && (!p.max_uses || (p.used_count || 0) < p.max_uses);
         });
-        if (offer && subtotal >= (parseFloat(offer.min_order) || 0)) {
-          let ids: string[] = [];
-          const raw = (offer as any).gift_product_ids;
-          if (Array.isArray(raw)) ids = raw;
-          else if (typeof raw === 'string') { try { ids = JSON.parse(raw); } catch { ids = []; } }
-          const claim = giftClaims.find(g => ids.includes(g.id));
-          if (claim) {
+        /* Combien de cadeaux le panier merite REELLEMENT — calcule ici,
+           jamais depuis le panier. « 2 Piffi achetes, 1 dip offert »
+           peut en accorder plusieurs ; l'ancien code n'en donnait qu'un
+           quoi qu'il arrive. */
+        const { cadeauxDus, listeIds } = await import('@/lib/cadeau');
+        const dus = cadeauxDus(offer, items, subtotal);
+
+        if (offer && dus > 0) {
+          const ids = listeIds((offer as any).gift_product_ids);
+          /* On sert les cadeaux demandes, dans l'ordre, jusqu'a
+             concurrence de ce qui est du. Un client qui en reclame trois
+             pour deux merites en recoit deux. */
+          const retenus = giftClaims.filter(g => ids.includes(g.id)).slice(0, dus);
+
+          for (const claim of retenus) {
             const { data: gp } = await supabaseAdmin
               .from('products')
               .select('id, name_fr, name_en, name_sv, image_url, is_active, track_stock, stock')
               .eq('id', claim.id).eq('is_active', true).maybeSingle();
-            const inStock = gp && !(gp.track_stock === true && (gp.stock || 0) <= 0);
-            if (gp && inStock) {
+            /* Un cadeau en rupture n'est pas un cadeau : on l'omet
+               plutot que de promettre ce qu'on ne peut pas mettre dans
+               le carton. Le disponible tient compte du reserve. */
+            const dispo = gp ? (Number(gp.stock) || 0) - (reserve[gp.id] || 0) : 0;
+            const servable = gp && !(gp.track_stock === true && dispo <= 0);
+            if (gp && servable) {
               orderLines.push({
                 product_id: gp.id,
                 name: (gp.name_fr || 'Cadeau') + ' (offert)',

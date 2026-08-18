@@ -43,7 +43,7 @@ function MarketingInner() {
   const [editingCode, setEditingCode] = useState<PromoCode | null>(null);
   const [toast, setToast] = useState('');
   const [campForm, setCampForm] = useState({ name: '', type: 'email', status: 'draft', subject: '', content: '', target_segment: 'all', budget: '' });
-  const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[] });
+  const [codeForm, setCodeForm] = useState({ code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[] , gift_trigger_product_ids: [] as string[], gift_trigger_qty: '', gift_max: '' });
   const [products, setProducts] = useState<Array<{ id: string; name_fr: string }>>([]);
   // Opération « livraison offerte » (seuil de franco abaissé sur une période)
   const [ship, setShip] = useState({
@@ -152,7 +152,7 @@ function MarketingInner() {
     loadData();
   }
 
-  const BLANK_CODE = { code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[] };
+  const BLANK_CODE = { code: '', type: 'percent', value: '', min_order: '0', max_uses: '', valid_from: '', valid_until: '', is_active: true, single_use_per_customer: false, gift_product_ids: [] as string[], gift_trigger_product_ids: [] as string[], gift_trigger_qty: '', gift_max: ''  };
 
   function openNewCode() {
     setEditingCode(null);
@@ -173,6 +173,9 @@ function MarketingInner() {
       is_active: c.is_active,
       single_use_per_customer: c.single_use_per_customer,
       gift_product_ids: (c as any).gift_product_ids || [],
+      gift_trigger_product_ids: (c as any).gift_trigger_product_ids || [],
+      gift_trigger_qty: (c as any).gift_trigger_qty ? String((c as any).gift_trigger_qty) : '',
+      gift_max: (c as any).gift_max ? String((c as any).gift_max) : '',
     });
     setShowCodeModal(true);
   }
@@ -200,8 +203,19 @@ function MarketingInner() {
       valid_until: codeForm.valid_until || null,
       single_use_per_customer: codeForm.single_use_per_customer,
       gift_product_ids: isGift ? codeForm.gift_product_ids : [],
+      /* Un declencheur par quantite n'a de sens qu'avec des produits ET
+         un pas : sans les deux, on retombe sur le seuil en euros. */
+      gift_trigger_product_ids: isGift ? codeForm.gift_trigger_product_ids : [],
+      gift_trigger_qty: isGift && codeForm.gift_trigger_qty && codeForm.gift_trigger_product_ids.length
+        ? parseInt(codeForm.gift_trigger_qty) : null,
+      gift_max: isGift && codeForm.gift_max ? parseInt(codeForm.gift_max) : null,
     };
-    if (!isGift) delete (payload as any).gift_product_ids;
+    if (!isGift) {
+      delete (payload as any).gift_product_ids;
+      delete (payload as any).gift_trigger_product_ids;
+      delete (payload as any).gift_trigger_qty;
+      delete (payload as any).gift_max;
+    }
     const url = editingCode ? `/api/marketing?tab=promo&id=${editingCode.id}` : '/api/marketing?tab=promo';
     const method = editingCode ? 'PUT' : 'POST';
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -711,6 +725,54 @@ function MarketingInner() {
                   <div className="form-group"><label className="form-label">{t('valideDu')}</label><input type="date" className="form-control" value={codeForm.valid_from} onChange={e => setCodeForm(f => ({ ...f, valid_from: e.target.value }))} /></div>
                   <div className="form-group"><label className="form-label">{t('valideAu')}</label><input type="date" className="form-control" value={codeForm.valid_until} onChange={e => setCodeForm(f => ({ ...f, valid_until: e.target.value }))} /></div>
                 </div>
+                {codeForm.type === 'gift' && (
+                  <div className="form-group" style={{ background: '#FBF9F6', border: '1px solid #E8E0D0', borderRadius: 8, padding: '12px 14px' }}>
+                    <label className="form-label">{t('declencheur')}</label>
+                    <div style={{ fontSize: 11.5, color: '#6A7280', marginBottom: 10 }}>{t('declencheurAide')}</div>
+
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                      <div style={{ width: 110 }}>
+                        <label className="form-label" style={{ fontSize: 11 }}>{t('qteDeclencheur')}</label>
+                        <input type="number" min={1} className="form-control" placeholder="2"
+                               value={codeForm.gift_trigger_qty}
+                               onChange={e => setCodeForm(f => ({ ...f, gift_trigger_qty: e.target.value }))} />
+                      </div>
+                      <div style={{ width: 130 }}>
+                        <label className="form-label" style={{ fontSize: 11 }}>{t('maxCadeaux')}</label>
+                        <input type="number" min={1} className="form-control" placeholder={t('illimite')}
+                               value={codeForm.gift_max}
+                               onChange={e => setCodeForm(f => ({ ...f, gift_max: e.target.value }))} />
+                      </div>
+                    </div>
+
+                    <label className="form-label" style={{ marginTop: 12 }}>{t('produitsDeclencheurs')}</label>
+                    <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid #E8E0D0', borderRadius: 6, padding: '8px 10px', background: '#fff' }}>
+                      {products.map(p => {
+                        const on = codeForm.gift_trigger_product_ids.includes(p.id);
+                        return (
+                          <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={on} onChange={() => setCodeForm(f => ({
+                              ...f,
+                              gift_trigger_product_ids: on
+                                ? f.gift_trigger_product_ids.filter(x => x !== p.id)
+                                : [...f.gift_trigger_product_ids, p.id],
+                            }))} />
+                            {p.name_fr}
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* La phrase exacte que le client lira, ecrite depuis les
+                        valeurs saisies : on voit l'offre avant de la publier. */}
+                    <div style={{ marginTop: 10, padding: '9px 12px', background: '#EDF1EA', borderRadius: 6, fontSize: 12.5, color: '#3E5238' }}>
+                      {codeForm.gift_trigger_qty && codeForm.gift_trigger_product_ids.length
+                        ? `${codeForm.gift_trigger_qty} × ${products.filter(p => codeForm.gift_trigger_product_ids.includes(p.id)).map(p => p.name_fr).join(' ou ')} achetés → 1 cadeau au choix`
+                        : `${t('sinonSeuil')} ${codeForm.min_order || 0} €`}
+                    </div>
+                  </div>
+                )}
+
                 {codeForm.type === 'gift' && (
                   <div className="form-group">
                     <label className="form-label">{t('cadeauxEligibles')} * <span style={{ fontWeight: 400, color: '#6A7280' }}>(le client en choisit un dans le panier)</span></label>
