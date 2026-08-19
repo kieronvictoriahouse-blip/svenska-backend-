@@ -64,16 +64,27 @@ function dejaDecide(c: any) {
 
 /** Page de composition : le client repartit lui-meme ses unites.
  *  Un clic ne suffit pas pour panacher — il faut un formulaire. */
-function pageComposer(c: any, token: string, options: any[]) {
+function pageComposer(
+  c: any, token: string, options: any[], dispos: Record<string, number | null>,
+) {
   const qte = Number(c.line_qty) || 1;
+  /* Le plafond de chaque champ, c'est le plus petit des deux : ce qu'il
+     reste à répartir, et ce qu'on a réellement. Laisser le client saisir
+     un nombre qu'on refusera ensuite, c'est lui faire remplir un
+     formulaire pour rien. */
+  const reste = (o: any) => {
+    const d = dispos[String(o.product_id)];
+    return d === null || d === undefined ? qte : Math.min(qte, Math.max(0, d));
+  };
   const lignes = options.map((o, i) => `
     <tr>
       <td style="padding:12px 0;border-bottom:1px solid ${D.rule};">
         <div style="font-size:15px;color:${D.ink};">${echap(o.nom)}</div>
         ${o.note ? `<div style="font-size:12px;color:${D.body};padding-top:2px;">${echap(o.note)}</div>` : ''}
+        ${reste(o) < qte ? `<div style="font-size:12px;color:#B03A2E;padding-top:2px;">Il ne nous en reste que ${reste(o)}</div>` : ''}
       </td>
       <td style="padding:12px 0;border-bottom:1px solid ${D.rule};text-align:right;white-space:nowrap;">
-        <input type="number" name="q_${echap(String(o.product_id))}" value="0" min="0" max="${qte}"
+        <input type="number" name="q_${echap(String(o.product_id))}" value="0" min="0" max="${reste(o)}"
                inputmode="numeric" class="q"
                style="width:62px;height:38px;text-align:center;font-size:16px;border:1px solid ${D.rule};background:#fff;color:${D.ink};" />
       </td>
@@ -149,7 +160,11 @@ export async function GET(req: NextRequest) {
     if (!options.length) {
       return page('Rien à composer', 'Aucune proposition n’accompagne cette demande.', 'ko');
     }
-    return pageComposer(c, token, options);
+    /* Le disponible se relit à l'ouverture de la page : les stocks ont
+        bougé depuis l'envoi de l'email. */
+    const { disponiblesPour } = await import('@/lib/reserve');
+    const dispos = await disponiblesPour(options.map(o => String(o.product_id)));
+    return pageComposer(c, token, options, dispos);
   }
 
   /* ── Attendre le réassort ─────────────────────────────────── */
@@ -193,6 +208,21 @@ export async function GET(req: NextRequest) {
     'Cette proposition n’est plus disponible. Écrivez-nous et nous trouvons autre chose.', 'ko');
 
   const qte = Number(c.line_qty) || 1;
+
+  /* Le stock se vérifie AU CLIC, pas à l'envoi de l'email. Entre les
+     deux, des jours passent et d'autres commandes tombent : ce qui
+     était proposable ne l'est plus forcément.
+     On oppose le DISPONIBLE, jamais le rayon — une partie de ce qui est
+     là appartient déjà à quelqu'un, parfois au client lui-même. */
+  const { disponiblesPour } = await import('@/lib/reserve');
+  const dispo1 = (await disponiblesPour([prod.id]))[prod.id];
+  if (dispo1 !== null && dispo1 < qte) {
+    return page('Nous n’en avons plus assez',
+      `Il ne nous reste que <strong>${Math.max(0, dispo1)}</strong> ${prod.name_fr} pour votre commande,
+       et il vous en faut ${qte}. Nous préférons vous le dire que vous l'annoncer après coup.
+       Répondez à cet email : nous vous proposons autre chose ou nous vous remboursons cette ligne.`, 'ko');
+  }
+
   const ancien = qte * (Number(c.line_price) || 0);
   const nouveau = qte * (Number(prod.price) || 0);
   const delta = ancien - nouveau;   // > 0 : la boutique doit la différence
@@ -273,6 +303,24 @@ export async function POST(req: NextRequest) {
   if (manquant) {
     return page('Article indisponible',
       'Une des propositions n’est plus disponible. Écrivez-nous et nous trouvons autre chose.', 'ko');
+  }
+
+  /* Même contrôle que sur le choix simple, article par article : un
+     panachage peut tenir dans le total et dépasser sur une ligne. */
+  const { disponiblesPour } = await import('@/lib/reserve');
+  const dispos = await disponiblesPour(demande.map(d => d.product_id));
+  const trop = demande.filter(d => {
+    const dp = dispos[d.product_id];
+    return dp !== null && dp < d.qte;
+  });
+  if (trop.length) {
+    const detail = trop.map(d =>
+      `<li>${parId[d.product_id].name_fr} — vous en demandez ${d.qte}, il nous en reste ${Math.max(0, dispos[d.product_id] as number)}</li>`
+    ).join('');
+    return page('Nous n’en avons plus assez',
+      `<ul style="text-align:left;margin:0 0 12px;padding-left:20px">${detail}</ul>
+       Revenez en arrière et ajustez votre répartition. Si rien ne convient, répondez à cet
+       email : nous vous proposons autre chose ou nous vous remboursons cette ligne.`, 'ko');
   }
 
   const mix = demande.map(d => ({

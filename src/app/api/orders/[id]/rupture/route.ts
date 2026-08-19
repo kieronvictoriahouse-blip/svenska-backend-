@@ -33,6 +33,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const qte = Number(line.qty) || 1;
   const pu = Number(line.price) || 0;
 
+  /* On ne propose pas ce qu'on n'a pas. Le disponible — rayon moins ce
+     qui est déjà dû — et non le stock brut : une partie de ce qui est en
+     rayon appartient déjà à quelqu'un, parfois au client qu'on écrit.
+     Un article qu'on ne peut pas fournir en entier reste proposable : le
+     client peut panacher, et la page de choix plafonne chaque ligne. Ce
+     qui est refusé ici, c'est le zéro — proposer un article épuisé pour
+     remplacer un article épuisé. */
+  const { disponiblesPour } = await import('@/lib/reserve');
+  const dispos = await disponiblesPour(optionIds);
+  const retenus = (prods || []).filter(p => {
+    const d = dispos[p.id];
+    return d === null || d > 0;
+  });
+  if (optionIds.length && !retenus.length) {
+    return NextResponse.json({
+      error: 'Aucune des propositions n’est disponible — elles sont toutes épuisées ou déjà réservées à d’autres commandes.',
+    }, { status: 409 });
+  }
+
   const { data: choice, error } = await supabaseAdmin.from('order_line_choices').insert({
     order_id: order.id,
     product_id: line.product_id || null,
@@ -40,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     line_name: line.name,
     line_qty: qte,
     line_price: pu,
-    options: (prods || []).map(p => ({
+    options: retenus.map(p => ({
       product_id: p.id, nom: p.name_fr, prix: Number(p.price) || 0, note: p.subtitle_fr || '',
     })),
   }).select().single();

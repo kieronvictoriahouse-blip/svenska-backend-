@@ -34,6 +34,7 @@ export default function RupturesPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [reserve, setReserve] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
 
@@ -50,14 +51,16 @@ export default function RupturesPage() {
   async function load() {
     setLoading(true);
     try {
-      const [r, o, p] = await Promise.all([
+      const [r, o, p, rv] = await Promise.all([
         adminFetch('/api/ruptures').then(x => x.json()),
         adminFetch('/api/orders?limit=200').then(x => x.json()).catch(() => ({})),
         adminFetch('/api/products?limit=1000').then(x => x.json()).catch(() => ({})),
+        adminFetch('/api/stock/reserve').then(x => x.json()).catch(() => ({})),
       ]);
       setRows(r.ruptures || []);
       setOrders((o.orders || []).filter((x: any) => ['paid', 'confirmed'].includes(x.status)));
       setProducts(p.products || []);
+      setReserve(rv.reserve || {});
     } catch { say(t('msgChargement')); }
     finally { setLoading(false); }
   }
@@ -71,6 +74,12 @@ export default function RupturesPage() {
     } catch { return []; }
   }, [order]);
   const line = lines[Number(lineIdx)];
+  const qteLigne = Number(line?.qty) || 0;
+
+  /* Ce qu'on peut vraiment promettre : le rayon moins ce qui est déjà dû.
+     Proposer sur le stock brut a fait promettre 3 Salvi à SD-0105 alors
+     que 3 des 5 en rayon lui étaient déjà réservés — à elle. */
+  const dispo = (p: any) => (Number(p?.stock) || 0) - (reserve[p?.id] || 0);
 
   async function envoyer() {
     if (!order || !line) { say(t('msgChoisir')); return; }
@@ -183,7 +192,7 @@ ${dest}`)) return;
                 Remplacements proposés {options.size > 0 && `(${options.size})`}
               </label>
               <div style={{ border: `1px solid ${T.borderField}`, borderRadius: 7, maxHeight: 190, overflowY: 'auto' }}>
-                {products.filter(p => p.is_active && (p.stock ?? 0) > 0).map(p => (
+                {products.filter(p => p.is_active && dispo(p) > 0).map(p => (
                   <label key={p.id} style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
                     borderBottom: `1px solid ${T.borderFaint}`, fontSize: 12, cursor: 'pointer',
@@ -195,12 +204,19 @@ ${dest}`)) return;
                              return n;
                            })} />
                     <span style={{ flex: 1, minWidth: 0, color: T.ink }}>{nomProduit(p, lang)}</span>
+                    {/* Le disponible, pas le rayon : une partie de ce qui est
+                        là est déjà due — parfois à ce client-là. */}
+                    <span className="sc-num" style={{
+                      color: dispo(p) < qteLigne ? '#B03A2E' : T.muted, fontSize: 11,
+                    }}>{dispo(p)}</span>
                     <span className="sc-num" style={{ color: T.muted }}>{eur(p.price)}</span>
                   </label>
                 ))}
               </div>
               <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>
-                Seuls les articles actifs et en stock sont proposables.
+                Le nombre affiché est le <strong>disponible</strong> — stock en rayon moins ce qui
+                est déjà dû à d’autres commandes. En rouge : moins que les {qteLigne || '?'} unités
+                à remplacer. Le client ne pourra pas en prendre plus.
               </div>
             </div>
 

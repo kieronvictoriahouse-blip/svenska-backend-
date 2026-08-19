@@ -63,3 +63,32 @@ export async function reservePour(productIds: string[]): Promise<Record<string, 
 /** Ce qu'on peut encore vendre. Peut être négatif : c'est un signal. */
 export const disponible = (stock: any, reserve: any) =>
   (Number(stock) || 0) - (Number(reserve) || 0);
+
+/**
+ * Disponible par produit, prêt à être opposé à une demande.
+ *
+ * `null` = article non suivi en stock : il n'y a rien à opposer, et
+ * confondre « non suivi » avec « zéro » refuserait des ventes possibles.
+ *
+ * Les remplacements de rupture doivent passer par ici. Ils regardaient
+ * `stock` brut, ce qui a permis à SD-0105 de se voir attribuer 3 Salvi
+ * alors que 3 des 5 en rayon étaient déjà dus — à elle-même. Un article
+ * en rayon n'est pas un article disponible.
+ */
+export async function disponiblesPour(
+  productIds: string[],
+): Promise<Record<string, number | null>> {
+  if (!productIds.length) return {};
+  const { supabaseAdmin: sb } = await import('@/lib/supabase');
+  const [{ data: produits }, reserve] = await Promise.all([
+    sb.from('products').select('id, stock, track_stock').in('id', productIds),
+    quantitesReservees(),
+  ]);
+  const out: Record<string, number | null> = {};
+  for (const id of productIds) {
+    const p = (produits || []).find((x: any) => x.id === id);
+    out[id] = !p || p.track_stock !== true ? null
+      : disponible(p.stock, reserve[id] || 0);
+  }
+  return out;
+}
