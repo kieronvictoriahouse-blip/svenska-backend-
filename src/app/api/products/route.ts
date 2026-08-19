@@ -30,7 +30,26 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ products: data || [] });
+  /* Le site public voit le DISPONIBLE, pas le rayon.
+     `stock` compte ce qu'il y a sur l'étagère, y compris la marchandise
+     déjà vendue et pas encore expédiée. La boutique qui l'affiche tel
+     quel annonce « en stock » un article entièrement dû à quelqu'un
+     d'autre — et le refus tombe au paiement, après le tunnel.
+     Le checkout opposait déjà le disponible ; la vitrine ne le faisait
+     pas. On aligne les deux à la source plutôt que dans chaque page.
+     Le back-office, lui, garde le rayon brut : il affiche rayon et
+     réservé côte à côte, il a besoin des deux. */
+  const produits = data || [];
+  if (!isAdmin) {
+    const { quantitesReservees } = await import('@/lib/reserve');
+    const reserve = await quantitesReservees();
+    for (const p of produits as any[]) {
+      if (p.track_stock !== true || typeof p.stock !== 'number') continue;
+      p.stock = p.stock - (reserve[p.id] || 0);
+    }
+  }
+
+  return NextResponse.json({ products: produits });
 }
 
 export async function POST(req: NextRequest) {

@@ -8,7 +8,7 @@ export const maxDuration = 60;
 // Helper auth
 
 // ─── GET /api/products/[id] ───────────────────────────────────────
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   // Fiche produit : donnee de catalogue, lue par le site public.
   const { data, error } = await supabaseAdmin
     .from('products')
@@ -21,6 +21,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     .single();
 
   if (error) return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
+
+  /* Même règle que sur la liste : la fiche publique annonce le
+     disponible. Sans ça, la vitrine et le tunnel se contredisent —
+     « I LAGER » sur la page, refus au paiement. */
+  if (!req.headers.get('authorization')
+      && (data as any).track_stock === true
+      && typeof (data as any).stock === 'number') {
+    const { reservePour } = await import('@/lib/reserve');
+    const r = await reservePour([params.id]);
+    (data as any).stock = (data as any).stock - (r[params.id] || 0);
+  }
+
   return NextResponse.json({ product: data });
 }
 

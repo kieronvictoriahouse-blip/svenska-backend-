@@ -41,9 +41,15 @@ export async function GET() {
       .in('id', ids)
       .eq('is_active', true);
 
+    /* Le disponible, pas le rayon : un cadeau entièrement dû à d'autres
+       commandes n'est pas offrable. Le checkout applique déjà cette
+       règle — proposer ici ce qu'il refusera ensuite ne fait que
+       déplacer la déception à l'étape du paiement. */
+    const { quantitesReservees } = await import('@/lib/reserve');
+    const reserve = await quantitesReservees();
+
     const eligible = (products || [])
-      // exclut les cadeaux en rupture si suivi de stock actif
-      .filter((p: any) => !(p.track_stock === true && (p.stock || 0) <= 0))
+      .filter((p: any) => !(p.track_stock === true && ((p.stock || 0) - (reserve[p.id] || 0)) <= 0))
       .map((p: any) => ({
         id: p.id,
         name_fr: p.name_fr, name_sv: p.name_sv, name_en: p.name_en,
