@@ -173,27 +173,27 @@ export async function PUT(req: NextRequest) {
   }).eq('id', order.id);
   if (majErr) return NextResponse.json({ error: majErr.message }, { status: 500 });
 
-  /* Le stock suit : l'article manquant revient, le remplaçant sort.
-     Sans ça, la commande dirait une chose et le stock une autre. */
-  const { adjustStock } = await import('@/lib/stock');
-  const qte = Number(choix.line_qty) || 1;
-  const ref = `RUPT-${order.order_number}`;
-  try {
-    if (choix.product_id) {
-      await adjustStock(choix.product_id, qte, {
-        reason: 'replacement', reference: ref,
-        note: `Article en rupture remis en stock — remplacé par ${mix.map(m => m.nom).join(', ')}`,
-      });
-    }
-    for (const m of mix) {
-      await adjustStock(m.product_id, -m.qte, {
-        reason: 'replacement', reference: ref,
-        note: `Remplace ${choix.line_name} sur ${order.order_number}`,
-      });
-    }
-  } catch (e) {
-    console.error('[ruptures] stock non ajusté', e);
-  }
+  /* On ne touche PAS au stock ici, et c’est délibéré.
+
+     Ce bloc rendait l'article manquant au stock et en sortait le
+     remplaçant. C’était juste tant que le stock se déduisait au
+     paiement. Depuis que la déduction se fait à l’expédition, les deux
+     écritures sont fausses, et fausses dans les deux sens :
+
+       · le remplaçant est encore sur l’étagère — le colis n’est pas
+         parti — donc le sortir fait disparaître de la marchandise
+         qu’on a réellement ;
+       · l’article manquant, lui, n’a jamais été là : c’est la
+         définition d’une rupture. Le « remettre en stock » invente
+         des unités, et l’écran de réassort cesse d’en réclamer.
+
+     Mesuré sur SD-0105 le 19/08/2026 : Salvi affiché à −4 au lieu de
+     −1, et 3 boîtes de SC-0047 apparues sur un article en rupture.
+
+     Le remplacement ne change que les LIGNES de la commande, ce qui
+     est fait juste au-dessus. Le réservé se recalcule tout seul
+     (src/lib/reserve.ts) et la marchandise quitte l’étagère au moment
+     où elle quitte vraiment l’étagère : à l’expédition. */
 
   await supabaseAdmin.from('order_line_choices').update({ status: 'done' }).eq('id', id);
 

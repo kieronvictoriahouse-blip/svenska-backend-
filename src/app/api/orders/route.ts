@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { applySaleStock } from '@/lib/stock';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { requireAuth } from '@/lib/auth';
 
@@ -31,11 +30,11 @@ export async function POST(req: NextRequest) {
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Décrémenter le stock, en journalisant chaque ligne (cf. lib/stock).
-  if (body.lines?.length > 0) {
-    const r = await applySaleStock(body.lines, data.id, data.order_number);
-    if (r.failed.length) console.error('[orders] stock non déduit:', data.order_number, r.failed);
-  }
+  /* Pas de déduction de stock ici, et c'est délibéré. Une commande
+     saisie à la main RÉSERVE sa marchandise comme n'importe quelle
+     autre : elle reste en rayon jusqu'à ce que le carton parte, et
+     c'est l'écran de préparation qui la sortira. Déduire ici la
+     ferait sortir deux fois. */
 
   // Créer la facture automatiquement
   const invoice = await createInvoiceFromOrder({ ...data, lines: body.lines });

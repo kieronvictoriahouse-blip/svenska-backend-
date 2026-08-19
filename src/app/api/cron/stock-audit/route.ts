@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { applySaleStock } from '@/lib/stock';
 import { sendEmail, getWhiteLabelConfig, baseTemplate } from '@/lib/email-send';
 
 export const dynamic = 'force-dynamic';
@@ -14,19 +13,16 @@ export const maxDuration = 120;
    ce cron est le filet qui garantit qu'un retour de la panne se voit
    le lendemain plutôt que dans quatre mois.
 
-   Il fait deux choses, et la distinction compte :
+   Il ALERTE, et il n'écrit rien. Il a réparé, dans une version
+   précédente : il rejouait la déduction d'une commande payée sans
+   mouvement. Cette réparation est devenue fausse le jour où le stock
+   a cessé d'être déduit au paiement — une commande payée sans
+   mouvement est désormais l'état NORMAL, pas une panne. Pire, les
+   mouvements d'expédition ne portent pas d'order_id : le cron ne les
+   voyait pas et aurait redéduit les 43 commandes déjà expédiées.
 
-   1. RÉPARE ce qui est mécaniquement réparable — une commande payée
-      dont les lignes n'ont laissé aucun mouvement. Rejouer la
-      déduction n'invente rien : applySaleStock est idempotent, il
-      remet simplement une écriture qui aurait dû avoir lieu.
-
-   2. ALERTE sur le reste, sans y toucher. Un écart entre le stock et
-      le théorique, un stock négatif, un produit vendu sans avoir été
-      réceptionné : ce sont des faits physiques ou des saisies
-      manquantes. Les corriger automatiquement masquerait le problème
-      au lieu de le montrer — c'est exactement ce qui a permis la
-      dérive.
+   Un filet qui écrit de lui-même finit par écrire à tort. Celui-ci
+   se contente de montrer, et laisse la main.
    ═══════════════════════════════════════════════════════════════ */
 
 const J = (v: any): any[] => {
@@ -44,6 +40,10 @@ const isReal = (o: any) => !o.is_test && !o.exclude_from_stats && o.status !== '
    l'alignement du 13/08. La réparation ne regarde que l'après. */
 const DEBUT_JOURNAL = Date.parse('2026-08-13T00:00:00Z');
 
+/* Statuts pour lesquels tout ou partie du carton est parti. C'est le
+   seul moment où le stock physique bouge. */
+const PARTIES = ['shipped', 'delivered', 'partial'];
+
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
@@ -55,35 +55,34 @@ export async function GET(req: NextRequest) {
 
   const [{ data: products }, { data: orders }, { data: receptions }, { data: moves }] = await Promise.all([
     supabaseAdmin.from('products').select('id, name_fr, stock, track_stock'),
-    supabaseAdmin.from('orders').select('id, order_number, status, lines, created_at, is_test, exclude_from_stats'),
+    supabaseAdmin.from('orders').select('id, order_number, status, lines, shipped_qty, created_at, is_test, exclude_from_stats'),
     supabaseAdmin.from('receptions').select('id, status, lines'),
-    supabaseAdmin.from('stock_movements').select('product_id, order_id').not('order_id', 'is', null),
+    /* Le filtre order_id a sauté : une sortie d'expédition n'en porte
+       pas, elle s'identifie par sa référence. Le garder revenait à ne
+       jamais voir les mouvements qu'on cherche. */
+    supabaseAdmin.from('stock_movements').select('product_id, order_id, reference'),
   ]);
 
   const byId = Object.fromEntries((products || []).map(p => [p.id, p]));
 
-  /* ── 1. Réparation : commandes payées sans mouvement ──────────── */
+  /* ── 1. Détection : marchandise partie sans sortie de stock ───── */
   // Fenêtre : 30 jours glissants, jamais avant la mise en service du
-  // journal (voir DEBUT_JOURNAL — c'est la garde anti-double-déduction).
+  // journal (voir DEBUT_JOURNAL).
   const depuis = Math.max(Date.now() - 30 * 86400000, DEBUT_JOURNAL);
-  const dejaDeduit = new Set((moves || []).map(m => `${m.order_id}|${m.product_id}`));
 
-  const repares: Array<{ commande: string; lignes: number }> = [];
-  const echecs: Array<{ commande: string; detail: any }> = [];
+  /* Une expédition écrit `picking` avec le numéro de commande en
+     référence — pas d'order_id. C'est par là qu'il faut la chercher. */
+  const sorties = new Set(
+    (moves || []).filter(m => m.reference).map(m => String(m.reference))
+  );
 
+  const sansSortie: Array<{ commande: string; statut: string }> = [];
   for (const o of orders || []) {
     if (!isReal(o)) continue;
-    if (o.status === 'pending') continue;                 // pas encore payée
+    if (!PARTIES.includes(o.status)) continue;            // rien n'est encore parti
     if (+new Date(o.created_at) < depuis) continue;
-
-    const manquantes = J(o.lines).filter(
-      l => l.product_id && Number(l.qty) > 0 && !dejaDeduit.has(`${o.id}|${l.product_id}`)
-    );
-    if (!manquantes.length) continue;
-
-    const r = await applySaleStock(manquantes, o.id, o.order_number);
-    if (r.applied.length) repares.push({ commande: o.order_number, lignes: r.applied.length });
-    if (r.failed.length) echecs.push({ commande: o.order_number, detail: r.failed });
+    if (sorties.has(o.order_number)) continue;
+    sansSortie.push({ commande: o.order_number, statut: o.status });
   }
 
   /* ── 2. Contrôle : théorique vs base ──────────────────────────── */
@@ -96,12 +95,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  /* Le théorique compte ce qui est SORTI, pas ce qui est commandé :
+     `stock` désigne le rayon, et la marchandise d'une commande payée y
+     est encore. Compter le commandé rendrait chaque commande en
+     attente d'expédition en faux écart. */
   const vendu: Record<string, number> = {};
   for (const o of orders || []) {
     if (!isReal(o)) continue;
+    const envoye = (o as any).shipped_qty || null;
     for (const l of J(o.lines)) {
-      const q = Number(l.qty) || 0;
-      if (l.product_id && q) vendu[l.product_id] = (vendu[l.product_id] || 0) + q;
+      if (!l.product_id) continue;
+      /* Expédition partielle : shipped_qty fait foi. Commande expédiée
+         avant que cette colonne existe : tout est parti. Sinon : rien. */
+      const q = envoye
+        ? Number(envoye[l.product_id]) || 0
+        : (PARTIES.includes(o.status) ? Number(l.qty) || 0 : 0);
+      if (q) vendu[l.product_id] = (vendu[l.product_id] || 0) + q;
     }
   }
 
@@ -131,13 +140,13 @@ export async function GET(req: NextRequest) {
 
   const rapport = {
     date: new Date().toISOString().slice(0, 10),
-    repares, echecs, ecarts, negatifs, vendu_sans_reception: venduSansReception,
+    sans_sortie: sansSortie, ecarts, negatifs, vendu_sans_reception: venduSansReception,
   };
 
   /* ── 3. Alerte ────────────────────────────────────────────────── */
   // Rien à signaler = pas d'email. Une alerte quotidienne systématique
   // ne serait plus lue au bout d'une semaine.
-  const aSignaler = ecarts.length || negatifs.length || echecs.length || repares.length;
+  const aSignaler = ecarts.length || negatifs.length || sansSortie.length;
   if (!aSignaler) return NextResponse.json({ ok: true, rien_a_signaler: true, ...rapport });
 
   try {
@@ -151,14 +160,9 @@ export async function GET(req: NextRequest) {
         `<td style="padding:6px 10px;border-bottom:1px solid #F1EDE7;font-size:13px;text-align:right">${v}</td></tr>`;
 
       let html = '';
-      if (repares.length) {
-        html += `<p style="font-size:14px"><strong>${repares.length} commande(s) rattrapée(s)</strong> — la déduction de stock avait été manquée, elle a été rejouée automatiquement.</p><table style="width:100%;border-collapse:collapse">`;
-        for (const r of repares) html += ligne(r.commande, `${r.lignes} ligne(s)`);
-        html += '</table>';
-      }
-      if (echecs.length) {
-        html += `<p style="font-size:14px;color:#B03A2E"><strong>${echecs.length} commande(s) impossibles à rattraper</strong> — à regarder à la main.</p><table style="width:100%;border-collapse:collapse">`;
-        for (const e of echecs) html += ligne(e.commande, 'échec');
+      if (sansSortie.length) {
+        html += `<p style="font-size:14px;color:#B03A2E"><strong>${sansSortie.length} commande(s) expédiée(s) sans sortie de stock</strong> — la marchandise est partie mais le rayon n'a pas été décrémenté. À reprendre depuis l'écran de préparation.</p><table style="width:100%;border-collapse:collapse">`;
+        for (const r of sansSortie) html += ligne(r.commande, r.statut);
         html += '</table>';
       }
       if (ecarts.length) {
@@ -180,7 +184,7 @@ export async function GET(req: NextRequest) {
       await sendEmail({
         from,
         to: dest,
-        subject: `Contrôle du stock — ${ecarts.length} écart(s), ${repares.length} rattrapage(s)`,
+        subject: `Contrôle du stock — ${ecarts.length} écart(s), ${sansSortie.length} sortie(s) manquante(s)`,
         html: baseTemplate(html, 'Contrôle quotidien du stock', cfg),
       }, cfg);
     }
