@@ -7,11 +7,28 @@ import { T } from '@/lib/admin-theme';
    Handoff « scan & saisie ticket », §2 : bloc sombre, coins,
    ligne de balayage animée, bouton 44 px.
 
-   Lecture : ZXing, qui tourne dans tous les navigateurs — iPhone
-   compris, ou BarcodeDetector n'existe pas et ou le scan ne
-   fonctionnait donc jamais. La saisie au clavier reste disponible
-   pour un code abime.
-   L'acces camera exige HTTPS — en local, seul localhost est autorise.
+   ── Moteur de lecture ────────────────────────────────────────────
+   zxing-cpp, compilé en WebAssembly (paquet `zxing-wasm`). C'est le
+   portage C++ de ZXing, développé bien au-delà de l'original Java :
+   meilleure détection, nettement plus rapide, et surtout ENTRETENU.
+   La version précédente s'appuyait sur `@zxing/browser` / `zxing-js`,
+   dont le développement est arrêté — le décodage y était mou et ratait
+   des EAN parfaitement nets.
+
+   Voie rapide : `BarcodeDetector`, l'API native de Chrome/Android,
+   accélérée matériellement. Quand elle est là, elle passe devant.
+   Repli automatique : elle est réputée faible sur les EAN imprimés, et
+   elle n'existe pas du tout sur iPhone. Si elle ne rend rien pendant
+   BASCULE_MS, on passe définitivement au WASM pour la session. Le
+   moteur réellement en service est affiché dans le diagnostic — on ne
+   devine pas, on lit.
+
+   Le binaire est servi par notre domaine (public/zxing_reader.wasm,
+   recopié au build par scripts/copier-wasm.js). Dépendre d'un CDN pour
+   scanner au fond d'une réserve serait une fragilité gratuite.
+
+   L'accès caméra exige HTTPS — en local, seul localhost est autorisé.
+   La saisie au clavier reste disponible pour un code abîmé.
 
    ⚠️ Deux garde-fous imposés par le handoff :
    · anti-rebond de 700 ms sur un même code lu en continu ;
@@ -29,10 +46,42 @@ const CONFIRMATIONS = 2;
    detecteur est plus lent que l'affichage, et on empile les appels. */
 const INTERVALLE_MS = 90;
 
+/* Duree sans aucune lecture au-dela de laquelle on abandonne le
+   detecteur natif pour le WASM. Assez long pour laisser le temps de
+   viser, assez court pour ne pas s'acharner. */
+const BASCULE_MS = 2500;
+
 /* Formats qui portent une cle de controle. Un CODE-128 ou un QR peut
    contenir 13 chiffres sans etre un EAN : lui appliquer la cle le
-   rejetterait a tort. C'est ce que faisait la version precedente. */
-const AVEC_CLE = new Set(['ean_13', 'ean_8', 'upc_a', 'upc_e']);
+   rejetterait a tort. C'est ce que faisait une version precedente.
+
+   Les deux moteurs ne nomment pas les formats pareil : zxing-cpp rend
+   « EAN13 », l'API native rend « ean_13 ». Les deux jeux sont ici. */
+const AVEC_CLE = new Set([
+  'EAN13', 'EAN8', 'UPCA', 'UPCE',              // zxing-cpp
+  'ean_13', 'ean_8', 'upc_a', 'upc_e',          // BarcodeDetector
+]);
+
+/* Ce qu'on cherche. Restreindre la liste accelere la detection et
+   supprime des faux positifs : un DataBar lu de travers ne viendra pas
+   se faire passer pour un EAN. */
+const FORMATS_WASM = [
+  'EAN13', 'EAN8', 'UPCA', 'UPCE',
+  'Code128', 'Code39', 'ITF',
+  'QRCode', 'DataMatrix',
+] as const;
+
+const FORMATS_NATIF = [
+  'ean_13', 'ean_8', 'upc_a', 'upc_e',
+  'code_128', 'code_39', 'itf',
+  'qr_code', 'data_matrix',
+];
+
+/* Fenetre analysee dans l'image, en proportion. On ne decode pas tout
+   le cadre : moins de pixels a traiter, donc plus de tentatives par
+   seconde, et aucun risque de lire l'etiquette du carton d'a cote.
+   La bande est large — un EAN est bien plus large que haut. */
+const ZONE = { x: 0.04, y: 0.20, w: 0.92, h: 0.60 };
 
 /** Cle de controle EAN-13 / EAN-8 / UPC-A. Un code mal lu la rate. */
 function cleValide(code: string): boolean {
@@ -58,12 +107,13 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const lastRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
-  const rafRef = useRef<number | null>(null);
   const timerRef = useRef<any>(null);
   const candidatRef = useRef<{ code: string; vu: number }>({ code: '', vu: 0 });
   const trackRef = useRef<MediaStreamTrack | null>(null);
-  const readerRef = useRef<any>(null);
-  const controlsRef = useRef<any>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const vivantRef = useRef(false);
+  const natifRef = useRef<any>(null);
+  const depuisRef = useRef(0);                 // début de la période sans lecture
 
   const [torche, setTorche] = useState(false);
   const [torcheDispo, setTorcheDispo] = useState(false);
@@ -72,6 +122,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const [zoomMax, setZoomMax] = useState(1);
   const [objectif, setObjectif] = useState('');
   const [diag, setDiag] = useState('');
+  const [moteur, setMoteur] = useState('');
 
   const [active, setActive] = useState(false);
   const [error, setError] = useState('');
@@ -79,9 +130,25 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const [manual, setManual] = useState('');
 
   useEffect(() => {
-    /* La lecture ne depend plus du navigateur : ZXing tourne partout,
-       iPhone compris. Seule la camera peut manquer. */
+    /* La lecture ne depend plus du navigateur : zxing-cpp tourne
+       partout, iPhone compris. Seule la camera peut manquer. */
     setSupported(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia);
+  }, []);
+
+  /* Le binaire est chez nous, pas sur un CDN. On le declare une fois,
+     avant le premier decodage. */
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      try {
+        const { prepareZXingModule } = await import('zxing-wasm/reader');
+        prepareZXingModule({
+          overrides: { locateFile: (fichier: string) => (fichier.endsWith('.wasm') ? '/zxing_reader.wasm' : fichier) },
+        });
+        if (annule) return;
+      } catch { /* le paquet chargera son binaire par defaut */ }
+    })();
+    return () => { annule = true; };
   }, []);
 
   /**
@@ -106,8 +173,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
 
     /* Un format a cle de controle se valide en une seule lecture : la
        cle EST la confirmation. Exiger deux lectures identiques par
-       dessus, comme le faisait la version precedente, faisait rater la
-       plupart des scans sans rien apporter. */
+       dessus faisait rater la plupart des scans sans rien apporter. */
     const aUneCle = !!format && AVEC_CLE.has(format);
     if (aUneCle) {
       if (!cleValide(code)) { candidatRef.current = { code: '', vu: 0 }; return; }
@@ -145,14 +211,13 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   }, [torche]);
 
   const stop = useCallback(() => {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    try { controlsRef.current?.stop?.(); } catch { /* deja arrete */ }
-    controlsRef.current = null;
-    readerRef.current = null;
+    vivantRef.current = false;
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     candidatRef.current = { code: '', vu: 0 };
+    natifRef.current = null;
     trackRef.current = null;
-    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif(''); setDiag('');
+    canvasRef.current = null;
+    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif(''); setDiag(''); setMoteur('');
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     setActive(false);
@@ -161,10 +226,6 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const start = useCallback(async () => {
     setError('');
     try {
-      /* Contraintes qui font toute la difference sur un code-barres :
-         une definition suffisante pour resoudre des barres fines, et
-         l'autofocus continu — sans lui l'image reste floue de pres, ce
-         qui produit soit rien, soit un code faux. */
       /* Choix de l'objectif — c'est ici que se jouait le flou.
          « facingMode: environment » laisse le navigateur choisir, et sur
          les telephones recents il prend souvent l'ULTRA GRAND-ANGLE, qui
@@ -222,14 +283,11 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           /* Pas de zoom pilotable — c'est le cas de Safari sur iPhone.
              On compense par la definition : plus de pixels sur le code
              permet de le lire de plus loin, la ou l'objectif fait encore
-             le point. On paie en temps de calcul, mais un code lu
-             lentement vaut mieux qu'un code jamais lu. */
+             le point. */
           try {
             await track.applyConstraints({ width: { ideal: 1920 }, height: { ideal: 1080 } });
           } catch { /* definition refusee : on garde celle obtenue */ }
         }
-        /* Diagnostic : plutot que de deviner d'un tour a l'autre, on
-           affiche ce que l'appareil expose reellement. */
         const r = track?.getSettings?.() || {};
         setDiag([
           `${r.width || '?'}x${r.height || '?'}`,
@@ -238,47 +296,90 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           caps.torch ? 'lampe' : 'pas de lampe',
         ].join(' · '));
       } catch { /* capacites non exposees */ }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
       setActive(true);
 
-      /* ── Moteur de lecture ────────────────────────────────────
-         ZXing est le moteur principal, pas un repli : BarcodeDetector
-         lit mal les EAN sur etiquette imprimee, et n'existe pas du tout
-         sur iPhone — ou le scan ne fonctionnait donc jamais.
+      /* ── Moteurs ──────────────────────────────────────────────── */
+      const { readBarcodes } = await import('zxing-wasm/reader');
 
-         ZXing tourne partout, gere le flou et les codes de travers, et
-         reste sur son propre rythme. On lui laisse le flux deja ouvert
-         pour conserver nos contraintes de camera et la lampe. */
-      const { BrowserMultiFormatReader } = await import('@zxing/browser');
-      const { DecodeHintType, BarcodeFormat } = await import('@zxing/library');
+      // Voie rapide native, quand le navigateur la propose.
+      const Detecteur = (globalThis as any).BarcodeDetector;
+      if (Detecteur) {
+        try {
+          const dispo: string[] = await Detecteur.getSupportedFormats();
+          const retenus = FORMATS_NATIF.filter(f => dispo.includes(f));
+          if (retenus.length) {
+            natifRef.current = new Detecteur({ formats: retenus });
+            setMoteur('BarcodeDetector (natif)');
+          }
+        } catch { /* pas exploitable : on reste sur le WASM */ }
+      }
+      if (!natifRef.current) setMoteur('zxing-cpp (WASM)');
 
-      const hints = new Map();
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-        BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
-        BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
-        BarcodeFormat.CODE_128, BarcodeFormat.CODE_39,
-        BarcodeFormat.ITF, BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX,
-      ]);
-      // Analyse plus poussee de chaque image : on prefere le temps de
-      // calcul au code manque, on est sur un geste ponctuel.
-      hints.set(DecodeHintType.TRY_HARDER, true);
+      /* Le canevas sert de tampon : on y recopie la zone de visée de
+         chaque image, et c'est elle qu'on donne au décodeur. */
+      const canvas = document.createElement('canvas');
+      canvasRef.current = canvas;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-      const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: INTERVALLE_MS });
-      readerRef.current = reader;
+      vivantRef.current = true;
+      depuisRef.current = Date.now();
 
-      const FORMATS: Record<number, string> = {
-        [BarcodeFormat.EAN_13]: 'ean_13', [BarcodeFormat.EAN_8]: 'ean_8',
-        [BarcodeFormat.UPC_A]: 'upc_a', [BarcodeFormat.UPC_E]: 'upc_e',
+      /* Boucle chaînée plutôt que setInterval : on relance APRÈS avoir
+         fini de décoder. Un intervalle fixe empilerait les appels dès
+         qu'une image prend plus longtemps que la cadence prévue. */
+      const tour = async () => {
+        if (!vivantRef.current) return;
+        const v = videoRef.current;
+        try {
+          if (v && v.readyState >= 2 && v.videoWidth) {
+            let lu: { code: string; format: string } | null = null;
+
+            if (natifRef.current) {
+              // L'API native accepte l'élément vidéo directement.
+              const codes = await natifRef.current.detect(v);
+              if (codes?.length) lu = { code: String(codes[0].rawValue || ''), format: String(codes[0].format || '') };
+            } else if (ctx) {
+              const sx = Math.round(v.videoWidth * ZONE.x);
+              const sy = Math.round(v.videoHeight * ZONE.y);
+              const sw = Math.round(v.videoWidth * ZONE.w);
+              const sh = Math.round(v.videoHeight * ZONE.h);
+              if (canvas.width !== sw || canvas.height !== sh) { canvas.width = sw; canvas.height = sh; }
+              ctx.drawImage(v, sx, sy, sw, sh, 0, 0, sw, sh);
+
+              const resultats = await readBarcodes(ctx.getImageData(0, 0, sw, sh), {
+                formats: FORMATS_WASM as unknown as any,
+                tryHarder: true,      // on préfère le temps de calcul au code manqué
+                tryRotate: true,      // étiquette de travers sur un carton
+                tryInvert: true,      // impression claire sur fond sombre
+                tryDownscale: true,
+                maxNumberOfSymbols: 1,
+                returnErrors: false,  // un code à la clé fausse n'est pas un code
+              });
+              const bon = (resultats || []).find((r: any) => r.isValid && r.text);
+              if (bon) lu = { code: String(bon.text).trim(), format: String(bon.format || '') };
+            }
+
+            if (lu?.code) {
+              depuisRef.current = Date.now();
+              emit(lu.code, lu.format);
+            } else if (natifRef.current && Date.now() - depuisRef.current > BASCULE_MS) {
+              /* Le détecteur natif ne rend rien depuis un moment. Il est
+                 réputé faible sur les EAN imprimés — on ne s'acharne pas,
+                 on passe au WASM pour le reste de la session. */
+              natifRef.current = null;
+              depuisRef.current = Date.now();
+              setMoteur('zxing-cpp (WASM)');
+            }
+          }
+        } catch { /* image illisible : on passe à la suivante */ }
+        if (vivantRef.current) timerRef.current = setTimeout(tour, INTERVALLE_MS);
       };
-
-      controlsRef.current = await reader.decodeFromVideoElement(videoRef.current!, (result) => {
-        if (!result) return;                       // image sans code, on continue
-        const texte = String(result.getText() || '').trim();
-        emit(texte, FORMATS[result.getBarcodeFormat() as number]);
-      });
+      tour();
 
     } catch (e: any) {
       setError(
@@ -391,8 +492,8 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         )}
       </div>
 
-      {/* Saisie manuelle : filet de sécurité quand la détection native
-          n'existe pas (iOS/Safari) ou que le code est abîmé. */}
+      {/* Saisie manuelle : filet de sécurité quand la caméra manque ou
+          que le code est abîmé. */}
       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
         <input
           value={manual}
@@ -425,6 +526,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           Reste à 15–20 cm et zoome : sous 10 cm la plupart des objectifs ne font plus le point.
           {objectif && <><br />Objectif : {objectif}</>}
           {diag && <><br />{diag}</>}
+          {moteur && <><br />Moteur : {moteur}</>}
         </div>
       )}
 

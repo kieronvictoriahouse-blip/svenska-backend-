@@ -9,3 +9,8 @@ build/
 
 .vercel
 .env*.local
+
+# Moteur de lecture recopie au build par scripts/copier-wasm.js.
+# Versionner ce binaire le ferait deriver de la version du paquet au
+# premier npm update, sans que rien ne le signale.
+/public/zxing_reader.wasm
