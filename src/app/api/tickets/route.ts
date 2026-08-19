@@ -156,21 +156,14 @@ export async function POST(req: NextRequest) {
   for (const l of poLines) {
     if (!l.product_id) continue;
     try {
-      const { data: prod } = await supabaseAdmin
-        .from('products').select('stock, track_stock').eq('id', l.product_id).single();
-      const before = prod?.stock ?? 0;
-      const after = before + l.qty;
-
+      // Le PA HT calculé alimente la fiche produit ; la quantité, elle,
+      // passe par adjustStock — un seul point d'écriture pour le stock.
       await supabaseAdmin.from('products').update({
-        stock: after,
-        cost_price: l.unit_cost_eur,   // le PA HT calculé alimente la fiche produit
+        cost_price: l.unit_cost_eur,
       }).eq('id', l.product_id);
 
-      await supabaseAdmin.from('stock_movements').insert({
-        product_id: l.product_id,
-        delta: l.qty,
-        qty_before: before,
-        qty_after: after,
+      const { adjustStock } = await import('@/lib/stock');
+      await adjustStock(l.product_id, l.qty, {
         reason: 'reception',
         reference: number,
         note: `Ticket ${store || ''}`.trim(),

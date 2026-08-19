@@ -113,12 +113,12 @@ async function handleOrderCompleted(content: any) {
       .eq('sort_order', sortOrder)
       .maybeSingle();
 
-    if (product?.id) {
-      await supabaseAdmin.rpc('decrement_stock', {
-        p_id: product.id,
-        qty:  item.quantity,
-      });
-    }
+    /* Plus de déduction ici. Le stock sort à l'expédition, depuis
+       l'écran de préparation, et par adjustStock — jamais par un appel
+       direct à la RPC, qui ne laisse aucune trace au journal.
+       Ce webhook est un reliquat de l'époque Snipcart ; on le laisse
+       enregistrer la commande, pas toucher au stock. */
+    void product;
   }
 }
 

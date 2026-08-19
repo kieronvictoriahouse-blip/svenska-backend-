@@ -33,15 +33,17 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     }
 
     await supabaseAdmin.from('products').update({
-      stock: newStock,
       cost_price: Math.round(newPmp * 10000) / 10000,
     }).eq('id', line.product_id);
 
-    await supabaseAdmin.from('stock_movements').insert({
-      product_id: line.product_id,
-      quantity: -qty,
-      type: 'out',
+    /* Même chose qu'à la réception : la quantité passe par adjustStock.
+       L'ancien code posait un mouvement avec une quantité négative ET un
+       type 'out' — deux conventions contradictoires dans la même ligne,
+       que le journal lisait de travers. */
+    const { adjustStock } = await import('@/lib/stock');
+    await adjustStock(line.product_id, -qty, {
       reason: `Annulation réception ${reception.number}`,
+      reference: reception.number,
     });
   }
 

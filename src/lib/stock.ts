@@ -135,36 +135,66 @@ export async function applySaleStock(
 }
 
 /**
- * Remet en stock les lignes d'une commande (annulation, remboursement).
- * Ne remet que ce qui avait effectivement été déduit, et supprime la
- * garde d'idempotence pour que la commande reste rejouable.
+ * Fait revenir en stock la marchandise d'une commande annulée.
+ *
+ * Deux règles, apprises à leurs dépens :
+ *
+ * 1. On ne fait revenir QUE ce qui est sorti. Le stock se déduit à
+ *    l'expédition : une commande jamais partie n'a rien retiré du rayon,
+ *    et lui « rendre » sa marchandise invente des unités. L'ancienne
+ *    version se rabattait sur les lignes de la commande quand elle ne
+ *    trouvait aucun mouvement — or depuis le changement de modèle, ne
+ *    rien trouver est le cas NORMAL. Elle recréditait donc l'intégralité
+ *    de chaque commande annulée.
+ *
+ * 2. On n'efface aucun mouvement. L'ancienne version supprimait les
+ *    sorties après les avoir compensées : le journal perdait la vente,
+ *    gardait le retour, et devenait faux dans les deux sens. Un
+ *    mouvement compensateur se lit ; un mouvement effacé ne se lit plus.
  */
 export async function restoreSaleStock(
   lines: StockLine[],
   orderId: string,
   reference?: string,
+  sorti?: Record<string, number>,
 ): Promise<StockResult> {
   const res: StockResult = { applied: [], skipped: [], failed: [] };
 
+  /* Deux sources possibles pour « ce qui est sorti » : les mouvements
+     rattachés à la commande (ancien modèle, déduction au paiement), et
+     shipped_qty renseigné à l'expédition (modèle actuel). */
   const { data: outs } = await supabaseAdmin
     .from('stock_movements').select('product_id, delta, quantity, type')
     .eq('order_id', orderId);
 
-  /* Sans mouvement enregistré (commandes d'avant le journal), on se rabat
-     sur les lignes de la commande : c'est le mieux qu'on puisse faire. */
-  const items = (outs && outs.length)
-    ? outs.map(m => ({
-        product_id: m.product_id as string,
-        qty: Math.abs(Number(m.delta ?? (m.type === 'out' ? -(m.quantity || 0) : m.quantity)) || 0),
-      })).filter(x => x.product_id && x.qty > 0)
-    : usable(lines);
+  const depuisMouvements = (outs || [])
+    .map(m => ({
+      product_id: m.product_id as string,
+      qty: Math.abs(Number(m.delta ?? (m.type === 'out' ? -(m.quantity || 0) : m.quantity)) || 0),
+    }))
+    .filter(x => x.product_id && x.qty > 0);
+
+  const depuisExpedition = Object.entries(sorti || {})
+    .map(([product_id, qty]) => ({ product_id, qty: Number(qty) || 0 }))
+    .filter(x => x.qty > 0);
+
+  const items = depuisMouvements.length ? depuisMouvements : depuisExpedition;
+
+  /* Aucune des deux sources ne dit que quelque chose est parti : la
+     marchandise est encore en rayon, il n'y a rien à y remettre. */
+  if (!items.length) {
+    for (const it of usable(lines)) {
+      res.skipped.push({ product_id: it.product_id, raison: 'jamais sorti du stock' });
+    }
+    return res;
+  }
 
   for (const it of items) {
     try {
       const applied = await move(it.product_id, it.qty, {
         reason: 'order_restock',
         reference: reference || orderId,
-        note: `Remise en stock — commande ${reference || orderId}`,
+        note: `Retour en stock — commande ${reference || orderId}`,
       });
       if (applied) res.applied.push(applied);
     } catch (e: any) {
@@ -172,10 +202,6 @@ export async function restoreSaleStock(
     }
   }
 
-  if (outs && outs.length) {
-    await supabaseAdmin.from('stock_movements')
-      .delete().eq('order_id', orderId).in('reason', ['order']);
-  }
   return res;
 }
 

@@ -76,12 +76,13 @@ export async function GET(req: NextRequest) {
         updated_at:       new Date().toISOString(),
       }).eq('id', orderId);
 
-      // Stock decrement
-      for (const line of orderLines) {
-        if (line.product_id) {
-          try { await supabaseAdmin.rpc('decrement_stock', { p_id: line.product_id, qty: line.qty }); } catch { /* non bloquant */ }
-        }
-      }
+      /* Pas de déduction de stock. Ce rejeu rattrape des commandes
+         restées « pending » alors que Stripe les avait encaissées : il
+         remet le bon statut, rien de plus. La marchandise, elle, n'a pas
+         bougé — elle sortira à l'expédition comme pour toute commande.
+         L'appel direct à decrement_stock qui était ici déduisait au
+         paiement, sans écrire au journal : une variation de stock
+         invisible, la panne exacte que le journal devait empêcher. */
 
       // Invoice
       try {

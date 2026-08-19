@@ -142,6 +142,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // ── Mise à jour commande ──────────────────────────────────────────
+  /* ── Ce qui va rentrer en stock — calcul seul, aucune écriture ────
+     On ne fait rentrer que ce qui en était SORTI, c'est-à-dire ce qui a
+     réellement été expédié. La marchandise d'une commande non partie est
+     encore sur l'étagère : la « remettre » inventerait des unités. C'est
+     le mécanisme qui a fait apparaître 3 boîtes de SC-0047 sur un
+     article en rupture le 19/08/2026. */
+  const envoye: Record<string, number> = (order as any).shipped_qty || {};
+  const toutParti = ['shipped', 'delivered'].includes(order.status)
+    && !Object.keys(envoye).length;      // expédiée avant l'existence de shipped_qty
+
+  const planRetour = (doRestock
+    ? (isPartial
+        ? items.map(it => ({ product_id: orderLines[it.index]?.product_id, qty: it.qty }))
+        : orderLines.map((l: any) => ({ product_id: l.product_id, qty: Number(l.qty) || 1 })))
+    : []
+  ).map((r: any) => ({
+    product_id: r.product_id as string | null,
+    // Plafond : ce qui est effectivement parti pour ce produit.
+    qty: Math.min(
+      Number(r.qty) || 0,
+      toutParti ? (Number(r.qty) || 0) : (Number(envoye[r.product_id]) || 0),
+    ),
+  })).filter((r: any) => r.product_id && r.qty > 0);
+
+  const rentre = new Set(planRetour.map((r: any) => r.product_id));
+
   const newRefundedTotal = round2(alreadyRefunded + amount);
   const historyEntry = {
     date:             new Date().toISOString(),
@@ -156,7 +182,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       name:       orderLines[it.index]?.name || orderLines[it.index]?.desc || orderLines[it.index]?.name_fr || 'Article',
       qty:        it.qty,
       price:      round2(orderLines[it.index]?.price),
-      restocked:  doRestock && !!orderLines[it.index]?.product_id,
+      // Vrai seulement si la marchandise était partie : sinon elle n'a
+      // jamais quitté le rayon et il n'y a rien à y remettre.
+      restocked:  rentre.has(orderLines[it.index]?.product_id),
     })),
   };
   const prevHistory = history;
@@ -190,24 +218,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }).eq('id', params.id);
   }
 
-  // ── Ré-incrément stock ────────────────────────────────────────────
-  // Total : toutes les lignes. Partiel : uniquement les lignes créditées.
-  if (doRestock) {
-    const toRestock = isPartial
-      ? items.map(it => ({ product_id: orderLines[it.index]?.product_id, qty: it.qty }))
-      : orderLines.map((l: any) => ({ product_id: l.product_id, qty: l.qty || 1 }));
+  /* ── Retour en stock ──────────────────────────────────────────────
+     On ne remet en stock que ce qui en était SORTI, c'est-à-dire ce qui
+     a réellement été expédié. La marchandise d'une commande non partie
+     est encore sur l'étagère : la « remettre » inventerait des unités.
+     C'est exactement le mécanisme qui a fait apparaître 3 boîtes de
+     SC-0047 sur un article en rupture le 19/08/2026.
 
-    for (const r of toRestock) {
-      if (!r.product_id) continue;
+     Et le retour passe par adjustStock : un retour marchandise doit
+     laisser une trace au journal comme une vente ou une réception. */
+  /* Le retour passe par adjustStock : une marchandise qui revient doit
+     laisser une trace au journal, comme une vente ou une réception. */
+  if (planRetour.length) {
+    const { adjustStock } = await import('@/lib/stock');
+    for (const r of planRetour) {
       try {
-        const { data: prod } = await supabaseAdmin
-          .from('products').select('stock').eq('id', r.product_id).single();
-        if (prod) {
-          await supabaseAdmin.from('products')
-            .update({ stock: (prod.stock || 0) + (r.qty || 1) })
-            .eq('id', r.product_id);
-        }
-      } catch { /* non bloquant */ }
+        await adjustStock(r.product_id as string, r.qty, {
+          reason: 'order_restock',
+          reference: order.order_number,
+          note: `Retour sur remboursement — commande ${order.order_number}`,
+        });
+      } catch { /* non bloquant : le remboursement prime sur le stock */ }
     }
   }
 

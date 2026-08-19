@@ -18,16 +18,19 @@ export async function applyStockAndPmp(line: any, reason: string) {
     ? ((currentStock * currentPmp) + (receivedQty * unitCostEur)) / newStock
     : unitCostEur;
 
+  /* Le PMP et le suivi se posent d'abord — ils ne touchent pas à la
+     quantité, adjustStock s'en charge juste après. */
   await supabaseAdmin.from('products').update({
-    stock: newStock,
     track_stock: true,
     cost_price: Math.round(newPmp * 10000) / 10000,
   }).eq('id', line.product_id);
 
-  await supabaseAdmin.from('stock_movements').insert({
-    product_id: line.product_id,
-    quantity: receivedQty,
-    type: 'in',
-    reason,
-  });
+  /* La quantité passe par adjustStock, comme tout le reste.
+     Avant, ce fichier écrivait le stock à la main et posait un mouvement
+     sans delta ni photo avant/après : la chaîne du journal se coupait à
+     chaque réception, et c'est précisément par les réceptions que la
+     marchandise entre. Le contrôle « la chaîne tient-elle ? » de
+     scripts/audit-stock.js ne pouvait rien voir en amont. */
+  const { adjustStock } = await import('./stock');
+  await adjustStock(line.product_id, receivedQty, { reason });
 }
