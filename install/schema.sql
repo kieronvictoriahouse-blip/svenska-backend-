@@ -1,4 +1,4 @@
--- SCHEMA 681c0670035a — genere le 2026-08-23 13:53
+-- SCHEMA 29efc9d3266a — genere le 2026-08-23 13:55
 -- ═══════════════════════════════════════════════════════════════
 --  SCHÉMA CONSOLIDÉ — instance neuve
 --
@@ -14,6 +14,7 @@
 
 -- ─── Extension requise ───
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 
 -- ─── Tables (42) — état réel de la production ───
 
@@ -136,7 +137,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   siret text,
   tva_number text,
   notes text,
-  tags string[],
+  tags text[],
   supabase_user_id uuid,
   total_orders numeric DEFAULT 0,
   total_purchases numeric DEFAULT 0,
@@ -164,7 +165,7 @@ CREATE TABLE IF NOT EXISTS crm_ao_alerts (
   montant_estime text,
   description text,
   url text,
-  keywords_found string[],
+  keywords_found text[],
   statut text DEFAULT 'nouvelle',
   notes text,
   created_at timestamp with time zone DEFAULT now(),
@@ -278,8 +279,8 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
   message_id text,
   from_name text,
   from_email text,
-  to_emails string[],
-  cc_emails string[],
+  to_emails text[],
+  cc_emails text[],
   subject text,
   preview text,
   body_html text,
@@ -577,7 +578,7 @@ CREATE TABLE IF NOT EXISTS products (
   is_active boolean DEFAULT true,
   rating numeric DEFAULT 4.5,
   reviews_count integer DEFAULT 0,
-  tags string[],
+  tags text[],
   usage_sv text,
   usage_fr text,
   usage_en text,

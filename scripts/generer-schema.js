@@ -33,10 +33,19 @@ const lire = k => ((env.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1] || 
    CREATE vient des migrations. */
 const VUES = new Set(['v_campaign_stats']);
 
-/* ── Types PostgREST → SQL ─────────────────────────────────────── */
+/* ── Types PostgREST → SQL ──────────────────────────────────────────
+   `format` porte le type SQL quand il existe ; sinon on retombe sur le
+   type JSON, qu'il faut TRADUIRE — « string » n'est pas un type
+   PostgreSQL, et un tableau l'exposait tel quel (tags string[]). */
+const TYPE_JSON = { string: 'text', integer: 'integer', number: 'numeric', boolean: 'boolean', object: 'jsonb' };
 function typeSql(p) {
-  let f = p.format || p.type || 'text';
-  if (p.type === 'array') f = ((p.items && (p.items.format || p.items.type)) || 'text') + '[]';
+  let f = p.format || TYPE_JSON[p.type] || 'text';
+  if (p.type === 'array') {
+    const item = p.items || {};
+    let it = item.format || TYPE_JSON[item.type] || 'text';
+    it = it.replace(/\[\]$/, '');            // format déjà « text[] » : ne pas doubler
+    f = it + '[]';
+  }
   if (f === 'character varying') f = p.maxLength ? `varchar(${p.maxLength})` : 'text';
   return f;
 }
@@ -199,7 +208,8 @@ function verifierEquilibre(sql) {
     : '';
 
   const sortie = entete
-    + `-- ─── Extension requise ───\nCREATE EXTENSION IF NOT EXISTS pgcrypto;\n\n`
+    + `-- ─── Extension requise ───\nCREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;\n\n`
     + `-- ─── Tables (${tables.length}) — état réel de la production ───\n\n`
     + creates.join('\n\n') + '\n'
     + piedFks + '\n\n'
