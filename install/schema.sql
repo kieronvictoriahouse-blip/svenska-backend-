@@ -884,11 +884,13 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 001_initial_schema.sql
+DROP TRIGGER IF EXISTS products_updated_at ON products;
 CREATE TRIGGER products_updated_at
   BEFORE UPDATE ON products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 001_initial_schema.sql
+DROP TRIGGER IF EXISTS homepage_sections_updated_at ON homepage_sections;
 CREATE TRIGGER homepage_sections_updated_at
   BEFORE UPDATE ON homepage_sections
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -917,50 +919,64 @@ ALTER TABLE media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_profiles ENABLE ROW LEVEL SECURITY;
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "public_read_categories" ON categories;
 -- Lecture publique (front HTML)
 CREATE POLICY "public_read_categories"    ON categories    FOR SELECT USING (is_active = true);
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "public_read_products" ON products;
 CREATE POLICY "public_read_products"      ON products      FOR SELECT USING (is_active = true);
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "public_read_variants" ON product_variants;
 CREATE POLICY "public_read_variants"      ON product_variants FOR SELECT USING (true);
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "public_read_homepage" ON homepage_sections;
 CREATE POLICY "public_read_homepage"      ON homepage_sections FOR SELECT USING (is_active = true);
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "public_read_featured" ON homepage_featured;
 CREATE POLICY "public_read_featured"      ON homepage_featured FOR SELECT USING (is_active = true);
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_all_categories" ON categories;
 -- Écriture admin uniquement (authenticated)
 CREATE POLICY "admin_all_categories"   ON categories    FOR ALL USING (auth.role() = 'authenticated');
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_all_products" ON products;
 CREATE POLICY "admin_all_products"     ON products      FOR ALL USING (auth.role() = 'authenticated');
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_all_variants" ON product_variants;
 CREATE POLICY "admin_all_variants"     ON product_variants FOR ALL USING (auth.role() = 'authenticated');
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_all_homepage" ON homepage_sections;
 CREATE POLICY "admin_all_homepage"     ON homepage_sections FOR ALL USING (auth.role() = 'authenticated');
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_all_featured" ON homepage_featured;
 CREATE POLICY "admin_all_featured"     ON homepage_featured FOR ALL USING (auth.role() = 'authenticated');
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_all_media" ON media;
 CREATE POLICY "admin_all_media"        ON media         FOR ALL USING (auth.role() = 'authenticated');
 
 -- 001_initial_schema.sql
+DROP POLICY IF EXISTS "admin_own_profile" ON admin_profiles;
 CREATE POLICY "admin_own_profile"      ON admin_profiles FOR ALL USING (auth.uid() = id);
 
 -- 002_gestion_schema.sql
+DROP TRIGGER IF EXISTS invoices_updated_at ON invoices;
 -- ─── TRIGGERS ───────────────────────────────────────────────────
 CREATE TRIGGER invoices_updated_at
   BEFORE UPDATE ON invoices
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 002_gestion_schema.sql
+DROP TRIGGER IF EXISTS margin_products_updated_at ON margin_products;
 CREATE TRIGGER margin_products_updated_at
   BEFORE UPDATE ON margin_products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -969,25 +985,32 @@ CREATE TRIGGER margin_products_updated_at
 ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_clients" ON clients;
 -- Accès admin uniquement (authenticated) — pas de lecture publique
 CREATE POLICY "admin_clients"    ON clients          FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_invoices" ON invoices;
 CREATE POLICY "admin_invoices"   ON invoices         FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_suppliers" ON suppliers;
 CREATE POLICY "admin_suppliers"  ON suppliers        FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_purchases" ON purchases;
 CREATE POLICY "admin_purchases"  ON purchases        FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_margins" ON margin_products;
 CREATE POLICY "admin_margins"    ON margin_products  FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_shipments" ON shipments;
 CREATE POLICY "admin_shipments"  ON shipments        FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
+DROP POLICY IF EXISTS "admin_settings" ON company_settings;
 CREATE POLICY "admin_settings"   ON company_settings FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
@@ -1023,6 +1046,7 @@ ORDER BY mp.margin_pct ASC;
 ALTER TABLE cms_home ENABLE ROW LEVEL SECURITY;
 
 -- 010_orders_table.sql
+DROP TRIGGER IF EXISTS orders_updated_at ON orders;
 CREATE TRIGGER orders_updated_at
   BEFORE UPDATE ON orders
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -1032,6 +1056,7 @@ CREATE TRIGGER orders_updated_at
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 
 -- 010_orders_table.sql
+DROP POLICY IF EXISTS "admin_all_orders" ON orders;
 -- Service role (webhook) peut tout faire sans RLS
 -- Admin authentifié peut tout lire/modifier
 CREATE POLICY "admin_all_orders"
@@ -1065,6 +1090,7 @@ ALTER TABLE accounting_entries ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_accounting" ON accounting_entries;
 
 -- 015_invoices_accounting.sql
+DROP POLICY IF EXISTS "admin_accounting" ON accounting_entries;
 CREATE POLICY "admin_accounting" ON accounting_entries FOR ALL USING (auth.role() = 'authenticated');
 
 -- 016_orders_is_test.sql
@@ -1129,6 +1155,7 @@ ALTER TABLE ticket_aliases ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_ticket_aliases" ON ticket_aliases;
 
 -- 030_ticket_scan.sql
+DROP POLICY IF EXISTS "admin_ticket_aliases" ON ticket_aliases;
 CREATE POLICY "admin_ticket_aliases" ON ticket_aliases FOR ALL USING (auth.role() = 'authenticated');
 
 -- 030_ticket_scan.sql
@@ -1138,6 +1165,7 @@ ALTER TABLE purchase_tickets ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_purchase_tickets" ON purchase_tickets;
 
 -- 030_ticket_scan.sql
+DROP POLICY IF EXISTS "admin_purchase_tickets" ON purchase_tickets;
 CREATE POLICY "admin_purchase_tickets" ON purchase_tickets FOR ALL USING (auth.role() = 'authenticated');
 
 -- 030_ticket_scan.sql
@@ -1159,6 +1187,7 @@ ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_stock_movements" ON stock_movements;
 
 -- 031_stock_ledger.sql
+DROP POLICY IF EXISTS "admin_stock_movements" ON stock_movements;
 CREATE POLICY "admin_stock_movements" ON stock_movements FOR ALL USING (auth.role() = 'authenticated');
 
 -- 031_stock_ledger.sql
@@ -1183,6 +1212,7 @@ ALTER TABLE order_line_choices ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_order_line_choices" ON order_line_choices;
 
 -- 032_remplacement.sql
+DROP POLICY IF EXISTS "admin_order_line_choices" ON order_line_choices;
 CREATE POLICY "admin_order_line_choices" ON order_line_choices FOR ALL USING (auth.role() = 'authenticated');
 
 -- 032_remplacement.sql
@@ -1196,11 +1226,12 @@ ALTER TABLE email_templates ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_email_templates" ON email_templates;
 
 -- 033_email_templates.sql
+DROP POLICY IF EXISTS "admin_email_templates" ON email_templates;
 CREATE POLICY "admin_email_templates" ON email_templates FOR ALL USING (auth.role() = 'authenticated');
 
 -- 033_email_templates.sql
 COMMENT ON TABLE email_templates IS
-  'Surcharges des gabarits ;
+  'Surcharges des gabarits ; une cle absente signifie « fichier d''origine »';
 
 -- 034_boite_mail.sql
 -- Cle naturelle IMAP : evite les doublons a chaque synchronisation.
@@ -1222,6 +1253,7 @@ ALTER TABLE inbox_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_inbox_messages" ON inbox_messages;
 
 -- 034_boite_mail.sql
+DROP POLICY IF EXISTS "admin_inbox_messages" ON inbox_messages;
 CREATE POLICY "admin_inbox_messages" ON inbox_messages FOR ALL USING (auth.role() = 'authenticated');
 
 -- 034_boite_mail.sql
@@ -1231,6 +1263,7 @@ ALTER TABLE inbox_sync_state ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_inbox_sync_state" ON inbox_sync_state;
 
 -- 034_boite_mail.sql
+DROP POLICY IF EXISTS "admin_inbox_sync_state" ON inbox_sync_state;
 CREATE POLICY "admin_inbox_sync_state" ON inbox_sync_state FOR ALL USING (auth.role() = 'authenticated');
 
 -- 034_boite_mail.sql
@@ -1251,6 +1284,7 @@ ALTER TABLE email_drafts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_email_drafts" ON email_drafts;
 
 -- 035_brouillons_programmes.sql
+DROP POLICY IF EXISTS "admin_email_drafts" ON email_drafts;
 CREATE POLICY "admin_email_drafts" ON email_drafts FOR ALL USING (auth.role() = 'authenticated');
 
 -- 035_brouillons_programmes.sql
@@ -1264,6 +1298,7 @@ ALTER TABLE scheduled_emails ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_scheduled_emails" ON scheduled_emails;
 
 -- 035_brouillons_programmes.sql
+DROP POLICY IF EXISTS "admin_scheduled_emails" ON scheduled_emails;
 CREATE POLICY "admin_scheduled_emails" ON scheduled_emails FOR ALL USING (auth.role() = 'authenticated');
 
 -- 035_brouillons_programmes.sql
@@ -1294,6 +1329,7 @@ ALTER TABLE product_suppliers ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_product_suppliers" ON product_suppliers;
 
 -- 037_moteur_achats.sql
+DROP POLICY IF EXISTS "admin_product_suppliers" ON product_suppliers;
 CREATE POLICY "admin_product_suppliers" ON product_suppliers FOR ALL USING (auth.role() = 'authenticated');
 
 -- 037_moteur_achats.sql
@@ -1307,6 +1343,7 @@ ALTER TABLE product_velocity ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "admin_product_velocity" ON product_velocity;
 
 -- 037_moteur_achats.sql
+DROP POLICY IF EXISTS "admin_product_velocity" ON product_velocity;
 CREATE POLICY "admin_product_velocity" ON product_velocity FOR ALL USING (auth.role() = 'authenticated');
 
 -- 037_moteur_achats.sql
@@ -1322,7 +1359,7 @@ ALTER TABLE contacts ADD  CONSTRAINT contacts_lang_valide
 
 -- 038_langue_client.sql
 COMMENT ON COLUMN orders.lang IS
-  'Langue des documents et emails de cette commande. NULL = deduite du pays de livraison ;
+  'Langue des documents et emails de cette commande. NULL = deduite du pays de livraison ; une valeur = choix manuel, jamais ecrase par un recalcul.';
 
 -- 038_langue_client.sql
 COMMENT ON COLUMN orders.shipping_country IS
@@ -1490,6 +1527,7 @@ COMMENT ON COLUMN white_label_config.shop_city  IS 'Ville de l''atelier/boutique
 ALTER TABLE customer_profiles ENABLE ROW LEVEL SECURITY;
 
 -- 20260503_customer_profiles.sql
+DROP POLICY IF EXISTS "service_role_all" ON customer_profiles;
 CREATE POLICY "service_role_all" ON customer_profiles FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ─── Registre des migrations : une instance neuve naît à jour ───

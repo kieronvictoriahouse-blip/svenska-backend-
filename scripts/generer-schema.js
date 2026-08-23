@@ -51,20 +51,57 @@ function defautSql(d) {
 }
 
 /* ── Découpe tolérante des migrations en instructions ──────────────
-   Respecte les corps $$…$$ (fonctions) ; ignore les commentaires de
-   début de ligne pour la détection, mais les conserve dans le texte. */
+   Un `;` ne termine une instruction que HORS de tout contexte quoté :
+   corps $$…$$, chaîne '…' (avec '' comme échappement), identifiant
+   "…", et commentaire de ligne --. La première version coupait sur
+   chaque point-virgule — y compris ceux d'un COMMENT ON … 'texte ;
+   texte', ce qui tranchait la chaîne et inversait tous les guillemets
+   du fichier en aval. */
 function* instructions(sql) {
-  let i = 0, debut = 0, dansDollar = false;
+  let i = 0, debut = 0;
+  let dansDollar = false, dansQuote = false, dansIdent = false, dansComm = false;
   while (i < sql.length) {
-    if (sql.startsWith('$$', i)) { dansDollar = !dansDollar; i += 2; continue; }
-    if (!dansDollar && sql[i] === ';') {
-      yield sql.slice(debut, i + 1).trim();
-      debut = i + 1;
+    const c = sql[i];
+    if (dansComm) { if (c === '\n') dansComm = false; i++; continue; }
+    if (dansQuote) {
+      if (c === "'") {
+        if (sql[i + 1] === "'") { i += 2; continue; }   // '' échappé
+        dansQuote = false;
+      }
+      i++; continue;
     }
+    if (dansIdent) { if (c === '"') dansIdent = false; i++; continue; }
+    if (dansDollar) { if (sql.startsWith('$$', i)) { dansDollar = false; i += 2; continue; } i++; continue; }
+
+    if (sql.startsWith('--', i)) { dansComm = true; i += 2; continue; }
+    if (sql.startsWith('$$', i)) { dansDollar = true; i += 2; continue; }
+    if (c === "'") { dansQuote = true; i++; continue; }
+    if (c === '"') { dansIdent = true; i++; continue; }
+    if (c === ';') { yield sql.slice(debut, i + 1).trim(); debut = i + 1; }
     i++;
   }
   const reste = sql.slice(debut).trim();
   if (reste) yield reste + ';';
+}
+
+/* ── Contrôle d'équilibre : le fichier émis doit se parcourir sans
+   jamais finir dans une chaîne, un identifiant ou un corps $$. ────── */
+function verifierEquilibre(sql) {
+  let dansDollar = false, dansQuote = false, dansIdent = false, dansComm = false;
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    if (dansComm) { if (c === '\n') dansComm = false; continue; }
+    if (dansQuote) { if (c === "'") { if (sql[i + 1] === "'") { i++; continue; } dansQuote = false; } continue; }
+    if (dansIdent) { if (c === '"') dansIdent = false; continue; }
+    if (dansDollar) { if (sql.startsWith('$$', i)) { dansDollar = false; i++; } continue; }
+    if (sql.startsWith('--', i)) { dansComm = true; i++; continue; }
+    if (sql.startsWith('$$', i)) { dansDollar = true; i++; continue; }
+    if (c === "'") dansQuote = true;
+    else if (c === '"') dansIdent = true;
+  }
+  if (dansQuote || dansIdent || dansDollar) {
+    throw new Error(`Fichier déséquilibré : quote=${dansQuote} ident=${dansIdent} dollar=${dansDollar}`);
+  }
 }
 
 (async () => {
@@ -124,7 +161,16 @@ function* instructions(sql) {
         if (nom && vues.has(nom)) continue;   // première définition = celle de la vue vivante ? non : la DERNIÈRE
         if (nom) vues.add(nom);
       }
-      greffes.push(`-- ${f}\n${inst}`);
+      /* Rejouabilité : CREATE POLICY et CREATE TRIGGER n'ont pas de
+         IF NOT EXISTS. Un DROP IF EXISTS systématique juste avant rend
+         le fichier relançable — y compris après une exécution partielle
+         interrompue par une erreur. */
+      let prete = inst;
+      const pol = inst.match(/^CREATE POLICY\s+("[^"]+"|\w+)\s+ON\s+([\w".]+)/im);
+      if (pol) prete = `DROP POLICY IF EXISTS ${pol[1]} ON ${pol[2]};\n${inst}`;
+      const trg = inst.match(/^CREATE TRIGGER\s+(\w+)[\s\S]*?\bON\s+([\w".]+)/im);
+      if (trg) prete = `DROP TRIGGER IF EXISTS ${trg[1]} ON ${trg[2]};\n${inst}`;
+      greffes.push(`-- ${f}\n${prete}`);
     }
   }
 
@@ -167,6 +213,7 @@ function* instructions(sql) {
 
   fs.mkdirSync(path.join(__dirname, '..', 'install'), { recursive: true });
   const cible = path.join(__dirname, '..', 'install', 'schema.sql');
+  verifierEquilibre(sortie);
   fs.writeFileSync(cible, sortie);
   console.log('install/schema.sql :', tables.length, 'tables,', fks.length, 'FK,', greffes.length, 'greffes,',
     Math.round(sortie.length / 1024), 'Ko');
