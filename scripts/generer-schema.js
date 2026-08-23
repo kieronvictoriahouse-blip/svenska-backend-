@@ -214,7 +214,13 @@ function verifierEquilibre(sql) {
   fs.mkdirSync(path.join(__dirname, '..', 'install'), { recursive: true });
   const cible = path.join(__dirname, '..', 'install', 'schema.sql');
   verifierEquilibre(sortie);
-  fs.writeFileSync(cible, sortie);
+  /* Empreinte en PREMIERE ligne : deux collages ne peuvent plus se
+     confondre — l'erreur SQL d'un vieux fichier se demasque en une
+     ligne. */
+  const empreinte = require('crypto').createHash('sha256').update(sortie).digest('hex').slice(0, 12);
+  const final = '-- SCHEMA ' + empreinte + ' — genere le '
+    + new Date().toISOString().slice(0, 16).replace('T', ' ') + '\n' + sortie;
+  fs.writeFileSync(cible, final);
   console.log('install/schema.sql :', tables.length, 'tables,', fks.length, 'FK,', greffes.length, 'greffes,',
-    Math.round(sortie.length / 1024), 'Ko');
+    Math.round(final.length / 1024), 'Ko — empreinte', empreinte);
 })().catch(e => { console.error(e); process.exit(1); });
