@@ -206,6 +206,34 @@ function verifierEquilibre(sql) {
         continue;
       }
 
+      /* Validation au niveau COLONNE, même raison que les tables : une
+         migration jamais appliquée en production (la 039 posait un CHECK
+         sur customer_profiles.lang — colonne qui n'y existe pas) ne doit
+         pas ressusciter dans le schéma neuf. Pour les index et les CHECK,
+         chaque identifiant du corps doit être une colonne réelle de la
+         table visée. */
+      const idx = nu.match(/CREATE (?:UNIQUE )?INDEX\s+(?:IF NOT EXISTS\s+)?"?[\w]+"?\s+ON\s+("?[\w]+"?)\s*\(([^)]*)\)(?:\s+WHERE\s+(.+))?/i);
+      const chk = nu.match(/ALTER TABLE\s+("?[\w]+"?)\s+ADD\s+CONSTRAINT\s+"?[\w]+"?\s+CHECK\s*\(([\s\S]*)\)/i);
+      const aValider = idx
+        ? { table: idx[1], corps: idx[2] + ' ' + (idx[3] || '') }
+        : chk ? { table: chk[1], corps: chk[2] } : null;
+      if (aValider) {
+        const table = aValider.table.replace(/"/g, '');
+        const props = new Set(Object.keys(defs[table]?.properties || {}).map(x => x.toLowerCase()));
+        const MOTS = new Set(['is', 'null', 'in', 'or', 'and', 'not', 'true', 'false', 'where',
+          'asc', 'desc', 'nulls', 'first', 'last', 'coalesce', 'length', 'lower', 'upper', 'case',
+          'when', 'then', 'else', 'end', 'between', 'like', 'exists']);
+        const colsInconnues = [...new Set(
+          (aValider.corps.match(/[a-z_][a-z0-9_]*/gi) || [])
+            .map(x => x.toLowerCase())
+            .filter(x => !MOTS.has(x) && !props.has(x)),
+        )];
+        if (colsInconnues.length) {
+          ecartees.push({ f, tete: tete.slice(0, 60), tables: [`${table}.${colsInconnues.join('/.')}`] });
+          continue;
+        }
+      }
+
       /* Rejouabilité : CREATE POLICY et CREATE TRIGGER n'ont pas de
          IF NOT EXISTS. Un DROP IF EXISTS systématique juste avant rend
          le fichier relançable — y compris après une exécution partielle

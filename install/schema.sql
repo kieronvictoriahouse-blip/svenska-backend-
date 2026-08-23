@@ -1,4 +1,4 @@
--- SCHEMA f8b33ae43695 — genere le 2026-08-23 14:04
+-- SCHEMA 30af02b20b74 — genere le 2026-08-23 14:06
 -- ═══════════════════════════════════════════════════════════════
 --  SCHÉMA CONSOLIDÉ — instance neuve
 --
@@ -1345,10 +1345,6 @@ COMMENT ON COLUMN email_templates.lang IS
 
 -- 039_langue_profil_client.sql
 ALTER TABLE customer_profiles DROP CONSTRAINT IF EXISTS customer_profiles_lang_valide;
-
--- 039_langue_profil_client.sql
-ALTER TABLE customer_profiles ADD  CONSTRAINT customer_profiles_lang_valide
-  CHECK (lang IS NULL OR lang IN ('fr', 'en', 'sv'));
 
 -- 039_langue_profil_client.sql
 COMMENT ON COLUMN customer_profiles.lang IS
