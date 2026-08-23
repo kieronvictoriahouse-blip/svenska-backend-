@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET non configuré — définir la variable dans Vercel' }, { status: 500 });
   }
 
-  const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr';
+  const base = process.env.NEXT_PUBLIC_BACKEND_URL || '';
   const headers = { 'Content-Type': 'application/json', authorization: `Bearer ${cronSecret}` };
 
   const call = async (path: string) => {

@@ -376,7 +376,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     try {
       const cfg = await getWhiteLabelConfig();
       const siteName  = cfg.site_name || '';
-      const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || "hej@swedishcravings.fr";
+      const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
 
       const detailHtml = isPartial
         ? [

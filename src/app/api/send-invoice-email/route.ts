@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     const { buffer: pdfBuffer } = await generateInvoicePdf(inv.id);
 
     const cfg = await getWlConfig();
-    const siteName  = cfg.site_name || 'Swedish Cravings';
+    const siteName  = cfg.site_name || '';
     const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || 'onboarding@resend.dev';
     const toEmail   = inv.client_email;
 

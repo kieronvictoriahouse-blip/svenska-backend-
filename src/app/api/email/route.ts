@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
   }
   const siteName = cfg.site_name || '';
-  const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || 'hej@swedishcravings.fr';
+  const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
 
   try {
     // 1. Confirmation de commande

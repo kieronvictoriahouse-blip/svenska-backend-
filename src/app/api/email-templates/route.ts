@@ -62,7 +62,8 @@ export async function PUT(req: NextRequest) {
 
   /* Contrôle avant enregistrement : c'est exactement ce test qui a
      rattrapé un nom d'article resté en dur dans l'avoir. */
-  const rendu = renderSource(html, ECHANTILLON);
+  const { contexteMarque } = await import('@/lib/email-templates');
+  const rendu = renderSource(html, { ...(await contexteMarque()), ...ECHANTILLON });
   const restes = Array.from(new Set((rendu.match(/\{\{[^}]*\}\}/g) || [])));
   if (restes.length) {
     return NextResponse.json({
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { html } = await req.json().catch(() => ({}));
   if (typeof html !== 'string') return NextResponse.json({ error: 'Contenu manquant' }, { status: 400 });
-  return new NextResponse(renderSource(html, ECHANTILLON), {
+  return new NextResponse(renderSource(html, { ...(await (await import('@/lib/email-templates')).contexteMarque()), ...ECHANTILLON }), {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 }

@@ -6,7 +6,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <meta name="color-scheme" content="light dark" />
 <meta name="supported-color-schemes" content="light dark" />
-<title>Your parcel is on its way — Swedish Cravings</title>
+<title>Your parcel is on its way — {{ boutique }}</title>
 <!--[if mso]>
 <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
 <![endif]-->
@@ -38,13 +38,13 @@
 
         <tr>
           <td align="center" class="pad" style="padding:34px 40px 0 40px;">
-            <!-- LOGO : avant envoi, remplacer src="sc-monogramme.png" par l'URL absolue hebergee, ex. https://www.swedishcravings.fr/email/sc-monogramme.png -->
+            <!-- LOGO : avant envoi, remplacer src="sc-monogramme.png" par l'URL absolue hebergee sur le domaine de la boutique -->
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
               <tr>
-                <td align="center" style="font-size:0; line-height:0;"><img src="sc-monogramme.png" width="42" height="63" alt="Swedish Cravings" style="display:block; width:42px; height:63px; border:0; outline:none; text-decoration:none;" /></td>
+                <td align="center" style="font-size:0; line-height:0;"><img src="sc-monogramme.png" width="42" height="63" alt="{{ boutique }}" style="display:block; width:42px; height:63px; border:0; outline:none; text-decoration:none;" /></td>
               </tr>
             </table>
-            <div style="font-family:Georgia,'Times New Roman',Times,serif; font-size:28px; line-height:34px; mso-line-height-rule:exactly; letter-spacing:0.4px; color:#44573D; padding-top:14px;">Swedish Cravings</div>
+            <div style="font-family:Georgia,'Times New Roman',Times,serif; font-size:28px; line-height:34px; mso-line-height-rule:exactly; letter-spacing:0.4px; color:#44573D; padding-top:14px;">{{ boutique }}</div>
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:9px; line-height:14px; mso-line-height-rule:exactly; letter-spacing:3px; color:#A0977F; padding-top:9px;">BRINGING&nbsp;SWEDEN&nbsp;TO&nbsp;YOUR&nbsp;TABLE</div>
           </td>
         </tr>
@@ -65,7 +65,7 @@
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin-bottom:14px;">
                     <tr>
                       <td align="center" style="font-size:0; line-height:0;">
-<!-- LOGO MONDIAL RELAY : heberger le logo officiel et remplacer le src par son URL absolue, ex. https://www.swedishcravings.fr/email/mondial-relay.png -->
+<!-- LOGO MONDIAL RELAY : heberger le logo officiel et remplacer le src par son URL absolue, ex. {{{ boutique_url }}}/email/mondial-relay.png -->
                   <img src="mondial-relay.png" width="132" height="30" alt="Mondial Relay" style="display:block; width:132px; height:30px; border:0; outline:none; text-decoration:none; font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A8067;" />
                       </td>
                     </tr>
@@ -183,7 +183,7 @@
               </tr>
             </table>
             <div style="font-family:Georgia,'Times New Roman',Times,serif; font-style:italic; font-size:16px; line-height:24px; mso-line-height-rule:exactly; color:#44573D; padding-top:16px;">Just a little longer — it is on its way!</div>
-            <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:20px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:8px;">Victoria, Swedish Cravings</div>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:20px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:8px;">Victoria, {{ boutique }}</div>
           </td>
         </tr>
 
@@ -192,12 +192,12 @@
         <tr>
           <td class="pad" style="padding:22px 40px 26px 40px; background-color:#F4EEE1; border-top:1px solid #E3DCCB;">
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; line-height:19px; mso-line-height-rule:exactly; color:#8A8067;">
-              <strong style="color:#44573D;">Swedish Cravings</strong> · 14 rue de la Gare, 59700 Marcq-en-Barœul, France<br />
+              <strong style="color:#44573D;">{{ boutique }}</strong> · 14 rue de la Gare, 59700 {{ atelier_ville }}, France<br />
               SIRET 918 452 733 00019 · VAT not applicable, art. 293 B of the French tax code<br />
-              <a href="mailto:hej@swedishcravings.fr" style="color:#44573D; text-decoration:none;">hej@swedishcravings.fr</a> &nbsp;·&nbsp; <a href="https://www.swedishcravings.fr" style="color:#44573D; text-decoration:none;">www.swedishcravings.fr</a>
+              <a href="mailto:{{ boutique_email }}" style="color:#44573D; text-decoration:none;">{{ boutique_email }}</a> &nbsp;·&nbsp; <a href="{{{ boutique_url }}}" style="color:#44573D; text-decoration:none;">{{ boutique_domaine }}</a>
             </div>
             <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; line-height:18px; mso-line-height-rule:exactly; color:#A0977F; padding-top:12px;">
-              Email d'expédition lié à votre commande n° {{ numero }}. <a href="https://www.swedishcravings.fr/livraison" style="color:#8A8067; text-decoration:underline;">Delivery &amp; returns</a> · <a href="https://www.swedishcravings.fr/compte/preferences" style="color:#8A8067; text-decoration:underline;">Email preferences</a>
+              Email d'expédition lié à votre commande n° {{ numero }}. <a href="{{{ boutique_url }}}/livraison" style="color:#8A8067; text-decoration:underline;">Delivery &amp; returns</a> · <a href="{{{ boutique_url }}}/compte/preferences" style="color:#8A8067; text-decoration:underline;">Email preferences</a>
             </div>
           </td>
         </tr>

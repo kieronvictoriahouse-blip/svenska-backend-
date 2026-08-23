@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     choice, token,
     titre: body.titre || 'Un article vient de partir en rupture',
     corps: body.corps || '',
-    baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr',
+    baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || '',
   });
 
   /* `sent_at` est pose par DEFAUT a l'insertion, donc avant l'envoi : il

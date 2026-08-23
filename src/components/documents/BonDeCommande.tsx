@@ -34,7 +34,7 @@ export default function BonDeCommande({ d }: { d: BonDeCommandeData }) {
   return (
     <A4Page>
       <Rails tone="green" />
-      <DocHeader title="Bon de commande" number={d.number} />
+      <DocHeader title="Bon de commande" number={d.number} brand={(d as any).seller?.name || (d as any).seller_name || ''} slogan={(d as any).seller_slogan || ''} />
       <HRule />
 
       <Parties
@@ -87,7 +87,7 @@ export default function BonDeCommande({ d }: { d: BonDeCommandeData }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 26 }}>
           <div style={{ border: `1px solid ${D.rule}`, padding: '13px 15px', height: 104 }}>
             <div style={{ fontSize: 8.5, letterSpacing: '.24em', textTransform: 'uppercase', color: D.label, fontWeight: 600 }}>
-              Pour Swedish Cravings
+              Pour {(d as any).seller_name || 'la boutique'}
             </div>
             <div style={{ fontSize: 11, color: D.soft2, marginTop: 5 }}>{d.signerName || 'Gérance'}</div>
           </div>

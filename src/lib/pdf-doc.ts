@@ -87,7 +87,7 @@ export function fondEtFilets(doc: PDFKit.PDFDocument, tone: string, sousTon: str
 /** En-tête : monogramme, wordmark, titre et numéro. Retourne le bas du bloc. */
 export function enTete(
   doc: PDFKit.PDFDocument, ecrire: Ecrire,
-  o: { titre: string; numero: string; M: number; CW: number; y: number; baseline: string },
+  o: { titre: string; numero: string; M: number; CW: number; y: number; baseline: string; marque?: string },
 ): number {
   let logoW = 0;
   try {
@@ -97,7 +97,7 @@ export function enTete(
     if (fs.existsSync(p)) { doc.image(p, o.M, o.y, { width: PX(46), height: PX(69) }); logoW = PX(46) + PX(15); }
   } catch { /* sans logo */ }
 
-  ecrire('SWEDISH CRAVINGS', o.M + logoW, o.y + PX(14),
+  ecrire((o.marque || '').toUpperCase(), o.M + logoW, o.y + PX(14),
     { font: SERIF_B, size: PX(24), color: D.green, spacing: PX(24) * 0.2 });
   ecrire(o.baseline, o.M + logoW, o.y + PX(46),
     { size: PX(8), color: D.label, spacing: PX(8) * 0.32 });

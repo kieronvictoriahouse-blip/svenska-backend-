@@ -3,7 +3,7 @@ import { simpleParser } from 'mailparser';
 import { supabaseAdmin } from '@/lib/supabase';
 
 /* ═══════════════════════════════════════════════════════════════
-   SYNCHRONISATION IMAP — hej@swedishcravings.fr (IONOS)
+   SYNCHRONISATION IMAP — la boîte du marchand (IMAP_USER/IMAP_HOST)
 
    IMAP reste la source de vérité ; `inbox_messages` n'en est qu'un
    miroir, pour qu'ouvrir un dossier dans le back-office ne dépende
@@ -23,7 +23,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 const HOST = process.env.IMAP_HOST || 'imap.ionos.fr';
 const PORT = Number(process.env.IMAP_PORT || 993);
-const USER = process.env.IMAP_USER || 'hej@swedishcravings.fr';
+const USER = process.env.IMAP_USER || '';
 
 /* Les noms des dossiers speciaux varient d'un fournisseur a l'autre :
    IONOS n'expose pas « Sent » mais sa propre denomination, d'ou l'echec

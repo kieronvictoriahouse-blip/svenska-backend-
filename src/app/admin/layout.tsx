@@ -17,9 +17,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
 
   const [email, setEmail] = useState('');
-  const [siteName, setSiteName] = useState('Swedish Cravings');
+  const [siteName, setSiteName] = useState('');
   const [accent, setAccent] = useState(T.accentDefault);
-  const [frontUrl, setFrontUrl] = useState('https://www.swedishcravings.fr');
+  const [frontUrl, setFrontUrl] = useState('');
   const [lang, setLang] = useState<AdminLang>('fr');
   const [navOpen, setNavOpen] = useState(false);
   const [mobile, setMobile] = useState(false);

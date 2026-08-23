@@ -25,8 +25,6 @@ import { supabaseAdmin } from '@/lib/supabase';
      pièce : c'est la clé de l'annuaire.
    ═══════════════════════════════════════════════════════════════ */
 
-const SIREN_FALLBACK = '105003537';
-
 const esc = (s: any) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -36,8 +34,14 @@ const n2 = (v: any) => (Number(v) || 0).toFixed(2);
 /** AAAAMMJJ, le seul format de date du CII (code 102). */
 const dateCII = (d: any) => String(d || '').slice(0, 10).replace(/-/g, '');
 
-/** SIREN à 9 chiffres depuis un SIRET ou un SIREN déjà nu. */
-const sirenDe = (v: any) => String(v || '').replace(/\D/g, '').slice(0, 9) || SIREN_FALLBACK;
+/** SIREN à 9 chiffres depuis un SIRET ou un SIREN déjà nu.
+ *  AUCUN repli : un Factur-X au SIREN d'un tiers est un faux. Mieux
+ *  vaut échouer bruyamment que produire la pièce de quelqu'un d'autre. */
+const sirenDe = (v: any) => {
+  const s = String(v || '').replace(/\D/g, '').slice(0, 9);
+  if (s.length !== 9) throw new Error('SIREN vendeur absent ou invalide — configurer l’identité dans Réglages avant d’émettre un Factur-X.');
+  return s;
+};
 
 export type FacturXResult = { xml: string; filename: string };
 

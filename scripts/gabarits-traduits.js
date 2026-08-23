@@ -47,12 +47,12 @@ const TRAD = {
   'Sous-total': { en: 'Subtotal', sv: 'Delsumma' },
 
   // ── Confirmation de commande ───────────────────────────────
-  'Votre commande est confirmée — Swedish Cravings':
-    { en: 'Your order is confirmed — Swedish Cravings', sv: 'Din order är bekräftad — Swedish Cravings' },
+  'Votre commande est confirmée — {{ boutique }}':
+    { en: 'Your order is confirmed — {{ boutique }}', sv: 'Din order är bekräftad — {{ boutique }}' },
   'COMMANDE CONFIRMÉE': { en: 'ORDER CONFIRMED', sv: 'ORDER BEKRÄFTAD' },
-  "est bien enregistrée. Nous la préparons à la main dans notre atelier de Marcq-en-Barœul et vous prévenons dès qu'elle prend la route.":
-    { en: 'is registered. We pack it by hand in our workshop in Marcq-en-Barœul and will let you know as soon as it is on its way.',
-      sv: 'är registrerad. Vi packar den för hand i vår verkstad i Marcq-en-Barœul och hör av oss så snart den är på väg.' },
+  "est bien enregistrée. Nous la préparons à la main dans notre atelier de {{ atelier_ville }} et vous prévenons dès qu'elle prend la route.":
+    { en: 'is registered. We pack it by hand in our workshop in {{ atelier_ville }} and will let you know as soon as it is on its way.',
+      sv: 'är registrerad. Vi packar den för hand i vår verkstad i {{ atelier_ville }} och hör av oss så snart den är på väg.' },
   'VOTRE COMMANDE': { en: 'YOUR ORDER', sv: 'DIN ORDER' },
   'Votre commande': { en: 'Your order', sv: 'Din order' },
   'TOTAL RÉGLÉ': { en: 'TOTAL PAID', sv: 'TOTALT BETALT' },
@@ -72,8 +72,8 @@ const TRAD = {
   'SUIVRE MA COMMANDE': { en: 'TRACK MY ORDER', sv: 'SPÅRA MIN ORDER' },
 
   // ── Expédition ─────────────────────────────────────────────
-  'Votre colis est en route — Swedish Cravings':
-    { en: 'Your parcel is on its way — Swedish Cravings', sv: 'Ditt paket är på väg — Swedish Cravings' },
+  'Votre colis est en route — {{ boutique }}':
+    { en: 'Your parcel is on its way — {{ boutique }}', sv: 'Ditt paket är på väg — {{ boutique }}' },
   'Votre colis est en route': { en: 'Your parcel is on its way', sv: 'Ditt paket är på väg' },
   'SUIVRE MON COLIS': { en: 'TRACK MY PARCEL', sv: 'SPÅRA MITT PAKET' },
   'SUIVI DE VOTRE COMMANDE': { en: 'ORDER TRACKING', sv: 'SPÅRNING AV DIN ORDER' },
@@ -91,8 +91,8 @@ const TRAD = {
     { en: 'Just a little longer — it is on its way!', sv: 'Bara lite till — det är på väg!' },
 
   // ── Colis disponible ───────────────────────────────────────
-  'Votre colis vous attend — Swedish Cravings':
-    { en: 'Your parcel is waiting — Swedish Cravings', sv: 'Ditt paket väntar — Swedish Cravings' },
+  'Votre colis vous attend — {{ boutique }}':
+    { en: 'Your parcel is waiting — {{ boutique }}', sv: 'Ditt paket väntar — {{ boutique }}' },
   'Votre colis vous attend': { en: 'Your parcel is waiting', sv: 'Ditt paket väntar' },
   'Ouvert du mardi au samedi, 8 h – 19 h 30':
     { en: 'Open Tuesday to Saturday, 8 am – 7.30 pm', sv: 'Öppet tisdag till lördag, 8–19.30' },
@@ -126,8 +126,8 @@ const TRAD = {
       sv: 'Fakturan bifogas även detta mejl som PDF.' },
 
   // ── Avoir ──────────────────────────────────────────────────
-  'Votre remboursement — Swedish Cravings':
-    { en: 'Your refund — Swedish Cravings', sv: 'Din återbetalning — Swedish Cravings' },
+  'Votre remboursement — {{ boutique }}':
+    { en: 'Your refund — {{ boutique }}', sv: 'Din återbetalning — {{ boutique }}' },
   'Votre remboursement est parti': { en: 'Your refund is on its way', sv: 'Din återbetalning är på väg' },
   '>AVOIR<': { en: '>CREDIT NOTE<', sv: '>KREDITNOTA<' },
   "FACTURE D'ORIGINE": { en: 'ORIGINAL INVOICE', sv: 'URSPRUNGLIG FAKTURA' },
@@ -153,9 +153,9 @@ const TRAD = {
     { en: 'Accounting email related to your order no.', sv: 'Bokföringsmejl kopplat till din order nr' },
 
   // ── Message libre / rupture ────────────────────────────────
-  'Un article de votre commande est en rupture — Swedish Cravings':
-    { en: 'An item in your order is out of stock — Swedish Cravings',
-      sv: 'En vara i din order är slutsåld — Swedish Cravings' },
+  'Un article de votre commande est en rupture — {{ boutique }}':
+    { en: 'An item in your order is out of stock — {{ boutique }}',
+      sv: 'En vara i din order är slutsåld — {{ boutique }}' },
   'CE QUE JE PEUX METTRE À LA PLACE':
     { en: 'WHAT I CAN OFFER INSTEAD', sv: 'VAD JAG KAN ERBJUDA I STÄLLET' },
   '— le reste de votre commande suit son cours.':

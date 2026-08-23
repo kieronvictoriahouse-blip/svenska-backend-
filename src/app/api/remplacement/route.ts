@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyChoice } from '@/lib/replacement-token';
 
+/* ── Marque de l'instance ────────────────────────────────────────
+   Cette page est la seule du back vue par le CLIENT FINAL (le lien de
+   remplacement dans son email) : elle doit porter la marque du
+   marchand, jamais une adresse en dur. Chargée à chaque requête —
+   valeur identique pour toute l'instance, le partage de module entre
+   requêtes concurrentes est donc sans conséquence. */
+let MARQUE = { nom: '', email: '' };
+async function chargerMarque() {
+  try {
+    const { data } = await supabaseAdmin
+      .from('white_label_config').select('site_name, email, smtp_user').limit(1).maybeSingle();
+    MARQUE = {
+      nom: (data as any)?.site_name || '',
+      email: (data as any)?.email || (data as any)?.smtp_user || '',
+    };
+  } catch { /* page utilisable sans marque */ }
+}
+const lienContact = () => MARQUE.email
+  ? `<a href="mailto:${MARQUE.email}" style="color:#44573D;">${MARQUE.email}</a>`
+  : 'notre adresse de contact habituelle';
+
 export const dynamic = 'force-dynamic';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -29,14 +50,14 @@ function page(titre: string, corps: string, ton: 'ok' | 'ko' = 'ok') {
   return new NextResponse(
     `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${titre} — Swedish Cravings</title></head>
+<title>${titre}${MARQUE.nom ? ' — ' + MARQUE.nom : ''}</title></head>
 <body style="margin:0;background:${D.cream};font-family:Arial,Helvetica,sans-serif;color:${D.body};">
   <div style="max-width:560px;margin:0 auto;padding:48px 20px;">
     <div style="background:${D.paper};border:1px solid ${D.rule};">
       <div style="height:7px;background:${accent};"></div>
       <div style="height:2px;background:${D.gold};"></div>
       <div style="padding:36px 34px;">
-        <div style="font-size:10px;letter-spacing:2.6px;color:${D.gold};font-weight:bold;">SWEDISH CRAVINGS</div>
+        <div style="font-size:10px;letter-spacing:2.6px;color:${D.gold};font-weight:bold;">${MARQUE.nom.toUpperCase().split(' ')[0] || ''} CRAVINGS</div>
         <h1 style="font-family:Georgia,serif;font-size:28px;line-height:34px;color:${D.ink};margin:12px 0 0;font-weight:normal;">${titre}</h1>
         <div style="font-size:15px;line-height:25px;padding-top:14px;">${corps}</div>
       </div>
@@ -134,6 +155,7 @@ function echap(v: unknown) {
 }
 
 export async function GET(req: NextRequest) {
+  await chargerMarque();
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token') || '';
   const choix = searchParams.get('choix') || '';
@@ -141,8 +163,8 @@ export async function GET(req: NextRequest) {
   const v = verifyChoice(token);
   if (!v.ok) {
     const msg = v.raison === 'expire'
-      ? 'Ce lien a expiré. Écrivez-nous à <a href="mailto:hej@swedishcravings.fr" style="color:#44573D;">hej@swedishcravings.fr</a> et nous reprenons la main tout de suite.'
-      : 'Ce lien n’est pas valide. Vérifiez que vous l’avez ouvert entièrement depuis votre email, ou écrivez-nous à <a href="mailto:hej@swedishcravings.fr" style="color:#44573D;">hej@swedishcravings.fr</a>.';
+      ? `Ce lien a expiré. Écrivez-nous à ${lienContact()} et nous reprenons la main tout de suite.`
+      : `Ce lien n’est pas valide. Vérifiez que vous l’avez ouvert entièrement depuis votre email, ou écrivez-nous à ${lienContact()}.`;
     return page('Lien inutilisable', msg, 'ko');
   }
 
@@ -258,6 +280,7 @@ export async function GET(req: NextRequest) {
    n'accepte que des articles réellement proposés dans l'email.
    ═══════════════════════════════════════════════════════════════ */
 export async function POST(req: NextRequest) {
+  await chargerMarque();
   const form = await req.formData().catch(() => null);
   if (!form) return page('Formulaire illisible', 'Réessayez depuis le lien de votre email.', 'ko');
 
@@ -265,7 +288,7 @@ export async function POST(req: NextRequest) {
   const v = verifyChoice(token);
   if (!v.ok) {
     return page('Lien inutilisable',
-      'Ce lien n’est plus valide. Écrivez-nous à <a href="mailto:hej@swedishcravings.fr" style="color:#44573D;">hej@swedishcravings.fr</a>.', 'ko');
+      `Ce lien n’est plus valide. Écrivez-nous à ${lienContact()}.`, 'ko');
   }
 
   const { data: c } = await supabaseAdmin

@@ -62,9 +62,9 @@ export default function GestionPage() {
   const [products, setProducts] = useState<MarginProduct[]>([]);
   const [realProds, setRealProds] = useState<MarginProduct[]>([]);
   const [params, setParams] = useState<Params>({
-    company: 'Svenska Delikatessen', legal: 'Auto-entrepreneur',
-    siret: '', tva: '', address: '', email: 'hej@svenska-delikatessen.com',
-    phone: '', website: 'svenska-delikatessen.fr', tva_rate: 20,
+    company: '', legal: 'Auto-entrepreneur',
+    siret: '', tva: '', address: '', email: '',
+    phone: '', website: '', tva_rate: 20,
     payment_days: 30, legal_mention: 'TVA non applicable - article 293B du CGI',
     iban: '', inv_prefix: 'SD-', inv_next: 1,
   });

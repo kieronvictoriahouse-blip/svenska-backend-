@@ -37,7 +37,7 @@ export default function ParametresPage() {
   const BLOCKS = [
     {
       icon: 'storefront', title: 'Boutique',
-      summary: [cfg.site_name || 'Swedish Cravings', cfg.address || 'Adresse non renseignée'].join(' · '),
+      summary: [cfg.site_name || '', cfg.address || 'Adresse non renseignée'].join(' · '),
       href: '/admin/white-label',
     },
     {

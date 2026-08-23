@@ -119,7 +119,7 @@ export const NAV: NavGroup[] = [
         desc: { fr: 'Modèles envoyés aux clients', en: 'Templates sent to customers', sv: 'Mallar som skickas till kunder' } },
       { href: '/admin/boite-mail', icon: 'inbox',
         label: { fr: 'Boîte mail', en: 'Mailbox', sv: 'Inkorg' },
-        desc: { fr: 'hej@swedishcravings.fr', en: 'hej@swedishcravings.fr', sv: 'hej@swedishcravings.fr' } },
+        desc: { fr: 'La boîte email de la boutique', en: 'The shop mailbox', sv: 'Butikens e-postlåda' } },
       { href: '/admin/marketing?tab=cart', icon: 'shopping_cart', extra: true,
         label: { fr: 'Abandon panier', en: 'Abandoned carts', sv: 'Övergivna kundvagnar' },
         desc: { fr: 'Relances automatiques', en: 'Automatic reminders', sv: 'Automatiska påminnelser' } },

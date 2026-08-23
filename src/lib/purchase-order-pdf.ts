@@ -20,49 +20,48 @@ export type PdfLang = 'sv' | 'en' | 'fr';
 
 const LABELS: Record<PdfLang, Record<string, string>> = {
   fr: {
-    titre: 'Bon de commande', baseline: 'BRINGING SWEDEN TO YOUR TABLE',
+    titre: 'Bon de commande',
     fournisseur: 'FOURNISSEUR', livraison: 'ADRESSE DE LIVRAISON',
     date: "DATE D'ÉMISSION", livraisonPrevue: 'LIVRAISON PRÉVUE',
     incoterm: 'INCOTERM', paiement: 'PAIEMENT',
     article: 'ARTICLE', ref: 'RÉF.', qte: 'QTÉ', pu: 'P.U. HT', totalLigne: 'TOTAL HT',
     marchandises: 'Total marchandises HT', transport: 'Transport', offert: 'Offert',
     totalHT: 'TOTAL HT', autoliq: 'Autoliquidation de la TVA — achat intracommunautaire',
-    consignes: 'CONSIGNES', pourNous: 'POUR SWEDISH CRAVINGS',
+    consignes: 'CONSIGNES', pourNous: "POUR L'ACHETEUR",
     accord: 'BON POUR ACCORD · FOURNISSEUR', cachet: 'Date, cachet et signature',
     defautConsignes: "Palettes filmées, DLC minimum 6 mois à réception. Merci de joindre le bordereau et de nous transmettre le numéro de suivi dès l'expédition.",
     incotermDefaut: 'DAP · rendu magasin', paiementDefaut: '30 jours net',
   },
   en: {
-    titre: 'Purchase order', baseline: 'BRINGING SWEDEN TO YOUR TABLE',
+    titre: 'Purchase order',
     fournisseur: 'SUPPLIER', livraison: 'DELIVERY ADDRESS',
     date: 'ISSUE DATE', livraisonPrevue: 'EXPECTED DELIVERY',
     incoterm: 'INCOTERM', paiement: 'PAYMENT',
     article: 'ITEM', ref: 'REF.', qte: 'QTY', pu: 'UNIT PRICE', totalLigne: 'TOTAL',
     marchandises: 'Goods total', transport: 'Freight', offert: 'Free',
     totalHT: 'TOTAL', autoliq: 'VAT reverse charge — intra-community acquisition',
-    consignes: 'INSTRUCTIONS', pourNous: 'FOR SWEDISH CRAVINGS',
+    consignes: 'INSTRUCTIONS', pourNous: 'FOR THE BUYER',
     accord: 'APPROVED · SUPPLIER', cachet: 'Date, stamp and signature',
     defautConsignes: 'Wrapped pallets, minimum 6 months shelf life on arrival. Please enclose the delivery note and send us the tracking number on dispatch.',
     incotermDefaut: 'DAP · delivered to store', paiementDefaut: 'Net 30 days',
   },
   sv: {
-    titre: 'Inköpsorder', baseline: 'BRINGING SWEDEN TO YOUR TABLE',
+    titre: 'Inköpsorder',
     fournisseur: 'LEVERANTÖR', livraison: 'LEVERANSADRESS',
     date: 'ORDERDATUM', livraisonPrevue: 'FÖRVÄNTAD LEVERANS',
     incoterm: 'INCOTERM', paiement: 'BETALNING',
     article: 'ARTIKEL', ref: 'REF.', qte: 'ANT', pu: 'À-PRIS', totalLigne: 'SUMMA',
     marchandises: 'Varor totalt', transport: 'Frakt', offert: 'Fri',
     totalHT: 'TOTALT', autoliq: 'Omvänd skattskyldighet — gemenskapsinternt förvärv',
-    consignes: 'ANVISNINGAR', pourNous: 'FÖR SWEDISH CRAVINGS',
+    consignes: 'ANVISNINGAR', pourNous: 'FÖR KÖPAREN',
     accord: 'GODKÄNT · LEVERANTÖR', cachet: 'Datum, stämpel och signatur',
     defautConsignes: 'Plastade pallar, minst 6 månaders hållbarhet vid ankomst. Bifoga följesedel och skicka spårningsnummer vid avsändning.',
     incotermDefaut: 'DAP · levererat till butik', paiementDefaut: '30 dagar netto',
   },
 };
 
-const SIREN = '105 003 537';
-const EI = 'EI Victoria Vallet';
-const SIEGE = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
+
+/* Identité de l'acheteur : white_label_config, jamais une constante. */
 
 const parse = (v: any): any[] => {
   try { return typeof v === 'string' ? JSON.parse(v) : (Array.isArray(v) ? v : []); }
@@ -153,7 +152,9 @@ export async function generatePurchaseOrderPdf(
 
   fondEtFilets(doc, D.green, D.gold);
   let y = enTete(doc, ecrire, {
-    titre: L.titre, numero: order.number || '', M, CW, y: PX(54), baseline: L.baseline,
+    titre: L.titre, numero: order.number || '', M, CW, y: PX(54),
+    marque: wl.site_name || '',
+    baseline: (wl.site_slogan || '').toUpperCase(),
   });
 
   /* ── Fournisseur (fond crème, à gauche) / livraison ─────────── */
@@ -173,8 +174,8 @@ export async function generatePurchaseOrderPdf(
 
   const rx = M + colW + PX(22);
   ecrire(L.livraison, rx, y, { size: PX(8.5), color: D.label, font: SANS_B, spacing: PX(8.5) * 0.26 });
-  ecrire(wl.site_name || 'Swedish Cravings', rx, y + PX(16), { font: SANS_B, size: PX(13), color: D.ink });
-  ecrire([EI, wl.address || SIEGE].join('\n'), rx, y + PX(33),
+  ecrire(wl.site_name || '', rx, y + PX(16), { font: SANS_B, size: PX(13), color: D.ink });
+  ecrire([wl.legal_name, wl.address].filter(Boolean).join('\n'), rx, y + PX(33),
     { size: PX(12), color: D.body, width: colW, lineGap: PX(12) * 0.65 });
 
   y += hBloc + PX(20);
@@ -302,10 +303,10 @@ export async function generatePurchaseOrderPdf(
 
   pied(doc, ecrire, {
     M, CW,
-    legal: `${wl.site_name || 'Swedish Cravings'} · ${wl.address || SIEGE}\n`
-      + `SIREN ${wl.siret || SIREN} · ${L.autoliq}`,
-    contact: `${(wl.email || 'hej@swedishcravings.fr').replace(/^[^@]+/, 'achats')}\n`
-      + String(wl.front_url || 'https://www.swedishcravings.fr').replace(/^https?:\/\//, ''),
+    legal: `${[wl.site_name, wl.address].filter(Boolean).join(' · ')}\n`
+      + `SIREN ${wl.siret || ''} · ${L.autoliq}`,
+    contact: `${String(wl.email || '').replace(/^[^@]+/, 'achats')}\n`
+      + String(wl.front_url || '').replace(/^https?:\/\//, ''),
   });
 
   doc.end();

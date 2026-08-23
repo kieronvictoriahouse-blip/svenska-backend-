@@ -10,7 +10,7 @@ import { useT } from '@/lib/admin-i18n';
 import { TBM } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
-   BOÎTE MAIL — hej@swedishcravings.fr
+   BOÎTE MAIL — la boîte du marchand (IMAP)
 
    Trois panneaux : dossiers 228 px · liste 392 px (340 sous 1320 px)
    · lecture. Les seuils sont calculés en JS comme le demande le
@@ -46,6 +46,8 @@ export default function BoiteMailPage() {
   const [page, setPage] = useState(0);
   const [compteurs, setCompteurs] = useState<any>({ nonLus: 0, suivis: 0, brouillons: 0, programmes: 0 });
   const [etat, setEtat] = useState<any[]>([]);
+  /* Le compte IMAP vient de l'API — jamais en dur dans l'écran. */
+  const [compteImap, setCompteImap] = useState('');
   const [dossiers, setDossiers] = useState<any[]>([]);
   const [brouillons, setBrouillons] = useState<any[]>([]);
   const [programmes, setProgrammes] = useState<any[]>([]);
@@ -97,6 +99,7 @@ export default function BoiteMailPage() {
         setPage(d.page || 0);
         setCompteurs(d.compteurs || {});
         setEtat(d.etat || []);
+        if (d.compte) setCompteImap(d.compte);
       }
     } catch { say(t('msgChargement')); }
     finally { setChargement(false); }
@@ -196,7 +199,7 @@ export default function BoiteMailPage() {
   }
 
   function repondre(m: Msg, tous = false) {
-    const cc = tous ? (m.to_emails || []).filter(e => e && e !== 'hej@swedishcravings.fr').join(', ') : '';
+    const cc = tous ? (m.to_emails || []).filter(e => e && e !== compte).join(', ') : '';
     const re = /^re\s*:/i.test(m.subject || '');
     setRedac({
       to: m.from_email || '', cc, subject: re ? (m.subject || '') : `Re : ${m.subject || ''}`,
@@ -213,6 +216,7 @@ export default function BoiteMailPage() {
   }
 
   const inbox = etat.find(e => e.folder === 'INBOX');
+  const compte = compteImap;
   /* Hauteur disponible : la page vit dans .sc-main, sous une topbar de
      48 px, avec 16 px de padding haut, et la barre d'onglets en bas
      sur mobile. La marge négative annule le padding de .sc-screen. */
@@ -264,7 +268,7 @@ export default function BoiteMailPage() {
 
       <div style={{ padding: '10px 13px', borderTop: `1px solid ${C.ligneFaible}`, fontSize: 10.5, color: C.t4 }}>
         <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: inbox?.last_error ? C.rouge : '#3E7A4E', marginRight: 6 }} />
-        {inbox?.last_error ? 'IMAP en erreur' : 'IMAP connecté'} · hej@swedishcravings.fr
+        {inbox?.last_error ? 'IMAP en erreur' : 'IMAP connecté'}{compte ? ` · ${compte}` : ''}
       </div>
     </div>
   );

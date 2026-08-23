@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
-import { CLAUDE_EMAIL_BRIEF } from '@/lib/email-brief';
+import { claudeEmailBrief } from '@/lib/email-brief';
+import { adminFetch as adminFetchMarque } from '@/lib/auth-client';
 import dynamic from 'next/dynamic';
 import { adminFetch } from '@/lib/auth-client';
 import { useT } from '@/lib/admin-i18n';
@@ -38,6 +39,15 @@ export default function EmailEditorPage() {
   const barsRef = useRef<HTMLDivElement>(null);
   const [editorHeight, setEditorHeight] = useState(600);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  /* La marque du brief IA vient de la config de l'instance : le studio
+     d'une boutique ne doit jamais rediger au nom d'une autre. */
+  const [marqueBrief, setMarqueBrief] = useState({ nom: '', url: '', email: '' });
+  useEffect(() => {
+    adminFetchMarque('/api/white-label').then(r => r.json()).then(j => {
+      const c = j?.config || j || {};
+      setMarqueBrief({ nom: c.site_name || '', url: c.front_url || '', email: c.email || c.smtp_user || '' });
+    }).catch(() => { /* brief neutre */ });
+  }, []);
   const [selectedId, setSelectedId] = useState('');
   const [subject, setSubject] = useState('');
   const [segment, setSegment] = useState('all');
@@ -303,7 +313,7 @@ export default function EmailEditorPage() {
     marque: "— ${name} —"
     prix: "${price}"
     image_url: "${img}"
-    lien: "https://www.swedishcravings.fr/boutique"`;
+    lien: "https://www.votre-boutique.fr/boutique"`;
     }).join('\n');
 
     const variables = `VARIABLES POUR CET EMAIL :
@@ -313,9 +323,9 @@ section_label: "${promoSubject || 'Nos sélections de la semaine'}"
 produits:
 ${prodsYaml}
 cta_bouton: "Visiter la boutique"
-signature_phrase: "Merci d'être là, et à très vite chez Swedish Cravings."`;
+signature_phrase: "Merci d'être là, et à très vite."`;
 
-    const prompt = CLAUDE_EMAIL_BRIEF + '\n\n---\n\n' + variables + '\n\nGénère le HTML complet. Choisis toi-même un titre accrocheur, une intro chaleureuse (2-3 paragraphes) et un CTA émotionnel adaptés aux produits ci-dessus. Respecte scrupuleusement le template et la charte.';
+    const prompt = claudeEmailBrief(marqueBrief) + '\n\n---\n\n' + variables + '\n\nGénère le HTML complet. Choisis toi-même un titre accrocheur, une intro chaleureuse (2-3 paragraphes) et un CTA émotionnel adaptés aux produits ci-dessus. Respecte scrupuleusement le template et la charte.';
 
     setClaudeBlock({ html: variables, prompt });
   }

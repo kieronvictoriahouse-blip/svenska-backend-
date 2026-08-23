@@ -82,7 +82,7 @@ export async function PUT(req: NextRequest) {
       token: signChoice(choix.id, order.id),
       titre: 'Petit rappel — un article de votre commande est en rupture',
       corps: '',
-      baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr',
+      baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || '',
     });
 
     try {

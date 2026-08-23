@@ -103,7 +103,7 @@ export default function DocumentPrintPage() {
   if (!doc) return <div style={{ padding: 40, fontFamily: 'Jost, sans-serif' }}>{'…'}</div>;
 
   /* ── Identité de l'émetteur ─────────────────────────── */
-  const sellerName = doc.seller_name || cfg.site_name || 'Swedish Cravings';
+  const sellerName = doc.seller_name || cfg.site_name || '';
   const sellerSiret = doc.seller_siret || cfg.siret || '';
   const sellerAddr = doc.seller_address || cfg.address || '';
   const seller: Party = {
@@ -122,10 +122,10 @@ export default function DocumentPrintPage() {
   ].filter(Boolean).join(' · ');
 
   const mailbox = type === 'bon-de-commande' ? 'achats' : type === 'bon-de-retour' ? 'retours' : null;
-  const baseMail = doc.seller_email || cfg.email || 'hej@swedishcravings.fr';
+  const baseMail = doc.seller_email || cfg.email || '';
   const mail = mailbox ? baseMail.replace(/^[^@]+/, mailbox) : baseMail;
   const contactLine1 = [mail, doc.seller_phone || cfg.phone].filter(Boolean).join(' · ');
-  const contactLine2 = String(cfg.front_url || 'https://www.swedishcravings.fr').replace(/^https?:\/\//, '');
+  const contactLine2 = String(cfg.front_url || '').replace(/^https?:\/\//, '');
   const legals = { legalLine1, legalLine2, contactLine1, contactLine2 };
 
   /* ── Lignes ─────────────────────────────────────────── */

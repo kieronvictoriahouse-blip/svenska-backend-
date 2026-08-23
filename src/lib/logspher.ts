@@ -132,8 +132,8 @@ export async function createLogspherRelayLabel(
     postcode: shipFrom.postcode,
     city: shipFrom.city,
     address1: shipFrom.address1,
-    company: wlConfig.site_name || 'Svenska Delikatessen',
-    lastname: wlConfig.site_name || 'Svenska Delikatessen',
+    company: wlConfig.site_name || '',
+    lastname: wlConfig.site_name || '',
     email: wlConfig.email || '',
     phone: wlConfig.phone || '',
   };

@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
       try {
         const cfg = await getWlConfig();
         const siteName = cfg.site_name || '';
-        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || "hej@swedishcravings.fr";
+        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
         await sendEmail({
           from: fromEmail,
           to: customerEmail,

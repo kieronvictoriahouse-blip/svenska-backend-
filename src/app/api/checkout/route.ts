@@ -316,7 +316,7 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    const baseUrl = 'https://www.swedishcravings.fr';
+    const baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '';
     const orderId = draftOrder?.id || '';
     const successUrl = `${baseUrl}/success.html?order_id=${orderId}`;
     const cancelUrl  = `${baseUrl}/panier.html`;

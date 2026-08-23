@@ -29,7 +29,7 @@ export default function HomeCmsPage() {
   const [lang, setLang] = useState<Lang>('fr');
   const [open, setOpen] = useState<string | null>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
-  const [frontUrl, setFrontUrl] = useState('https://www.swedishcravings.fr');
+  const [frontUrl, setFrontUrl] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingKey = useRef<string | null>(null);
 

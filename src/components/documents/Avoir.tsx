@@ -42,7 +42,7 @@ export default function Avoir({ d }: { d: AvoirData }) {
     <A4Page>
       <Rails tone="gold" />
 
-      <DocHeader title="Avoir" number={d.number} />
+      <DocHeader title="Avoir" number={d.number} brand={(d as any).seller?.name || (d as any).seller_name || ''} slogan={(d as any).seller_slogan || ''} />
       <HRule />
 
       <Parties

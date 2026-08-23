@@ -103,12 +103,44 @@ const get = (ctx: Record<string, any>, key: string) =>
  * s'affiche jamais chez un destinataire. `baseUrl` réécrit donc les
  * sources locales vers le domaine public.
  */
+/* ── Marque de l'instance ─────────────────────────────────────────
+   Les gabarits parlent en variables ({{ boutique }}, {{ atelier_ville }},
+   {{ boutique_email }}…) : c'est ICI, au rendu, que la marque du
+   marchand les remplit — un seul point pour les six gabarits et leurs
+   trois langues. Cache court, comme les surcharges. */
+let marqueCtx: Record<string, string> = {};
+let marqueAt = 0;
+export async function contexteMarque(): Promise<Record<string, string>> {
+  if (Date.now() - marqueAt < 60_000 && Object.keys(marqueCtx).length) return marqueCtx;
+  try {
+    const { data } = await supabaseAdmin
+      .from('white_label_config')
+      /* select('*') a dessein : lister les colonnes ferait echouer TOUTE
+         la requete si l'une manque (migration pas encore passee) — et un
+         email partirait sans marque. Le surcout est nul, la ligne est unique. */
+      .select('*')
+      .limit(1).maybeSingle();
+    const url = String((data as any)?.front_url || process.env.NEXT_PUBLIC_FRONT_URL || '').replace(/\/$/, '');
+    marqueCtx = {
+      boutique: (data as any)?.site_name || '',
+      boutique_email: (data as any)?.email || (data as any)?.smtp_user || '',
+      boutique_url: url,
+      boutique_domaine: url.replace(/^https?:\/\//, ''),
+      atelier_ville: (data as any)?.shop_city || '',
+    };
+    marqueAt = Date.now();
+  } catch { /* un email sans marque part quand meme */ }
+  return marqueCtx;
+}
+
 export async function renderEmail(
   name: EmailTemplate,
   ctx: Record<string, any>,
   lang: LangueClient = 'fr',
-  baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr',
+  baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '',
 ): Promise<string> {
+  const marque = await contexteMarque();
+  ctx = { ...marque, ...ctx };            // le contexte metier prime
   const over = await loadOverrides();
   /* Une personnalisation faite dans la langue du client prime ; sinon on
      prend le gabarit livre de cette langue, pas la personnalisation
@@ -129,7 +161,7 @@ export async function sujetPersonnalise(
 export function renderSource(
   source: string,
   ctx: Record<string, any>,
-  baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr',
+  baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '',
 ): string {
   let html = source;
 

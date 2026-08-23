@@ -76,18 +76,19 @@ export function Rails({ tone }: { tone: DocTone }) {
 }
 
 /* ── En-tête : monogramme + wordmark / type + numéro ──────── */
-export function DocHeader({ title, number }: { title: string; number: string }) {
+export function DocHeader({ title, number, brand = '', slogan = '' }:
+  { title: string; number: string; brand?: string; slogan?: string }) {
   return (
     <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 28 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
-        <img src="/documents/sc-monogramme.png" alt="Swedish Cravings"
+        <img src="/documents/sc-monogramme.png" alt={brand}
              style={{ width: 46, height: 69, objectFit: 'contain' }} />
         <div>
           <div style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, letterSpacing: '.2em', color: D.green, textTransform: 'uppercase', lineHeight: 1 }}>
-            Swedish Cravings
+            {brand}
           </div>
           <div style={{ fontSize: 8, letterSpacing: '.32em', textTransform: 'uppercase', color: D.label, marginTop: 6 }}>
-            Bringing Sweden to your table
+            {slogan}
           </div>
         </div>
       </div>

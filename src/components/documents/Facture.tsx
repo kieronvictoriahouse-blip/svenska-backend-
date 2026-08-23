@@ -36,7 +36,7 @@ export default function Facture({ d }: { d: FactureData }) {
       <Rails tone="green" />
       {d.paid && <Watermark text="PAYÉE" />}
 
-      <DocHeader title="Facture" number={d.number} />
+      <DocHeader title="Facture" number={d.number} brand={(d as any).seller?.name || (d as any).seller_name || ''} slogan={(d as any).seller_slogan || ''} />
       <HRule />
 
       <Parties

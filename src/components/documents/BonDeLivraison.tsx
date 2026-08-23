@@ -42,7 +42,7 @@ export default function BonDeLivraison({ d }: { d: BonDeLivraisonData }) {
   return (
     <A4Page>
       <Rails tone="green" />
-      <DocHeader title="Bon de livraison" number={d.number} />
+      <DocHeader title="Bon de livraison" number={d.number} brand={(d as any).seller?.name || (d as any).seller_name || ''} slogan={(d as any).seller_slogan || ''} />
       <HRule />
 
       <Parties

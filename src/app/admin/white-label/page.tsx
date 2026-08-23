@@ -11,6 +11,7 @@ type Config = {
   color_primary: string; color_secondary: string; color_bg: string; color_text: string;
   font_display: string; font_body: string; font_ui: string;
   email: string; phone: string; address: string; siret: string; tva: string;
+  legal_name: string; rcs_city: string; shop_city: string;
   instagram: string; facebook: string; pinterest: string;
   currency: string; tva_rate: number; free_shipping_threshold: number;
   smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string;
@@ -28,6 +29,7 @@ const DEFAULT_CONFIG: Config = {
   color_primary: '#3E5238', color_secondary: '#9E5A3C', color_bg: '#F6F1E9', color_text: '#1C2028',
   font_display: 'Cormorant Garamond', font_body: 'Crimson Pro', font_ui: 'Jost',
   email: '', phone: '', address: '', siret: '', tva: '',
+  legal_name: '', rcs_city: '', shop_city: '',
   instagram: '', facebook: '', pinterest: '',
   currency: 'EUR', tva_rate: 20, free_shipping_threshold: 50,
   smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '',
@@ -189,7 +191,7 @@ function WhiteLabelInner() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">URL de la boutique</label>
-                    <input className="form-control" value={config.front_url} onChange={e => update('front_url', e.target.value)} placeholder="https://www.swedishcravings.fr" />
+                    <input className="form-control" value={config.front_url} onChange={e => update('front_url', e.target.value)} placeholder="https://www.votre-boutique.fr" />
                   </div>
                 </div>
               </div>
@@ -322,6 +324,12 @@ function WhiteLabelInner() {
                 <div className="form-group"><label className="form-label">{tc('phone')}</label><input className="form-control" value={config.phone} onChange={e => update('phone', e.target.value)} /></div>
                 <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{tc('address')}</label><input className="form-control" value={config.address} onChange={e => update('address', e.target.value)} /></div>
                 <div className="form-group"><label className="form-label">SIRET</label><input className="form-control sc-num" value={config.siret} onChange={e => update('siret', e.target.value)} /></div>
+                {/* Identité légale : ce qui figure sur les factures. Vide,
+                    la ligne est omise du document — jamais remplacée par
+                    un nom par défaut. */}
+                <div className="form-group"><label className="form-label">Dénomination légale (ex. EI Prénom Nom)</label><input className="form-control" value={config.legal_name || ''} onChange={e => update('legal_name', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Ville du greffe (RCS)</label><input className="form-control" value={config.rcs_city || ''} onChange={e => update('rcs_city', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Ville de l&rsquo;atelier (citée dans les emails)</label><input className="form-control" value={config.shop_city || ''} onChange={e => update('shop_city', e.target.value)} /></div>
                 <div className="form-group"><label className="form-label">N° TVA</label><input className="form-control sc-num" value={config.tva} onChange={e => update('tva', e.target.value)} /></div>
               </div>
             </div>
@@ -513,7 +521,7 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
           </div>
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
             <label className="form-label">{t('expediteur')}</label>
-            <input className="form-control" value={config.smtp_from || ''} onChange={e => update('smtp_from', e.target.value)} placeholder={`Svenska Delikatessen <noreply@votre-domaine.fr>`} />
+            <input className="form-control" value={config.smtp_from || ''} onChange={e => update('smtp_from', e.target.value)} placeholder={`Ma Boutique <noreply@votre-domaine.fr>`} />
             <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Format recommandé : Nom Boutique {'<'}adresse@domaine.fr{'>'}</p>
           </div>
         </div>

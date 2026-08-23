@@ -185,7 +185,7 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     note:            order.notes || '',
     order_id:        order.id || null,
     legal_mention:   'TVA non applicable, art. 293 B du CGI',
-    seller_name:     config?.site_name   || 'Svenska Delikatessen',
+    seller_name:     config?.site_name   || '',
     seller_siret:    config?.siret       || '',
     seller_address:  config?.address     || '',
     seller_email:    config?.email       || '',

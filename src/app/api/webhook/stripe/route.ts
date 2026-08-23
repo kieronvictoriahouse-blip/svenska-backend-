@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
       try {
         const cfg = await getWlConfig();
         const siteName  = cfg.site_name || '';
-        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || 'hej@swedishcravings.fr';
+        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
 
         const orderForEmail = {
           ...(existing || {}),
@@ -277,7 +277,9 @@ export async function POST(req: NextRequest) {
 
           await sendEmail({
             from:    fromEmail,
-            to:      'hej@swedishcravings.fr',
+            /* L'alerte interne va a la boite du marchand — sa config,
+                jamais une adresse en dur. */
+            to:      (cfg as any).email || (cfg as any).smtp_user || process.env.SMTP_FROM || '',
             subject: `Nouvelle commande ${existing?.order_number || ''} — ${customerName} (${total.toFixed(2)} €)`,
             html:    notifHtml,
           }, cfg);
@@ -330,7 +332,7 @@ export async function POST(req: NextRequest) {
         // Second email facture
         if (!isTestEvent && !existing?.is_test) {
           try {
-            const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://admin.swedishcravings.fr';
+            const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
             await fetch(`${baseUrl}/api/send-invoice-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

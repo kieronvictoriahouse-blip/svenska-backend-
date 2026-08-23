@@ -47,7 +47,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (newStatus === 'partial' && newStatus !== prevStatus && data?.customer_email) {
     try {
       const cfg = await getWhiteLabelConfig();
-      const fromEmail = (cfg.email_from as string) || 'Swedish Cravings <hej@swedishcravings.fr>';
+      const fromEmail = (cfg.email_from as string) || (cfg as any).smtp_from || '';
       const mail = await expeditionEmail({ ...data, ...body });
       await sendEmail({ from: fromEmail, to: data.customer_email, subject: mail.sujet, html: mail.html }, cfg);
     } catch (e) {
@@ -97,8 +97,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (['shipped', 'delivered'].includes(newStatus) && order.customer_email && invoice) {
       try {
         const cfg = await getWhiteLabelConfig();
-        const siteName  = cfg.site_name || 'Swedish Cravings';
-        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || "hej@swedishcravings.fr";
+        const siteName  = cfg.site_name || '';
+        const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
 
         const lines: any[] = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
         const linesHtml = lines.map((l: any) =>

@@ -3,18 +3,18 @@ import { appendToSent, appendToDrafts } from '@/lib/imap';
 import { getWhiteLabelConfig } from '@/lib/email-send';
 
 /* ═══════════════════════════════════════════════════════════════
-   ENVOI DEPUIS LA BOÎTE hej@
+   ENVOI DEPUIS LA BOÎTE DU MARCHAND
 
    Un seul endroit qui compose et expédie : la rédaction, les envois
    programmés et les brouillons doivent produire exactement le même
    message, signature comprise.
 
    L'envoi passe par le SMTP de la boîte et non par Resend : le message
-   doit partir de hej@ avec les bons en-têtes, et sa source brute doit
+   doit partir de la boîte du marchand avec les bons en-têtes, et sa source brute doit
    pouvoir être déposée telle quelle dans les Envoyés.
    ═══════════════════════════════════════════════════════════════ */
 
-export const DE = process.env.IMAP_USER || 'hej@swedishcravings.fr';
+export const DE = process.env.IMAP_USER || '';
 
 /** Plafond de pièces jointes. Au-delà, la plupart des serveurs rejettent. */
 export const PJ_MAX = 8 * 1024 * 1024;
@@ -25,8 +25,21 @@ export type Message = {
   inReplyTo?: string; attachments?: PieceJointe[]; signer?: boolean;
 };
 
+/** L'identité du marchand, depuis sa config — jamais de constante. */
+function marqueDe(cfg: Record<string, any>) {
+  const siren = String(cfg.siret || '').replace(/\D/g, '').slice(0, 9)
+    .replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+  return {
+    nom: cfg.site_name || '',
+    slogan: cfg.site_slogan || '',
+    legal: cfg.legal_name || '',
+    siren,
+  };
+}
+
 export function signature(cfg: Record<string, any>): string {
-  const site = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr';
+  const marque = marqueDe(cfg);
+  const site = process.env.NEXT_PUBLIC_FRONT_URL || '';
   const logo = `${site.replace(/\/$/, '')}/emails/sc-monogramme.png`;
   const tel = cfg.phone ? ` · ${cfg.phone}` : '';
   /* Même identité que les factures et les emails clients : monogramme,
@@ -35,17 +48,17 @@ export function signature(cfg: Record<string, any>): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px;border-top:1px solid #D8CFAF;padding-top:16px">
   <tr>
     <td valign="top" style="padding-right:16px">
-      <img src="${logo}" width="42" height="63" alt="Swedish Cravings" style="display:block;width:42px;height:63px;border:0" />
+      <img src="${logo}" width="42" height="63" alt="${marque.nom}" style="display:block;width:42px;height:63px;border:0" />
     </td>
     <td valign="top" style="font-family:Arial,Helvetica,sans-serif">
-      <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;letter-spacing:.16em;color:#44573D;text-transform:uppercase">Swedish Cravings</div>
-      <div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#A0977F;padding-top:4px">Bringing Sweden to your table</div>
+      <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;letter-spacing:.16em;color:#44573D;text-transform:uppercase">${marque.nom}</div>
+      ${marque.slogan ? `<div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#A0977F;padding-top:4px">${marque.slogan}</div>` : ''}
       <div style="font-size:11.5px;line-height:1.75;color:#5F5A4E;padding-top:9px">
         <a href="mailto:${DE}" style="color:#5F5A4E;text-decoration:none">${DE}</a>${tel}<br />
         <a href="${site}" style="color:#44573D;text-decoration:none">${site.replace(/^https?:\/\//, '')}</a>
       </div>
       <div style="font-size:10px;color:#948B79;padding-top:8px">
-        EI Victoria Vallet · SIREN 105 003 537 · TVA non applicable, art. 293 B du CGI
+        ${[marque.legal, marque.siren ? 'SIREN ' + marque.siren : '', 'TVA non applicable, art. 293 B du CGI'].filter(Boolean).join(' · ')}
       </div>
     </td>
   </tr>
@@ -65,12 +78,13 @@ export function decoderPJ(attachments?: PieceJointe[]) {
 /** Construit la source brute du message — c'est elle qu'on envoie ET qu'on archive. */
 export async function composer(m: Message): Promise<Buffer> {
   const cfg = await getWhiteLabelConfig();
+  const marque = marqueDe(cfg);
   const { pieces } = decoderPJ(m.attachments);
   const corps = `${m.html || ''}${m.signer === false ? '' : signature(cfg)}`;
 
   const MailComposer = (await import('nodemailer/lib/mail-composer')).default as any;
   const composeur = new MailComposer({
-    from: `Swedish Cravings <${DE}>`,
+    from: `${marque.nom} <${DE}>`,
     to: m.to,
     cc: m.cc || undefined,
     subject: m.subject,

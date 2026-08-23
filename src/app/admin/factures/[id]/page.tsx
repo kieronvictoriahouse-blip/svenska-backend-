@@ -32,10 +32,8 @@ type Invoice = {
 };
 
 // ── Mentions légales (conformité art. 242 nonies A CGI) ──────────────────
-const SIREN_RAW  = '105003537';
-const EI_NAME    = 'EI Victoria Vallet';
-const RCS_CITY   = 'Romans-sur-Isère'; // à confirmer sur Infogreffe
-const SIEGE      = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
+/* L'identité légale vient de la facture (figée à l'émission) puis de la
+   config — jamais d'une constante (migration 046). */
 const MEDIATEUR  = '[médiateur à compléter]'; // ex: CM2C — cm2c.net
 const MEDIATEUR_URL = '[url à compléter]';
 
@@ -66,6 +64,18 @@ export default function FacturePage() {
   const { t, tc, lang } = useT(TFA);
   const { id } = useParams<{ id: string }>();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  /* Identité légale du vendeur : la facture d'abord (figée à
+     l'émission), la config ensuite. Chargée une fois — elle ne change
+     pas pendant la consultation. */
+  const [identite, setIdentite] = useState<{ legal_name?: string; rcs_city?: string; siret?: string; address?: string }>({});
+  useEffect(() => {
+    adminFetch('/api/white-label').then(r => r.json())
+      .then(j => {
+        const c = j?.config || j || {};
+        setIdentite({ legal_name: c.legal_name, rcs_city: c.rcs_city, siret: c.siret, address: c.address });
+      })
+      .catch(() => { /* la facture porte deja ses champs seller_* */ });
+  }, []);
   const [avoirId, setAvoirId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -220,9 +230,9 @@ export default function FacturePage() {
           {/* Vendeur */}
           <div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
-              {invoice.seller_name || 'Svenska Delikatessen'}
+              {invoice.seller_name || ''}
             </div>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{EI_NAME}</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{identite.legal_name || ''}</div>
             {invoice.seller_address && (
               <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, whiteSpace: 'pre-line' }}>
                 {invoice.seller_address}
@@ -235,8 +245,8 @@ export default function FacturePage() {
               <div style={{ fontSize: 13, color: '#64748b' }}>{invoice.seller_phone}</div>
             )}
             <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, lineHeight: 1.7 }}>
-              <span style={{ fontWeight: 600 }}>SIREN : {fmtSiren(SIREN_RAW)}</span>
-              <br />RCS {RCS_CITY} {fmtSiren(SIREN_RAW)}
+              <span style={{ fontWeight: 600 }}>SIREN : {fmtSiren(invoice.seller_siret || identite.siret || '')}</span>
+              {identite.rcs_city ? <><br />RCS {identite.rcs_city} {fmtSiren(invoice.seller_siret || identite.siret || '')}</> : null}
             </div>
           </div>
 
@@ -405,10 +415,10 @@ export default function FacturePage() {
           )}
           <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 2 }}>
             <strong style={{ color: '#64748b' }}>
-              {invoice.seller_name || 'Svenska Delikatessen'} — {EI_NAME}
+              {[invoice.seller_name, identite.legal_name].filter(Boolean).join(' — ')}
             </strong><br />
-            Siège social : {invoice.seller_address || SIEGE}<br />
-            SIREN : {fmtSiren(SIREN_RAW)} — RCS {RCS_CITY}<br />
+            Siège social : {invoice.seller_address || identite.address}<br />
+            SIREN : {fmtSiren(invoice.seller_siret || identite.siret || '')}{identite.rcs_city ? ` — RCS ${identite.rcs_city}` : ''}<br />
             TVA non applicable, art. 293 B du CGI
           </div>
         </div>

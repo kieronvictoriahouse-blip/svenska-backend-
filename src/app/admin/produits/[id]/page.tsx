@@ -44,7 +44,7 @@ export default function EditProduitPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<ProductTab>('general');
   const [status, setStatus] = useState('');
-  const [frontUrl, setFrontUrl] = useState('https://www.swedishcravings.fr');
+  const [frontUrl, setFrontUrl] = useState('');
 
   useEffect(() => {
     if (!id) return;

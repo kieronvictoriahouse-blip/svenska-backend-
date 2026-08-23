@@ -72,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     );
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || 'https://www.swedishcravings.fr';
+  const baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '';
   const shippingAmt = Math.round((order.shipping || 0) * 100);
 
   let session: Stripe.Checkout.Session;
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (sendEmailFlag && order.customer_email) {
     try {
       const cfg = await getWhiteLabelConfig();
-      const siteName  = (cfg as any).site_name || 'Swedish Cravings';
+      const siteName  = (cfg as any).site_name || '';
       const fromEmail = (cfg as any).smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || 'onboarding@resend.dev';
 
       const body = `

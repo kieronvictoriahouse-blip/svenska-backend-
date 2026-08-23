@@ -44,7 +44,7 @@ export default function BonDeRetour({ d }: { d: BonDeRetourData }) {
   return (
     <A4Page>
       <Rails tone="green" />
-      <DocHeader title="Bon de retour" number={d.number} />
+      <DocHeader title="Bon de retour" number={d.number} brand={(d as any).seller?.name || (d as any).seller_name || ''} slogan={(d as any).seller_slogan || ''} />
       <HRule />
 
       <Parties

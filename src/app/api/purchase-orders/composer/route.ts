@@ -230,10 +230,10 @@ export async function POST(req: NextRequest) {
       const { buffer, filename } = await generatePurchaseOrderPdf(commande.id, 'sv');
       const cfg = await getWhiteLabelConfig();
       await sendEmail({
-        from: (cfg.email_from as string) || 'Svenska Delikatessen <hej@swedishcravings.fr>',
+        from: (cfg.email_from as string) || (cfg as any).smtp_from || '',
         to: fournisseur.email,
         subject: `Inköpsorder ${numero}`,
-        html: '<p>Vänligen se bifogad inköpsorder.</p><p>Med vänlig hälsning,<br>Svenska Delikatessen</p>',
+        html: `<p>Vänligen se bifogad inköpsorder.</p><p>Med vänlig hälsning,<br>${(cfg as any).site_name || ''}</p>`,
         attachments: [{ filename, content: buffer }],
       }, cfg);
       await supabaseAdmin.from('purchase_orders')

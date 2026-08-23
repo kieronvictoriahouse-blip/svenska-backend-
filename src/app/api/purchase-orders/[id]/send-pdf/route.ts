@@ -12,14 +12,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const { buffer, filename } = await generatePurchaseOrderPdf(params.id, lang);
     const cfg = await getWhiteLabelConfig();
-    const from = (cfg.email_from as string) || `Svenska Delikatessen <hello@swedishcravings.fr>`;
+    const from = (cfg.email_from as string) || (cfg as any).smtp_from || '';
     const orderNum = filename.replace('purchase-order-', '').replace(`-${lang}.pdf`, '');
     const subject = lang === 'sv'
       ? `Inköpsorder ${orderNum}`
       : `Purchase Order ${orderNum}`;
     const body = lang === 'sv'
-      ? '<p>Vänligen se bifogad inköpsorder.</p><p>Med vänlig hälsning,<br>Svenska Delikatessen</p>'
-      : '<p>Please find the purchase order attached.</p><p>Best regards,<br>Svenska Delikatessen</p>';
+      ? `<p>Vänligen se bifogad inköpsorder.</p><p>Med vänlig hälsning,<br>${(cfg as any).site_name || ''}</p>`
+      : `<p>Please find the purchase order attached.</p><p>Best regards,<br>${(cfg as any).site_name || ''}</p>`;
 
     await sendEmail({ from, to: email, subject, html: body, attachments: [{ filename, content: buffer }] }, cfg);
     return NextResponse.json({ ok: true });

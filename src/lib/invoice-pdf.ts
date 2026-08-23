@@ -68,10 +68,10 @@ function registerFonts(doc: PDFKit.PDFDocument): Record<string, string> {
 }
 
 // Mentions légales centralisées (art. 242 nonies A CGI)
-const SIREN_RAW = '105003537';
-const EI_NAME = 'EI Victoria Vallet';
-const RCS_CITY = 'Romans-sur-Isère';
-const SIEGE = '165 chemin du Vercors, 26800 Étoile-sur-Rhône';
+/* L'identité légale vient de white_label_config (migration 046), jamais
+   d'une constante : une constante ferait facturer chaque instance au
+   nom du premier marchand. Champ vide = ligne omise — un document
+   incomplet se voit, un document au mauvais nom se signe. */
 
 function fmtSiren(s: string) {
   const n = (s || '').replace(/\s/g, '');
@@ -170,7 +170,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     displayTitle: true,
     info: {
       Title: `${inv.status === 'avoir' ? 'Avoir' : 'Facture'} ${inv.number}`,
-      Author: inv.seller_name || 'Swedish Cravings',
+      Author: inv.seller_name || '',
     },
   } as any);
 
@@ -242,8 +242,8 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     if (fs.existsSync(p)) { doc.image(p, M, y, { width: PX(46), height: PX(69) }); logoW = PX(46) + PX(15); }
   } catch { /* sans logo, le bloc texte se cale simplement à gauche */ }
 
-  text('SWEDISH CRAVINGS', M + logoW, y + PX(14), { font: SERIF_B, size: PX(24), color: D.green, spacing: PX(24) * 0.2 });
-  text('BRINGING SWEDEN TO YOUR TABLE', M + logoW, y + PX(46), { size: PX(8), color: D.label, spacing: PX(8) * 0.32 });
+  text((wl.site_name || '').toUpperCase(), M + logoW, y + PX(14), { font: SERIF_B, size: PX(24), color: D.green, spacing: PX(24) * 0.2 });
+  text((wl.site_slogan || '').toUpperCase(), M + logoW, y + PX(46), { size: PX(8), color: D.label, spacing: PX(8) * 0.32 });
 
   text(docTitle.toUpperCase(), M, y, { font: SERIF, size: PX(38), color: D.ink, width: CW, align: 'right' });
   text(String(inv.number || '').toUpperCase(), M, y + PX(40), {
@@ -256,13 +256,13 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
 
   /* ── Émetteur / Facturé à ──────────────────────────────── */
   const colW = (CW - PX(22)) / 2;
-  const sellerName = wl.site_name || 'Swedish Cravings';
+  const sellerName = inv.seller_name || wl.site_name || '';
   const sellerLines = [
-    EI_NAME,
-    ...splitAddress(wl.address || SIEGE),
-    `SIREN : ${fmtSiren(wl.siret || SIREN_RAW)}`,
-    `RCS ${RCS_CITY}`,
-    wl.email || 'hej@swedishcravings.fr',
+    wl.legal_name || '',
+    ...splitAddress(inv.seller_address || wl.address || ''),
+    `SIREN : ${fmtSiren(inv.seller_siret || wl.siret || '')}`,
+    wl.rcs_city ? `RCS ${wl.rcs_city}` : '',
+    inv.seller_email || wl.email || '',
   ].filter(Boolean);
 
   const clientName = inv.client_name || inv.customer_name || '—';
@@ -400,13 +400,14 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   doc.rect(M, ruleY, CW, 0.75).fill(D.rule);
   // Mêmes deux lignes que la maquette (legalLine1 / legalLine2).
   text(
-    `${sellerName} · ${wl.address || SIEGE}\n` +
-    `SIREN ${fmtSiren(wl.siret || SIREN_RAW)} · RCS ${RCS_CITY} · TVA non applicable, art. 293 B du CGI`,
+    [sellerName, wl.legal_name, inv.seller_address || wl.address].filter(Boolean).join(' · ') + '\n' +
+    [`SIREN ${fmtSiren(inv.seller_siret || wl.siret || '')}`, wl.rcs_city ? `RCS ${wl.rcs_city}` : '',
+     'TVA non applicable, art. 293 B du CGI'].filter(Boolean).join(' · '),
     M, ruleY + PX(13), { size: PX(9.5), color: D.soft2, width: CW * 0.64, lineGap: PX(9.5) * 0.65 },
   );
   text(
-    `${wl.email || 'hej@swedishcravings.fr'}${wl.phone ? '  ·  ' + wl.phone : ''}\n` +
-    String(wl.front_url || 'https://www.swedishcravings.fr').replace(/^https?:\/\//, ''),
+    `${inv.seller_email || wl.email || ''}${wl.phone ? '  ·  ' + wl.phone : ''}\n` +
+    String(wl.front_url || '').replace(/^https?:\/\//, ''),
     M + CW * 0.64, ruleY + PX(13),
     { size: PX(9.5), color: D.soft2, width: CW * 0.36, align: 'right', lineGap: PX(9.5) * 0.65 },
   );

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   let suggestion: any = null;
   try {
     const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(ean)}.json`, {
-      headers: { 'User-Agent': 'SwedishCravings-Admin/1.0' },
+      headers: { 'User-Agent': 'Shopflow-Admin/1.0' },
       signal: AbortSignal.timeout(4000),
     });
     if (r.ok) {

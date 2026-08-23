@@ -75,6 +75,9 @@ export async function GET(req: NextRequest) {
     messages, total: count || messages.length, page, taille,
     compteurs: { nonLus, suivis, brouillons, programmes },
     etat: etat || [],
+    /* Le compte IMAP affiché dans l'en-tête de l'écran — la page ne
+       doit pas le connaître en dur. */
+    compte: process.env.IMAP_USER || '',
   });
 }
 
