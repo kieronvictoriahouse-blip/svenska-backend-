@@ -217,6 +217,19 @@ function verifierEquilibre(sql) {
       /* COMMENT ON COLUMN t.col : le commentaire d'une colonne jamais
          créée (la 039, encore) échoue aussi — même validation. */
       const cmt = nu.match(/COMMENT ON COLUMN\s+("?[\w]+"?)\.("?[\w]+"?)/i);
+      /* Un trigger update_updated_at sur une table qui n'a PLUS de
+         colonne updated_at (invoices, margin_products — la colonne a
+         disparu à la main en production, le trigger avec) transforme
+         chaque UPDATE en erreur 42703. Le trigger ne se greffe que si
+         la colonne existe. */
+      const trgMaj = nu.match(/CREATE TRIGGER\s+\w+[\s\S]*?\bON\s+("?[\w]+"?)[\s\S]*?update_updated_at/i);
+      if (trgMaj) {
+        const t2 = trgMaj[1].replace(/"/g, '');
+        if (!('updated_at' in (defs[t2]?.properties || {}))) {
+          ecartees.push({ f, tete: tete.slice(0, 60), tables: [`${t2}.updated_at`] });
+          continue;
+        }
+      }
       const aValider = idx
         ? { table: idx[1], corps: idx[2] + ' ' + (idx[3] || '') }
         : chk ? { table: chk[1], corps: chk[2] }

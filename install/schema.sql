@@ -1,4 +1,4 @@
--- SCHEMA 31e194f51a8d — genere le 2026-08-23 14:10
+-- SCHEMA e0c7a3afdfeb — genere le 2026-08-23 14:22
 -- ═══════════════════════════════════════════════════════════════
 --  SCHÉMA CONSOLIDÉ — instance neuve
 --
@@ -16,7 +16,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 
--- ─── Tables (42) — état réel de la production ───
+-- ─── Tables (43) — état réel de la production ───
 
 CREATE TABLE IF NOT EXISTS abandoned_carts (
   id uuid DEFAULT gen_random_uuid(),
@@ -728,6 +728,13 @@ CREATE TABLE IF NOT EXISTS scheduled_emails (
   PRIMARY KEY (id)
 );
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  fichier text,
+  applique_le timestamp with time zone DEFAULT now(),
+  checksum text,
+  PRIMARY KEY (fichier)
+);
+
 CREATE TABLE IF NOT EXISTS stock_movements (
   id uuid DEFAULT gen_random_uuid(),
   product_id uuid,
@@ -969,19 +976,6 @@ CREATE POLICY "admin_all_media"        ON media         FOR ALL USING (auth.role
 -- 001_initial_schema.sql
 DROP POLICY IF EXISTS "admin_own_profile" ON admin_profiles;
 CREATE POLICY "admin_own_profile"      ON admin_profiles FOR ALL USING (auth.uid() = id);
-
--- 002_gestion_schema.sql
-DROP TRIGGER IF EXISTS invoices_updated_at ON invoices;
--- ─── TRIGGERS ───────────────────────────────────────────────────
-CREATE TRIGGER invoices_updated_at
-  BEFORE UPDATE ON invoices
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- 002_gestion_schema.sql
-DROP TRIGGER IF EXISTS margin_products_updated_at ON margin_products;
-CREATE TRIGGER margin_products_updated_at
-  BEFORE UPDATE ON margin_products
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 002_gestion_schema.sql
 ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;

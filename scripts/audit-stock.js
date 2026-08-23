@@ -28,7 +28,11 @@ const { createClient } = require('@supabase/supabase-js');
 const env = fs.readFileSync(path.join(__dirname, '..', '.env.local'), 'utf8').replace(/\r/g, '');
 const lire = k => ((env.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1] || '')
   .trim().replace(/^["']|["']$/g, '');
-const sb = createClient(lire('NEXT_PUBLIC_SUPABASE_URL'), lire('SUPABASE_SERVICE_ROLE_KEY'));
+/* INSTANCE_URL/INSTANCE_KEY permettent de viser n'importe quelle
+   instance de la flotte — le control plane s'en servira tel quel. */
+const sb = createClient(
+  process.env.INSTANCE_URL || lire('NEXT_PUBLIC_SUPABASE_URL'),
+  process.env.INSTANCE_KEY || lire('SUPABASE_SERVICE_ROLE_KEY'));
 
 const J = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch { return []; } };
 const DUS = ['paid', 'confirmed', 'preparing', 'partial'];
