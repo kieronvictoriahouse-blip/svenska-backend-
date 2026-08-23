@@ -273,6 +273,13 @@ export default function ComptabilitePage() {
                   onClick={() => downloadFile(`/api/accounting/fec?year=${selectedYear}`, `FEC_${selectedYear}.txt`)}>
             <span className="ms">description</span>FEC
           </button>
+          {/* Le registre légal de la micro-entreprise (art. 50-0 CGI) :
+              date d'encaissement, pièce, client, nature, montant, mode.
+              C'est LE document qu'un contrôle demande en premier. */}
+          <button className="sc-btn sc-btn-secondary"
+                  onClick={() => downloadFile(`/api/accounting/livre-recettes?year=${selectedYear}`, `livre-recettes-${selectedYear}.csv`)}>
+            <span className="ms">menu_book</span>Livre des recettes
+          </button>
         </div>
       </div>
 

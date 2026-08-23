@@ -165,8 +165,14 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
   const paidStatuses = ['paid', 'confirmed', 'shipped', 'delivered'];
   const status = paidStatuses.includes(order.status) ? 'paid' : 'draft';
 
-  const { data: invoice, error } = await supabaseAdmin.from('invoices').insert({
-    number:          invoiceNumber,
+  /* L'index unique sur `number` (migration 045) transforme une course
+     de numérotation en erreur franche : on re-numérote et on réessaie,
+     plutôt que d'émettre deux pièces au même numéro. */
+  let invoice: any = null, error: any = null;
+  for (let essai = 0; essai < 3 && !invoice; essai++) {
+    const numero = essai === 0 ? invoiceNumber : await nextSequentialNumber(`FAC-${year}-`);
+    const res = await supabaseAdmin.from('invoices').insert({
+    number:          numero,
     date:            new Date().toISOString().split('T')[0],
     status,
     client_name:     order.customer_name || '',
@@ -184,12 +190,23 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     seller_address:  config?.address     || '',
     seller_email:    config?.email       || '',
     seller_phone:    config?.phone       || '',
-  }).select().single();
+    }).select().single();
+    if (res.data) { invoice = res.data; break; }
+    error = res.error;
+    if (!/duplicate|unique/i.test(String(res.error?.message))) break;
+  }
 
-  if (error) {
-    console.error('[invoice-utils] Erreur création facture:', error.message);
+  if (!invoice) {
+    console.error('[invoice-utils] Erreur création facture:', error?.message);
     return null;
   }
+
+  /* Scellée dès la naissance : une facture non chaînée est une facture
+     qu'on peut encore réécrire sans que rien ne le voie. */
+  try {
+    const { scellerFacture } = await import('@/lib/facture-integrite');
+    await scellerFacture(invoice.id);
+  } catch (e) { console.error('[invoice-utils] scellement:', e); }
 
   return invoice;
 }

@@ -27,11 +27,20 @@ export async function POST(req: NextRequest) {
   const year = new Date((body.date as string) || Date.now()).getFullYear();
   const number = await nextSequentialNumber(`FAC-${year}-`);
 
-  const { data, error } = await supabaseAdmin
-    .from('invoices')
-    .insert({ ...body, number })
-    .select()
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  /* Le chaînage n'accepte pas qu'on lui impose ces colonnes. */
+  delete (body as any).chain_hash; delete (body as any).chain_prev; delete (body as any).finalized_at;
+
+  let data: any = null, error: any = null;
+  for (let essai = 0; essai < 3 && !data; essai++) {
+    const numero = essai === 0 ? number : await nextSequentialNumber(`FAC-${year}-`);
+    const res = await supabaseAdmin.from('invoices').insert({ ...body, number: numero }).select().single();
+    if (res.data) { data = res.data; break; }
+    error = res.error;
+    if (!/duplicate|unique/i.test(String(res.error?.message))) break;
+  }
+  if (!data) return NextResponse.json({ error: error?.message || 'Création impossible' }, { status: 500 });
+
+  const { scellerFacture } = await import('@/lib/facture-integrite');
+  await scellerFacture(data.id).catch(() => {});
   return NextResponse.json({ invoice: data }, { status: 201 });
 }

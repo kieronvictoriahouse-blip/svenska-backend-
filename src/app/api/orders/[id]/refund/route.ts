@@ -316,6 +316,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!skipAvoir) {
       const { data: avoir } = await supabaseAdmin
         .from('invoices').insert(avoirPayload).select().single();
+      if (avoir?.id) {
+        const { scellerFacture } = await import('@/lib/facture-integrite');
+        await scellerFacture(avoir.id).catch(() => {});
+      }
       if (avoir) avoirRendu = await avoirEmail(avoir, originalInv?.number || '', avoirLines);
 
     }

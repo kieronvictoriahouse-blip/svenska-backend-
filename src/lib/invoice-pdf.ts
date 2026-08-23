@@ -156,8 +156,39 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   const subtotal = productLines.reduce((s, l) => s + (Number(l.qty) || 1) * (Number(l.price) || 0), 0);
   const total = Math.abs(Number(inv.total_ttc) || 0);
 
-  /* ── Document ──────────────────────────────────────────── */
-  const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true });
+  /* ── Document ──────────────────────────────────────────────────
+     PDF/A-3 avec le XML CII embarqué sous le nom réservé
+     `factur-x.xml` : le fichier produit est un FACTUR-X, le format
+     pivot de la facturation électronique française (EN 16931). Le
+     même PDF sert l'humain (mise en page) et la machine (le XML) —
+     c'est tout le principe du format.
+     PDF/A-3 impose des polices embarquées : les nôtres le sont déjà
+     (Jost, Cormorant), c'est ce qui rend l'option possible. */
+  const doc = new PDFDocument({
+    size: 'A4', margin: 0, autoFirstPage: true,
+    subset: 'PDF/A-3a' as any, pdfVersion: '1.7', tagged: true,
+    displayTitle: true,
+    info: {
+      Title: `${inv.status === 'avoir' ? 'Avoir' : 'Facture'} ${inv.number}`,
+      Author: inv.seller_name || 'Swedish Cravings',
+    },
+  } as any);
+
+  try {
+    const { construireFacturX } = await import('@/lib/facturx');
+    const fx = construireFacturX(inv);
+    (doc as any).file(Buffer.from(fx.xml, 'utf8'), {
+      name: 'factur-x.xml',
+      type: 'text/xml',
+      description: 'Factur-X / EN 16931 — donnees structurees de la facture',
+      /* Data : le XML est une representation alternative du document,
+         la relation attendue par les lecteurs Factur-X. */
+      relationship: 'Data',
+      creationDate: new Date(inv.date || Date.now()),
+      modifiedDate: new Date(inv.date || Date.now()),
+    });
+  } catch (e) { console.error('[invoice-pdf] factur-x non embarque :', e); }
+
   const chunks: Buffer[] = [];
   doc.on('data', (c: any) => chunks.push(Buffer.from(c)));
   const done = new Promise<void>(resolve => doc.on('end', resolve));
