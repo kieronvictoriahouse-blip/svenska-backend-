@@ -1,0 +1,24 @@
+{
+  "name": "shopflow-controlplane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Control plane Shopflow — inscription, abonnement, provisionnement et supervision des instances. Vit dans le dépôt du moteur (sous-dossier) pour lire install/ et supabase/migrations/ sans synchronisation.",
+  "scripts": {
+    "dev": "next dev -p 3400",
+    "build": "next build",
+    "start": "next start -p 3400",
+    "provisionner": "node provisionner.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "next": "14.2.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "stripe": "^22.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "typescript": "^5"
+  }
+}
