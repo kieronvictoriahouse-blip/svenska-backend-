@@ -63,6 +63,8 @@ const T = {
   pickupReady:   { fr: 'À retirer en magasin', en: 'Ready for pickup', sv: 'Redo att hämtas' },
   changeStatus:  { fr: 'Changer le statut', en: 'Change status', sv: 'Ändra status' },
   orderLines:    { fr: 'Lignes', en: 'Lines', sv: 'Rader' },
+  resteALivrer:  { fr: 'reste à livrer', en: 'still to ship', sv: 'kvar att skicka' },
+  ligneLivree:   { fr: 'livré', en: 'shipped', sv: 'skickat' },
   newOrderTitle: { fr: 'Nouvelle commande manuelle', en: 'New manual order', sv: 'Ny manuell beställning' },
   custName:      { fr: 'Nom client *', en: 'Customer name *', sv: 'Kundnamn *' },
   shippingFee:   { fr: 'Frais de livraison', en: 'Shipping fee', sv: 'Fraktkostnad' },
@@ -1040,8 +1042,38 @@ export default function CommandesPage() {
                           <span className="sc-card-title">{t('orderLines')}</span>
                         </div>
                         <div>
-                          {lines.map((l: any, i: number) => {
+                          {(() => {
+                            /* Une commande partiellement expédiée affichait ses
+                               lignes brutes : impossible de voir, en la
+                               regardant, que quatre articles sur cinq sont
+                               partis et qu'il ne reste qu'un fromage. On
+                               relisait le bon de livraison pour le savoir.
+
+                               Le reste dû se consomme dans l'ordre des lignes :
+                               deux lignes peuvent porter le même produit — un
+                               remplacement de rupture en crée une — et
+                               `shipped_qty` ne compte que par produit. */
+                            const envoye: Record<string, number> = { ...((o as any).shipped_qty || {}) };
+                            const resteParLigne = lines.map((l: any) => {
+                              if (!l.product_id) return 0;
+                              const dispo = Number(envoye[l.product_id]) || 0;
+                              const pris = Math.min(Number(l.qty) || 0, dispo);
+                              envoye[l.product_id] = dispo - pris;
+                              return (Number(l.qty) || 0) - pris;
+                            });
+                            /* Le marquage n'a de sens que sur une commande
+                               partielle : jamais expédiée, tout est « à
+                               livrer » ; entièrement expédiée, tout est
+                               parti. Dans les deux cas, le statut le dit
+                               déjà — l'écrire sur chaque ligne serait du
+                               bruit. */
+                            const dejaParti = o.status === 'partial'
+                              && Object.keys((o as any).shipped_qty || {}).length > 0;
+
+                          return lines.map((l: any, i: number) => {
                             const img = l.image_url || (l.product_id && imageMap[l.product_id]) || null;
+                            const reste = resteParLigne[i];
+                            const partiel = dejaParti && !!l.product_id;
                             return (
                               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 15px', borderBottom: `1px solid ${TH.borderFaint}` }}>
                                 {img ? <img src={img} alt="" style={thumbStyle(l.name || 'x', 32)} />
@@ -1050,12 +1082,20 @@ export default function CommandesPage() {
                                   <div style={{ fontSize: 12.5, color: TH.ink }}>{l.desc || l.name || l.name_fr || '—'}</div>
                                   <div className="sc-num" style={{ fontSize: 10.5, color: TH.muted }}>
                                     {l.qty} × {fmt(l.price || 0)}
+                                    {partiel && (reste > 0
+                                      ? <span style={{ color: '#B45309', fontWeight: 600 }}>
+                                          {'  ·  '}{t('resteALivrer')} {reste}
+                                        </span>
+                                      : <span style={{ color: TH.green, fontWeight: 600 }}>
+                                          {'  ·  '}{t('ligneLivree')}
+                                        </span>)}
                                   </div>
                                 </div>
                                 <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 600 }}>{fmt((l.qty || 1) * (l.price || 0))}</span>
                               </div>
                             );
-                          })}
+                          });
+                          })()}
                         </div>
                         <div style={{ padding: '10px 15px', background: TH.surfaceAlt }}>
                           <div className="o-row"><span>{tc('subtotal')}</span><span className="sc-num">{fmt(o.subtotal)}</span></div>
