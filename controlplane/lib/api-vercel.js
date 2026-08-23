@@ -49,15 +49,23 @@ async function poserEnv(projectId, variables) {
   return r.json();
 }
 
-/** Déclenche le premier déploiement depuis la branche main. */
+/** Déclenche le premier déploiement depuis la branche main.
+ *  L'API v13 exige le repoId NUMÉRIQUE GitHub — pas le nom org/repo.
+ *  Il vit dans le lien git du projet fraîchement créé : on le lit là. */
 async function deployer(projectId, nom) {
+  const p = await appeler('GET', `${BASE}/v9/projects/${projectId}${team()}`, { headers: entetes() });
+  if (!p.ok) throw new Error('lecture projet : ' + await p.text());
+  const projet = await p.json();
+  const repoId = projet.link && projet.link.repoId;
+  if (!repoId) throw new Error('repoId introuvable — le projet est-il bien lié au dépôt GitHub ?');
+
   const r = await appeler('POST', `${BASE}/v13/deployments${team()}`, {
     headers: entetes(),
     corps: {
       name: nom,
       project: projectId,
       target: 'production',
-      gitSource: { type: 'github', repo: process.env.MOTEUR_GITHUB_REPO, ref: 'main' },
+      gitSource: { type: 'github', repoId, ref: 'main' },
     },
   });
   if (!r.ok) throw new Error('déploiement : ' + await r.text());

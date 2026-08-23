@@ -22,6 +22,11 @@ const arg = (nom, defaut = '') => {
   return i > -1 ? String(process.argv[i + 1] || '') : defaut;
 };
 const DRY = process.argv.includes('--dry');
+/* --sans-base : execution REELLE avec l'etat porte en memoire — le mode
+   du premier provisionnement supervise, avant que le control plane ait
+   sa propre base. Chaque etape s'affiche ; en cas d'echec, on relance
+   avec --reprendre-a <etape> et les refs deja connues. */
+const SANS_BASE = process.argv.includes('--sans-base');
 
 /* Dépôt d'état : en mémoire pour --dry, Supabase sinon. */
 function depotMemoire() {
@@ -70,9 +75,18 @@ function depotSupabase() {
   console.log(`  boutique : ${client.nom_boutique} · ${client.sous_domaine}.shopflow.fr · ${client.email}\n`);
 
   if (DRY) activerDry();
-  const depot = DRY ? depotMemoire() : depotSupabase();
+  const depot = (DRY || SANS_BASE) ? depotMemoire() : depotSupabase();
 
-  const instance = { id: 'cli-' + Date.now(), etape: arg('reprendre-a', 'a_faire') };
+  const instance = {
+    id: 'cli-' + Date.now(),
+    etape: arg('reprendre-a', 'a_faire'),
+    supabase_ref: arg('ref', ''),
+    supabase_url: arg('ref') ? 'https://' + arg('ref') + '.supabase.co' : '',
+    supabase_service_key: arg('service-key', ''),
+    vercel_project_id: arg('vercel-id', ''),
+    url_admin: arg('url-admin', ''),
+    url_boutique: arg('url-boutique', ''),
+  };
   await avancer(instance, client, depot);
 
   console.log(`\n  Instance prête : ${instance.url_admin || '(dry)'}`);
