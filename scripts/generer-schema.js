@@ -214,9 +214,13 @@ function verifierEquilibre(sql) {
          table visée. */
       const idx = nu.match(/CREATE (?:UNIQUE )?INDEX\s+(?:IF NOT EXISTS\s+)?"?[\w]+"?\s+ON\s+("?[\w]+"?)\s*\(([^)]*)\)(?:\s+WHERE\s+(.+))?/i);
       const chk = nu.match(/ALTER TABLE\s+("?[\w]+"?)\s+ADD\s+CONSTRAINT\s+"?[\w]+"?\s+CHECK\s*\(([\s\S]*)\)/i);
+      /* COMMENT ON COLUMN t.col : le commentaire d'une colonne jamais
+         créée (la 039, encore) échoue aussi — même validation. */
+      const cmt = nu.match(/COMMENT ON COLUMN\s+("?[\w]+"?)\.("?[\w]+"?)/i);
       const aValider = idx
         ? { table: idx[1], corps: idx[2] + ' ' + (idx[3] || '') }
-        : chk ? { table: chk[1], corps: chk[2] } : null;
+        : chk ? { table: chk[1], corps: chk[2] }
+        : cmt ? { table: cmt[1], corps: cmt[2] } : null;
       if (aValider) {
         const table = aValider.table.replace(/"/g, '');
         const props = new Set(Object.keys(defs[table]?.properties || {}).map(x => x.toLowerCase()));

@@ -1,4 +1,4 @@
--- SCHEMA 30af02b20b74 — genere le 2026-08-23 14:06
+-- SCHEMA 31e194f51a8d — genere le 2026-08-23 14:10
 -- ═══════════════════════════════════════════════════════════════
 --  SCHÉMA CONSOLIDÉ — instance neuve
 --
@@ -1345,10 +1345,6 @@ COMMENT ON COLUMN email_templates.lang IS
 
 -- 039_langue_profil_client.sql
 ALTER TABLE customer_profiles DROP CONSTRAINT IF EXISTS customer_profiles_lang_valide;
-
--- 039_langue_profil_client.sql
-COMMENT ON COLUMN customer_profiles.lang IS
-  'Langue preferee du client. NULL = inconnue, on deduit du pays de livraison. Volontairement sans DEFAULT : voir country, dont le DEFAULT ''FR'' rend 12 profils sur 19 indistinguables entre « francais » et « non renseigne ».';
 
 -- 039_langue_profil_client.sql
 COMMENT ON COLUMN customer_profiles.country IS
