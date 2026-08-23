@@ -24,6 +24,13 @@ export const TP = {
   horsCmd: { fr: 'Article hors commande', en: 'Item not in this order', sv: 'Artikeln finns inte i ordern' },
   horsCmdD: { fr: 'absent de la commande', en: 'not in order', sv: 'saknas i order' },
   dejaAtteint: { fr: 'Quantité déjà atteinte', en: 'Quantity already reached', sv: 'Antalet är redan uppnått' },
+  /* Rejeu d'une expédition déjà passée : le serveur n'a rien retiré de
+     plus, et le dire évite que l'opérateur recommence une troisième fois. */
+  dejaExpedie: {
+    fr: 'Déjà expédié — aucun stock retiré en double',
+    en: 'Already shipped — no stock removed twice',
+    sv: 'Redan skickat — inget lager draget två gånger',
+  },
   emballage: { fr: 'Emballage', en: 'Packing', sv: 'Paketering' },
   emballageD: {
     fr: 'Tous les articles sont scannés. La validation passe la commande en expédiée et prévient le client.',

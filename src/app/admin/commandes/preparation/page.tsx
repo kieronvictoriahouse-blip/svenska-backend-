@@ -152,9 +152,15 @@ export default function PreparationPage() {
   async function expedier(tout: boolean) {
     if (!active || (tout ? !complete : !partiel)) return;
 
-    const colis = Object.fromEntries(
-      lines.map(l => [l.product_id, Math.min(l.qty, picked[l.product_id] || 0)])
-           .filter(([, n]) => (n as number) > 0));
+    /* Les quantités s'ADDITIONNENT par produit. Un remplacement de
+       rupture ajoute une seconde ligne sur la même référence, et
+       `Object.fromEntries` ne garde alors que la dernière — la première
+       ne partait jamais. */
+    const colis: Record<string, number> = {};
+    for (const l of lines) {
+      const n = Math.min(l.qty, picked[l.product_id] || 0);
+      if (n > 0) colis[l.product_id] = (colis[l.product_id] || 0) + n;
+    }
 
     if (!tout) {
       const manque = lines
@@ -165,45 +171,32 @@ export default function PreparationPage() {
 
     setBusy(true);
     try {
-      /* Le stock part ICI, a l'expedition, et sur ce qui part REELLEMENT.
-         `products.stock` designe ce qu'il y a physiquement en rayon : le
-         paiement reserve la marchandise sans la faire disparaitre, c'est
-         le carton qui la fait sortir. Une expedition partielle ne retire
-         donc que son colis, le reliquat restant reserve. */
-      for (const [productId, n] of Object.entries(colis)) {
-        const p = products.find(x => x.id === productId);
-        if (!p?.track_stock) continue;
-        await adminFetch('/api/stock/movement', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_id: productId, delta: -(n as number),
-            reason: 'picking', reference: active.order_number,
-          }),
-        }).catch(() => {});
-      }
+      /* Un SEUL appel : le serveur sort le stock et solde la commande.
 
-      // Le cumul sert au reste du ; le dernier colis alimente le bon de
-      // livraison, qui decrit un colis et non un historique.
-      const cumul = { ...(active.shipped_qty || {}) };
-      for (const [productId, n] of Object.entries(colis)) {
-        cumul[productId] = (Number(cumul[productId]) || 0) + (n as number);
-      }
+         Avant, cet écran enchaînait lui-même les écritures de stock puis
+         la mise à jour de la commande. Quand la seconde échouait, le
+         stock était déjà parti : l'opérateur voyait « échec »,
+         recommençait, et le stock sortait une deuxième fois. SD-0107 le
+         17/08 et SD-0105 le 20/08 y sont passées — 6 unités perdues.
 
-      const res = await adminFetch(`/api/orders/${active.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: tout ? 'shipped' : 'partial',
-          picking: tout ? picked : {},
-          shipped_qty: cumul,
-          last_shipment: colis,
-          picked_at: new Date().toISOString(),
-          ...(tout ? {} : { backorder_at: new Date().toISOString() }),
-        }),
+         Le serveur plafonne le colis à ce qui reste réellement dû, relu
+         en base. Relancer après un échec est donc sans danger : il n'y a
+         plus rien à retirer. */
+      const res = await adminFetch(`/api/orders/${active.id}/expedier`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ colis, tout }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(data?.error || '');
+
+      const cumul = data.shipped_qty || {};
+      /* Le serveur tranche le statut sur l'état réel : il sait ce qui
+         reste dû, l'écran ne fait que l'afficher. */
+      tout = data.statut === 'shipped';
+      if (data.rejeu) say(t('dejaExpedie'));
 
       if (tout) {
-        say(`${active.order_number} ${t('expediee')}`);
+        if (!data.rejeu) say(`${active.order_number} ${t('expediee')}`);
         setOrders(os => os.filter(o => o.id !== active.id));
         const rest = orders.filter(o => o.id !== active.id);
         if (rest.length) selectOrder(rest[0]); else { setActiveId(null); setPicked({}); }

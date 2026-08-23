@@ -107,6 +107,52 @@ const info = m => console.log('        ' + m);
   }
   if (!ruptures && !fins) ok(`chaine intacte sur les ${controles} produits ayant un journal complet`);
 
+  /* ── 1 bis. Un mouvement dit-il la vérité sur lui-même ? ──────────
+     `delta` doit valoir `qty_after − qty_before`. Quand la route de
+     mouvement plafonnait le stock à zéro, elle écrivait −1 en laissant
+     0 → 0 : le journal annonçait une sortie qui n'avait pas eu lieu.
+     La chaîne restait pourtant continue, donc le contrôle 1 ne voyait
+     rien. Il fallait regarder le mouvement lui-même. */
+  titre('1 bis. Un mouvement dit-il la verite sur lui-meme ?');
+  const menteurs = (mouvements || []).filter(m =>
+    m.qty_before !== null && m.qty_after !== null && m.delta !== null &&
+    Number(m.delta) !== Number(m.qty_after) - Number(m.qty_before));
+  if (!menteurs.length) ok('chaque mouvement annonce exactement ce quil a fait');
+  else {
+    ko(`${menteurs.length} mouvement(s) annoncent une variation qu'ils n'ont pas faite`);
+    for (const m of menteurs.slice(0, 12)) {
+      info(`${String(m.created_at).slice(0, 19)} ${nom(m.product_id)} : delta ${m.delta}, `
+         + `mais ${m.qty_before} -> ${m.qty_after} (${m.reason}${m.reference ? ' ' + m.reference : ''})`);
+    }
+    if (menteurs.length > 12) info(`… et ${menteurs.length - 12} autres`);
+  }
+
+  /* ── 1 ter. Une expédition a-t-elle sorti plus que le dû ? ────────
+     Le vrai risque du modèle actuel : deux passes d'expédition sur la
+     même commande. Le stock sort deux fois, la commande n'enregistre
+     qu'un colis, et rien ne le signale. */
+  titre('1 ter. Une expedition a-t-elle sorti plus que le du ?');
+  const sorties = {};
+  for (const m of mouvements || []) {
+    if (m.reason !== 'picking' || !m.reference) continue;
+    const c = (sorties[m.reference] = sorties[m.reference] || {});
+    c[m.product_id] = (c[m.product_id] || 0) + Math.abs(Number(m.delta) || 0);
+  }
+  let exces = 0;
+  for (const [ref, parProduit] of Object.entries(sorties)) {
+    const o = (commandes || []).find(x => x.order_number === ref);
+    if (!o) continue;
+    const du = {};
+    for (const l of J(o.lines)) {
+      if (l.product_id) du[l.product_id] = (du[l.product_id] || 0) + (Number(l.qty) || 0);
+    }
+    for (const [pid, sorti] of Object.entries(parProduit)) {
+      const ecart = sorti - (du[pid] || 0);
+      if (ecart > 0) { exces++; ko(`${ref} : ${nom(pid)} — ${du[pid] || 0} du, ${sorti} sorti (+${ecart} en trop)`); }
+    }
+  }
+  if (!exces) ok('aucune expedition na sorti plus que ce qui etait du');
+
   /* ── 2. Les nouveaux mouvements sont-ils complets ? ───────────── */
   titre('2. Les mouvements recents portent-ils leur photo ?');
   const recents = (mouvements || []).filter(m => depuisJournal(m.created_at));

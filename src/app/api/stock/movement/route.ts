@@ -32,7 +32,20 @@ export async function POST(req: NextRequest) {
       const delta = it.counted != null ? (Number(it.counted) - before) : (Number(it.delta) || 0);
       if (!delta) continue;
 
-      const after = Math.max(0, before + delta);
+      /* Pas de plancher à zéro, et c'est important.
+
+         Ce `Math.max(0, …)` écrivait un mouvement de −1 en laissant le
+         stock à 0 : le journal annonçait une sortie qui n'avait pas eu
+         lieu. Quatre lignes de SD-0107 sont dans cet état — la
+         marchandise est partie chez le client, le journal le dit, et le
+         stock n'a jamais bougé.
+
+         Un stock négatif est un signal voulu : il dit qu'on a livré plus
+         que ce qui était enregistré. L'écraser à zéro efface justement
+         l'information qu'on cherchait à conserver. `lib/stock.ts` ne
+         plafonne pas non plus — les deux chemins d'écriture disent
+         désormais la même chose. */
+      const after = before + delta;
 
       await supabaseAdmin.from('products').update({ stock: after }).eq('id', productId);
       await supabaseAdmin.from('stock_movements').insert({

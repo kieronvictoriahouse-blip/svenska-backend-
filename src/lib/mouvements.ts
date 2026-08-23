@@ -68,6 +68,16 @@ export type Seance = {
  * (une commande, un contrôle). À défaut, on regroupe par motif et par
  * jour — deux réceptions le même jour chez deux fournisseurs portent
  * des motifs différents, elles ne se mélangent donc pas.
+ *
+ * La référence NE SUFFIT PAS comme clé. Une commande porte son numéro
+ * pendant toute sa vie : la déduction au paiement du 13/08 et
+ * l'expédition du 20/08 ont la même référence. Les regrouper affichait
+ * une seule séance, datée du jour le plus récent et étiquetée du motif
+ * le plus récent — sept jours d'écart présentés comme un seul geste, et
+ * une sortie de stock à la commande maquillée en expédition.
+ *
+ * La clé inclut donc la catégorie et le jour : ce qui s'est passé, et
+ * quand. Deux gestes différents restent deux lignes.
  */
 export function grouper(
   mouvements: Mouvement[],
@@ -78,7 +88,9 @@ export function grouper(
   for (const m of mouvements) {
     const jour = String(m.created_at).slice(0, 10);
     const categorie = categoriser(m.reason);
-    const cle = m.reference ? `ref:${m.reference}` : `mot:${m.reason || '?'}:${jour}`;
+    const cle = m.reference
+      ? `ref:${m.reference}:${categorie}:${jour}`
+      : `mot:${m.reason || '?'}:${jour}`;
 
     let s = par.get(cle);
     if (!s) {
