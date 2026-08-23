@@ -114,12 +114,6 @@ export async function POST(req: NextRequest) {
           .neq('id', orderId);
       }
 
-      // Décrémenter le stock — skip pour les commandes test.
-      // Passe par applySaleStock : chaque ligne écrit un mouvement rattaché
-      // à la commande, ce qui rend la déduction traçable et idempotente
-      // (un webhook rejoué ne déduit pas deux fois). Un échec est journalisé
-      // au lieu d'être avalé : c'est ce silence qui avait laissé le stock
-      // dériver de +77 unités.
       /* PLUS DE DEDUCTION ICI — c'est deliberé.
          `products.stock` designe desormais ce qui est physiquement en
          rayon. Une commande payee RESERVE sa marchandise (calcul dans

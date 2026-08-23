@@ -114,11 +114,21 @@ const info = m => console.log('        ' + m);
      La chaîne restait pourtant continue, donc le contrôle 1 ne voyait
      rien. Il fallait regarder le mouvement lui-même. */
   titre('1 bis. Un mouvement dit-il la verite sur lui-meme ?');
-  const menteurs = (mouvements || []).filter(m =>
+  /* Le plancher a zero (retire le 20/08/2026) ecrivait des deltas sans
+     effet. Les 13 mouvements ecrits avant sont une histoire connue —
+     leur marchandise correspond a la liste « comptage physique » du
+     script de correction. On ne crie que sur du NOUVEAU : une alerte
+     qu'aucune action ne peut eteindre finit par ne plus etre lue. */
+  const SINCERITE = Date.parse('2026-08-21T00:00:00Z');
+  const tousMenteurs = (mouvements || []).filter(m =>
     m.qty_before !== null && m.qty_after !== null && m.delta !== null &&
     Number(m.delta) !== Number(m.qty_after) - Number(m.qty_before));
-  if (!menteurs.length) ok('chaque mouvement annonce exactement ce quil a fait');
-  else {
+  const menteurs = tousMenteurs.filter(m => +new Date(m.created_at) >= SINCERITE);
+  const archives = tousMenteurs.length - menteurs.length;
+  if (!menteurs.length) {
+    ok('chaque mouvement recent annonce exactement ce quil a fait'
+      + (archives ? ` (${archives} archives d'avant le 21/08, plancher a zero — connues)` : ''));
+  } else {
     ko(`${menteurs.length} mouvement(s) annoncent une variation qu'ils n'ont pas faite`);
     for (const m of menteurs.slice(0, 12)) {
       info(`${String(m.created_at).slice(0, 19)} ${nom(m.product_id)} : delta ${m.delta}, `

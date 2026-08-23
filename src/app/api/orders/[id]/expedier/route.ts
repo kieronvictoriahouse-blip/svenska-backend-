@@ -39,7 +39,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json().catch(() => ({} as any));
   const demande: Record<string, number> = body.colis || {};
-  const soldeTout = body.tout === true;
+  /* `body.tout` n'est plus lu : le statut se déduit de ce qui reste dû
+     en base, jamais de l'intention de l'appelant. */
 
   const { data: order } = await supabaseAdmin
     .from('orders').select('*').eq('id', params.id).maybeSingle();
@@ -77,6 +78,50 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
   }
 
+  /* ── Réclamer AVANT de déduire ────────────────────────────────────
+     La commande s'écrit d'abord, conditionnée à `updated_at` : si un
+     double-clic ou un second onglet est passé entre notre lecture et
+     ici, l'écriture ne prend pas et on s'arrête SANS avoir touché au
+     stock. L'ordre inverse — déduire puis solder — est exactement ce
+     qui a sorti deux fois SD-0105 et SD-0107.
+
+     Si la déduction échoue après la réclamation, la commande dit
+     « parti » sans sortie de stock : le contrôle 5 de l'audit et le
+     cron quotidien le signalent, et la réponse le dit en clair. C'est
+     le sens d'échec choisi — un stock trop haut se voit et se corrige,
+     une double sortie s'était fondue dans la masse pendant trois
+     jours. */
+  const cumul: Record<string, number> = { ...deja };
+  for (const [pid, n] of Object.entries(colis)) cumul[pid] = (Number(cumul[pid]) || 0) + n;
+
+  const resteApres = Object.keys(du).reduce(
+    (s, pid) => s + Math.max(0, (du[pid] || 0) - (Number(cumul[pid]) || 0)), 0);
+  const statut = resteApres > 0 ? 'partial' : 'shipped';
+
+  const maj: any = {
+    status: statut,
+    shipped_qty: cumul,
+    last_shipment: colis,
+    picked_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (statut === 'partial') maj.backorder_at = new Date().toISOString();
+  if (statut === 'shipped') maj.picking = null;
+
+  let ecriture = supabaseAdmin.from('orders').update(maj).eq('id', order.id);
+  /* La garde optimiste. Un ancien enregistrement sans updated_at ne
+     peut pas être gardé — on écrit alors sans condition, le plafond sur
+     le reste dû protège déjà du rejeu, à la fenêtre de course près. */
+  if (order.updated_at) ecriture = ecriture.eq('updated_at', order.updated_at);
+  const { data: reclame, error: majErr } = await ecriture.select('id');
+  if (majErr) return NextResponse.json({ error: majErr.message }, { status: 500 });
+  if (!reclame || !reclame.length) {
+    return NextResponse.json({
+      ok: true, rejeu: true, applied: [], ignores: Object.keys(demande),
+      message: 'Cette commande vient d’être expédiée par un autre poste — rien n’a été refait.',
+    });
+  }
+
   /* ── Sortie de stock ──────────────────────────────────────────────
      `order_id` est renseigné : c'est ce qui rattache la sortie à la
      commande et rend l'anomalie détectable après coup. Les sorties de
@@ -95,47 +140,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       await adjustStock(pid, -n, {
         reason: 'picking',
         reference: order.order_number,
+        order_id: order.id,
         note: `Expédition ${order.order_number}`,
       });
       applied.push({ product_id: pid, qty: n });
     } catch (e: any) {
       echecs.push({ product_id: pid, erreur: e?.message || 'erreur inconnue' });
     }
-  }
-
-  /* ── Solde de la commande ─────────────────────────────────────────
-     Écrit dans la foulée, sur la même donnée que celle qui a servi au
-     plafonnement. Un échec ici laisse `shipped_qty` en retard sur le
-     stock — mais un rejeu ne redéduira pas : il repartira de la valeur
-     enregistrée et plafonnera de nouveau. */
-  const cumul: Record<string, number> = { ...deja };
-  for (const [pid, n] of Object.entries(colis)) cumul[pid] = (Number(cumul[pid]) || 0) + n;
-
-  /* Le statut se déduit de l'état réel, pas de l'intention de
-     l'appelant : reste-t-il quelque chose à envoyer ? */
-  const resteApres = Object.keys(du).reduce(
-    (s, pid) => s + Math.max(0, (du[pid] || 0) - (Number(cumul[pid]) || 0)), 0);
-  const statut = resteApres > 0 ? 'partial' : 'shipped';
-
-  const maj: any = {
-    status: statut,
-    shipped_qty: cumul,
-    last_shipment: colis,
-    picked_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  if (statut === 'partial') maj.backorder_at = new Date().toISOString();
-  if (statut === 'shipped') maj.picking = null;
-
-  const { error: majErr } = await supabaseAdmin.from('orders').update(maj).eq('id', order.id);
-  if (majErr) {
-    return NextResponse.json({
-      error: majErr.message,
-      /* Le stock est déjà sorti : le dire franchement plutôt que de
-         laisser croire que rien ne s'est passé. Un rejeu est sans
-         danger, il ne retirera rien de plus. */
-      stock_sorti: applied, avertissement: 'Stock déjà décrémenté — relancer est sans risque.',
-    }, { status: 500 });
   }
 
   return NextResponse.json({

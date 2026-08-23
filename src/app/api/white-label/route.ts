@@ -89,10 +89,16 @@ export async function POST(req: NextRequest) {
         const { data: product } = await supabaseAdmin.from('products')
           .select('id').eq('name_fr', row.produit || row.product).single();
         if (product) {
-          await supabaseAdmin.from('products').update({
-            stock: parseInt(row.stock || 0),
-            track_stock: true,
-          }).eq('id', product.id);
+          await supabaseAdmin.from('products').update({ track_stock: true }).eq('id', product.id);
+          /* La quantité passe par le journal comme tout le reste. Un
+             import qui écrit le stock en silence, c'est un inventaire
+             fantôme : six mois plus tard, personne ne sait pourquoi la
+             valeur a changé ce jour-là. */
+          const { poserStock } = await import('@/lib/stock');
+          await poserStock(product.id, parseInt(row.stock || 0), {
+            reason: 'import',
+            note: 'Import CSV depuis les réglages',
+          });
         }
       }
       results.imported++;

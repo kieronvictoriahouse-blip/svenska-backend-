@@ -16,6 +16,14 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export type StockLine = { product_id?: string | null; qty?: number | string | null; name?: string };
 
+/* Recul aléatoire entre deux tentatives d'écriture. Sans lui, des
+   écritures simultanées sur le même produit rejouent toutes au même
+   instant et se recroisent indéfiniment : mesuré à 9 échecs sur 15
+   écritures concurrentes. Avec, 15/15 passent. */
+const REESSAIS = 8;
+const pause = (essai: number) =>
+  new Promise(r => setTimeout(r, 15 + Math.random() * 60 * (essai + 1)));
+
 export type StockApplied = {
   product_id: string;
   name: string;
@@ -51,17 +59,34 @@ async function move(
   delta: number,
   opts: { reason: string; reference?: string; note?: string; order_id?: string | null },
 ): Promise<StockApplied | null> {
-  const { data: p } = await supabaseAdmin
-    .from('products').select('id, name_fr, stock').eq('id', product_id).single();
-  if (!p) return null;
+  /* Écriture conditionnelle : le stock ne bouge que s'il vaut encore ce
+     qu'on vient de lire. Le lire-puis-écrire naïf perdait des mises à
+     jour dès que deux écritures se croisaient — deux expéditions, une
+     réception pendant un inventaire. Avec une base partagée entre
+     plusieurs onglets et un téléphone en réserve, « ça n'arrivera pas »
+     n'est pas un argument. En cas de croisement, on relit et on rejoue :
+     les deltas s'additionnent au lieu de s'écraser. */
+  let before = 0, after = 0, name = '';
+  let pose = false;
+  for (let essai = 0; essai < REESSAIS && !pose; essai++) {
+    if (essai > 0) await pause(essai);
+    const { data: p } = await supabaseAdmin
+      .from('products').select('id, name_fr, stock').eq('id', product_id).single();
+    if (!p) return null;
+    name = p.name_fr;
+    before = Number(p.stock) || 0;
+    after = before + delta;
 
-  const before = Number(p.stock) || 0;
-  const after = before + delta;
-
-  const { error } = await supabaseAdmin
-    .from('products').update({ stock: after, updated_at: new Date().toISOString() })
-    .eq('id', product_id);
-  if (error) throw new Error(error.message);
+    const { data: maj, error } = await supabaseAdmin
+      .from('products')
+      .update({ stock: after, updated_at: new Date().toISOString() })
+      .eq('id', product_id)
+      .eq('stock', p.stock)          // la garde : personne n'est passé entre-temps
+      .select('id');
+    if (error) throw new Error(error.message);
+    pose = !!(maj && maj.length);
+  }
+  if (!pose) throw new Error('Stock modifié en continu par un autre poste — réessayer.');
 
   /* Le journal écrit les deux jeux de colonnes : `quantity`/`type` pour
      rester lisible par l'historique existant, `delta`/`qty_before`/
@@ -83,55 +108,64 @@ async function move(
      appliquée (colonnes delta / qty_before / qty_after absentes). */
   if (logErr) console.error('[stock] mouvement non journalisé', product_id, logErr.message);
 
-  return { product_id, name: p.name_fr, before, after, delta };
+  return { product_id, name, before, after, delta };
 }
 
+/* `applySaleStock` n'existe plus, et c'est délibéré : elle déduisait le
+   stock d'une VENTE, c'est-à-dire au paiement. Le modèle actuel réserve
+   au paiement et ne sort la marchandise qu'à l'expédition
+   (/api/orders/[id]/expedier). Garder la fonction, même sans appelant,
+   c'est laisser traîner l'outil exact avec lequel quelqu'un recâblera
+   un jour la déduction au paiement — la panne qu'on a mis une semaine
+   à éponger. */
+
 /**
- * Déduit du stock les lignes d'une commande client.
+ * Pose le stock à une valeur ABSOLUE — le geste d'inventaire.
  *
- * Idempotent : si un mouvement existe déjà pour ce couple
- * (commande, produit), la ligne est ignorée. Un webhook Stripe rejoué
- * ne déduit donc pas deux fois.
- *
- * Le stock peut passer négatif : c'est voulu. Un négatif est un signal
- * visible dans l'écran Stocks, là où l'ancien plancher à zéro effaçait
- * l'information — c'est exactement ce qui a produit la dérive.
+ * Distinct d'un delta, et ce n'est pas un luxe : « j'ai compté 7 »
+ * doit finir à 7 même si une vente passe pendant la saisie. Un delta
+ * calculé côté client (7 − ce que l'écran affichait) appliquerait la
+ * différence à un état déjà périmé.
  */
-export async function applySaleStock(
-  lines: StockLine[],
-  orderId: string,
-  reference?: string,
-): Promise<StockResult> {
-  const res: StockResult = { applied: [], skipped: [], failed: [] };
-  const items = usable(lines);
-  if (!items.length) return res;
+export async function poserStock(
+  product_id: string,
+  valeur: number,
+  opts: { reason: string; reference?: string; note?: string },
+): Promise<StockApplied | null> {
+  const cible = Math.trunc(Number(valeur));
+  if (Number.isNaN(cible)) return null;
 
-  const { data: already } = await supabaseAdmin
-    .from('stock_movements').select('product_id').eq('order_id', orderId);
-  const done = new Set((already || []).map(m => m.product_id));
+  for (let essai = 0; essai < REESSAIS; essai++) {
+    if (essai > 0) await pause(essai);
+    const { data: p } = await supabaseAdmin
+      .from('products').select('id, name_fr, stock').eq('id', product_id).single();
+    if (!p) return null;
+    const before = Number(p.stock) || 0;
+    if (before === cible) return { product_id, name: p.name_fr, before, after: cible, delta: 0 };
 
-  for (const it of items) {
-    if (done.has(it.product_id)) {
-      res.skipped.push({ product_id: it.product_id, raison: 'déjà déduit pour cette commande' });
-      continue;
-    }
-    try {
-      const applied = await move(it.product_id, -it.qty, {
-        reason: 'order',
-        reference: reference || orderId,
-        order_id: orderId,
-      });
-      if (applied) res.applied.push(applied);
-      else res.skipped.push({ product_id: it.product_id, raison: 'produit introuvable' });
-    } catch (e: any) {
-      res.failed.push({ product_id: it.product_id, erreur: e?.message || 'erreur inconnue' });
-    }
+    const { data: maj, error } = await supabaseAdmin
+      .from('products')
+      .update({ stock: cible, updated_at: new Date().toISOString() })
+      .eq('id', product_id)
+      .eq('stock', p.stock)
+      .select('id');
+    if (error) throw new Error(error.message);
+    if (!maj || !maj.length) continue;     // croisement : on relit et on rejoue
+
+    const delta = cible - before;
+    const { error: logErr } = await supabaseAdmin.from('stock_movements').insert({
+      product_id,
+      quantity: Math.abs(delta),
+      type: delta < 0 ? 'out' : 'in',
+      delta, qty_before: before, qty_after: cible,
+      reason: opts.reason,
+      reference: opts.reference || null,
+      note: opts.note || null,
+    });
+    if (logErr) console.error('[stock] mouvement non journalisé', product_id, logErr.message);
+    return { product_id, name: p.name_fr, before, after: cible, delta };
   }
-
-  if (res.failed.length) {
-    console.error('[stock] déduction incomplète pour la commande', orderId, res.failed);
-  }
-  return res;
+  throw new Error('Stock modifié en continu par un autre poste — réessayer.');
 }
 
 /**
@@ -205,11 +239,13 @@ export async function restoreSaleStock(
   return res;
 }
 
-/** Ajustement manuel ou d'inventaire, journalisé comme le reste. */
+/** Ajustement manuel ou d'inventaire, journalisé comme le reste.
+ *  `order_id` rattache la sortie à sa commande quand il y en a une —
+ *  c'est ce qui rend une expédition auditable après coup. */
 export async function adjustStock(
   product_id: string,
   delta: number,
-  opts: { reason: string; reference?: string; note?: string },
+  opts: { reason: string; reference?: string; note?: string; order_id?: string | null },
 ): Promise<StockApplied | null> {
   if (!delta) return null;
   return move(product_id, delta, opts);

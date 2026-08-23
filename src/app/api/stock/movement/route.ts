@@ -18,49 +18,32 @@ export async function POST(req: NextRequest) {
   const applied: any[] = [];
   const failed: string[] = [];
 
+  /* Tout passe par lib/stock — le SEUL point d'écriture. Cette route
+     dupliquait sa logique (lecture, écriture, journal) : deux copies
+     d'un même geste finissent toujours par diverger, et celle-ci avait
+     déjà divergé une fois (le plancher à zéro qui faisait mentir le
+     journal).
+
+     Deux gestes distincts, et la distinction compte :
+     · `counted` — l'inventaire pose une valeur ABSOLUE : « j'ai compté
+       7 » finit à 7 même si une vente passe pendant la saisie ;
+     · `delta` — la variation s'additionne atomiquement à l'état réel. */
+  const { adjustStock, poserStock } = await import('@/lib/stock');
   for (const it of items) {
     const productId = it.product_id;
     if (!productId) continue;
-
     try {
-      const { data: prod } = await supabaseAdmin
-        .from('products').select('id, name_fr, stock').eq('id', productId).single();
-      if (!prod) { failed.push(productId); continue; }
-
-      const before = Number(prod.stock) || 0;
-      // Soit un delta, soit une quantité comptée absolue (inventaire).
-      const delta = it.counted != null ? (Number(it.counted) - before) : (Number(it.delta) || 0);
-      if (!delta) continue;
-
-      /* Pas de plancher à zéro, et c'est important.
-
-         Ce `Math.max(0, …)` écrivait un mouvement de −1 en laissant le
-         stock à 0 : le journal annonçait une sortie qui n'avait pas eu
-         lieu. Quatre lignes de SD-0107 sont dans cet état — la
-         marchandise est partie chez le client, le journal le dit, et le
-         stock n'a jamais bougé.
-
-         Un stock négatif est un signal voulu : il dit qu'on a livré plus
-         que ce qui était enregistré. L'écraser à zéro efface justement
-         l'information qu'on cherchait à conserver. `lib/stock.ts` ne
-         plafonne pas non plus — les deux chemins d'écriture disent
-         désormais la même chose. */
-      const after = before + delta;
-
-      await supabaseAdmin.from('products').update({ stock: after }).eq('id', productId);
-      await supabaseAdmin.from('stock_movements').insert({
-        product_id: productId,
-        // Les deux jeux de colonnes : `quantity`/`type` pour rester lisible
-        // par l'historique d'avant le journal, le reste pour le nouveau.
-        quantity: Math.abs(delta),
-        type: delta < 0 ? 'out' : 'in',
-        delta, qty_before: before, qty_after: after,
+      const options = {
         reason: it.reason || reason,
-        reference: it.reference || reference,
-        note: it.note || null,
-      });
-
-      applied.push({ product_id: productId, name: prod.name_fr, before, after, delta });
+        reference: it.reference || reference || undefined,
+        note: it.note || undefined,
+      };
+      const r = it.counted != null
+        ? await poserStock(productId, Number(it.counted), options)
+        : await adjustStock(productId, Number(it.delta) || 0, options);
+      if (r) applied.push(r);
+      else if (it.counted == null && !(Number(it.delta) || 0)) { /* delta nul : rien à faire */ }
+      else if (!r) failed.push(productId);
     } catch {
       failed.push(productId);
     }
