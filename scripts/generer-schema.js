@@ -29,8 +29,11 @@ const env = fs.readFileSync(path.join(__dirname, '..', '.env.local'), 'utf8').re
 const lire = k => ((env.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1] || '')
   .trim().replace(/^["']|["']$/g, '');
 
-/* Les vues : présentes dans l'introspection comme des tables, mais leur
-   CREATE vient des migrations. */
+/* Les vues de la migration 002 sont du poids mort : AUCUNE n'est lue
+   par le code, et leurs definitions referencent des colonnes que les
+   tables remodelees a la main n'ont plus (mp.product_id). Elles ne se
+   greffent pas — v_campaign_stats reste seulement exclue des CREATE
+   TABLE, car l'introspection la presente comme une table. */
 const VUES = new Set(['v_campaign_stats']);
 
 /* ── Types PostgREST → SQL ──────────────────────────────────────────
@@ -153,7 +156,7 @@ function verifierEquilibre(sql) {
   /* ── 2. Les greffes, depuis les migrations ────────────────────── */
   const dossier = path.join(__dirname, '..', 'supabase', 'migrations');
   const fichiers = fs.readdirSync(dossier).filter(f => f.endsWith('.sql')).sort();
-  const GARDE = /^(CREATE (UNIQUE )?INDEX|CREATE POLICY|DROP POLICY|CREATE OR REPLACE VIEW|CREATE VIEW|CREATE TRIGGER|DROP TRIGGER|CREATE OR REPLACE FUNCTION|CREATE FUNCTION|DROP FUNCTION|COMMENT ON|ALTER TABLE [\w"]+ ENABLE ROW LEVEL SECURITY|ALTER TABLE [\w"]+ (DROP CONSTRAINT|ADD\s+CONSTRAINT))/i;
+  const GARDE = /^(CREATE (UNIQUE )?INDEX|CREATE POLICY|DROP POLICY|CREATE TRIGGER|DROP TRIGGER|CREATE OR REPLACE FUNCTION|CREATE FUNCTION|DROP FUNCTION|COMMENT ON|ALTER TABLE [\w"]+ ENABLE ROW LEVEL SECURITY|ALTER TABLE [\w"]+ (DROP CONSTRAINT|ADD\s+CONSTRAINT))/i;
   const presentes = new Set(tables.map(t => t.toLowerCase()));
   const greffes = [];
   const ecartees = [];

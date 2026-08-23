@@ -1,4 +1,4 @@
--- SCHEMA 709671ee292d — genere le 2026-08-23 13:58
+-- SCHEMA f8b33ae43695 — genere le 2026-08-23 14:04
 -- ═══════════════════════════════════════════════════════════════
 --  SCHÉMA CONSOLIDÉ — instance neuve
 --
@@ -1001,35 +1001,6 @@ CREATE POLICY "admin_margins"    ON margin_products  FOR ALL USING (auth.role() 
 -- 002_gestion_schema.sql
 DROP POLICY IF EXISTS "admin_settings" ON company_settings;
 CREATE POLICY "admin_settings"   ON company_settings FOR ALL USING (auth.role() = 'authenticated');
-
--- 002_gestion_schema.sql
--- ─── VUES UTILES ────────────────────────────────────────────────
-
--- Vue dashboard : CA et factures par mois
-CREATE OR REPLACE VIEW v_monthly_revenue AS
-SELECT
-  DATE_TRUNC('month', date) AS month,
-  COUNT(*)                   AS invoice_count,
-  SUM(total_ht)              AS total_ht,
-  SUM(total_ttc)             AS total_ttc,
-  SUM(CASE WHEN status = 'paid'  THEN total_ttc ELSE 0 END) AS paid_ttc,
-  SUM(CASE WHEN status IN ('sent','late') THEN total_ttc ELSE 0 END) AS pending_ttc
-FROM invoices
-WHERE status != 'draft'
-GROUP BY 1
-ORDER BY 1 DESC;
-
--- 002_gestion_schema.sql
--- Vue : produits sous le seuil de marge cible
-CREATE OR REPLACE VIEW v_low_margin_products AS
-SELECT
-  mp.*,
-  p.image_url,
-  p.price AS public_price
-FROM margin_products mp
-LEFT JOIN products p ON p.id = mp.product_id
-WHERE mp.margin_pct < 40
-ORDER BY mp.margin_pct ASC;
 
 -- 006_cms_home.sql
 ALTER TABLE cms_home ENABLE ROW LEVEL SECURITY;
