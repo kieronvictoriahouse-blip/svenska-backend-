@@ -154,7 +154,9 @@ function verifierEquilibre(sql) {
   const dossier = path.join(__dirname, '..', 'supabase', 'migrations');
   const fichiers = fs.readdirSync(dossier).filter(f => f.endsWith('.sql')).sort();
   const GARDE = /^(CREATE (UNIQUE )?INDEX|CREATE POLICY|DROP POLICY|CREATE OR REPLACE VIEW|CREATE VIEW|CREATE TRIGGER|DROP TRIGGER|CREATE OR REPLACE FUNCTION|CREATE FUNCTION|DROP FUNCTION|COMMENT ON|ALTER TABLE [\w"]+ ENABLE ROW LEVEL SECURITY|ALTER TABLE [\w"]+ (DROP CONSTRAINT|ADD\s+CONSTRAINT))/i;
+  const presentes = new Set(tables.map(t => t.toLowerCase()));
   const greffes = [];
+  const ecartees = [];
   const vues = new Set();
   for (const f of fichiers) {
     const sql = fs.readFileSync(path.join(dossier, f), 'utf8').replace(/\r/g, '');
@@ -170,6 +172,37 @@ function verifierEquilibre(sql) {
         if (nom && vues.has(nom)) continue;   // première définition = celle de la vue vivante ? non : la DERNIÈRE
         if (nom) vues.add(nom);
       }
+      /* Une greffe qui vise une table DISPARUE de la production (créée
+         par une vieille migration puis renommée ou supprimée à la main,
+         comme « clients » devenue « contacts ») ferait échouer tout le
+         fichier. L'introspection fait foi : table absente → greffe
+         écartée, et on le dit.
+
+         L'extraction des cibles est GRAMMATICALE, pas un balayage
+         global : la première version attrapait le « on » des
+         commentaires français (« on ne déduit jamais… ») et les alias
+         de jointure, et écartait des greffes parfaitement saines —
+         dont la contrainte des statuts de commande. On retire d'abord
+         commentaires et chaînes, puis on lit la construction propre à
+         chaque type d'instruction. */
+      const nu = inst
+        .replace(/--[^\n]*/g, ' ')
+        .replace(/'(?:[^']|'')*'/g, "''");
+      const cibles = [];
+      let m2;
+      if ((m2 = nu.match(/COMMENT ON (?:TABLE|COLUMN)\s+("?[\w]+"?)/i))) cibles.push(m2[1]);
+      if ((m2 = nu.match(/CREATE (?:UNIQUE )?INDEX\s+(?:IF NOT EXISTS\s+)?"?[\w]+"?\s+ON\s+(?:ONLY\s+)?("?[\w]+"?)/i))) cibles.push(m2[1]);
+      if ((m2 = nu.match(/(?:CREATE|DROP) POLICY\s+(?:IF EXISTS\s+)?"[^"]+"\s+ON\s+("?[\w]+"?)/i))) cibles.push(m2[1]);
+      if ((m2 = nu.match(/(?:CREATE|DROP) TRIGGER\s+(?:IF EXISTS\s+)?"?[\w]+"?[\s\S]*?\bON\s+("?[\w]+"?)/i))) cibles.push(m2[1]);
+      if ((m2 = nu.match(/ALTER TABLE\s+(?:ONLY\s+)?("?[\w]+"?)/i))) cibles.push(m2[1]);
+      for (const mv of nu.matchAll(/\b(?:FROM|JOIN)\s+("?[a-z_][\w]*"?)/g)) cibles.push(mv[1]);
+      const inconnues = [...new Set(cibles.map(n => n.replace(/"/g, '').toLowerCase()))]
+        .filter(n => !presentes.has(n) && !VUES.has(n) && !vues.has(n) && n !== 'schema_migrations');
+      if (inconnues.length) {
+        ecartees.push({ f, tete: tete.slice(0, 60), tables: inconnues });
+        continue;
+      }
+
       /* Rejouabilité : CREATE POLICY et CREATE TRIGGER n'ont pas de
          IF NOT EXISTS. Un DROP IF EXISTS systématique juste avant rend
          le fichier relançable — y compris après une exécution partielle
@@ -233,4 +266,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;\n\n`
   fs.writeFileSync(cible, final);
   console.log('install/schema.sql :', tables.length, 'tables,', fks.length, 'FK,', greffes.length, 'greffes,',
     Math.round(final.length / 1024), 'Ko — empreinte', empreinte);
+  if (ecartees.length) {
+    console.log('greffes ecartees (tables disparues de la production) :');
+    for (const e of ecartees) console.log('  -', e.f, '|', e.tete, '| tables :', e.tables.join(', '));
+  }
 })().catch(e => { console.error(e); process.exit(1); });

@@ -1,4 +1,4 @@
--- SCHEMA 29efc9d3266a — genere le 2026-08-23 13:55
+-- SCHEMA 709671ee292d — genere le 2026-08-23 13:58
 -- ═══════════════════════════════════════════════════════════════
 --  SCHÉMA CONSOLIDÉ — instance neuve
 --
@@ -987,17 +987,8 @@ CREATE TRIGGER margin_products_updated_at
 ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
 
 -- 002_gestion_schema.sql
-DROP POLICY IF EXISTS "admin_clients" ON clients;
--- Accès admin uniquement (authenticated) — pas de lecture publique
-CREATE POLICY "admin_clients"    ON clients          FOR ALL USING (auth.role() = 'authenticated');
-
--- 002_gestion_schema.sql
 DROP POLICY IF EXISTS "admin_invoices" ON invoices;
 CREATE POLICY "admin_invoices"   ON invoices         FOR ALL USING (auth.role() = 'authenticated');
-
--- 002_gestion_schema.sql
-DROP POLICY IF EXISTS "admin_suppliers" ON suppliers;
-CREATE POLICY "admin_suppliers"  ON suppliers        FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
 DROP POLICY IF EXISTS "admin_purchases" ON purchases;
@@ -1006,10 +997,6 @@ CREATE POLICY "admin_purchases"  ON purchases        FOR ALL USING (auth.role() 
 -- 002_gestion_schema.sql
 DROP POLICY IF EXISTS "admin_margins" ON margin_products;
 CREATE POLICY "admin_margins"    ON margin_products  FOR ALL USING (auth.role() = 'authenticated');
-
--- 002_gestion_schema.sql
-DROP POLICY IF EXISTS "admin_shipments" ON shipments;
-CREATE POLICY "admin_shipments"  ON shipments        FOR ALL USING (auth.role() = 'authenticated');
 
 -- 002_gestion_schema.sql
 DROP POLICY IF EXISTS "admin_settings" ON company_settings;
