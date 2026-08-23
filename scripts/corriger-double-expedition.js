@@ -127,6 +127,52 @@ const MOTIF = 'Correction double expédition';
     }
   }
 
+  /* ── shipped_qty en retard sur ce qui est reellement parti ────────
+     Meme cause : la premiere passe sortait le stock, sa mise a jour de
+     commande echouait, la seconde passe reecrivait `shipped_qty` depuis
+     la valeur d'AVANT. La commande sous-declare donc ce qu'elle a
+     envoye.
+
+     Ce n'est pas cosmetique. /api/orders/[id]/expedier plafonne le
+     colis a `du - shipped_qty` : tant que ce champ sous-declare, il
+     reste du « a expedier » sur une commande deja partie, et le stock
+     pourrait sortir une fois de plus. On aligne sur ce que le journal
+     prouve. */
+  console.log('');
+  console.log('COMMANDES QUI SOUS-DECLARENT CE QU\'ELLES ONT ENVOYE :');
+  console.log('');
+  let alignees = 0;
+  for (const [ref, parProduit] of Object.entries(sorti)) {
+    const o = (commandes || []).find(x => x.order_number === ref);
+    if (!o) continue;
+    const du = {};
+    for (const l of J(o.lines)) {
+      if (l.product_id) du[l.product_id] = (du[l.product_id] || 0) + (Number(l.qty) || 0);
+    }
+    const { data: cmd } = await sb.from('orders')
+      .select('id, shipped_qty, status').eq('order_number', ref).single();
+    const deja = cmd.shipped_qty || {};
+    const corrige = { ...deja };
+    const lignes = [];
+    for (const [pid, reel] of Object.entries(parProduit)) {
+      // Ce qui est parti, sans jamais depasser ce qui etait du.
+      const parti = Math.min(du[pid] || 0, Math.max(0, reel));
+      if (parti > (Number(deja[pid]) || 0)) {
+        lignes.push(`${nom(pid)} : declare ${Number(deja[pid]) || 0}, parti ${parti}`);
+        corrige[pid] = parti;
+      }
+    }
+    if (!lignes.length) continue;
+    alignees++;
+    console.log(`  ${ref} (${cmd.status})`);
+    for (const l of lignes) console.log(`     ${l}`);
+    if (ECRIRE) {
+      await sb.from('orders').update({ shipped_qty: corrige, updated_at: new Date().toISOString() })
+        .eq('id', cmd.id);
+    }
+  }
+  if (!alignees) console.log('  aucune');
+
   console.log('');
   console.log(ECRIRE ? 'Ecrit.' : 'Rien ecrit — relancer avec --ecrire.');
 })().catch(e => { console.error(e); process.exit(1); });

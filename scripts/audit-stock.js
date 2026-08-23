@@ -132,13 +132,31 @@ const info = m => console.log('        ' + m);
      même commande. Le stock sort deux fois, la commande n'enregistre
      qu'un colis, et rien ne le signale. */
   titre('1 ter. Une expedition a-t-elle sorti plus que le du ?');
+
+  /* On mesure l'effet REEL sur le rayon (qty_before − qty_after), pas la
+     somme des deltas. Quand la route de mouvement plafonnait a zero, le
+     delta annoncait −1 sans rien retirer : compter les deltas
+     signalerait un surplus la ou rien n'est sorti. */
   const sorties = {};
   for (const m of mouvements || []) {
     if (m.reason !== 'picking' || !m.reference) continue;
+    if (m.qty_before === null || m.qty_after === null) continue;
     const c = (sorties[m.reference] = sorties[m.reference] || {});
-    c[m.product_id] = (c[m.product_id] || 0) + Math.abs(Number(m.delta) || 0);
+    c[m.product_id] = (c[m.product_id] || 0) + (Number(m.qty_before) - Number(m.qty_after));
   }
-  let exces = 0;
+
+  /* Un surplus deja rendu n'est plus un probleme. Sans cette deduction,
+     le controle crierait indefiniment sur un incident clos — et un
+     controle qu'on ne peut pas satisfaire finit par ne plus etre lu. */
+  const rendus = {};
+  for (const m of mouvements || []) {
+    if (m.reason !== 'Correction double expédition' || !m.reference) continue;
+    const ref = String(m.reference).replace(/^CORR-/, '');
+    const c = (rendus[ref] = rendus[ref] || {});
+    c[m.product_id] = (c[m.product_id] || 0) + (Number(m.delta) || 0);
+  }
+
+  let exces = 0, soldes = 0;
   for (const [ref, parProduit] of Object.entries(sorties)) {
     const o = (commandes || []).find(x => x.order_number === ref);
     if (!o) continue;
@@ -148,10 +166,17 @@ const info = m => console.log('        ' + m);
     }
     for (const [pid, sorti] of Object.entries(parProduit)) {
       const ecart = sorti - (du[pid] || 0);
-      if (ecart > 0) { exces++; ko(`${ref} : ${nom(pid)} — ${du[pid] || 0} du, ${sorti} sorti (+${ecart} en trop)`); }
+      if (ecart <= 0) continue;
+      const rendu = (rendus[ref] || {})[pid] || 0;
+      if (rendu >= ecart) { soldes++; continue; }
+      exces++;
+      ko(`${ref} : ${nom(pid)} — ${du[pid] || 0} du, ${sorti} sorti (+${ecart - rendu} encore en trop)`);
     }
   }
-  if (!exces) ok('aucune expedition na sorti plus que ce qui etait du');
+  if (!exces) {
+    ok('aucune expedition na sorti plus que ce qui etait du'
+      + (soldes ? ` (${soldes} surplus passe(s), deja rendu(s))` : ''));
+  }
 
   /* ── 2. Les nouveaux mouvements sont-ils complets ? ───────────── */
   titre('2. Les mouvements recents portent-ils leur photo ?');
