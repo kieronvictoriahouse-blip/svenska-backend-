@@ -115,9 +115,19 @@ export async function generateInvoicePdfLegacy(invoice: any): Promise<Buffer> {
 export async function createInvoiceFromOrder(order: any): Promise<any> {
   const year = new Date().getFullYear();
 
-  // Lire la config entreprise
-  const { data: config } = await supabaseAdmin
+  /* La config du vendeur. Un échec de LECTURE (réseau, base) n'est pas
+     une config vide : créer la facture avec un vendeur vide, puis la
+     SCELLER, grave l'erreur pour toujours — constaté sur l'instance
+     pilote, où un raté transitoire a produit une FAC-0001 anonyme.
+     Échec de lecture → pas de facture, bruyamment. L'audit signale la
+     commande payée sans facture, et on la régénère une fois la cause
+     réglée — l'inverse n'est pas rattrapable. */
+  const { data: config, error: cfgErr } = await supabaseAdmin
     .from('white_label_config').select('*').limit(1).maybeSingle();
+  if (cfgErr) {
+    console.error('[invoice-utils] config vendeur illisible — facture NON créée :', cfgErr.message);
+    return null;
+  }
 
   // Numéro de facture séquentiel par année (Art. 242 nonies A CGI)
   const invoiceNumber = await nextSequentialNumber(`FAC-${year}-`);
