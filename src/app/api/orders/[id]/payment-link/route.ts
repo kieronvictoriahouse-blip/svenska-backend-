@@ -72,7 +72,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     );
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '';
+  const { urlVitrine } = await import('@/lib/urls-instance');
+  const baseUrl = await urlVitrine();
   const shippingAmt = Math.round((order.shipping || 0) * 100);
 
   let session: Stripe.Checkout.Session;

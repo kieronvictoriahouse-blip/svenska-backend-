@@ -316,7 +316,11 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    const baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '';
+    /* Normalisée et validée AVANT Stripe : le 28/08, une valeur d'env
+       malformée a bloqué un client carte en main — « Not a valid URL »
+       est un message pour développeur, pas pour un acheteur. */
+    const { urlVitrine } = await import('@/lib/urls-instance');
+    const baseUrl = await urlVitrine();
     const orderId = draftOrder?.id || '';
     const successUrl = `${baseUrl}/success.html?order_id=${orderId}`;
     const cancelUrl  = `${baseUrl}/panier.html`;
