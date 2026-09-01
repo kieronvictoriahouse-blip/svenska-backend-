@@ -56,6 +56,17 @@ infrastructure de queue.
 La suspension est **réversible et non destructive** par construction :
 c'est une promesse contractuelle (06), le code doit la tenir.
 
+**Implémenté (2026-09-01)** — le webhook ne fait que noter le statut du
+client ; le **tick** (cron Vercel chaque minute, `vercel.json`) compare
+ce statut à l'état réel (`cp_instances.suspendue`) et agit sur l'écart
+via `lib/suspension.js` (env Vercel + redeploy). Côté moteur :
+`src/middleware.ts` coupe toute écriture API en 402 français (checkout
+compris), laisse la lecture admin, la connexion et les webhooks Stripe
+signés ; `/api/public-config` porte le drapeau `suspendu` (no-store) ;
+bannière rouge trilingue dans l'admin (`SuspensionBanner.tsx`).
+L'email de bienvenue (Resend, `lib/email.js`) part à l'étape « pret »,
+seul moment où le mot de passe existe — repli `bienvenue_a_envoyer`.
+
 ## Le tableau de bord opérateur
 
 Par instance : client, sous-domaine, version déployée (commit), état
