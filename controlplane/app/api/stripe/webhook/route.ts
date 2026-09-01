@@ -54,6 +54,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  if (evenement.type === 'invoice.paid') {
+    /* Régularisation : un client suspendu qui repaie retrouve sa
+       boutique. Le tick voit statut=paye + instance suspendue → il
+       réactive. Pour un client déjà en règle, c'est un non-événement. */
+    const { data: client } = await cp.from('cp_clients')
+      .select('id, statut').eq('stripe_customer_id', objet.customer).maybeSingle();
+    if (client && client.statut === 'suspendu') {
+      await cp.from('cp_clients').update({ statut: 'paye' }).eq('id', client.id);
+      await cp.from('cp_evenements').insert({ client_id: client.id, type: 'regularisation', detail: { invoice: objet.id } });
+    }
+  }
+
   if (evenement.type === 'invoice.payment_failed') {
     const { data: client } = await cp.from('cp_clients')
       .select('id').eq('stripe_customer_id', objet.customer).maybeSingle();

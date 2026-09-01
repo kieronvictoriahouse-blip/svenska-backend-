@@ -4,6 +4,7 @@ import { AdminLang, T_SHELL, traduire } from '@/lib/admin-i18n';
 import { NAV, MOBILE_TABS, NavBadge, isNavItemActive } from '@/lib/admin-nav';
 import { T, initials } from '@/lib/admin-theme';
 import { shellCss } from './shell-css';
+import SuspensionBanner from './SuspensionBanner';
 
 /* ═══════════════════════════════════════════════════════════════
    SHELL PRÉSENTATIONNEL — aucune logique d'authentification ni de
@@ -44,6 +45,8 @@ export default function AdminShell(p: ShellProps) {
     <>
       <style dangerouslySetInnerHTML={{ __html: shellCss(p.accent) }} />
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: T.appBg }}>
+
+        <SuspensionBanner lang={p.lang} />
 
         {/* ── Topbar 48 px ───────────────────────────────── */}
         <header className="sc-top">

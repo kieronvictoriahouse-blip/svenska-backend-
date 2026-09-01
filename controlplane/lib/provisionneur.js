@@ -105,6 +105,25 @@ async function avancer(instance, client, depot) {
       await vercel.deployer(instance.vercel_project_id, `shopflow-${client.sous_domaine}`);
       await note('pret', {});
       await poser({ etape: 'pret', erreur: null });
+
+      /* L'email de bienvenue part MAINTENANT, pendant que le mot de
+         passe est encore en mémoire — il n'est stocké nulle part.
+         Reprise après échec entre installe et pret : le mot de passe
+         est perdu, l'email part quand même avec la consigne « mot de
+         passe oublié ». Pas de clé Resend : on journalise pour envoi
+         à la main. */
+      const { envoyerBienvenue } = require('./email');
+      const parti = await envoyerBienvenue({
+        nomBoutique: client.nom_boutique,
+        email: client.email,
+        motDePasse: instance.motDePasseAdmin || null,
+        urlAdmin: instance.url_admin,
+      });
+      await note(parti ? 'bienvenue_envoyee' : 'bienvenue_a_envoyer', {
+        email: client.email, url_admin: instance.url_admin,
+        motDePasseInclus: !!instance.motDePasseAdmin,
+      });
+      delete instance.motDePasseAdmin;
     }
 
     return instance;

@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS cp_instances (
     CHECK (etape IN ('a_faire', 'base_creee', 'schema_joue', 'seed_joue',
                      'installe', 'vercel_cree', 'env_posees', 'pret', 'echec')),
   erreur TEXT,
+  -- Suspension réversible : reflète l'état RÉEL posé sur Vercel
+  -- (SHOPFLOW_SUSPENDED). Le tick compare au statut du client et
+  -- agit sur l'écart — jamais deux fois la même action.
+  suspendue BOOLEAN NOT NULL DEFAULT FALSE,
   version_moteur TEXT,
   dernier_audit JSONB,
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -67,6 +71,9 @@ CREATE TABLE IF NOT EXISTS cp_evenements (
 );
 
 CREATE INDEX IF NOT EXISTS cp_evenements_instance ON cp_evenements (instance_id, created_at DESC);
+
+-- Rattrapage pour les bases CP créées avant la colonne `suspendue`.
+ALTER TABLE cp_instances ADD COLUMN IF NOT EXISTS suspendue BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE cp_clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cp_instances ENABLE ROW LEVEL SECURITY;
