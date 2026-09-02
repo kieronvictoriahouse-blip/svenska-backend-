@@ -18,11 +18,12 @@ export type MatchResult = {
   candidates: Array<{ id: string; name: string; score: number }>;
 };
 
-/** Lignes à ignorer : consignes, remises, arrondis. */
+/** Lignes à ignorer : consignes, remises, arrondis. Bilingue SV + FR. */
 const IGNORE_PATTERNS = [
-  /^pant\b/i, /\bpant\s*burk\b/i, /\bpant\s*flask/i,
+  /^pant\b/i, /\bpant\s*burk\b/i, /\bpant\s*flask/i,       // consigne (SV)
+  /\bconsigne\b/i, /\b(?:é|e)co[- ]?part/i, /\bd3e\b/i,     // consigne / éco-participation (FR)
   /\brabatt\b/i, /\bremise\b/i, /\bavrundning\b/i, /\barrondi\b/i,
-  /^öresavrundning/i, /^summa\b/i, /^total\b/i, /^moms\b/i,
+  /^öresavrundning/i, /^summa\b/i, /^total\b/i, /^moms\b/i, /^tva\b/i,
 ];
 
 export const shouldIgnore = (label: string) =>

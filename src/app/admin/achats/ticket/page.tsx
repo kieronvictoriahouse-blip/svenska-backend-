@@ -32,11 +32,33 @@ type Product = {
   cost_price?: number; category_id?: string; sort_order?: number; ean?: string;
 };
 
-const STORES = ['ICA Maxi · Malmö', 'Willys · Helsingborg', 'Coop · Göteborg', 'Systembolaget'];
+/* Pays du ticket : la Suède convertit SEK→EUR et déduit la moms ;
+   la France est déjà en euros, TVA française, sans conversion. */
+type Country = 'SE' | 'FR';
+const COUNTRY: Record<Country, {
+  label: string; flag: string; currency: string; symbol: string;
+  defaultRate: string; fixedRate: boolean; vatLabel: string;
+  stores: string[]; vats: Array<{ value: string; label: string }>;
+}> = {
+  SE: {
+    label: 'Suède', flag: '🇸🇪', currency: 'SEK', symbol: 'kr',
+    defaultRate: '0,0876', fixedRate: false, vatLabel: 'Moms (TVA suédoise)',
+    stores: ['ICA Maxi · Malmö', 'Willys · Helsingborg', 'Coop · Göteborg', 'Systembolaget'],
+    vats: [{ value: '12', label: 'Alimentaire 12 %' }, { value: '25', label: 'Standard 25 %' }],
+  },
+  FR: {
+    label: 'France', flag: '🇫🇷', currency: 'EUR', symbol: '€',
+    defaultRate: '1', fixedRate: true, vatLabel: 'TVA française',
+    stores: ['Carrefour', 'E.Leclerc', 'Auchan', 'Intermarché', 'Système U', 'Metro / grossiste', 'Autre'],
+    vats: [{ value: '5.5', label: 'Alimentaire 5,5 %' }, { value: '10', label: 'Restauration 10 %' }, { value: '20', label: 'Standard 20 %' }],
+  },
+};
+
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const kr = (n: number) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
-const eur = (n: number) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+const money = (n: number, sym: string) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + sym;
+const eur = (n: number) => money(n, '€');
+const isPdf = (url: string) => /\.pdf($|\?)/i.test(url || '');
 
 const STATUS_META: Record<Status, { border: string; label: string; tone: keyof typeof BADGE }> = {
   matched:   { border: '#3E5238', label: 'Rapproché',      tone: 'green'  },
@@ -49,11 +71,24 @@ const STATUS_META: Record<Status, { border: string; label: string; tone: keyof t
 export default function TicketPage() {
   const { t, tc, lang } = useT(TTI);
   const [mode, setMode] = useState<'photo' | 'quick'>('photo');
-  const [store, setStore] = useState(STORES[0]);
+  const [country, setCountry] = useState<Country>('SE');
+  const cfg = COUNTRY[country];
+  const [store, setStore] = useState(COUNTRY.SE.stores[0]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [rate, setRate] = useState('0,0876');
   const [vat, setVat] = useState('12');
   const [totalOcr, setTotalOcr] = useState('');
+
+  const cur = (n: number) => money(n, cfg.symbol);
+
+  /** Bascule Suède ⇄ France : réaligne devise, taux, TVA et magasin. */
+  function switchCountry(c: Country) {
+    const next = COUNTRY[c];
+    setCountry(c);
+    setRate(next.defaultRate);
+    setVat(next.vats[0].value);
+    setStore(next.stores[0]);
+  }
 
   const [lines, setLines] = useState<Line[]>([]);
   const [images, setImages] = useState<string[]>([]);
@@ -61,7 +96,8 @@ export default function TicketPage() {
   const [busy, setBusy] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [toast, setToast] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null); // appareil photo (capture)
+  const fileRef = useRef<HTMLInputElement>(null);   // import PDF ou image
 
   // Saisie rapide
   const [qName, setQName] = useState('');
@@ -97,8 +133,8 @@ export default function TicketPage() {
   const isNew = lines.filter(l => l.status === 'new').length;
   const validated = lines.filter(l => l.status === 'validated').length;
 
-  /* ── Photo & OCR ────────────────────────────────────────── */
-  async function uploadPhotos(files: FileList | null) {
+  /* ── Photo / fichier & OCR ──────────────────────────────── */
+  async function uploadFiles(files: FileList | null) {
     if (!files?.length) return;
     setOcrBusy(true);
     const token = localStorage.getItem('sd_admin_token');
@@ -118,7 +154,7 @@ export default function TicketPage() {
       // Lecture OCR — l'endpoint indique clairement s'il n'est pas configuré.
       const r = await adminFetch('/api/tickets/ocr', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_urls: urls, store }),
+        body: JSON.stringify({ image_urls: urls, store, lang: country === 'FR' ? 'fre' : 'swe' }),
       });
       const d = await r.json();
       if (!r.ok || d.unavailable) {
@@ -231,6 +267,7 @@ export default function TicketPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           store, purchased_at: date, exchange_rate: rateNum, vat_rate: vatNum,
+          currency: cfg.currency, country,
           total_ocr: ocrNum || null, image_urls: images, draft,
           lines: lines.map(l => ({
             raw_label: l.raw_label, product_id: l.product_id, product_name: l.product_name,
@@ -259,7 +296,7 @@ export default function TicketPage() {
         <div>
           <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
-            Photographie le ticket : les lignes sont lues, converties en euros et rapprochées de ton catalogue.
+            Photographie ou importe le ticket (PDF ou image) : les lignes sont lues, converties en euros et rapprochées de ton catalogue.
           </div>
         </div>
         <div className="sc-actions">
@@ -289,24 +326,41 @@ export default function TicketPage() {
         overflow: 'hidden', marginBottom: 12,
       }}>
         <div style={cell}>
+          <div style={cellLabel}>{t('pays')}</div>
+          <select className="sc-input sc-select" style={{ height: 30 }} value={country}
+                  onChange={e => switchCountry(e.target.value as Country)}>
+            {(Object.keys(COUNTRY) as Country[]).map(c => (
+              <option key={c} value={c}>{COUNTRY[c].flag} {COUNTRY[c].label}</option>
+            ))}
+          </select>
+        </div>
+        <div style={cell}>
           <div style={cellLabel}>{t('magasin')}</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={store} onChange={e => setStore(e.target.value)}>
-            {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+            {cfg.stores.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div style={cell}>
           <div style={cellLabel}>{t('dateAchat')}</div>
           <input className="sc-input" type="date" style={{ height: 30 }} value={date} onChange={e => setDate(e.target.value)} />
         </div>
+        {cfg.fixedRate ? (
+          <div style={cell}>
+            <div style={cellLabel}>{t('devise')}</div>
+            <div style={{ height: 30, display: 'flex', alignItems: 'center', fontSize: 12.5, color: T.text2b }}>
+              {cfg.currency} · {t('sansConversion')}
+            </div>
+          </div>
+        ) : (
+          <div style={cell}>
+            <div style={cellLabel}>{t('taux')}</div>
+            <input className="sc-input sc-num" style={{ height: 30 }} value={rate} onChange={e => setRate(e.target.value)} placeholder={cfg.defaultRate} />
+          </div>
+        )}
         <div style={cell}>
-          <div style={cellLabel}>{t('taux')}</div>
-          <input className="sc-input sc-num" style={{ height: 30 }} value={rate} onChange={e => setRate(e.target.value)} placeholder="0,0876" />
-        </div>
-        <div style={cell}>
-          <div style={cellLabel}>TVA suédoise</div>
+          <div style={cellLabel}>{cfg.vatLabel}</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={vat} onChange={e => setVat(e.target.value)}>
-            <option value="12">{t('alimentaire')}</option>
-            <option value="25">{t('standard')}</option>
+            {cfg.vats.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
           </select>
         </div>
       </div>
@@ -327,11 +381,19 @@ export default function TicketPage() {
               <div style={{ padding: 15 }}>
                 <div style={{
                   position: 'relative', aspectRatio: '3 / 4', borderRadius: 8, overflow: 'hidden',
-                  border: `1px solid ${T.border}`,
-                  background: images[0]
+                  border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: images[0] && !isPdf(images[0])
                     ? `center/cover url(${images[0]})`
                     : 'repeating-linear-gradient(45deg,#F7F4EF 0 6px,#F1EDE7 6px 12px)',
                 }}>
+                  {images[0] && isPdf(images[0]) && (
+                    <a href={images[0]} target="_blank" rel="noreferrer"
+                       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textDecoration: 'none', color: T.text2b }}>
+                      <span className="ms" style={{ fontSize: 46, color: '#B23B3B' }}>picture_as_pdf</span>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{t('justificatif')}</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>{t('ouvrirPdf')} ↗</span>
+                    </a>
+                  )}
                   {lines.length > 0 && (
                     <span style={{
                       position: 'absolute', bottom: 8, left: 8, background: 'rgba(28,32,40,.82)', color: '#fff',
@@ -345,16 +407,25 @@ export default function TicketPage() {
                     }}>{images.length} pages</span>
                   )}
                 </div>
+
+                {/* Appareil photo — prise directe, ouvre la caméra sur mobile. */}
                 <button className="sc-btn sc-btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}
-                        onClick={() => { setImages([]); setLines([]); fileRef.current?.click(); }} disabled={ocrBusy}>
-                  <span className="ms">photo_camera</span>{ocrBusy ? 'Lecture…' : images.length ? 'Reprendre' : 'Photographier'}
+                        onClick={() => { setImages([]); setLines([]); cameraRef.current?.click(); }} disabled={ocrBusy}>
+                  <span className="ms">photo_camera</span>{ocrBusy ? t('lecture') : images.length ? t('reprendre') : t('prendrePhoto')}
                 </button>
+
+                {/* Import — PDF ou image depuis l'appareil (galerie, fichiers). */}
                 <button className="sc-btn sc-btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}
-                        onClick={() => fileRef.current?.click()} disabled={ocrBusy || !images.length}>
-                  <span className="ms">add_photo_alternate</span>2ᵉ page
+                        onClick={() => fileRef.current?.click()} disabled={ocrBusy}>
+                  <span className="ms">upload_file</span>{images.length ? t('pageSuppl') : t('importerFichier')}
                 </button>
-                <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple
-                       style={{ display: 'none' }} onChange={e => uploadPhotos(e.target.files)} />
+
+                {/* Deux entrées distinctes : la caméra force capture, l'import laisse
+                    choisir un PDF ou une image existante. */}
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+                       style={{ display: 'none' }} onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
+                <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple
+                       style={{ display: 'none' }} onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
               </div>
             </div>
 
@@ -371,7 +442,7 @@ export default function TicketPage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: T.text2b, padding: '5px 0' }}>
                   <span>{t('totalSaisi')}</span>
-                  <span className="sc-num">{kr(totalLines)}</span>
+                  <span className="sc-num">{cur(totalLines)}</span>
                 </div>
 
                 <div style={{
@@ -384,7 +455,7 @@ export default function TicketPage() {
                   <span style={{ fontSize: 12, fontWeight: 600 }}>
                     {!ocrNum ? 'Renseigne le total du ticket pour contrôler'
                       : gapOk ? 'Total conforme'
-                      : `Écart ${gap > 0 ? '+' : '−'} ${kr(Math.abs(gap))}`}
+                      : `Écart ${gap > 0 ? '+' : '−'} ${cur(Math.abs(gap))}`}
                   </span>
                 </div>
 
@@ -393,7 +464,8 @@ export default function TicketPage() {
                   <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.green }}>{eur(goodsEur)}</span>
                 </div>
                 <div style={{ fontSize: 10.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
-                  Prix relevés TTC · moms {vatNum} % déduite pour obtenir le prix d’achat.
+                  Prix relevés TTC · {country === 'FR' ? 'TVA' : 'moms'} {vat.replace('.', ',')} % déduite
+                  {country === 'FR' ? '' : ' puis conversion en euros'} pour obtenir le prix d’achat.
                 </div>
               </div>
             </div>
@@ -486,8 +558,8 @@ export default function TicketPage() {
                     </div>
 
                     <div style={{ textAlign: 'right', minWidth: 86 }}>
-                      <div className="sc-num" style={{ fontSize: 12.5, color: T.ink }}>{kr(lineSek(l))}</div>
-                      <div className="sc-num" style={{ fontSize: 10, color: T.muted }}>{kr(l.unit_sek)}/u.</div>
+                      <div className="sc-num" style={{ fontSize: 12.5, color: T.ink }}>{cur(lineSek(l))}</div>
+                      <div className="sc-num" style={{ fontSize: 10, color: T.muted }}>{cur(l.unit_sek)}/u.</div>
                     </div>
 
                     <div style={{ textAlign: 'right', minWidth: 92 }}>
@@ -599,9 +671,9 @@ export default function TicketPage() {
                   <div style={thumbStyle(l.raw_label, 28)}>{initials(l.product_name || l.raw_label, 1)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12.5, color: T.ink }}>{l.product_name || l.raw_label}</div>
-                    <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{l.qty} × {kr(l.unit_sek)}</div>
+                    <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{l.qty} × {cur(l.unit_sek)}</div>
                   </div>
-                  <span className="sc-num" style={{ fontSize: 12.5 }}>{kr(lineSek(l))}</span>
+                  <span className="sc-num" style={{ fontSize: 12.5 }}>{cur(lineSek(l))}</span>
                   <span className="sc-num" style={{ fontSize: 13, fontWeight: 700, color: T.green, minWidth: 80, textAlign: 'right' }}>
                     {eur(lineEur(l))}
                   </span>
@@ -613,7 +685,7 @@ export default function TicketPage() {
 
               <div style={{ background: T.surfaceAlt, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11.5, color: T.muted }}>{lines.length} ligne(s)</span>
-                <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>Total {kr(totalLines)}</span>
+                <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>Total {cur(totalLines)}</span>
                 <span style={{ flex: 1 }} />
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{t('coutHt')}</div>
@@ -639,7 +711,7 @@ export default function TicketPage() {
             <div className="sc-card" style={{ padding: '13px 15px' }}>
               <div className="sc-card-title" style={{ marginBottom: 7 }}>{t('derniersAchats')}</div>
               <div style={{ fontSize: 11.5, color: T.text2b, lineHeight: 1.6 }}>
-                Le prix proposé vient du dernier prix d’achat connu du produit, reconverti en couronnes.
+                Le prix proposé vient du dernier prix d’achat connu du produit, reconverti dans la devise du ticket ({cfg.currency}).
                 Un écart de plus de 15 % déclenche une confirmation avant d’ajouter la ligne — c’est le
                 garde-fou contre une faute de frappe.
               </div>

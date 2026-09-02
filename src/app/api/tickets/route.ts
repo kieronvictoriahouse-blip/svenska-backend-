@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
   const {
     store, purchased_at, exchange_rate, vat_rate = 12,
     total_ocr, image_urls = [], lines = [], draft = false,
+    currency = 'SEK',
   } = body;
 
   if (!Array.isArray(lines) || lines.length === 0) {
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   const ticketPayload = {
     store: store || null,
     purchased_at: purchased_at || null,
-    currency: 'SEK',
+    currency,
     exchange_rate: rate || null,
     vat_rate: Number(vat_rate),
     total_ocr: total_ocr != null ? Number(total_ocr) : null,
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
     lines: JSON.stringify(poLines),
     subtotal: goodsEur,
     total: goodsEur,
-    currency: 'SEK',
+    currency,
     exchange_rate: rate,
     payment_date: purchased_at || null,
   }).select().single();

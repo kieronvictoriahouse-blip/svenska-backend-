@@ -38,7 +38,8 @@ imprime cette liste préremplie à la fin de l'installation.
 | `IMAP_HOST` / `IMAP_PORT` / `IMAP_USER` / `IMAP_PASSWORD` | boîte mail intégrée | si module actif |
 | `MONDIAL_RELAY_ENSEIGNE` / `MONDIAL_RELAY_KEY` | étiquettes point relais | si module actif |
 | `LOGSPHER_API_URL` / `LOGSPHER_API_KEY` / `LOGSPHER_MR_UUID` / `LOGSPHER_RELAY_CARRIER_UUIDS` | expédition | si module actif |
-| `MINDEE_API_KEY` | lecture automatique des tickets d'achat | non |
+| `OCR_SPACE_API_KEY` | lecture automatique des tickets (OCR gratuit, https://ocr.space/ocrapi) | non — défaut « helloworld » |
+| `MINDEE_API_KEY` | lecture automatique des tickets, moteur payant plus fiable (prioritaire si défini) | non |
 | `GOOGLE_PLACES_API_KEY` / `GOOGLE_PLACE_ID` | avis Google sur la vitrine | non |
 | `ANTHROPIC_API_KEY` | studio d'emails IA | non |
 
