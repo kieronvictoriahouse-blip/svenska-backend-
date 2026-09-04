@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
 import { evaluatePromo } from '@/lib/promo';
+import { effectiveUnitPrice } from '@/lib/product-price';
 import crypto from 'crypto';
 
 const CUSTOMER_SECRET = process.env.CUSTOMER_JWT_SECRET || process.env.SNIPCART_SECRET_KEY || 'sd-customer-secret';
@@ -113,7 +114,11 @@ export async function POST(req: NextRequest) {
       const variant = item.variant
         ? (product.product_variants || []).find((v: { label: string }) => v.label === item.variant)
         : null;
-      const price    = variant ? variant.price : product.price;
+      /* Remise par article (migration 049) : appliquée ici, côté serveur,
+         sur le prix de base (produit ou variante). C'est CE prix qui part
+         chez Stripe — l'affichage front n'est qu'un miroir, jamais cru. */
+      const basePrice = variant ? variant.price : product.price;
+      const price     = effectiveUnitPrice(basePrice, product);
       const suffix   = item.variant ? ` — ${item.variant}` : '';
       const name     = (product.name_fr || '') + suffix;
       const name_en  = (product.name_en || product.name_fr || '') + suffix;

@@ -32,6 +32,10 @@ type ProductFormData = {
   desc_sv: string; desc_fr: string; desc_en: string;
   price: string;
   cost_price: string;
+  discount_type: '' | 'percent' | 'fixed';
+  discount_value: string;
+  discount_start: string;
+  discount_end: string;
   weight: string;
   origin_sv: string; origin_fr: string; origin_en: string;
   image_url: string;
@@ -59,7 +63,9 @@ const EMPTY: ProductFormData = {
   category_id: '', ean: '', sku: '', name_sv: '', name_fr: '', name_en: '',
   subtitle_sv: '', subtitle_fr: '', subtitle_en: '',
   desc_sv: '', desc_fr: '', desc_en: '',
-  price: '', cost_price: '', weight: '',
+  price: '', cost_price: '',
+  discount_type: '', discount_value: '', discount_start: '', discount_end: '',
+  weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
   badge: '', is_bestseller: false, is_new: false, is_active: true,
@@ -134,6 +140,10 @@ export default function ProductForm({
     ...initialData,
     price: String(initialData?.price ?? ''),
     cost_price: initialData?.cost_price != null ? String(initialData.cost_price) : '',
+    discount_type: ((initialData as any)?.discount_type as any) || '',
+    discount_value: (initialData as any)?.discount_value != null ? String((initialData as any).discount_value) : '',
+    discount_start: (initialData as any)?.discount_start ? String((initialData as any).discount_start).slice(0, 10) : '',
+    discount_end: (initialData as any)?.discount_end ? String((initialData as any).discount_end).slice(0, 10) : '',
     pickup_only: !!(initialData?.pickup_only),
     track_stock: !!(initialData?.track_stock),
     stock: initialData?.stock != null ? String(initialData.stock) : '',
@@ -156,8 +166,15 @@ export default function ProductForm({
 
   /* ── Logique inchangée ──────────────────────────────────── */
   function serialize(f: ProductFormData) {
-    return {
-      ...f,
+    /* Remise article : on SORT les champs du spread pour ne les renvoyer
+       QUE si une remise est posée (ou l'était déjà). Ainsi, tant que la
+       migration 049 n'a pas ajouté les colonnes, un produit sans remise
+       s'enregistre normalement — on n'écrit jamais de colonne absente. */
+    const { discount_type: _dt, discount_value: _dv, discount_start: _ds, discount_end: _de, ...rest } = f;
+    const hasDisc = !!_dt && parseFloat(_dv) > 0;
+    const hadDisc = !!(initialData as any)?.discount_type;
+    const payload: Record<string, any> = {
+      ...rest,
       price:         parseFloat(f.price) || 0,
       cost_price:    parseFloat(f.cost_price) || 0,
       rating:        parseFloat(f.rating) || 4.5,
@@ -172,6 +189,13 @@ export default function ProductForm({
         .filter(v => v.label && v.price)
         .map(v => ({ label: v.label, price: parseFloat(v.price) })),
     };
+    if (hasDisc || hadDisc) {
+      payload.discount_type  = hasDisc ? _dt : null;
+      payload.discount_value = hasDisc ? parseFloat(_dv) : null;
+      payload.discount_start = hasDisc && _ds ? _ds : null;
+      payload.discount_end   = hasDisc && _de ? _de : null;
+    }
+    return payload;
   }
 
   function set(field: keyof ProductFormData, value: any) {
@@ -255,8 +279,22 @@ export default function ProductForm({
 
   const pv = parseFloat(form.price) || 0;
   const pa = parseFloat(form.cost_price) || 0;
-  const margeEur = pa > 0 ? pv - pa : null;
-  const margePct = pa > 0 && pv > 0 ? ((pv - pa) / pv) * 100 : null;
+
+  /* Remise article : aperçu du prix promo + état (active / programmée / terminée),
+     miroir exact du calcul serveur (@/lib/product-price). */
+  const dv = parseFloat(form.discount_value) || 0;
+  const hasDiscount = !!form.discount_type && dv > 0;
+  const effPrice = hasDiscount
+    ? Math.max(0, Math.round((form.discount_type === 'percent' ? pv * (1 - dv / 100) : pv - dv) * 100) / 100)
+    : pv;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const promoScheduled = hasDiscount && !!form.discount_start && todayStr < form.discount_start;
+  const promoExpired = hasDiscount && !!form.discount_end && todayStr > form.discount_end;
+  const promoActive = hasDiscount && !promoScheduled && !promoExpired;
+  // La marge se lit sur le prix réellement encaissé (remise incluse si active).
+  const pvNet = promoActive ? effPrice : pv;
+  const margeEur = pa > 0 ? pvNet - pa : null;
+  const margePct = pa > 0 && pvNet > 0 ? ((pvNet - pa) / pvNet) * 100 : null;
   const margeColor = margePct === null ? T.muted : margePct >= 50 ? T.green : margePct >= 30 ? '#C97A2B' : T.red;
 
   return (
@@ -342,6 +380,67 @@ export default function ProductForm({
                     </div>
                   )}
                 </div>
+              </Card>
+
+              <Card title="Remise / promo">
+                <Field label="Type de remise" hint="La remise porte sur le prix de vente TTC et s'applique aussi aux variantes.">
+                  <select className="sc-input sc-select" value={form.discount_type}
+                          onChange={e => set('discount_type', e.target.value)}>
+                    <option value="">— Aucune —</option>
+                    <option value="percent">Pourcentage (%)</option>
+                    <option value="fixed">Montant fixe (€)</option>
+                  </select>
+                </Field>
+
+                {form.discount_type && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 12 }}>
+                      <Field label={form.discount_type === 'percent' ? 'Remise (%)' : 'Remise (€)'}>
+                        <input className="sc-input sc-num" type="number" step={form.discount_type === 'percent' ? '1' : '0.01'}
+                               min="0" max={form.discount_type === 'percent' ? '100' : undefined}
+                               value={form.discount_value} onChange={e => set('discount_value', e.target.value)}
+                               placeholder={form.discount_type === 'percent' ? '20' : '1.50'} />
+                      </Field>
+                      <Field label="Début (optionnel)" hint="Vide = tout de suite">
+                        <input className="sc-input" type="date" value={form.discount_start}
+                               onChange={e => set('discount_start', e.target.value)} />
+                      </Field>
+                      <Field label="Fin (optionnel)" hint="Vide = sans fin">
+                        <input className="sc-input" type="date" value={form.discount_end}
+                               onChange={e => set('discount_end', e.target.value)} />
+                      </Field>
+                    </div>
+
+                    {/* Aperçu du prix promo + état */}
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                      background: promoActive ? '#FDECEC' : '#F5F3EF',
+                      border: `1px solid ${promoActive ? '#E7B9B9' : T.border}`,
+                      borderRadius: 8, padding: '11px 14px',
+                    }}>
+                      {hasDiscount ? (
+                        <>
+                          <span style={{ fontSize: 13, color: T.muted, textDecoration: 'line-through' }}>{pv.toFixed(2)} €</span>
+                          <span className="sc-num" style={{ fontSize: 18, fontWeight: 800, color: '#C0392B' }}>{effPrice.toFixed(2)} €</span>
+                          <span style={{
+                            fontSize: 10.5, fontWeight: 700, letterSpacing: .4, padding: '2px 8px', borderRadius: 20,
+                            background: promoActive ? '#C0392B' : promoScheduled ? '#8A6D1F' : T.muted,
+                            color: '#fff',
+                          }}>
+                            {promoActive ? 'PROMO ACTIVE' : promoScheduled ? 'PROGRAMMÉE' : 'TERMINÉE'}
+                          </span>
+                          {form.discount_type === 'percent'
+                            ? <span style={{ fontSize: 11, color: T.muted }}>−{dv}%</span>
+                            : <span style={{ fontSize: 11, color: T.muted }}>−{dv.toFixed(2)} €</span>}
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 12, color: T.muted, fontStyle: 'italic' }}>
+                          Renseigne une valeur de remise supérieure à 0.
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </Card>
 
               <Card title="Variantes de conditionnement"

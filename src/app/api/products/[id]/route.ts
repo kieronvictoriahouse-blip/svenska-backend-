@@ -71,6 +71,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
        route les jetait, et repondait 200. Cocher « suivi de stock » ou
        changer un seuil n'avait aucun effet, sans le moindre message. */
     'track_stock', 'stock_alert', 'pack_size',
+    /* Remise par article (migration 049). Le prix effectif est recalcule
+       a la volee, seuls les parametres de la remise sont stockes. */
+    'discount_type', 'discount_value', 'discount_start', 'discount_end',
   ];
   fields.forEach(f => { if (body[f] !== undefined) updateData[f] = body[f]; });
 
