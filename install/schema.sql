@@ -1476,6 +1476,201 @@ ALTER TABLE customer_profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_role_all" ON customer_profiles;
 CREATE POLICY "service_role_all" ON customer_profiles FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- 048_journal_erreurs.sql
+-- Journal des erreurs métier de l'instance (échecs anticipés, requêtables).
+CREATE TABLE IF NOT EXISTS system_events (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  level        TEXT NOT NULL DEFAULT 'error',
+  source       TEXT NOT NULL,
+  message      TEXT NOT NULL,
+  context      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  order_number TEXT,
+  fingerprint  TEXT,
+  resolved     BOOLEAN NOT NULL DEFAULT false,
+  resolved_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_system_events_created    ON system_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_events_unresolved ON system_events (resolved, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_events_source     ON system_events (source);
+ALTER TABLE system_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON system_events;
+CREATE POLICY "service_role_all" ON system_events FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ═══════════════════════════════════════════════════════════════════
+--  047 — Comptabilité : banque, rapprochement, pile de tri, clôture
+--  (replié depuis supabase/migrations/047_comptabilite_banque.sql)
+-- ═══════════════════════════════════════════════════════════════════
+ALTER TABLE accounting_entries
+  ADD COLUMN IF NOT EXISTS account_code        TEXT,
+  ADD COLUMN IF NOT EXISTS counterparty_account TEXT,
+  ADD COLUMN IF NOT EXISTS journal             TEXT,
+  ADD COLUMN IF NOT EXISTS piece               TEXT,
+  ADD COLUMN IF NOT EXISTS receipt_url         TEXT,
+  ADD COLUMN IF NOT EXISTS bank_transaction_id UUID,
+  ADD COLUMN IF NOT EXISTS reconciled          BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS is_personal         BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS source              TEXT,
+  ADD COLUMN IF NOT EXISTS confidence          INT,
+  ADD COLUMN IF NOT EXISTS sorted_at           TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS period              TEXT;
+CREATE INDEX IF NOT EXISTS idx_accounting_period ON accounting_entries (period);
+CREATE INDEX IF NOT EXISTS idx_accounting_banktx ON accounting_entries (bank_transaction_id);
+
+CREATE TABLE IF NOT EXISTS bank_connections (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider           TEXT NOT NULL DEFAULT 'gocardless'
+                     CHECK (provider IN ('gocardless','stripe','import','manual','bridge')),
+  status             TEXT NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending','linked','active','expired','error','revoked')),
+  institution_id     TEXT, institution_name TEXT, institution_logo TEXT,
+  requisition_id     TEXT, reference TEXT,
+  access_valid_until TIMESTAMPTZ, last_sync_at TIMESTAMPTZ, error_message TEXT,
+  meta               JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  connection_id UUID REFERENCES bank_connections(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL DEFAULT 'gocardless',
+  external_id   TEXT NOT NULL,
+  name          TEXT, short_code TEXT, iban TEXT,
+  currency      TEXT NOT NULL DEFAULT 'EUR', holder_name TEXT,
+  pcg_account   TEXT NOT NULL DEFAULT '512000',
+  balance       NUMERIC(12,2), balance_at TIMESTAMPTZ,
+  is_primary    BOOLEAN NOT NULL DEFAULT FALSE,
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','error','revoked')),
+  meta          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_bank_account_ext ON bank_accounts (provider, external_id);
+CREATE INDEX IF NOT EXISTS idx_bank_account_conn ON bank_accounts (connection_id);
+
+CREATE TABLE IF NOT EXISTS bank_transactions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id      UUID REFERENCES bank_accounts(id) ON DELETE CASCADE,
+  provider        TEXT NOT NULL DEFAULT 'gocardless',
+  external_id     TEXT NOT NULL,
+  booking_date    DATE NOT NULL, value_date DATE,
+  amount          NUMERIC(12,2) NOT NULL, currency TEXT NOT NULL DEFAULT 'EUR',
+  direction       TEXT NOT NULL DEFAULT 'out' CHECK (direction IN ('in','out')),
+  label           TEXT, counterparty TEXT,
+  status          TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked','pending')),
+  category        TEXT, account_code TEXT, confidence INT, match_kind TEXT, match_hint TEXT,
+  matched_entry_id UUID REFERENCES accounting_entries(id) ON DELETE SET NULL,
+  reconciled      BOOLEAN NOT NULL DEFAULT FALSE, reconciled_at TIMESTAMPTZ, reconciled_by TEXT,
+  ignored         BOOLEAN NOT NULL DEFAULT FALSE, is_personal BOOLEAN NOT NULL DEFAULT FALSE,
+  is_split_parent BOOLEAN NOT NULL DEFAULT FALSE,
+  split_parent_id UUID REFERENCES bank_transactions(id) ON DELETE SET NULL,
+  receipt_url     TEXT, period TEXT, raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_bank_tx_ext  ON bank_transactions (provider, external_id);
+CREATE INDEX IF NOT EXISTS idx_bank_tx_account      ON bank_transactions (account_id);
+CREATE INDEX IF NOT EXISTS idx_bank_tx_period       ON bank_transactions (period);
+CREATE INDEX IF NOT EXISTS idx_bank_tx_reconciled   ON bank_transactions (reconciled) WHERE reconciled = FALSE;
+CREATE INDEX IF NOT EXISTS idx_bank_tx_split_parent ON bank_transactions (split_parent_id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints
+                 WHERE constraint_name = 'accounting_entries_bank_tx_fk') THEN
+    ALTER TABLE accounting_entries
+      ADD CONSTRAINT accounting_entries_bank_tx_fk
+      FOREIGN KEY (bank_transaction_id) REFERENCES bank_transactions(id) ON DELETE SET NULL;
+  END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS reconciliations (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  period            TEXT NOT NULL,
+  account_id        UUID REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  statement_balance NUMERIC(12,2), book_balance NUMERIC(12,2), gap NUMERIC(12,2),
+  pending           JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status            TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','signed')),
+  signed_at         TIMESTAMPTZ, signed_by TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_reconciliation_period
+  ON reconciliations (period, COALESCE(account_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+CREATE TABLE IF NOT EXISTS accounting_rules (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_type   TEXT NOT NULL DEFAULT 'label_contains' CHECK (match_type IN ('label_contains','counterparty','amount','regex')),
+  pattern      TEXT NOT NULL, direction TEXT CHECK (direction IN ('in','out')),
+  category     TEXT NOT NULL, account_code TEXT,
+  is_personal  BOOLEAN NOT NULL DEFAULT FALSE, priority INT NOT NULL DEFAULT 0, hits INT NOT NULL DEFAULT 0,
+  source       TEXT NOT NULL DEFAULT 'learned' CHECK (source IN ('seed','manual','learned')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rules_priority ON accounting_rules (priority DESC);
+
+CREATE TABLE IF NOT EXISTS accounting_periods (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  period      TEXT NOT NULL UNIQUE,
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  closed_at   TIMESTAMPTZ, closed_by TEXT, stock_value NUMERIC(12,2),
+  meta        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['bank_connections','bank_accounts','bank_transactions','reconciliations','accounting_rules','accounting_periods']
+  LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', t);
+    EXECUTE format('DROP POLICY IF EXISTS "admin_all" ON %I;', t);
+    EXECUTE format('CREATE POLICY "admin_all" ON %I FOR ALL USING (auth.role() = ''authenticated'');', t);
+  END LOOP;
+END$$;
+
+INSERT INTO accounting_rules (match_type, pattern, direction, category, account_code, is_personal, priority, source)
+VALUES
+  ('label_contains', 'STRIPE',        'in',  'vente',     '706000', FALSE, 90, 'seed'),
+  ('label_contains', 'MONDIAL RELAY', 'out', 'transport', '624100', FALSE, 80, 'seed'),
+  ('label_contains', 'MR-',           'out', 'transport', '624100', FALSE, 70, 'seed'),
+  ('label_contains', 'GLS',           'out', 'transport', '624100', FALSE, 80, 'seed'),
+  ('label_contains', 'COLISSIMO',     'out', 'transport', '624100', FALSE, 80, 'seed'),
+  ('label_contains', 'CHRONOPOST',    'out', 'transport', '624100', FALSE, 80, 'seed'),
+  ('label_contains', 'OVH',           'out', 'logiciel',  '651600', FALSE, 80, 'seed'),
+  ('label_contains', 'HEBERGEMENT',   'out', 'logiciel',  '651600', FALSE, 60, 'seed'),
+  ('label_contains', 'VERCEL',        'out', 'logiciel',  '651600', FALSE, 80, 'seed'),
+  ('label_contains', 'GOOGLE',        'out', 'logiciel',  '651600', FALSE, 60, 'seed'),
+  ('label_contains', 'COMMISSION SEPA','out','banque',    '627000', FALSE, 90, 'seed'),
+  ('label_contains', 'FRAIS',         'out', 'banque',    '627000', FALSE, 40, 'seed'),
+  ('label_contains', 'TENUE DE COMPTE','out','banque',    '627000', FALSE, 90, 'seed'),
+  ('label_contains', 'CARREFOUR',     'out', 'march',     '607000', FALSE, 50, 'seed'),
+  ('label_contains', 'CARBURANT',     'out', 'depl',      '625100', FALSE, 70, 'seed'),
+  ('label_contains', 'TOTAL',         'out', 'depl',      '625100', FALSE, 40, 'seed'),
+  ('label_contains', 'SVENSK',        'out', 'march',     '607000', FALSE, 85, 'seed')
+ON CONFLICT DO NOTHING;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_updated_at') THEN
+    CREATE FUNCTION set_updated_at() RETURNS TRIGGER AS $f$
+    BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+    $f$ LANGUAGE plpgsql;
+  END IF;
+END$$;
+
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['bank_connections','bank_accounts','bank_transactions','reconciliations','accounting_rules']
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_updated ON %I;', t, t);
+    EXECUTE format('CREATE TRIGGER trg_%s_updated BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at();', t, t);
+  END LOOP;
+END$$;
+
 -- ─── Registre des migrations : une instance neuve naît à jour ───
 CREATE TABLE IF NOT EXISTS schema_migrations (
   fichier TEXT PRIMARY KEY,

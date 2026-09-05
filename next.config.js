@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
+    /* Active src/instrumentation.ts (stable seulement en Next 15). Sans lui,
+       Sentry ne capture rien côté serveur. */
+    instrumentationHook: true,
     serverComponentsExternalPackages: ['pdfkit', 'sharp', 'imapflow', 'mailparser'],
     /* Les polices et le monogramme sont lus depuis le disque au moment de
        générer un PDF. Le traceur de Next ne les voit pas (aucun import ne
@@ -38,4 +41,26 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+// ─── Sentry ───────────────────────────────────────────────────────────────
+// `withSentryConfig` téléverse les source maps au build (pour dénoifier les
+// stack traces minifiées) UNIQUEMENT si SENTRY_AUTH_TOKEN + org + project sont
+// posés. Sans eux — une instance sans Sentry — le build passe pareil, sans
+// upload. Rien à conditionner côté code.
+const { withSentryConfig } = require('@sentry/nextjs');
+
+module.exports = withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,          // logs d'upload seulement en CI
+  widenClientFileUpload: true,       // source maps plus complètes
+  // Route-proxy sur le domaine de l'instance : les erreurs navigateur passent
+  // par /monitoring au lieu d'appeler *.sentry.io directement, ce que les
+  // bloqueurs de pub coupent. `middleware.ts` ne matche que /admin et /api,
+  // donc /monitoring n'est pas intercepté — rien à exclure.
+  tunnelRoute: '/monitoring',
+  disableLogger: true,               // retire le logger Sentry du bundle client
+  // Ne pas téléverser de source maps si aucune config Sentry n'est présente
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+});
+
