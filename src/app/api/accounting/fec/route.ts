@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { categoryDef } from '@/lib/finance/pcg';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,11 @@ export async function GET(req: NextRequest) {
     const accountKey = isRefund
       ? `refund_${entry.category || 'vente_en_ligne'}`
       : `${entry.type}_${entry.category || 'autre'}`;
-    const account = ACCOUNT_MAP[accountKey] || ACCOUNT_MAP[`${entry.type}_autre`] || ACCOUNT_MAP['expense_autre'];
+    // Priorité au compte PCG stocké sur l'écriture (pile de tri) ; sinon
+    // repli sur la table de correspondance (écritures issues du sync commandes).
+    const account = entry.account_code
+      ? { num: entry.account_code, lib: categoryDef(entry.category).label }
+      : (ACCOUNT_MAP[accountKey] || ACCOUNT_MAP[`${entry.type}_autre`] || ACCOUNT_MAP['expense_autre']);
     const journal = JOURNAL_CODES[entry.type] || JOURNAL_CODES['expense'];
     const date = fecDate(entry.date);
     const num = String(ecritureNum++).padStart(6, '0');

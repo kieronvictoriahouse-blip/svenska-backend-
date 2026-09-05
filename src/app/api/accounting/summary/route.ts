@@ -16,13 +16,15 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('accounting_entries')
-    .select('date, type, amount, category')
+    .select('date, type, amount, category, is_personal')
     .gte('date', `${year}-01-01`)
     .lte('date', `${year}-12-31`);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const entries = data || [];
+  // Les mouvements personnels (apport de l'exploitant, prélèvement perso) sont
+  // hors CA et hors charges : ils n'entrent ni dans les seuils ni dans les cotisations.
+  const entries = (data || []).filter((e: any) => !e.is_personal);
 
   // Monthly breakdown
   const months: Record<string, { income: number; expense: number }> = {};
