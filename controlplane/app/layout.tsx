@@ -1,4 +1,4 @@
-export const metadata = { title: 'Shopflow', description: 'Votre boutique en ligne complète, en dix minutes.' };
+export const metadata = { title: 'Vendd', description: 'Votre boutique en ligne complète, en dix minutes.' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

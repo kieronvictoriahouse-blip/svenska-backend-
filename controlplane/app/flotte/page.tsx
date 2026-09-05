@@ -44,7 +44,7 @@ export default async function Flotte({ searchParams }: { searchParams: { cle?: s
           {(instances || []).map((i: any) => (
             <tr key={i.id}>
               <td style={td}><strong>{i.cp_clients?.nom_boutique}</strong><br />
-                <span style={{ color: '#8B8371', fontSize: 12 }}>{i.cp_clients?.sous_domaine}.shopflow.fr · {i.cp_clients?.email}</span></td>
+                <span style={{ color: '#8B8371', fontSize: 12 }}>{i.cp_clients?.sous_domaine}.vendd.fr · {i.cp_clients?.email}</span></td>
               <td style={td}>{i.cp_clients?.statut}</td>
               <td style={td}>{ETAPES[i.etape] || i.etape}</td>
               <td style={td}>{i.url_admin ? <a href={i.url_admin}>{i.url_admin.replace('https://', '')}</a> : '—'}</td>

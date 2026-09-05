@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
 
-/* Page d'inscription — volontairement sobre : la vitrine marketing de
-   Shopflow viendra après le pilote. Ceci est le TUNNEL, et il marche. */
+/* Page d'inscription (le TUNNEL) — la vitrine marketing vit sur vendd.fr
+   (repo séparé) ; ses boutons « Commencer l'essai » pointent ici. */
 
 export default function Accueil() {
   const [form, setForm] = useState({ nom_boutique: '', email: '', siren: '', sous_domaine: '' });
@@ -26,7 +26,7 @@ export default function Accueil() {
 
   return (
     <main style={{ maxWidth: 520, margin: '0 auto', padding: '64px 20px', fontFamily: 'Jost, system-ui, sans-serif', color: '#1B2118' }}>
-      <div style={{ fontSize: 13, letterSpacing: '.3em', textTransform: 'uppercase', color: '#4E6651' }}>Shopflow</div>
+      <div style={{ fontSize: 13, letterSpacing: '.3em', textTransform: 'uppercase', color: '#4E6651' }}>Vendd</div>
       <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 34, margin: '10px 0 6px' }}>
         Votre boutique en ligne complète, en dix minutes.
       </h1>
@@ -56,7 +56,7 @@ export default function Accueil() {
                   flex: 1, height: 42, padding: '0 12px', fontSize: 14,
                   border: '1px solid #D8CEBC', borderRadius: 8, background: '#FDFBF7',
                 }} />
-              {k === 'sous_domaine' && <span style={{ fontSize: 13, color: '#8B8371' }}>.shopflow.fr</span>}
+              {k === 'sous_domaine' && <span style={{ fontSize: 13, color: '#8B8371' }}>.vendd.fr</span>}
             </span>
           </label>
         ))}
@@ -65,7 +65,7 @@ export default function Accueil() {
           height: 48, border: 'none', borderRadius: 8, background: '#1B2118', color: '#F4EEE1',
           fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 6,
         }}>
-          {etat.envoi ? 'Un instant…' : 'Créer ma boutique — essai 14 jours'}
+          {etat.envoi ? 'Un instant…' : 'Créer ma boutique — essai 30 jours'}
         </button>
       </form>
 

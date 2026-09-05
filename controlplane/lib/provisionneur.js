@@ -18,6 +18,9 @@ const sb = require('./api-supabase');
 const vercel = require('./api-vercel');
 const moteur = require('./moteur');
 
+/* Domaine des boutiques locataires (wildcard *.<DOM> chez Vercel). */
+const DOM = process.env.TENANT_DOMAIN || 'vendd.fr';
+
 /**
  * Fait avancer UNE instance d'autant d'étapes que possible.
  * `depot` : lecture/écriture de l'état (cp_instances) + journal —
@@ -31,7 +34,7 @@ async function avancer(instance, client, depot) {
     /* ── 1. La base ─────────────────────────────────────────────── */
     if (instance.etape === 'a_faire') {
       const motDePasseDb = moteur.genSecret() + 'Aa1!';
-      const projet = await sb.creerProjet({ nom: `shopflow-${client.sous_domaine}`, motDePasseDb });
+      const projet = await sb.creerProjet({ nom: `vendd-${client.sous_domaine}`, motDePasseDb });
       const ref = projet.ref || projet.id;
       await note('base_creee', { ref });
       await poser({ supabase_ref: ref, supabase_url: `https://${ref}.supabase.co`, etape: 'base_creee' });
@@ -63,7 +66,7 @@ async function avancer(instance, client, depot) {
         site_name: client.nom_boutique,
         email: client.email,
         siret: client.siren || '',
-        front_url: `https://${client.sous_domaine}.shopflow.fr`,
+        front_url: `https://${client.sous_domaine}.${DOM}`,
       });
       await moteur.enregistrerMigrations(inst);
       await note('installe', { admin: admin.email, motDePasseGenere: !!admin.motDePasse });
@@ -75,12 +78,12 @@ async function avancer(instance, client, depot) {
 
     /* ── 3. L'application ───────────────────────────────────────── */
     if (instance.etape === 'installe') {
-      const projet = await vercel.creerProjet({ nom: `shopflow-${client.sous_domaine}` });
+      const projet = await vercel.creerProjet({ nom: `vendd-${client.sous_domaine}` });
       await note('vercel_cree', { id: projet.id });
       await poser({
         vercel_project_id: projet.id,
-        url_admin: `https://shopflow-${client.sous_domaine}.vercel.app`,
-        url_boutique: `https://${client.sous_domaine}.shopflow.fr`,
+        url_admin: `https://vendd-${client.sous_domaine}.vercel.app`,
+        url_boutique: `https://${client.sous_domaine}.${DOM}`,
         etape: 'vercel_cree',
       });
     }
@@ -102,7 +105,7 @@ async function avancer(instance, client, depot) {
     }
 
     if (instance.etape === 'env_posees') {
-      await vercel.deployer(instance.vercel_project_id, `shopflow-${client.sous_domaine}`);
+      await vercel.deployer(instance.vercel_project_id, `vendd-${client.sous_domaine}`);
       await note('pret', {});
       await poser({ etape: 'pret', erreur: null });
 

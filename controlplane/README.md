@@ -1,4 +1,4 @@
-# Control plane Shopflow
+# Control plane Vendd
 
 L'usine a instances : inscription -> Stripe Billing -> provisionnement
 automatique (Supabase Management API + Vercel API) -> supervision.
@@ -36,6 +36,6 @@ Le cron (vercel.json) bat toutes les minutes sur /api/tick.
 2. SUPABASE_MGMT_TOKEN : supabase.com -> Account -> Access Tokens.
 3. SUPABASE_ORG_ID : Dashboard -> Organization -> settings.
 4. VERCEL_TOKEN : vercel.com -> Settings -> Tokens.
-5. Stripe : produit « Shopflow » + prix mensuel -> STRIPE_PRICE_ID,
+5. Stripe : produit « Vendd » + prix mensuel -> STRIPE_PRICE_ID,
    webhook vers /api/stripe/webhook -> STRIPE_WEBHOOK_SECRET.
-6. Domaine shopflow.fr (et wildcard *.shopflow.fr sur Vercel).
+6. Domaine vendd.fr (et wildcard *.vendd.fr sur Vercel).

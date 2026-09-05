@@ -4,7 +4,7 @@ import { cp } from '../../../../lib/cp-db';
 export const dynamic = 'force-dynamic';
 
 /* ═══════════════════════════════════════════════════════════════
-   WEBHOOK STRIPE BILLING — le cycle de vie des abonnements Shopflow
+   WEBHOOK STRIPE BILLING — le cycle de vie des abonnements Vendd
 
    checkout.session.completed   → client payé, instance mise en FILE
                                   (le tick provisionne, pas le webhook :

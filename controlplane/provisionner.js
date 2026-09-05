@@ -72,7 +72,7 @@ function depotSupabase() {
   }
 
   console.log(`═══ PROVISIONNEMENT ${DRY ? '(--dry, aucun appel réel)' : ''} ═══`);
-  console.log(`  boutique : ${client.nom_boutique} · ${client.sous_domaine}.shopflow.fr · ${client.email}\n`);
+  console.log(`  boutique : ${client.nom_boutique} · ${client.sous_domaine}.vendd.fr · ${client.email}\n`);
 
   if (DRY) activerDry();
   const depot = (DRY || SANS_BASE) ? depotMemoire() : depotSupabase();

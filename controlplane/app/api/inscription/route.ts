@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       mode: 'subscription',
       customer_email: email,
       line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      subscription_data: { trial_period_days: 14 },
+      subscription_data: { trial_period_days: 30 },
       success_url: `${process.env.CP_URL || ''}/merci?client=${client.id}`,
       cancel_url: `${process.env.CP_URL || ''}/?annule=1`,
       metadata: { client_id: client.id },

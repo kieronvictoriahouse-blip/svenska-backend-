@@ -8,8 +8,8 @@
    journalise `bienvenue_a_envoyer` : un humain envoie l'email et
    déclenche une réinitialisation — on ne bloque pas l'usine pour ça.
 
-   Variables CP : RESEND_API_KEY, RESEND_FROM (ex. Shopflow
-   <bonjour@shopflow.fr> — le domaine doit être vérifié chez Resend).
+   Variables CP : RESEND_API_KEY, RESEND_FROM (ex. Vendd
+   <bonjour@vendd.fr> — le domaine doit être vérifié chez Resend).
    ═══════════════════════════════════════════════════════════════ */
 
 function corpsBienvenue({ nomBoutique, email, motDePasse, urlAdmin }) {
@@ -26,7 +26,7 @@ function corpsBienvenue({ nomBoutique, email, motDePasse, urlAdmin }) {
     `dès votre première connexion (Réglages → Mon compte).`,
     ``,
     `Bonne vente,`,
-    `Shopflow`,
+    `Vendd`,
   ].join('\n');
 }
 
