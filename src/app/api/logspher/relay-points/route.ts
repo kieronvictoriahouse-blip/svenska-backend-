@@ -14,10 +14,43 @@ export async function OPTIONS() {
 
 const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
-// UUIDs des carriers qui supportent les points relais (dropoff-locations)
-// Chronopost BtoC (Chrono Relais) + Chronopost 2Shop
-const RELAY_CARRIER_UUIDS = (process.env.LOGSPHER_RELAY_CARRIER_UUIDS || '8c242fd4-bd1a-4fb9-8188-5586b3f1e807,a0ad7a57-f1f2-4c89-9d1c-7c94ab4a7933')
-  .split(',').map(s => s.trim()).filter(Boolean);
+/* ═══════════════════════════════════════════════════════════════
+   POINTS RELAIS — le transporteur le moins cher du pays, et lui seul
+
+   Un point relais appartient à un transporteur : on ne dépose pas un
+   colis Mondial Relay dans un point Chronopost. Le choix du point et
+   celui du transporteur sont donc le même choix.
+
+   Cette route demande d'abord à UGO quelles offres existent vers la
+   destination (multi-rate), retient la MOINS CHÈRE, puis ne propose
+   que les points de ce transporteur-là. Sans cette règle, le client
+   pouvait choisir un point Chronopost pour l'Italie — étiquette à
+   17,51 € HT — alors que la boutique ne lui facture que 9,90 €.
+
+   Relevé du 14/09/2026, colis de 600 g depuis Étoile-sur-Rhône :
+     France   Mondial Relay 4,36 €   (Chronopost 11,20 €)
+     Belgique Shop2Shop     4,72 €   (Mondial Relay 5,53 €)
+     Italie   Shop2Shop     6,59 €   (Mondial Relay 7,88 €)
+     Suède    Shop2Shop    11,22 €   (Mondial Relay : aucun point)
+
+   Si le moins cher n'a pas de point relais sur place, on descend à
+   l'offre suivante plutôt que de renvoyer une liste vide.
+   ═══════════════════════════════════════════════════════════════ */
+
+const NOMS_TRANSPORTEURS: Record<string, string> = {
+  MONDIALRELAY:  'Mondial Relay',
+  CHRONOPOSTS2S: 'Chronopost Shop2Shop',
+};
+
+/* Seuls ces deux reseaux sont autorises : ce sont les seuls dont le
+   tarif reste sous ce que la boutique facture (4,90 EUR France,
+   9,90 EUR Europe). Chronopost classique est volontairement exclu —
+   son offre « Chrono Classic Dropoff » est aussi un depot en relais,
+   mais a 10,63 EUR vers la Belgique et 17,51 EUR vers l'Italie : la
+   laisser apparaitre reviendrait a vendre a perte des qu'un client
+   choisit ce point-la. */
+const RESEAUX_AUTORISES = (process.env.LOGSPHER_RESEAUX_RELAIS || 'MONDIALRELAY,CHRONOPOSTS2S')
+  .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
 
 function getApiKey() {
   const key = process.env.LOGSPHER_API_KEY;
@@ -41,57 +74,101 @@ async function lsFetch(path: string, options: RequestInit = {}) {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const cp      = searchParams.get('cp') || '';
-  const city    = searchParams.get('city') || '';
-  const country = (searchParams.get('country') || 'FR').toUpperCase();
+  /* Le panier envoyait `pays`/`ville` à l'ancienne route Mondial Relay :
+     on accepte les deux écritures pour ne casser aucun appel en vol. */
+  const cp      = (searchParams.get('cp') || '').trim();
+  const city    = (searchParams.get('city') || searchParams.get('ville') || '').trim();
+  const country = (searchParams.get('country') || searchParams.get('pays') || 'FR').toUpperCase();
+  const poidsKg = Math.max(0.1, parseFloat(searchParams.get('poids') || '') || 0.8);
 
   if (!cp && !city) {
-    return NextResponse.json({ error: 'cp ou city requis' }, { status: 400, headers: CORS });
+    return NextResponse.json({ error: 'cp ou ville requis' }, { status: 400, headers: CORS });
   }
 
-  const results = await Promise.allSettled(
-    RELAY_CARRIER_UUIDS.map(async (uuid) => {
+  const demain = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+
+  /* ── 1. Quelles offres existent vers cette destination ? ── */
+  let offres: any[] = [];
+  try {
+    const tarifs = await lsFetch('/api/carrier/multi-rate', {
+      method: 'POST',
+      body: JSON.stringify({
+        order_id: 'relais',
+        shipment: { id: 1, type: 2, shipment_date: demain, delivery_type: 'DELIVERY_TO_COLLECTION_POINT' },
+        ship_from: {
+          pro: true,
+          country_code: (process.env.EXPEDITEUR_PAYS || 'FR').toUpperCase(),
+          postcode: process.env.EXPEDITEUR_CP || '26800',
+          city: process.env.EXPEDITEUR_VILLE || 'Etoile-sur-Rhone',
+        },
+        ship_to: { pro: false, country_code: country, postcode: cp, city: city || cp },
+        parcels: [{ number: 1, weight: poidsKg, volumetric_weight: poidsKg, x: 25, y: 18, z: 10 }],
+      }),
+    });
+    offres = (tarifs.offers || [])
+      .filter((o: any) => RESEAUX_AUTORISES.includes(String(o.carrier_name || '').toUpperCase()))
+      .filter((o: any) => o.delivery_to_collection_point !== false)
+      .sort((a: any, b: any) => (a.price_te ?? 1e9) - (b.price_te ?? 1e9));
+  } catch (e: any) {
+    console.warn('[relay-points] multi-rate indisponible :', e?.message);
+  }
+
+  if (!offres.length) {
+    return NextResponse.json(
+      { points: [], erreur: 'Aucun transporteur ne dessert cette destination en point relais.' },
+      { headers: CORS });
+  }
+
+  /* ── 2. Les points du moins cher ; on descend s'il n'en a pas ── */
+  const essayes: string[] = [];
+  for (const offre of offres.slice(0, 3)) {
+    const uuid = offre.carrier_id;
+    if (!uuid || essayes.includes(uuid)) continue;
+    essayes.push(uuid);
+
+    try {
       const data = await lsFetch(`/api/carrier/${uuid}/dropoff-locations`, {
         method: 'POST',
         body: JSON.stringify({
-          address:      city || cp,
-          city:         city || '',
-          postcode:     cp,
+          address: city || cp,
+          city: city || '',
+          postcode: cp,
           country_code: country,
         }),
       });
-      return { uuid, locations: data.locations || [] };
-    })
-  );
+      const locations = data.locations || [];
+      if (!locations.length) continue;
 
-  const points: any[] = [];
-  const carrierNames: Record<string, string> = {
-    '8c242fd4-bd1a-4fb9-8188-5586b3f1e807': 'Chronopost Relais',
-    'a0ad7a57-f1f2-4c89-9d1c-7c94ab4a7933': 'Chronopost 2Shop',
-  };
-
-  for (const r of results) {
-    if (r.status === 'rejected') {
-      console.warn('[relay-points] carrier failed:', r.reason?.message);
-      continue;
-    }
-    const { uuid, locations } = r.value;
-    for (const loc of locations) {
-      const rawDist = Number(loc.distance || 0);
-      points.push({
-        id:           String(loc.location_id || loc.dropoff_location_id || ''),
-        name:         loc.name || '',
-        adresse:      loc.address1 || '',
-        ville:        loc.city || '',
-        cp:           loc.postcode || '',
-        pays:         loc.country_code || country,
-        carrier_name: carrierNames[uuid] || 'Chronopost',
-        carrier_uuid: uuid,
-        distance:     rawDist ? String(Math.round(rawDist * 10) / 10) : undefined,
-        hours:        loc.hours_formatted || undefined,
+      const nom = NOMS_TRANSPORTEURS[offre.carrier_name] || offre.carrier_name || 'Point relais';
+      const points = locations.map((loc: any) => {
+        const dist = Number(loc.distance || 0);
+        return {
+          id:           String(loc.location_id || loc.dropoff_location_id || ''),
+          name:         loc.name || '',
+          adresse:      loc.address1 || '',
+          ville:        loc.city || '',
+          cp:           loc.postcode || '',
+          pays:         loc.country_code || country,
+          carrier_name: nom,
+          carrier_uuid: uuid,
+          distance:     dist ? String(Math.round(dist * 10) / 10) : undefined,
+          hours:        loc.hours_formatted || undefined,
+        };
       });
+
+      return NextResponse.json({
+        points,
+        carrier_name: nom,
+        carrier_uuid: uuid,
+        price_te: offre.price_te ?? null,
+        transit_time: offre.transit_time ?? null,
+      }, { headers: CORS });
+    } catch (e: any) {
+      console.warn('[relay-points] points indisponibles pour', uuid, ':', e?.message);
     }
   }
 
-  return NextResponse.json({ points }, { headers: CORS });
+  return NextResponse.json(
+    { points: [], erreur: 'Aucun point relais trouvé autour de cette adresse.' },
+    { headers: CORS });
 }
