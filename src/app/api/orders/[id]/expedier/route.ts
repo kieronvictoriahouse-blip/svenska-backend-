@@ -149,9 +149,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
+  /* ── Prevenir le client ───────────────────────────────────────────
+     L'ecran d'expedition ecrivait le statut directement en base, sans
+     passer par PUT /orders/[id] qui, lui, envoie l'email. Resultat :
+     un client dont le colis partait n'etait prevenu de rien. Constat du
+     14/09/2026 : aucun email d'expedition n'etait jamais parti.
+
+     L'email est envoye APRES la sortie de stock et il ne peut pas la
+     defaire : un envoi rate ne doit pas annuler un colis deja parti.
+     Le gabarit est multilingue et suit order.lang. */
+  let emailEnvoye = false;
+  if (order.customer_email) {
+    try {
+      const { expeditionEmail } = await import('@/lib/customer-emails');
+      const { getWhiteLabelConfig, sendEmail } = await import('@/lib/email-send');
+      const cfg = await getWhiteLabelConfig();
+      const from = (cfg.email_from as string) || (cfg as any).smtp_from || '';
+      /* On repasse les valeurs fraiches : l'objet `order` a ete lu avant
+         la mise a jour, il porte encore l'ancien shipped_qty. */
+      const mail = await expeditionEmail({ ...order, ...maj, shipped_at: new Date().toISOString() });
+      await sendEmail({ from, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
+      emailEnvoye = true;
+    } catch (e: any) {
+      console.error('[expedier] email d expedition non parti :', e?.message || e);
+    }
+  }
+
   return NextResponse.json({
     ok: true, rejeu: false, statut, applied, ignores,
     reste: resteApres, shipped_qty: cumul, last_shipment: colis,
+    email_client: emailEnvoye,
     ...(echecs.length ? { echecs } : {}),
   });
 }
