@@ -287,11 +287,19 @@ export async function POST(req: NextRequest) {
           console.error('[webhook] notification email error:', notifErr);
         }
 
-        // Étiquette point relais via LogSpher
-        // relay_carrier_uuid = Chronopost si choisi par client, sinon Mondial Relay par défaut
-        const relayCarrierUuid = existing?.relay_carrier_uuid
-          || process.env.LOGSPHER_MR_UUID
-          || 'b139ac1f-bbb9-4235-b87e-aedcb3c32132';
+        /* Étiquette point relais via UGO.
+
+           On ne force plus Mondial Relay par défaut. Le panier propose
+           désormais le réseau le moins cher du pays — Shop2Shop hors de
+           France, seul réseau desservant la Suède — et un colis ne se
+           dépose pas dans le point d'un autre transporteur : il serait
+           refusé au dépôt.
+
+           Sans valeur stockée (commandes d'avant la migration 051), on
+           laisse `undefined` : createLogspherRelayLabel interroge alors
+           multi-rate et retient la meilleure offre pour la destination,
+           ce qui redonne le bon réseau au lieu d'imposer le mauvais. */
+        const relayCarrierUuid = existing?.relay_carrier_uuid || undefined;
         if (!isTestEvent && !existing?.is_test && existing?.delivery_mode === 'mondial_relay') {
           try {
             const { createLogspherRelayLabel } = await import('@/lib/logspher');
