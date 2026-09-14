@@ -11,7 +11,14 @@
  * c'est `/api/checkout` qui fixe le montant réellement facturé.
  */
 
-export const INTERNATIONAL_COUNTRIES = ['ES', 'PT', 'IT', 'DE', 'NL', 'BE', 'LU', 'CH'];
+/* Zone internationale : tarif 9,90 EUR, franco 50 EUR.
+
+   La Suede manquait alors que le panier la proposait — elle etait donc
+   facturee au tarif France (4,90 EUR) pour un cout reel de 13,46 EUR TTC.
+   La Suisse en sort : hors UE (declaration douaniere a chaque colis) et
+   33,38 EUR HT de port reel, soit ~40 EUR TTC contre 9,90 EUR factures.
+   Elle est retiree du selecteur du panier dans le meme mouvement. */
+export const INTERNATIONAL_COUNTRIES = ['ES', 'PT', 'IT', 'DE', 'NL', 'BE', 'LU', 'SE'];
 
 /** Barème par défaut si rien n'est configuré en base */
 export const SHIPPING_DEFAULTS = {
