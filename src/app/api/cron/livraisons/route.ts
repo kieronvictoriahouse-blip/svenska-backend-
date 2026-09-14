@@ -14,7 +14,13 @@ export const maxDuration = 300;
    « livrée ».
 
    Ce cron interroge UGO (is-delivered) pour chaque colis encore en
-   transit, marque les arrivées, et prévient le client :
+   transit, marque les arrivées, et prévient le client. Il tourne une
+   fois par jour, à 17 h : le plan Vercel Hobby n'autorise qu'un cron
+   quotidien — deux passages (11 h et 17 h) font rejeter le déploiement
+   entier avec « cron_jobs_limits_reached », ce qui bloque aussi tout
+   le reste du commit. Passer en Pro permettrait d'en remettre deux.
+
+   Ce qu'il envoie :
      — point relais → « votre colis vous attend », avec le nom du relais.
        Un colis en relais n'est pas livré : le client doit venir.
      — domicile     → message de livraison classique.
