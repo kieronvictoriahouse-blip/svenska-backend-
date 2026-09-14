@@ -50,8 +50,13 @@ if (DRY) activerDry();
   const f = path.join(__dirname, '.env.local');
   if (!fs.existsSync(f)) return;
   for (const ligne of fs.readFileSync(f, 'utf8').split(/\r?\n/)) {
-    const m = ligne.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    const m = ligne.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+    if (!m) continue;
+    let val = m[2];
+    // Coupe un commentaire en fin de ligne (« ... # ... »), sauf si la valeur est entre guillemets.
+    if (!/^["']/.test(val)) val = val.replace(/\s+#.*$/, '');
+    val = val.trim().replace(/^["']|["']$/g, '');
+    if (val !== '' && process.env[m[1]] === undefined) process.env[m[1]] = val;
   }
 })();
 
@@ -87,15 +92,22 @@ async function stripeSetup() {
   const Stripe = require('stripe');
   const stripe = new Stripe(need('STRIPE_SECRET_KEY'));
 
-  let product = null;
-  try { const s = await stripe.products.search({ query: "metadata['app']:'vendd'" }); product = s.data[0] || null; } catch { /* search indispo → on créera */ }
-  if (!product) product = await stripe.products.create({ name: 'Vendd', description: 'Abonnement Vendd — la back-boutique des indépendants', metadata: { app: 'vendd' } });
-  console.log(`  Stripe · produit ${product.id}`);
-
-  const prices = await stripe.prices.list({ product: product.id, active: true, limit: 100 });
-  let price = prices.data.find(p => p.unit_amount === AMOUNT && p.currency === CURRENCY && p.recurring && p.recurring.interval === 'month');
-  if (!price) price = await stripe.prices.create({ product: product.id, unit_amount: AMOUNT, currency: CURRENCY, recurring: { interval: 'month' } });
-  console.log(`  Stripe · prix ${price.id} (${(AMOUNT / 100).toFixed(2)} ${CURRENCY.toUpperCase()}/mois)`);
+  /* Si STRIPE_PRICE_ID est déjà fourni (prix créé à la main), on le réutilise
+     — pas de création, donc pas de doublon. Sinon on crée produit + prix. */
+  let priceId = process.env.STRIPE_PRICE_ID || null;
+  if (priceId) {
+    console.log(`  Stripe · prix fourni ${priceId} (réutilisé)`);
+  } else {
+    let product = null;
+    try { const s = await stripe.products.search({ query: "metadata['app']:'vendd'" }); product = s.data[0] || null; } catch { /* search indispo → on créera */ }
+    if (!product) product = await stripe.products.create({ name: 'Vendd', description: 'Abonnement Vendd — la back-boutique des indépendants', metadata: { app: 'vendd' } });
+    console.log(`  Stripe · produit ${product.id}`);
+    const prices = await stripe.prices.list({ product: product.id, active: true, limit: 100 });
+    let price = prices.data.find(p => p.unit_amount === AMOUNT && p.currency === CURRENCY && p.recurring && p.recurring.interval === 'month');
+    if (!price) price = await stripe.prices.create({ product: product.id, unit_amount: AMOUNT, currency: CURRENCY, recurring: { interval: 'month' } });
+    priceId = price.id;
+    console.log(`  Stripe · prix ${priceId} (${(AMOUNT / 100).toFixed(2)} ${CURRENCY.toUpperCase()}/mois)`);
+  }
 
   const url = `${process.env.CP_URL}/api/stripe/webhook`;
   const hooks = await stripe.webhookEndpoints.list({ limit: 100 });
@@ -104,7 +116,7 @@ async function stripeSetup() {
   if (!hook) { hook = await stripe.webhookEndpoints.create({ url, enabled_events: WEBHOOK_EVENTS }); webhookSecret = hook.secret; console.log(`  Stripe · webhook ${hook.id} créé`); }
   else { existant = true; console.log(`  Stripe · webhook ${hook.id} déjà présent (secret non relisible via API)`); }
 
-  return { priceId: price.id, webhookSecret, existant };
+  return { priceId, webhookSecret, existant };
 }
 
 /* ── 4-5. Vercel : projet + env + déploiement + domaine ──────────── */

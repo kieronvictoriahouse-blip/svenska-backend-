@@ -15,7 +15,7 @@ export const INTERNATIONAL_COUNTRIES = ['ES', 'PT', 'IT', 'DE', 'NL', 'BE', 'LU'
 
 /** Barème par défaut si rien n'est configuré en base */
 export const SHIPPING_DEFAULTS = {
-  FR:   { threshold: 50, cost: 4.90 },
+  FR:   { threshold: 29, cost: 4.90 },
   INTL: { threshold: 70, cost: 9.90 },
 };
 

@@ -160,7 +160,7 @@ export function postPurchaseTemplate(order: any, auto: any, cfg: Record<string, 
     <p class="text">Bonjour ${order.customer_name || ''},</p>
     <p class="text">Nous espérons que votre commande vous a plu et que tout s'est bien passé !</p>
     <p class="text">Votre avis compte beaucoup pour nous et aide les autres clients à faire leur choix.</p>
-    ${frontUrl ? `<div style="text-align:center"><a href="${frontUrl}" class="btn">Laisser un avis →</a></div>` : ''}
+    ${frontUrl ? `<div style="text-align:center"><a href="${frontUrl}/avis?c=${order.id}" class="btn">Laisser un avis →</a></div>` : ''}
     <p class="text">Merci encore de nous faire confiance !</p>`;
   return { html: baseTemplate(content, subject, cfg), subject };
 }
