@@ -61,9 +61,10 @@ export async function GET(req: NextRequest) {
 
   const { data: enTransit, error } = await supabaseAdmin
     .from('orders')
-    .select('id,order_number,status,customer_email,customer_name,lang,lines,shipped_qty,last_shipment,' +
-            'relay_point_name,relay_point_address,relay_carrier_uuid,delivery_mode,created_at,' +
-            'logspher_tracking,mondial_relay_tracking,tracking_number')
+    /* `*` plutot qu'une liste : `relay_carrier_uuid` n'existe qu'apres
+       la migration 051, et nommer une colonne absente fait echouer la
+       requete entiere en PostgREST. */
+    .select('*')
     .eq('status', 'shipped')
     .gte('created_at', limite)
     .limit(80);

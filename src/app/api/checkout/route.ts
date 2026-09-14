@@ -38,7 +38,7 @@ const ADMIN_TEST_EMAILS = (process.env.ADMIN_TEST_EMAILS || '')
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays } = body;
+    const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays, relay_carrier_uuid } = body;
     let { customer_email } = body;
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
@@ -307,6 +307,10 @@ export async function POST(req: NextRequest) {
         total:            grandTotal,
         lines:            orderLines,
         delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
+        /* Le transporteur du point relais choisi : c'est lui qui doit
+           produire l'etiquette. Sans cette valeur, tout partait en
+           Mondial Relay, y compris un point Shop2Shop. */
+        relay_carrier_uuid: relay_carrier_uuid || null,
         ...(isTestMode ? { is_test: true } : {}),
         ...(isMondialRelay && relay_point_id ? {
           relay_point_id,

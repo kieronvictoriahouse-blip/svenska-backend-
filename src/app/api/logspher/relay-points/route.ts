@@ -119,24 +119,61 @@ export async function GET(req: NextRequest) {
       { headers: CORS });
   }
 
-  /* ── 2. Les points du moins cher ; on descend s'il n'en a pas ── */
+  /* ── 2. Les points du moins cher ; on descend s'il n'en a pas ──
+
+     Les deux reseaux ne se cherchent pas de la meme facon, et le panier
+     ne connait que le code postal du client :
+       — Shop2Shop accepte le code postal seul via UGO (il le geocode :
+         75017 -> PARIS, 11122 -> STOCKHOLM).
+       — Mondial Relay exige un vrai nom de ville sur UGO et renvoie 0
+         point sans lui. Sa propre API SOAP, elle, travaille au code
+         postal — c'est celle que le panier utilisait avant. On la garde
+         pour lui plutot que de reclamer la ville au client. */
+  const origine = new URL(req.url).origin;
   const essayes: string[] = [];
   for (const offre of offres.slice(0, 3)) {
     const uuid = offre.carrier_id;
     if (!uuid || essayes.includes(uuid)) continue;
     essayes.push(uuid);
+    const reseau = String(offre.carrier_name || '').toUpperCase();
 
     try {
+      let locations: any[];
+
+      if (reseau === 'MONDIALRELAY') {
+        const res = await fetch(
+          `${origine}/api/mondial-relay/points?cp=${encodeURIComponent(cp)}&pays=${encodeURIComponent(country)}`
+          + (city ? `&ville=${encodeURIComponent(city)}` : ''));
+        const pts = res.ok ? await res.json() : null;
+        const bruts = Array.isArray(pts) ? pts : (pts?.points || []);
+        /* Cette route renvoie deja le format du panier : on ne remappe
+           pas, on complete seulement le transporteur. */
+        if (!bruts.length) continue;
+        return NextResponse.json({
+          points: bruts.map((p: any) => ({
+            ...p,
+            carrier_name: 'Mondial Relay',
+            carrier_uuid: uuid,
+          })),
+          carrier_name: 'Mondial Relay',
+          carrier_uuid: uuid,
+          price_te: offre.price_te ?? null,
+          transit_time: offre.transit_time ?? null,
+        }, { headers: CORS });
+      }
+
       const data = await lsFetch(`/api/carrier/${uuid}/dropoff-locations`, {
         method: 'POST',
         body: JSON.stringify({
+          /* `city` ne peut pas etre vide : l'API repond 400. A defaut du
+             nom de ville, le code postal suffit a Shop2Shop. */
           address: city || cp,
-          city: city || '',
+          city: city || cp,
           postcode: cp,
           country_code: country,
         }),
       });
-      const locations = data.locations || [];
+      locations = data.locations || [];
       if (!locations.length) continue;
 
       const nom = NOMS_TRANSPORTEURS[offre.carrier_name] || offre.carrier_name || 'Point relais';
