@@ -1,3 +1,5 @@
+import { supabaseAdmin } from '@/lib/supabase';
+
 const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
 function getApiKey() {
@@ -78,6 +80,48 @@ export interface LogspherLabelResult {
   carrier_code: string;
 }
 
+/* ── Poids du colis ────────────────────────────────────────────────
+   Le poids declare determine la tranche tarifaire du transporteur.
+   L'ancien calcul comptait 500 g PAR ARTICLE : trois sachets de bonbons
+   etaient declares a 1,5 kg. Releve du 14/09/2026 sur la grille reelle
+   Etoile-sur-Rhone -> Paris : 0,5 kg = 3,97 EUR HT, 1,5 kg = 6,04 EUR HT.
+   On payait donc ~2 EUR de trop sur chaque expedition, alors que la
+   boutique ne facture que 4,90 EUR au client.
+
+   On declare desormais le poids reel du catalogue. Sous-declarer serait
+   pire que sur-declarer — le transporteur repese et facture un
+   ajustement — d'ou la tare d'emballage et l'arrondi au dessus. */
+const TARE_EMBALLAGE_G = 200;   // carton + calage
+const POIDS_INCONNU_G  = 150;   // produit sans poids renseigne
+
+/** « 78g », « 150 g », « 16x22g » → grammes. 0 si illisible. */
+export function poidsEnGrammes(brut: string | null | undefined): number {
+  const t = String(brut || '').trim().toLowerCase().replace(/^\d+\s*[x×]\s*/, '');
+  const m = t.match(/([\d.,]+)\s*(kg|g)?/);
+  if (!m) return 0;
+  const n = parseFloat(m[1].replace(',', '.'));
+  if (!(n > 0)) return 0;
+  return m[2] === 'kg' ? Math.round(n * 1000) : Math.round(n);
+}
+
+/** Poids total du colis, en grammes, tare comprise. */
+async function poidsDuColis(lines: Array<{ qty?: number; [k: string]: any }>): Promise<number> {
+  const ids = Array.from(new Set((lines || []).map(l => l.product_id || l.id).filter(Boolean)));
+  const poidsParId: Record<string, number> = {};
+  if (ids.length) {
+    const { data } = await supabaseAdmin.from('products').select('id,weight').in('id', ids);
+    for (const p of (data || [])) poidsParId[p.id] = poidsEnGrammes(p.weight);
+  }
+  let total = 0;
+  for (const l of (lines || [])) {
+    const g = poidsParId[l.product_id || l.id] || POIDS_INCONNU_G;
+    total += g * (l.qty || 1);
+  }
+  const avecTare = total + TARE_EMBALLAGE_G;
+  // Arrondi aux 100 g superieurs, plancher a 300 g.
+  return Math.max(300, Math.ceil(avecTare / 100) * 100);
+}
+
 export async function createLogspherRelayLabel(
   order: {
     order_number: string;
@@ -111,7 +155,7 @@ export async function createLogspherRelayLabel(
   const firstname = nameParts.slice(1).join(' ') || lastname;
 
   const totalQty = (order.lines || []).reduce((acc, l) => acc + (l.qty || 1), 0);
-  const weightGrams = Math.max(500, totalQty * 500);
+  const weightGrams = await poidsDuColis(order.lines || []);
 
   const destCountry = (relayAddress.country || order.relay_point_pays || 'FR').slice(0, 2).toUpperCase();
 
@@ -167,19 +211,48 @@ export async function createLogspherRelayLabel(
     { number: 1, weight: weightKg, volumetric_weight: weightKg, x: 30, y: 20, z: 15 },
   ];
 
+  /* ── Le tarif et l'etiquette n'acceptent PAS les memes champs ──────
+     /rate ne veut qu'une zone d'expedition : pays, code postal, ville,
+     et le fait que l'on soit professionnel. Lui envoyer une adresse
+     complete, un contenu ou un motif — qui n'ont de sens que pour
+     l'etiquette — le fait repondre 400 « This field was not expected ».
+     C'est ce qui bloquait toutes les expeditions : 13 champs refuses,
+     zero etiquette generee depuis la mise en place.
+     Verifie le 14/09/2026 : la charge ci-dessous renvoie bien 200.
+     Toute nouvelle donnee va dans la charge /ship, jamais ici. */
+  const rateShipment = {
+    id: 1,
+    type: 2,
+    shipment_date: baseShipment.shipment_date,
+    delivery_type: 'DELIVERY_TO_COLLECTION_POINT',
+  };
+  const rateShipFrom = {
+    pro: true,
+    country_code: baseShipFrom.country_code,
+    postcode: baseShipFrom.postcode,
+    city: baseShipFrom.city,
+  };
+  const rateShipTo = {
+    pro: false,
+    country_code: baseShipTo.country_code,
+    postcode: baseShipTo.postcode,
+    city: baseShipTo.city,
+  };
+  const chargeTarif = {
+    order_id: order.order_number,
+    shipment: rateShipment,
+    ship_from: rateShipFrom,
+    ship_to: rateShipTo,
+    parcels: baseParcels,
+  };
+
   // Step 1: obtenir le tarif — via le carrier UUID du point relais choisi si disponible, sinon multi-rate
   let best: any;
   if (order.relay_carrier_uuid) {
     // Le client a choisi un point relais d'un carrier spécifique → on utilise ce carrier directement
     const rateRes = await apiFetch(`/api/carrier/${order.relay_carrier_uuid}/rate`, {
       method: 'POST',
-      body: JSON.stringify({
-        order_id: order.order_number,
-        shipment: baseShipment,
-        ship_from: baseShipFrom,
-        ship_to: baseShipTo,
-        parcels: baseParcels,
-      }),
+      body: JSON.stringify(chargeTarif),
     });
     if (!rateRes.success || !Array.isArray(rateRes.offers) || !rateRes.offers.length) {
       throw new Error('Aucune offre pour ce carrier: ' + JSON.stringify(rateRes.errors || {}));
@@ -189,13 +262,7 @@ export async function createLogspherRelayLabel(
     // Fallback multi-rate → moins cher
     const rateRes = await apiFetch('/api/carrier/multi-rate', {
       method: 'POST',
-      body: JSON.stringify({
-        order_id: order.order_number,
-        shipment: baseShipment,
-        ship_from: baseShipFrom,
-        ship_to: baseShipTo,
-        parcels: baseParcels,
-      }),
+      body: JSON.stringify(chargeTarif),
     });
     if (!rateRes.success || !Array.isArray(rateRes.offers) || !rateRes.offers.length) {
       throw new Error('Aucune offre LogSpher disponible: ' + JSON.stringify(rateRes.errors || {}));
