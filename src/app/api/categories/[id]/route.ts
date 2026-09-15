@@ -10,7 +10,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
 
-  const ALLOWED = ['slug', 'emoji', 'name_fr', 'name_sv', 'name_en', 'sort_order', 'is_active'];
+  const ALLOWED = ['slug', 'emoji', 'name_fr', 'name_sv', 'name_en', 'sort_order', 'is_active',
+    'discount_type', 'discount_value', 'discount_start', 'discount_end'];
   const payload = Object.fromEntries(Object.entries(body).filter(([k]) => ALLOWED.includes(k)));
   if (!Object.keys(payload).length) return NextResponse.json({ error: 'Rien à mettre à jour' }, { status: 400 });
 

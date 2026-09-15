@@ -17,11 +17,33 @@ type Category = {
   id: string; slug: string; emoji: string;
   name_sv: string; name_fr: string; name_en: string;
   sort_order: number; is_active: boolean;
+  discount_type?: string | null; discount_value?: number | string | null;
+  discount_start?: string | null; discount_end?: string | null;
 };
 
 const slugify = (v: string) =>
   v.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const dayISO = () => new Date().toISOString().slice(0, 10);
+/** Une promo de catégorie est-elle active AUJOURD'HUI ? (miroir de isDiscountActive) */
+function promoActive(c: Category): boolean {
+  const t = c.discount_type; const v = Number(c.discount_value);
+  if ((t !== 'percent' && t !== 'fixed') || !(v > 0)) return false;
+  const s = (c.discount_start || '').slice(0, 10); const e = (c.discount_end || '').slice(0, 10);
+  const today = dayISO();
+  if (s && today < s) return false;
+  if (e && today > e) return false;
+  return true;
+}
+/** Libellé court de la remise : « -10 % » ou « -1,50 € », ou null si aucune. */
+function promoLabel(c: Category): string | null {
+  const v = Number(c.discount_value);
+  if ((c.discount_type !== 'percent' && c.discount_type !== 'fixed') || !(v > 0)) return null;
+  return c.discount_type === 'percent'
+    ? `-${v % 1 === 0 ? v : v.toFixed(2)} %`
+    : `-${v.toFixed(2).replace('.', ',')} €`;
+}
 
 export default function CategoriesPage() {
   const { t, tc, lang } = useT(TCA);
@@ -34,6 +56,23 @@ export default function CategoriesPage() {
   const [editing, setEditing] = useState<Category | null>(null);
   const [drag, setDrag] = useState<string | null>(null);
   const [form, setForm] = useState({ slug: '', emoji: '', name_fr: '', name_sv: '', name_en: '' });
+  const [promo, setPromo] = useState<Category | null>(null);   // catégorie en cours d'édition de promo
+
+  async function savePromo() {
+    if (!promo) return;
+    const type = promo.discount_type === 'percent' || promo.discount_type === 'fixed' ? promo.discount_type : null;
+    const val = Number(promo.discount_value);
+    const payload = type && val > 0
+      ? { discount_type: type, discount_value: val, discount_start: promo.discount_start || null, discount_end: promo.discount_end || null }
+      : { discount_type: null, discount_value: null, discount_start: null, discount_end: null };
+    await patch(promo.id, payload as Partial<Category>);
+    setPromo(null);
+    say(payload.discount_type ? 'Promo enregistrée' : 'Promo retirée');
+  }
+  async function clearPromo(c: Category) {
+    await patch(c.id, { discount_type: null, discount_value: null, discount_start: null, discount_end: null } as Partial<Category>);
+    say('Promo retirée');
+  }
 
   useEffect(() => { load(); }, []);
 
@@ -174,14 +213,15 @@ export default function CategoriesPage() {
       {!loading && cats.length > 0 && (
         <div className="sc-card" style={{ overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table className="sc-table" style={{ minWidth: 680 }}>
+            <table className="sc-table" style={{ minWidth: 800 }}>
               <thead>
                 <tr>
                   <th style={{ width: 34 }} />
                   <th>{t('categorie')}</th>
                   <th style={{ width: 150 }}>{t('nomSv')}</th>
-                  <th style={{ width: 180 }}>URL</th>
-                  <th style={{ width: 90 }}>{tc('products')}</th>
+                  <th style={{ width: 160 }}>URL</th>
+                  <th style={{ width: 80 }}>{tc('products')}</th>
+                  <th style={{ width: 120 }}>Promo</th>
                   <th style={{ width: 90 }}>{t('visible')}</th>
                   <th style={{ width: 50 }} />
                 </tr>
@@ -221,6 +261,25 @@ export default function CategoriesPage() {
                       }}>{counts[c.id] || 0}</span>
                     </td>
                     <td>
+                      {promoLabel(c) ? (
+                        <button
+                          onClick={() => setPromo({ ...c, discount_start: (c.discount_start || '').slice(0, 10), discount_end: (c.discount_end || '').slice(0, 10) })}
+                          title={promoActive(c) ? 'Promo active — cliquer pour modifier' : 'Promo programmée ou terminée — cliquer pour modifier'}
+                          style={{
+                            border: 'none', cursor: 'pointer', padding: '3px 9px', borderRadius: 9, fontSize: 11, fontWeight: 700,
+                            background: promoActive(c) ? '#E7F0E4' : '#F1ECE2', color: promoActive(c) ? '#3D6B3A' : '#9A8F7F',
+                          }}>
+                          {promoLabel(c)}{promoActive(c) ? '' : ' •'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setPromo({ ...c, discount_type: 'percent', discount_value: '' as any, discount_start: '', discount_end: '' })}
+                          style={{ border: '1px dashed #CDBFA6', background: 'transparent', cursor: 'pointer', padding: '3px 9px', borderRadius: 9, fontSize: 11, color: '#9A8F7F' }}>
+                          + Promo
+                        </button>
+                      )}
+                    </td>
+                    <td>
                       <button className="sc-switch" role="switch" aria-checked={c.is_active !== false}
                               onClick={() => patch(c.id, { is_active: !(c.is_active !== false) })}
                               aria-label={`Visibilité de ${c.name_fr}`} />
@@ -234,6 +293,57 @@ export default function CategoriesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {promo && (
+        <div onClick={() => setPromo(null)}
+             style={{ position: 'fixed', inset: 0, background: 'rgba(30,26,22,.38)', zIndex: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="sc-card" style={{ width: 'min(440px,100%)', padding: 18 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, marginBottom: 2 }}>Promo — {promo.name_fr}</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>
+              S’applique à tous les produits de cette catégorie. Une remise posée sur un produit précis reste prioritaire.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label className="sc-label">Type</label>
+                <select className="sc-input" value={promo.discount_type || 'percent'}
+                        onChange={e => setPromo(p => p && ({ ...p, discount_type: e.target.value }))}>
+                  <option value="percent">Pourcentage (%)</option>
+                  <option value="fixed">Montant fixe (€)</option>
+                </select>
+              </div>
+              <div>
+                <label className="sc-label">{promo.discount_type === 'fixed' ? 'Montant (€)' : 'Remise (%)'}</label>
+                <input className="sc-input sc-num" type="number" min={0} step={promo.discount_type === 'fixed' ? '0.01' : '1'}
+                       value={promo.discount_value ?? ''}
+                       onChange={e => setPromo(p => p && ({ ...p, discount_value: e.target.value }))}
+                       placeholder={promo.discount_type === 'fixed' ? '1,50' : '10'} />
+              </div>
+              <div>
+                <label className="sc-label">Début (optionnel)</label>
+                <input className="sc-input" type="date" value={promo.discount_start || ''}
+                       onChange={e => setPromo(p => p && ({ ...p, discount_start: e.target.value }))} />
+              </div>
+              <div>
+                <label className="sc-label">Fin (optionnel)</label>
+                <input className="sc-input" type="date" value={promo.discount_end || ''}
+                       onChange={e => setPromo(p => p && ({ ...p, discount_end: e.target.value }))} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16 }}>
+              <button type="button" className="sc-btn sc-btn-secondary"
+                      onClick={() => { const c = promo; setPromo(null); if (promoLabel(c)) clearPromo(c); }}>
+                Retirer la promo
+              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="sc-btn sc-btn-secondary" onClick={() => setPromo(null)}>Annuler</button>
+                <button type="button" className="sc-btn sc-btn-green" onClick={savePromo}>
+                  <span className="ms">save</span>Enregistrer
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

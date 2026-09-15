@@ -45,4 +45,30 @@ export function effectiveUnitPrice(base: number, p: DiscountFields, today: strin
   return Math.max(0, round2(out));
 }
 
+/* ─────────────────────────────────────────────────────────────────
+   REMISE PAR CATÉGORIE (migration 052)
+
+   Une catégorie peut porter les mêmes colonnes discount_* : la promo
+   s'applique alors à tous ses produits. Précédence : une remise posée
+   DIRECTEMENT sur un produit l'emporte toujours ; sinon on retombe sur
+   la remise de sa catégorie ; sinon aucune. On renvoie le jeu de champs
+   « gagnant » à passer tel quel à effectiveUnitPrice/isDiscountActive.
+   ───────────────────────────────────────────────────────────────── */
+export function resolveDiscount(
+  product: DiscountFields,
+  category?: DiscountFields | null,
+  today: string = todayISO(),
+): DiscountFields {
+  if (isDiscountActive(product, today)) return product;
+  if (category && isDiscountActive(category, today)) {
+    return {
+      discount_type: category.discount_type,
+      discount_value: category.discount_value,
+      discount_start: category.discount_start,
+      discount_end: category.discount_end,
+    };
+  }
+  return product;
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100;

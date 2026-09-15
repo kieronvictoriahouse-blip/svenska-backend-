@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
+import { resolveDiscount } from '@/lib/product-price';
 
 export const maxDuration = 60;
 
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
   const isAdmin = !!req.headers.get('authorization');
   let query = supabaseAdmin
     .from('products')
-    .select('*, product_variants(*), categories(name_fr, name_sv, name_en, slug)')
+    .select('*, product_variants(*), categories(name_fr, name_sv, name_en, slug, discount_type, discount_value, discount_start, discount_end)')
     .order('sort_order', { ascending: true });
   if (!isAdmin) query = query.eq('is_active', true);
 
@@ -44,6 +45,16 @@ export async function GET(req: NextRequest) {
     const { quantitesReservees } = await import('@/lib/reserve');
     const reserve = await quantitesReservees();
     for (const p of produits as any[]) {
+      /* Remise effective exposée à la vitrine : remise produit prioritaire,
+         sinon remise de la catégorie (migration 052). Le front ne lit que
+         p.discount_* → on y écrit le jeu « gagnant », il n'a rien à changer.
+         (Uniquement côté public : l'admin garde la remise brute du produit
+         pour éditer la fiche sans hériter par erreur de celle de la catégorie.) */
+      const eff = resolveDiscount(p, p.categories);
+      p.discount_type  = eff.discount_type  ?? null;
+      p.discount_value = eff.discount_value ?? null;
+      p.discount_start = eff.discount_start ?? null;
+      p.discount_end   = eff.discount_end   ?? null;
       if (p.track_stock !== true || typeof p.stock !== 'number') continue;
       p.stock = p.stock - (reserve[p.id] || 0);
     }

@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
 import { evaluatePromo } from '@/lib/promo';
-import { effectiveUnitPrice } from '@/lib/product-price';
+import { effectiveUnitPrice, resolveDiscount } from '@/lib/product-price';
 import crypto from 'crypto';
 
 const CUSTOMER_SECRET = process.env.CUSTOMER_JWT_SECRET || process.env.SNIPCART_SECRET_KEY || 'sd-customer-secret';
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       if (item && item.gift) { giftClaims.push({ id: item.id }); continue; }
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
       const sortOrder = isUUID ? NaN : parseInt(item.id);
-      let q = supabaseAdmin.from('products').select('*, product_variants(*)').eq('is_active', true);
+      let q = supabaseAdmin.from('products').select('*, product_variants(*), categories(discount_type, discount_value, discount_start, discount_end)').eq('is_active', true);
       q = isUUID ? q.eq('id', item.id) : q.eq('sort_order', sortOrder);
       const { data: product } = await q.maybeSingle();
       if (!product) continue;
@@ -118,7 +118,8 @@ export async function POST(req: NextRequest) {
          sur le prix de base (produit ou variante). C'est CE prix qui part
          chez Stripe — l'affichage front n'est qu'un miroir, jamais cru. */
       const basePrice = variant ? variant.price : product.price;
-      const price     = effectiveUnitPrice(basePrice, product);
+      // Remise produit prioritaire, sinon remise de la catégorie (migration 052).
+      const price     = effectiveUnitPrice(basePrice, resolveDiscount(product, product.categories));
       const suffix   = item.variant ? ` — ${item.variant}` : '';
       const name     = (product.name_fr || '') + suffix;
       const name_en  = (product.name_en || product.name_fr || '') + suffix;
