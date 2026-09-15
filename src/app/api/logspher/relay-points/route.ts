@@ -178,7 +178,11 @@ export async function GET(req: NextRequest) {
 
       const nom = NOMS_TRANSPORTEURS[offre.carrier_name] || offre.carrier_name || 'Point relais';
       const points = locations.map((loc: any) => {
-        const dist = Number(loc.distance || 0);
+        /* UGO compte en METRES, l'API Mondial Relay en kilometres — et
+           le panier ajoute « km » aux deux. Un point a 3,7 km s'affichait
+           donc « 3692 km ». On ramene tout en kilometres, une decimale. */
+        const metres = Number(loc.distance || 0);
+        const dist = metres ? Math.round(metres / 100) / 10 : 0;
         return {
           id:           String(loc.location_id || loc.dropoff_location_id || ''),
           name:         loc.name || '',
@@ -188,7 +192,7 @@ export async function GET(req: NextRequest) {
           pays:         loc.country_code || country,
           carrier_name: nom,
           carrier_uuid: uuid,
-          distance:     dist ? String(Math.round(dist * 10) / 10) : undefined,
+          distance:     dist ? String(dist) : undefined,
           hours:        loc.hours_formatted || undefined,
         };
       });
