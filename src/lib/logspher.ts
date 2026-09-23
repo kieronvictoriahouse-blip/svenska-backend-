@@ -122,6 +122,17 @@ async function poidsDuColis(lines: Array<{ qty?: number; [k: string]: any }>): P
   return Math.max(300, Math.ceil(avecTare / 100) * 100);
 }
 
+/** Annule l'étiquette UGO d'une commande (passage en Click & Collect,
+    commande annulée). UGO l'identifie par l'order_id envoyé à /ship,
+    c'est-à-dire notre numéro de commande. */
+export async function cancelLogspherLabel(orderNumber: string): Promise<void> {
+  const res = await apiFetch('/api/carrier/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ order_id: orderNumber }),
+  });
+  if (!res?.success) throw new Error('Annulation LogSpher refusée: ' + JSON.stringify(res));
+}
+
 export async function createLogspherRelayLabel(
   order: {
     order_number: string;

@@ -707,6 +707,27 @@ export default function CommandesPage() {
     }
   }
 
+  // Annule l'étiquette UGO (passage en Click & Collect, commande annulée).
+  async function cancelLogspherLabel() {
+    if (!selected) return;
+    if (!confirm(`Annuler l’étiquette UGO de ${selected.order_number} ? À faire avant le dépôt du colis.`)) return;
+    setLsRetrying(true);
+    try {
+      const res = await adminFetch(`/api/orders/${selected.id}/logspher-label`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { showToast('❌ ' + (data.error || 'Erreur LogSpher')); return; }
+      setSelected(s => s ? {
+        ...s,
+        logspher_tracking: undefined, logspher_label_url: undefined, logspher_carrier_name: undefined, logspher_error: undefined,
+        ...(data.tracking_number === null ? { tracking_number: undefined } : {}),
+      } : s);
+      showToast('✅ Étiquette annulée');
+      load();
+    } finally {
+      setLsRetrying(false);
+    }
+  }
+
   function printDeliveryNote(order: Order) {
     const lines = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
     const addr = toAddrStr(order.shipping_address || order.customer_address).replace(/,\s*/g, '\n');
@@ -1343,18 +1364,24 @@ export default function CommandesPage() {
                             <span className="sc-card-title">{t('shipment')}</span>
                           </div>
                           <div style={{ padding: '13px 15px' }}>
-                            {(o.logspher_label_url || o.logspher_error) && (
+                            {(o.logspher_label_url || o.logspher_error || (o.delivery_mode === 'mondial_relay' && !o.mondial_relay_tracking && !['shipped', 'delivered'].includes(o.status))) && (
                               <div style={{ background: o.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${o.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
                                 {o.logspher_label_url
                                   ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">{t('downloadPdf')}</a></>
-                                  : <>Erreur LogSpher : {o.logspher_error}</>}
-                                {!o.logspher_label_url && (
-                                  <div style={{ marginTop: 8 }}>
-                                    <button className="sc-btn sc-btn-secondary" onClick={retryLogspherLabel} disabled={lsRetrying}>
-                                      {lsRetrying ? 'Relance…' : 'Relancer l’étiquette UGO'}
+                                  : o.logspher_error
+                                    ? <>Erreur LogSpher : {o.logspher_error}</>
+                                    : <>Pas d’étiquette UGO pour ce point relais.</>}
+                                <div style={{ marginTop: 8 }}>
+                                  {o.logspher_label_url ? (
+                                    <button className="sc-btn sc-btn-danger" onClick={cancelLogspherLabel} disabled={lsRetrying}>
+                                      {lsRetrying ? 'Annulation…' : 'Annuler l’étiquette'}
                                     </button>
-                                  </div>
-                                )}
+                                  ) : (
+                                    <button className="sc-btn sc-btn-secondary" onClick={retryLogspherLabel} disabled={lsRetrying}>
+                                      {lsRetrying ? 'Création…' : o.logspher_error ? 'Relancer l’étiquette UGO' : 'Créer l’étiquette UGO'}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
                             {mrResult && (

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { getWlConfig } from '@/lib/mailer';
-import { createLogspherRelayLabel } from '@/lib/logspher';
+import { createLogspherRelayLabel, cancelLogspherLabel } from '@/lib/logspher';
 
 /* Relance l'étiquette point relais UGO d'une commande.
    Le webhook Stripe ne tente l'étiquette qu'une fois, au paiement :
@@ -65,4 +65,41 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }).eq('id', order.id);
     return NextResponse.json({ error: msg, logspher_error: msg }, { status: 502 });
   }
+}
+
+/* Annule l'étiquette UGO : la commande passe en Click & Collect ou est
+   annulée. Idéalement avant le dépôt du colis au point relais. */
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+
+  const { data: order, error } = await supabaseAdmin
+    .from('orders').select('*').eq('id', params.id).single();
+  if (error || !order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+  if (!order.logspher_label_url && !order.logspher_shipment_id) {
+    return NextResponse.json({ error: 'Aucune étiquette UGO à annuler' }, { status: 400 });
+  }
+
+  try {
+    await cancelLogspherLabel(order.order_number);
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    // 404 = UGO ne connaît plus l'envoi (déjà annulé) : on nettoie quand même.
+    if (!/→ 404/.test(msg)) {
+      return NextResponse.json({ error: msg.slice(0, 500) }, { status: 502 });
+    }
+  }
+
+  const patch: Record<string, any> = {
+    logspher_shipment_id:  null,
+    logspher_tracking:     null,
+    logspher_label_url:    null,
+    logspher_carrier_name: null,
+    logspher_carrier_code: null,
+    logspher_error:        null,
+    updated_at:            new Date().toISOString(),
+  };
+  // Ne vider le suivi que s'il venait de cette étiquette.
+  if (order.tracking_number && order.tracking_number === order.logspher_tracking) patch.tracking_number = null;
+  await supabaseAdmin.from('orders').update(patch).eq('id', order.id);
+  return NextResponse.json({ success: true, ...patch });
 }
