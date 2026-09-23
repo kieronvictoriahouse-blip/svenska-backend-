@@ -1369,7 +1369,10 @@ export default function CommandesPage() {
                                 {o.logspher_label_url
                                   ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">{t('downloadPdf')}</a></>
                                   : o.logspher_error
-                                    ? <>Erreur LogSpher : {o.logspher_error}</>
+                                    ? <>Erreur LogSpher : {o.logspher_error.split(/(https?:\/\/[^\s"'}]+)/).map((part, i) =>
+                                        /^https?:\/\//.test(part)
+                                          ? <a key={i} href={part} target="_blank" rel="noopener" style={{ wordBreak: 'break-all' }}>{part}</a>
+                                          : part)}</>
                                     : <>Pas d’étiquette UGO pour ce point relais.</>}
                                 <div style={{ marginTop: 8 }}>
                                   {o.logspher_label_url ? (

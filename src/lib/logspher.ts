@@ -18,6 +18,13 @@ async function apiFetch(path: string, options: RequestInit = {}) {
     },
   });
   const text = await res.text();
+  /* 402 = charge valide mais compte UGO sans crédit / moyen de paiement :
+     UGO renvoie un lien pour régler l'étiquette (cas SD-0150, 23/09/2026). */
+  if (res.status === 402) {
+    let link = '';
+    try { link = JSON.parse(text).payment_link || ''; } catch { /* texte brut */ }
+    throw new Error(`Paiement UGO requis : régler l'étiquette ou recharger le compte UGO, puis relancer. ${link}`.trim());
+  }
   if (!res.ok) throw new Error(`LogSpher ${path} → ${res.status}: ${text}`);
   return JSON.parse(text);
 }
