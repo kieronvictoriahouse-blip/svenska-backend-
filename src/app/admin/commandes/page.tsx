@@ -196,6 +196,7 @@ export default function CommandesPage() {
   const [mrWeight, setMrWeight] = useState('500');
   const [mrLoading, setMrLoading] = useState(false);
   const [mrResult, setMrResult] = useState<{ tracking: string; labelUrl: string } | null>(null);
+  const [lsRetrying, setLsRetrying] = useState(false);
   const [transportInput, setTransportInput] = useState('');
   const [packagingInput, setPackagingInput] = useState('');
   const [savingCosts, setSavingCosts] = useState(false);
@@ -683,6 +684,26 @@ export default function CommandesPage() {
       load();
     } finally {
       setMrLoading(false);
+    }
+  }
+
+  // Relance l'étiquette UGO quand le webhook a échoué (logspher_error).
+  async function retryLogspherLabel() {
+    if (!selected) return;
+    setLsRetrying(true);
+    try {
+      const res = await adminFetch(`/api/orders/${selected.id}/logspher-label`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.logspher_error) setSelected(s => s ? { ...s, logspher_error: data.logspher_error } : s);
+        showToast('❌ ' + (data.error || 'Erreur LogSpher'));
+        return;
+      }
+      setSelected(s => s ? { ...s, ...data, logspher_error: undefined } : s);
+      showToast('✅ Étiquette créée');
+      load();
+    } finally {
+      setLsRetrying(false);
     }
   }
 
@@ -1327,6 +1348,13 @@ export default function CommandesPage() {
                                 {o.logspher_label_url
                                   ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">{t('downloadPdf')}</a></>
                                   : <>Erreur LogSpher : {o.logspher_error}</>}
+                                {!o.logspher_label_url && (
+                                  <div style={{ marginTop: 8 }}>
+                                    <button className="sc-btn sc-btn-secondary" onClick={retryLogspherLabel} disabled={lsRetrying}>
+                                      {lsRetrying ? 'Relance…' : 'Relancer l’étiquette UGO'}
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {mrResult && (

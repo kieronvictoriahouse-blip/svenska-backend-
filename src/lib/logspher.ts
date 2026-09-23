@@ -170,6 +170,15 @@ export async function createLogspherRelayLabel(
     insurance: false,
   };
 
+  /* UGO refuse /ship (400 « Cette valeur ne doit pas être vide ») si
+     ship_from.phone est vide — cas SD-0150 le 23/09/2026 : le téléphone
+     de la marque blanche n'était pas renseigné. On échoue ici avec un
+     message actionnable plutôt qu'avec le JSON brut de l'API. */
+  const senderPhone = (wlConfig.phone || process.env.LOGSPHER_SENDER_PHONE || '').trim();
+  if (!senderPhone) {
+    throw new Error('Téléphone expéditeur manquant : renseigner le téléphone dans Admin › Marque blanche (ou LOGSPHER_SENDER_PHONE).');
+  }
+
   const baseShipFrom = {
     pro: true,
     country_code: shipFrom.country.slice(0, 2),
@@ -179,16 +188,19 @@ export async function createLogspherRelayLabel(
     company: wlConfig.site_name || '',
     lastname: wlConfig.site_name || '',
     email: wlConfig.email || '',
-    phone: wlConfig.phone || '',
+    phone: senderPhone,
   };
 
   // ship_to = adresse du client (pour l'identification)
+  // UGO exige aussi ship_to.company non vide, même pour un particulier :
+  // on y met le nom du client.
   const baseShipTo = {
     pro: false,
     country_code: destCountry,
     postcode: relayAddress.postcode,
     city: relayAddress.city,
     address1: relayAddress.address1,
+    company: (order.customer_name || '').trim() || order.relay_point_name || lastname,
     lastname,
     firstname,
     email: order.customer_email || '',
