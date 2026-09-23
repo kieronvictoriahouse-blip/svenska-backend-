@@ -98,7 +98,8 @@ export interface LogspherLabelResult {
    On declare desormais le poids reel du catalogue. Sous-declarer serait
    pire que sur-declarer — le transporteur repese et facture un
    ajustement — d'ou la tare d'emballage et l'arrondi au dessus. */
-const TARE_EMBALLAGE_G = 200;   // carton + calage
+// Carton + calage. Réglable (LOGSPHER_TARE_G) une fois un carton type pesé.
+const TARE_EMBALLAGE_G = Number(process.env.LOGSPHER_TARE_G) || 200;
 const POIDS_INCONNU_G  = 150;   // produit sans poids renseigne
 
 /** « 78g », « 150 g », « 16x22g » → grammes. 0 si illisible. */
@@ -125,8 +126,10 @@ async function poidsDuColis(lines: Array<{ qty?: number; [k: string]: any }>): P
     total += g * (l.qty || 1);
   }
   const avecTare = total + TARE_EMBALLAGE_G;
-  // Arrondi aux 100 g superieurs, plancher a 300 g.
-  return Math.max(300, Math.ceil(avecTare / 100) * 100);
+  /* Arrondi aux 10 g supérieurs, plancher à 300 g. L'ancien arrondi aux
+     100 g ajoutait jusqu'à 99 g fictifs et faisait franchir une tranche
+     (ex. 993 g déclarés 1,1 kg → tranche 1–2 kg au lieu de ≤ 1 kg). */
+  return Math.max(300, Math.ceil(avecTare / 10) * 10);
 }
 
 /** Annule l'étiquette UGO d'une commande (passage en Click & Collect,
@@ -153,6 +156,8 @@ export async function createLogspherRelayLabel(
     relay_carrier_uuid?: string;
     lines: Array<{ qty?: number; [key: string]: any }>;
     total: number;
+    /** Poids réel pesé (g), saisi dans l'admin ; remplace l'estimation catalogue. */
+    weight_grams?: number;
   },
   wlConfig: {
     address?: string;
@@ -173,7 +178,9 @@ export async function createLogspherRelayLabel(
   const firstname = nameParts.slice(1).join(' ') || lastname;
 
   const totalQty = (order.lines || []).reduce((acc, l) => acc + (l.qty || 1), 0);
-  const weightGrams = await poidsDuColis(order.lines || []);
+  const weightGrams = order.weight_grams && order.weight_grams > 0
+    ? Math.round(order.weight_grams)
+    : await poidsDuColis(order.lines || []);
 
   const destCountry = (relayAddress.country || order.relay_point_pays || 'FR').slice(0, 2).toUpperCase();
 

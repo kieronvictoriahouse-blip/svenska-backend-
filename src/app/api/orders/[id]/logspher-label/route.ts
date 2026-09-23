@@ -29,6 +29,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ? (typeof order.lines === 'string' ? JSON.parse(order.lines) : order.lines)
     : [];
 
+  // Poids réel pesé, facultatif (sinon estimation catalogue + tare).
+  const body = await req.json().catch(() => ({}));
+  const weightGrams = Number(body?.weight_grams) > 0 ? Number(body.weight_grams) : undefined;
+
   try {
     const cfg = await getWlConfig();
     const label = await createLogspherRelayLabel({
@@ -43,6 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       relay_carrier_uuid:  order.relay_carrier_uuid || undefined,
       lines,
       total:               Number(order.total) || 0,
+      weight_grams:        weightGrams,
     }, cfg as any);
 
     const patch = {

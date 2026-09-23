@@ -197,6 +197,7 @@ export default function CommandesPage() {
   const [mrLoading, setMrLoading] = useState(false);
   const [mrResult, setMrResult] = useState<{ tracking: string; labelUrl: string } | null>(null);
   const [lsRetrying, setLsRetrying] = useState(false);
+  const [lsWeight, setLsWeight] = useState('');
   const [transportInput, setTransportInput] = useState('');
   const [packagingInput, setPackagingInput] = useState('');
   const [savingCosts, setSavingCosts] = useState(false);
@@ -692,7 +693,11 @@ export default function CommandesPage() {
     if (!selected) return;
     setLsRetrying(true);
     try {
-      const res = await adminFetch(`/api/orders/${selected.id}/logspher-label`, { method: 'POST' });
+      const res = await adminFetch(`/api/orders/${selected.id}/logspher-label`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weight_grams: parseInt(lsWeight) || undefined }),
+      });
       const data = await res.json();
       if (!res.ok) {
         if (data.logspher_error) setSelected(s => s ? { ...s, logspher_error: data.logspher_error } : s);
@@ -1380,9 +1385,13 @@ export default function CommandesPage() {
                                       {lsRetrying ? 'Annulation…' : 'Annuler l’étiquette'}
                                     </button>
                                   ) : (
+                                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <input className="form-control" type="number" min={1} placeholder="Poids pesé (g), facultatif"
+                                      value={lsWeight} onChange={e => setLsWeight(e.target.value)} style={{ width: 200 }} />
                                     <button className="sc-btn sc-btn-secondary" onClick={retryLogspherLabel} disabled={lsRetrying}>
                                       {lsRetrying ? 'Création…' : o.logspher_error ? 'Relancer l’étiquette UGO' : 'Créer l’étiquette UGO'}
                                     </button>
+                                    </span>
                                   )}
                                 </div>
                               </div>
