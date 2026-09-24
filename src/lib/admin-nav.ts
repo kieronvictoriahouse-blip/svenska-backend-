@@ -50,6 +50,9 @@ export const NAV: NavGroup[] = [
       { href: '/admin/categories', icon: 'category',
         label: { fr: 'Catégories', en: 'Categories', sv: 'Kategorier' },
         desc: { fr: 'Organiser les rayons', en: 'Organise the aisles', sv: 'Ordna hyllorna' } },
+      { href: '/admin/etiquettes', icon: 'label',
+        label: { fr: 'Étiquettes', en: 'Labels', sv: 'Etiketter' },
+        desc: { fr: 'Imprimer les étiquettes produit', en: 'Print product labels', sv: 'Skriv ut produktetiketter' } },
       { href: '/admin/stock', icon: 'inventory', badge: 'stock',
         label: { fr: 'Stocks', en: 'Stock', sv: 'Lager' },
         desc: { fr: 'Niveaux & alertes', en: 'Levels & alerts', sv: 'Nivåer och varningar' } },
@@ -190,7 +193,8 @@ export function isFullBleed(pathname: string): boolean {
 /** Pages « nues » : rendues sans shell du tout (documents A4 à imprimer).
  *  Elles restent protégées par le middleware et le contrôle d'auth du layout. */
 export function isBare(pathname: string): boolean {
-  return pathname.startsWith('/admin/documents/');
+  return pathname.startsWith('/admin/documents/')
+      || pathname.startsWith('/admin/etiquettes');
 }
 
 /**
