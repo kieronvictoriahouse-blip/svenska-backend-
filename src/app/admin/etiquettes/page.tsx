@@ -75,6 +75,20 @@ const NUT: Array<[string, { fr: string; en: string; sv: string }, boolean]> = [
   ['sel',          { fr: 'Sel', en: 'Salt', sv: 'Salt' }, false],
 ];
 
+/* Libellés abrégés pour la nutrition « en ligne » (petit / moyen format) :
+   la déclaration linéaire est autorisée quand la face est trop petite
+   pour un tableau. */
+const NUT_SHORT: Record<string, { fr: string; en: string; sv: string }> = {
+  energie:      { fr: 'Énergie', en: 'Energy', sv: 'Energi' },
+  graisses:     { fr: 'MG', en: 'Fat', sv: 'Fett' },
+  dont_satures: { fr: 'dont AGS', en: 'sat.', sv: 'mättat' },
+  glucides:     { fr: 'Gluc.', en: 'Carb.', sv: 'Kolh.' },
+  dont_sucres:  { fr: 'sucres', en: 'sugars', sv: 'socker' },
+  fibres:       { fr: 'Fibres', en: 'Fibre', sv: 'Fiber' },
+  proteines:    { fr: 'Prot.', en: 'Protein', sv: 'Protein' },
+  sel:          { fr: 'Sel', en: 'Salt', sv: 'Salt' },
+};
+
 /* Texte d'interface (le sélecteur de langue de l'étiquette est séparé
    de la langue du back-office : on peut piloter le back en anglais et
    imprimer des étiquettes en français). */
@@ -270,6 +284,21 @@ export default function EtiquettesPage() {
          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
   );
 
+  /* Nutrition « en ligne » compacte : « Énergie 452 kcal · MG 18 g (dont
+     AGS 2,5 g) · Gluc. 62 g (sucres 4 g) · … », pour les faces trop
+     petites pour un tableau (petit + moyen format). */
+  const nutInline = (nut: any): string => {
+    const g = (k: string) => fmtNut(k, nut[k]);
+    const parts: string[] = [];
+    if (g('energie')) parts.push(`${t(NUT_SHORT.energie)} ${g('energie')}`);
+    if (g('graisses')) parts.push(`${t(NUT_SHORT.graisses)} ${g('graisses')}${g('dont_satures') ? ` (${t(NUT_SHORT.dont_satures)} ${g('dont_satures')})` : ''}`);
+    if (g('glucides')) parts.push(`${t(NUT_SHORT.glucides)} ${g('glucides')}${g('dont_sucres') ? ` (${t(NUT_SHORT.dont_sucres)} ${g('dont_sucres')})` : ''}`);
+    if (g('fibres')) parts.push(`${t(NUT_SHORT.fibres)} ${g('fibres')}`);
+    if (g('proteines')) parts.push(`${t(NUT_SHORT.proteines)} ${g('proteines')}`);
+    if (g('sel')) parts.push(`${t(NUT_SHORT.sel)} ${g('sel')}`);
+    return parts.join(' · ');
+  };
+
   const renderLabel = (p: Product | null, key: string) => {
     const outline = guides || calTest;
     if (!p) return <div key={key} className="lbl empty" data-outline={outline ? '1' : undefined} />;
@@ -379,8 +408,8 @@ export default function EtiquettesPage() {
             {opts.allergenes && alg && (
               <div className="alg-box"><span className="alg-lab">{t(L.allergenes)}</span><span className="alg-txt">{alg}</span></div>
             )}
-            {opts.nutrition && hasNut && nut.energie && (
-              <div className="lbl-energie">{t(NUT[0][1])} {fmtNut('energie', nut.energie)} · {t(L.per100)}</div>
+            {opts.nutrition && hasNut && (
+              <div className="lbl-energie"><span className="sec-lab">{t(L.per100)}</span> {nutInline(nut)}</div>
             )}
 
             <footer className="lbl-foot">
@@ -395,13 +424,21 @@ export default function EtiquettesPage() {
       );
     }
 
-    /* ── PETIT ── */
+    /* ── PETIT ── minimum réglementaire : ingrédients, allergènes,
+       nutrition (en ligne) et poids. Très dense : chaque bloc est tronqué
+       proprement s'il déborde. */
     return (
       <div key={key} className="lbl s-sm" data-outline={outline ? '1' : undefined}>
         <div className="lbl-in">
           <div className="lbl-name">{nameOf(p)}</div>
+          {opts.ingredients && ing && (
+            <div className="sm-sec"><span className="sm-lab">{t(L.ingredients)}</span> {ing}</div>
+          )}
           {opts.allergenes && alg && (
-            <div className="sm-alg"><span>{t(L.allergenes)} :</span> {alg}</div>
+            <div className="sm-sec sm-alg"><span className="sm-lab">{t(L.allergenes)}</span> {alg}</div>
+          )}
+          {opts.nutrition && hasNut && (
+            <div className="sm-sec sm-nut"><span className="sm-lab">{t(L.per100)}</span> {nutInline(nut)}</div>
           )}
           <footer className="lbl-foot">
             <span className="foot-l">
@@ -500,8 +537,8 @@ export default function EtiquettesPage() {
             </div>
             {fmt.size === 'sm' && (
               <p className="note">ℹ {labelLang === 'fr'
-                ? "Le petit format ne tient que le nom, les allergènes et le poids."
-                : 'The small format only fits name, allergens and weight.'}</p>
+                ? "Petit format très dense : ingrédients, allergènes et nutrition sont en tout petit et tronqués s'ils débordent. Pour une longue liste, préfère le format moyen."
+                : 'Very dense small format: ingredients, allergens and nutrition are tiny and truncated if they overflow. For long lists, prefer the medium format.'}</p>
             )}
           </section>
 
@@ -777,15 +814,19 @@ const CSS = `
 .lbl.s-md .foot-l b { color: var(--sc-ink); }
 .lbl.s-md .foot-brand { font-size: 6.2pt; }
 
-/* ── Petit (48,5×25,4) ── */
-.lbl.s-sm .lbl-in { padding: 1.6mm 1.8mm; }
-.lbl.s-sm .lbl-name { font-size: 7.5pt; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lbl.s-sm .sm-alg { font-family: var(--sc-body); font-size: 5pt; line-height: 1.15; margin-top: 0.6mm; color: var(--sc-lingon-deep);
-  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-.lbl.s-sm .sm-alg span { font-family: Jost, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-.lbl.s-sm .lbl-foot { font-size: 5.4pt; padding-top: 0.4mm; }
+/* ── Petit (48,5×25,4) — dense : nom + ingrédients + allergènes +
+   nutrition en ligne + poids. Chaque bloc est borné (line-clamp). ── */
+.lbl.s-sm .lbl-in { padding: 1.3mm 1.6mm; }
+.lbl.s-sm .lbl-name { font-size: 6.8pt; line-height: 1.02; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.lbl.s-sm .sm-sec { font-family: var(--sc-body); font-size: 4.2pt; line-height: 1.12; margin-top: 0.45mm; color: var(--sc-ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lbl.s-sm .sm-lab { font-family: Jost, sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--sc-green-mid); }
+.lbl.s-sm .sm-alg { color: var(--sc-lingon-deep); -webkit-line-clamp: 1; font-weight: 600; }
+.lbl.s-sm .sm-alg .sm-lab { color: var(--sc-lingon-deep); }
+.lbl.s-sm .sm-nut { color: var(--sc-slate); }
+.lbl.s-sm .lbl-foot { font-size: 4.8pt; padding-top: 0.4mm; }
 .lbl.s-sm .foot-l b { color: var(--sc-ink); }
-.lbl.s-sm .foot-brand { font-size: 5.6pt; }
+.lbl.s-sm .foot-brand { font-size: 5pt; }
 
 /* ── Impression ── */
 @media print {
