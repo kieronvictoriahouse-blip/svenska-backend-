@@ -105,6 +105,16 @@ export async function POST(req: NextRequest) {
         if (optErr) console.error('[webhook] MAJ commande (optionnel, non bloquant):', optErr.message);
       }
 
+      /* Relance des paniers : si ce client avait été relancé, son panier
+         abandonné est marqué « récupéré » — AVANT l'annulation des
+         brouillons ci-dessous, qui les sortirait du périmètre. */
+      if (customerEmail) {
+        try {
+          const { marquerRecupere } = await import('@/lib/relance-panier');
+          await marquerRecupere(customerEmail, orderId);
+        } catch (e) { console.error('[webhook] marquage panier récupéré (non bloquant):', e); }
+      }
+
       // Annuler les brouillons en attente du même client (doublons de checkout)
       if (customerEmail) {
         await supabaseAdmin.from('orders')
@@ -389,6 +399,15 @@ export async function POST(req: NextRequest) {
         .update({ status: 'abandoned', updated_at: new Date().toISOString() })
         .eq('id', abandonedOrderId)
         .eq('status', 'pending');
+      /* 1re relance du panier abandonné. La session expire 3 h après le
+         clic sur « Payer » (expires_at au checkout) : c'est ce délai
+         qui cadence la relance. Toutes les vérifications (désinscrit,
+         a commandé depuis, panier plus récent…) sont dans la fonction. */
+      try {
+        const { envoyerRelance } = await import('@/lib/relance-panier');
+        const r = await envoyerRelance(abandonedOrderId, 1);
+        console.log('[webhook] relance panier', abandonedOrderId, r.raison);
+      } catch (e) { console.error('[webhook] relance panier (non bloquant):', e); }
     }
   }
 

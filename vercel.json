@@ -31,6 +31,10 @@
     {
       "path": "/api/cron/livraisons",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/relance-paniers",
+      "schedule": "0 8 * * *"
     }
   ]
 }

@@ -14,5 +14,7 @@ export const TEMPLATES: Array<{ key: EmailTemplate; label: string; variables: st
     variables: ['prenom', 'numero', 'surtitre', 'titre', 'corps', 'article', 'article_ref', 'article_qte', 'article_pu', 'article_montant', 'base_lien', 'lien_rembourser', 'lien_attendre', 'options[].nom', 'options[].note', 'options[].prix', 'options[].ecart', 'options[].lien'] },
   { key: 'email-expedition', label: 'Expédition', variables: ['prenom', 'numero'] },
   { key: 'email-colis-disponible', label: 'Colis disponible', variables: ['prenom', 'numero'] },
+  { key: 'email-relance-panier', label: 'Relance panier abandonné',
+    variables: ['prenom', 'rang2', 'preheader', 'lignes[].nom', 'lignes[].image', 'lignes[].qte', 'lignes[].pu', 'lignes[].montant', 'sous_total', 'note_livraison', 'offre', 'offre_titre', 'offre_texte', 'offre_code', 'lien_panier', 'lien_desinscription'] },
 ];
 

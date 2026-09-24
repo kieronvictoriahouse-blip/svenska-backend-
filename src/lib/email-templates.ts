@@ -30,7 +30,8 @@ export type EmailTemplate =
   | 'email-avoir-remboursement'
   | 'email-message-libre'
   | 'email-expedition'
-  | 'email-colis-disponible';
+  | 'email-colis-disponible'
+  | 'email-relance-panier';
 
 const cacheFichier = new Map<string, string>();
 
@@ -127,6 +128,10 @@ export async function contexteMarque(): Promise<Record<string, string>> {
       boutique_url: url,
       boutique_domaine: url.replace(/^https?:\/\//, ''),
       atelier_ville: (data as any)?.shop_city || '',
+      /* Adresse et SIRET réels, tirés des Réglages : les gabarits du
+         handoff portaient des valeurs de démonstration écrites en dur. */
+      boutique_adresse: (data as any)?.address || '',
+      boutique_siret: (data as any)?.siret || '',
     };
     marqueAt = Date.now();
   } catch { /* un email sans marque part quand meme */ }

@@ -40,6 +40,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays, relay_carrier_uuid } = body;
     let { customer_email } = body;
+    /* Email demandé dans le panier (relance des paniers abandonnés) :
+       une adresse mal formée est refusée ici plutôt que de partir chez
+       Stripe puis de rater chaque relance. */
+    if (typeof customer_email === 'string') customer_email = customer_email.trim().toLowerCase() || undefined;
+    if (customer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(customer_email)) {
+      return NextResponse.json({ error: 'Adresse email invalide', code: 'BAD_EMAIL' }, { status: 400, headers: CORS });
+    }
+    const langClient = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
 
@@ -206,6 +214,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    /* Cadeau de relance : le client arrive d'un email de relance dont
+       l'offre de la semaine était un produit offert. Le jeton du brouillon
+       d'origine fait foi — sans lui, rien n'est ajouté. */
+    if (body.reprise) {
+      try {
+        const { cadeauDeReprise } = await import('@/lib/relance-panier');
+        const c = await cadeauDeReprise(body.reprise);
+        if (c && !orderLines.some(l => l.product_id === c.id && l.price === 0)) {
+          orderLines.push({
+            product_id: c.id,
+            name: (c.name_fr || 'Cadeau') + ' (offert)',
+            name_en: (c.name_en || c.name_fr || 'Gift') + ' (free gift)',
+            name_sv: (c.name_sv || c.name_fr || 'Gåva') + ' (gåva)',
+            qty: 1, price: 0,
+            ...(c.image_url ? { image_url: c.image_url } : {}),
+          });
+        }
+      } catch (e) { console.warn('[checkout] cadeau de relance (non bloquant):', e); }
+    }
+
     // Verrou : un produit "retrait uniquement" (frais, fragile…) impose le click & collect
     // pour toute la commande. On refuse tout autre mode côté serveur (l'UI peut être contournée).
     if (hasPickupOnly && !isPickup) {
@@ -299,6 +327,9 @@ export async function POST(req: NextRequest) {
         order_number:     `SD-${num}`,
         status:           'pending',
         customer_email:   customer_email || null,
+        // Jeton du lien « reprendre mon panier » envoyé par la relance.
+        ...(customer_email ? { recovery_token: (await import('@/lib/relance-panier')).jetonRelance() } : {}),
+        ...(langClient ? { lang: langClient } : {}),
         customer_name:    customerName || null,
         // For pickup, Stripe won't collect address — store profile address now
         ...(isPickup && customerAddress ? { shipping_address: customerAddress } : {}),
@@ -387,6 +418,10 @@ export async function POST(req: NextRequest) {
             },
       ],
       metadata: { order_id: draftOrder?.id || '' },
+      /* 3 h au lieu de 24 : l'expiration déclenche la 1re relance
+         (webhook checkout.session.expired). Un client qui revient après
+         repasse par le panier, qui recrée une session. */
+      expires_at: Math.floor(Date.now() / 1000) + 3 * 3600,
       success_url: successUrl,
       cancel_url:  cancelUrl,
       locale: 'fr',
