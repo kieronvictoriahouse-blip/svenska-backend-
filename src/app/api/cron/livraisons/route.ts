@@ -20,9 +20,16 @@ export const maxDuration = 300;
    entier avec « cron_jobs_limits_reached », ce qui bloque aussi tout
    le reste du commit. Passer en Pro permettrait d'en remettre deux.
 
+   « Livrée » = remis au client. Pour un point relais, c'est le RETRAIT
+   par le client : Mondial Relay/UGO ne répond `success: true` qu'à ce
+   moment-là. Le code 81 « Livraison au point relais » est notre dépôt au
+   relais de départ (constaté sur SD-0146 le 26/09/2026), pas l'arrivée.
+   L'avis « votre colis est disponible » (avec le code du casier) est
+   envoyé au client par Mondial Relay lui-même : on lui transmet email et
+   téléphone dans ship_to.
+
    Ce qu'il envoie :
-     — point relais → « votre colis vous attend », avec le nom du relais.
-       Un colis en relais n'est pas livré : le client doit venir.
+     — point relais → rien : le client vient de retirer son colis.
      — domicile     → message de livraison classique.
 
    Les colis sans numéro de suivi sont ignorés : rien à demander au
@@ -48,7 +55,20 @@ async function estLivre(carrierUuid: string, tracking: string) {
 
   let j: any = {};
   try { j = JSON.parse(texte); } catch { /* réponse illisible = pas de conclusion */ }
-  return { livre: j?.success === true, date: j?.date || null };
+  return { livre: j?.success === true, date: dateIso(j?.date) };
+}
+
+/** « 2026-09-28 10:15 », « 28/09/2026 10:15:00 » → ISO. null si illisible
+ *  ou date « vide » d'UGO (1970-01-01). Une date JJ/MM mal lue par Postgres
+ *  ferait échouer la mise à jour du statut. */
+function dateIso(brut: any): string | null {
+  const s = String(brut || '').trim();
+  if (!s || s.startsWith('1970')) return null;
+  const fr = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  const d = fr
+    ? new Date(`${fr[3]}-${fr[2]}-${fr[1]}T${fr[4] || '12'}:${fr[5] || '00'}:${fr[6] || '00'}`)
+    : new Date(s.replace(' ', 'T'));
+  return Number.isNaN(+d) ? null : d.toISOString();
 }
 
 export async function GET(req: NextRequest) {
@@ -101,7 +121,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, erreur: error.message }, { status: 500 });
   }
 
-  const rapport = { examinees: 0, sans_suivi: 0, livrees: 0, en_transit: 0, echecs: [] as string[] };
+  const rapport = { examinees: 0, sans_suivi: 0, livrees: 0, retires: 0, en_transit: 0, echecs: [] as string[] };
 
   for (const o of ((enTransit || []) as any[])) {
     const tracking = o.logspher_tracking || o.mondial_relay_tracking || o.tracking_number;
@@ -119,18 +139,20 @@ export async function GET(req: NextRequest) {
 
       rapport.livrees++;
 
-      /* Le client est prévenu du même geste. Un email raté ne doit pas
-         empêcher le statut d'avancer — le colis, lui, est bien arrivé. */
+      /* Point relais : le client vient de retirer son colis, il n'y a
+         rien à lui annoncer (l'ancien « votre colis vous attend » partait
+         ici, au moment du retrait — donc trop tard et à contresens).
+         Domicile : message de livraison, comme avant. Un email raté ne doit
+         pas empêcher le statut d'avancer. */
+      const enRelais = !!(o.relay_point_name || o.relay_point_address) || o.delivery_mode === 'mondial_relay';
+      if (enRelais) { rapport.retires++; continue; }
       if (o.customer_email) {
         try {
-          const enRelais = !!(o.relay_point_name || o.relay_point_address);
-          const { expeditionEmail, colisDisponibleEmail } = await import('@/lib/customer-emails');
+          const { expeditionEmail } = await import('@/lib/customer-emails');
           const { getWhiteLabelConfig, sendEmail } = await import('@/lib/email-send');
           const cfg = await getWhiteLabelConfig();
           const from = (cfg.email_from as string) || (cfg as any).smtp_from || '';
-          const mail = enRelais
-            ? await colisDisponibleEmail({ ...o, tracking_number: tracking })
-            : await expeditionEmail({ ...o, tracking_number: tracking });
+          const mail = await expeditionEmail({ ...o, tracking_number: tracking });
           await sendEmail({ from, to: o.customer_email, subject: mail.sujet, html: mail.html }, cfg);
         } catch (e: any) {
           rapport.echecs.push(`${o.order_number} email: ${e?.message || e}`);

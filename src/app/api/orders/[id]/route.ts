@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { expeditionEmail, colisDisponibleEmail } from '@/lib/customer-emails';
+import { expeditionEmail } from '@/lib/customer-emails';
 import { requireAuth } from '@/lib/auth';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
@@ -125,16 +125,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
            relais. La livraison garde le message générique — le gabarit
            « colis disponible » se déclenche sur le statut remonté par
            Mondial Relay, pas sur ce changement manuel. */
-        /* Un colis en point relais n'est pas « livré » quand on le marque
-           ainsi : il est arrive au relais, le client doit encore venir le
-           chercher. C'est ce message-la qu'il attend. */
-        const enRelais = !!(order.relay_point_name || order.relay_point_address);
-
+        /* « Livrée » = remis au client, y compris en point relais (retrait
+           effectué, cf. cron livraisons). L'ancien envoi de « votre colis
+           vous attend » à ce moment-là tombait après le retrait ; l'avis de
+           mise à disposition est envoyé par Mondial Relay lui-même. */
         if (newStatus === 'shipped') {
           const mail = await expeditionEmail({ ...order, ...body });
-          await sendEmail({ from: fromEmail, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
-        } else if (enRelais) {
-          const mail = await colisDisponibleEmail({ ...order, ...body });
           await sendEmail({ from: fromEmail, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
         } else {
           await sendEmail({
