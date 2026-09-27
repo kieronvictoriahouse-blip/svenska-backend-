@@ -19,11 +19,26 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   });
   const text = await res.text();
   /* 402 = charge valide mais compte UGO sans crédit / moyen de paiement :
-     UGO renvoie un lien pour régler l'étiquette (cas SD-0150, 23/09/2026). */
+     UGO renvoie un lien pour régler l'étiquette (cas SD-0150, 23/09/2026).
+     ⚠️ À ce stade UGO a DÉJÀ réservé l'envoi : une fois le lien payé,
+     l'étiquette est générée côté UGO mais toute relance ici renvoie 412
+     « already used and shipped » (voir ci-dessous). Le mieux est de créditer
+     le compte UGO pour que /ship passe du premier coup. */
   if (res.status === 402) {
     let link = '';
     try { link = JSON.parse(text).payment_link || ''; } catch { /* texte brut */ }
-    throw new Error(`Paiement UGO requis : régler l'étiquette ou recharger le compte UGO, puis relancer. ${link}`.trim());
+    throw new Error(`Paiement UGO requis : règle l'étiquette via ce lien PUIS récupère le PDF + le suivi sur upelgo.com (section Envois) et colle-les dans la commande. Pour que ça passe tout seul, crédite le compte UGO. ${link}`.trim());
+  }
+  /* 412 = l'order_id a déjà servi et l'envoi est déjà expédié côté UGO
+     (typiquement après un 402 payé via le lien). Impossible d'en recréer
+     un ; l'étiquette payée est à récupérer sur le tableau de bord UGO. */
+  if (res.status === 412) {
+    let err = '';
+    try { err = JSON.parse(text).error || ''; } catch { /* texte brut */ }
+    if (/already used|already shipped/i.test(err)) {
+      throw new Error("Étiquette déjà payée et générée chez UGO pour cette commande. Récupère le PDF et le numéro de suivi sur upelgo.com (section Envois), puis colle-les dans « Étiquette déjà payée » ci-dessous.");
+    }
+    throw new Error(`LogSpher ${path} → 412: ${text}`);
   }
   if (!res.ok) throw new Error(`LogSpher ${path} → ${res.status}: ${text}`);
   return JSON.parse(text);

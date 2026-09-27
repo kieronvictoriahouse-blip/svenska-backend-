@@ -198,6 +198,9 @@ export default function CommandesPage() {
   const [mrResult, setMrResult] = useState<{ tracking: string; labelUrl: string } | null>(null);
   const [lsRetrying, setLsRetrying] = useState(false);
   const [lsWeight, setLsWeight] = useState('');
+  // Saisie manuelle d'une étiquette déjà payée chez UGO (récupérée sur upelgo.com).
+  const [lblUrlInput, setLblUrlInput] = useState('');
+  const [lsSavingManual, setLsSavingManual] = useState(false);
   const [transportInput, setTransportInput] = useState('');
   const [packagingInput, setPackagingInput] = useState('');
   const [savingCosts, setSavingCosts] = useState(false);
@@ -709,6 +712,44 @@ export default function CommandesPage() {
       load();
     } finally {
       setLsRetrying(false);
+    }
+  }
+
+  /* Enregistre une étiquette UGO déjà payée mais non capturée (cas 402 payé
+     via le lien puis 412 « already shipped ») : on colle l'URL du PDF et le
+     suivi récupérés sur upelgo.com. Le suivi enregistré permet aussi au cron
+     livraisons de prévenir le client à l'arrivée au point relais. */
+  async function saveLogspherManual() {
+    if (!selected) return;
+    const url = lblUrlInput.trim();
+    const trk = trackingInput.trim();
+    if (!url && !trk) { showToast('Colle au moins l’URL du PDF ou le numéro de suivi'); return; }
+    setLsSavingManual(true);
+    const token = localStorage.getItem('sd_admin_token') || '';
+    const patch: any = { logspher_error: null };
+    if (url) patch.logspher_label_url = url;
+    if (trk) { patch.tracking_number = trk; patch.logspher_tracking = trk; }
+    if (!selected.logspher_carrier_name) patch.logspher_carrier_name = 'UGO';
+    try {
+      const res = await adminFetch(`/api/orders/${selected.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast('❌ ' + (d.error || 'Erreur')); return; }
+      setSelected(s => s ? {
+        ...s,
+        logspher_label_url: url || s.logspher_label_url,
+        logspher_tracking: trk || s.logspher_tracking,
+        tracking_number: trk || s.tracking_number,
+        logspher_carrier_name: s.logspher_carrier_name || 'UGO',
+        logspher_error: undefined,
+      } : s);
+      setLblUrlInput('');
+      showToast('✅ Étiquette enregistrée');
+      load();
+    } finally {
+      setLsSavingManual(false);
     }
   }
 
@@ -1394,6 +1435,17 @@ export default function CommandesPage() {
                                     </span>
                                   )}
                                 </div>
+                              </div>
+                            )}
+                            {o.delivery_mode === 'mondial_relay' && !o.logspher_label_url && (
+                              <div style={{ background: '#F8FAFC', border: `1px solid ${TH.border}`, borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
+                                <div style={{ fontWeight: 600, marginBottom: 2 }}>Étiquette déjà payée sur UGO ? Colle-la ici</div>
+                                <div style={{ color: TH.muted, marginBottom: 8 }}>upelgo.com → Envois → cette commande → récupère le PDF et le n° de suivi. Une fois le suivi enregistré, le client est prévenu automatiquement à l’arrivée au point relais.</div>
+                                <input className="sc-input" value={lblUrlInput} onChange={e => setLblUrlInput(e.target.value)} placeholder="URL du PDF de l’étiquette (https://…)" style={{ marginBottom: 6 }} />
+                                <input className="sc-input" value={trackingInput} onChange={e => setTrackingInput(e.target.value)} placeholder="Numéro de suivi" style={{ marginBottom: 8 }} />
+                                <button className="sc-btn sc-btn-secondary" onClick={saveLogspherManual} disabled={lsSavingManual}>
+                                  <span className="ms">save</span>{lsSavingManual ? 'Enregistrement…' : 'Enregistrer l’étiquette payée'}
+                                </button>
                               </div>
                             )}
                             {mrResult && (
