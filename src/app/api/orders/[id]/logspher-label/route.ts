@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { getWlConfig } from '@/lib/mailer';
 import { createLogspherRelayLabel, cancelLogspherLabel } from '@/lib/logspher';
+import { attachExistingLogspherLabel } from '@/lib/logspher-sync';
 
 /* Relance l'étiquette point relais UGO d'une commande.
    Le webhook Stripe ne tente l'étiquette qu'une fois, au paiement :
@@ -22,6 +23,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Évite une double étiquette (donc une double facturation UGO).
   if (order.logspher_label_url) {
     return NextResponse.json({ error: 'Une étiquette existe déjà pour cette commande' }, { status: 409 });
+  }
+
+  /* L'étiquette existe peut-être déjà chez UGO (402 réglé via le lien,
+     cas SD-0146) : on la relit et on la rattache, sans rien refacturer.
+     Recréer renverrait 412 « already used and shipped ». */
+  try {
+    const att = await attachExistingLogspherLabel(order);
+    if (att.attached) {
+      return NextResponse.json({
+        success: true, recovered: true, emailed: att.emailed,
+        ...att.patch, tracking_number: order.tracking_number || att.tracking_number,
+      });
+    }
+  } catch (e: any) {
+    console.error('[logspher-label] relecture UGO :', e?.message || e);
   }
 
   // `lines` est stockée comme chaîne JSON (voir jsonb-lines).

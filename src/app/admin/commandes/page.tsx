@@ -708,7 +708,10 @@ export default function CommandesPage() {
         return;
       }
       setSelected(s => s ? { ...s, ...data, logspher_error: undefined } : s);
-      showToast('✅ Étiquette créée');
+      if (data.tracking_number) setTrackingInput(data.tracking_number);
+      showToast(data.recovered
+        ? `✅ Étiquette récupérée chez UGO${data.emailed ? ' · suivi envoyé au client' : ''}`
+        : '✅ Étiquette créée');
       load();
     } finally {
       setLsRetrying(false);

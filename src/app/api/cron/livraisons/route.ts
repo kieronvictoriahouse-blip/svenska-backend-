@@ -59,6 +59,34 @@ export async function GET(req: NextRequest) {
 
   const limite = new Date(Date.now() - ABANDON_JOURS * 86400_000).toISOString();
 
+  /* ── 0. Rattrapage des étiquettes UGO jamais relues ───────────────
+     Commandes point relais payées sans étiquette enregistrée : on demande
+     à UGO (GET /api/order/reference) si un envoi a été généré depuis — cas
+     typique : 402 réglé via le lien de paiement. Si oui, on remplit suivi
+     + PDF et, si la commande est déjà expédiée, on envoie au client
+     l'email de suivi qu'il n'a jamais eu. Les suivis ainsi récupérés sont
+     vérifiés juste après (étape 1) : « colis arrivé au relais ». */
+  const rattrapage = { verifiees: 0, rattachees: 0, emails: 0, echecs: [] as string[] };
+  const { data: sansEtiquette } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('delivery_mode', 'mondial_relay')
+    .is('logspher_label_url', null)
+    .in('status', ['paid', 'confirmed', 'preparing', 'partial', 'shipped'])
+    .gte('created_at', limite)
+    .limit(80);
+  const { attachExistingLogspherLabel } = await import('@/lib/logspher-sync');
+  for (const o of ((sansEtiquette || []) as any[])) {
+    if (o.is_test) continue;
+    rattrapage.verifiees++;
+    try {
+      const r = await attachExistingLogspherLabel(o);
+      if (r.attached) { rattrapage.rattachees++; if (r.emailed) rattrapage.emails++; }
+    } catch (e: any) {
+      rattrapage.echecs.push(`${o.order_number}: ${e?.message || e}`);
+    }
+  }
+
   const { data: enTransit, error } = await supabaseAdmin
     .from('orders')
     /* `*` plutot qu'une liste : `relay_carrier_uuid` n'existe qu'apres
@@ -113,5 +141,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, ...rapport });
+  return NextResponse.json({ ok: true, rattrapage_ugo: rattrapage, ...rapport });
 }

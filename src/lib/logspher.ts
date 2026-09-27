@@ -147,6 +147,45 @@ async function poidsDuColis(lines: Array<{ qty?: number; [k: string]: any }>): P
   return Math.max(300, Math.ceil(avecTare / 10) * 10);
 }
 
+/* ── Relire un envoi existant ──────────────────────────────────────
+   GET /api/order/reference/{orderId} (doc officielle UGO, openApiDoc.yaml
+   du dashboard) renvoie l'envoi à partir de NOTRE numéro de commande :
+   suivi, URL publique du PDF, transporteur. C'est ce qui manquait après
+   un 402 réglé via le lien : l'étiquette existait chez UGO, l'appli ne
+   savait pas la relire (cas SD-0146, 25/09/2026).
+   Renvoie null si UGO ne connaît pas la commande ou n'a pas encore de suivi. */
+export interface LogspherExistingOrder extends LogspherLabelResult {
+  is_shipped: boolean;
+  is_cancel: boolean;
+  delivery_date: string | null;
+}
+
+export async function fetchLogspherOrder(orderNumber: string): Promise<LogspherExistingOrder | null> {
+  if (!orderNumber) return null;
+  const res = await fetch(`${API_URL}/api/order/reference/${encodeURIComponent(orderNumber)}`, {
+    headers: { Authorization: `Bearer ${getApiKey()}`, Accept: 'application/json' },
+  });
+  if (res.status === 404) return null;
+  const text = await res.text();
+  if (!res.ok) throw new Error(`LogSpher /api/order/reference → ${res.status}: ${text.slice(0, 200)}`);
+  let j: any;
+  try { j = JSON.parse(text); } catch { return null; }
+  if (!j || j.is_cancel) return null;
+  const tracking = String(j.tracking_number || '').trim();
+  const waybill = String(j.waybill || '').trim();
+  if (!tracking && !waybill) return null;   // envoi réservé mais pas encore généré (402 non réglé)
+  return {
+    shipment_id:   Number(j.shipment_id) || 0,
+    tracking_number: tracking,
+    label_url:     waybill,
+    carrier_name:  j.carrier_name || j.service_name || '',
+    carrier_code:  j.service_code || '',
+    is_shipped:    !!j.is_shipped,
+    is_cancel:     !!j.is_cancel,
+    delivery_date: j.delivery_date || null,
+  };
+}
+
 /** Annule l'étiquette UGO d'une commande (passage en Click & Collect,
     commande annulée). UGO l'identifie par l'order_id envoyé à /ship,
     c'est-à-dire notre numéro de commande. */
