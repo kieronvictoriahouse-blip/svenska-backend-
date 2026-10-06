@@ -46,7 +46,14 @@ export async function rehostImage(srcUrl: string, folder = 'products'): Promise<
 
   if (buffer.byteLength === 0 || buffer.byteLength > MAX_BYTES) return null;
 
-  const ext = EXT_BY_MIME[contentType] || 'jpg';
+  /* Allégée avant stockage (1600 px, JPEG/WebP 82) : les visuels
+     fournisseurs pèsent souvent plusieurs Mo (cf. optimiser-image.ts). */
+  const { optimiserImage } = await import('@/lib/optimiser-image');
+  const opti = await optimiserImage(buffer, contentType);
+  const optiBuffer = opti.buffer;
+  contentType = opti.mime;
+
+  const ext = EXT_BY_MIME[contentType] || opti.ext || 'jpg';
   let base = 'img';
   try {
     const path = new URL(srcUrl).pathname;
@@ -61,7 +68,7 @@ export async function rehostImage(srcUrl: string, folder = 'products'): Promise<
 
   const { error: upErr } = await supabaseAdmin.storage
     .from(BUCKET)
-    .upload(filename, buffer, { contentType, upsert: false });
+    .upload(filename, optiBuffer, { contentType, upsert: false, cacheControl: '31536000' });
   if (upErr) return null;
 
   const { data: { publicUrl } } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(filename);
@@ -71,7 +78,7 @@ export async function rehostImage(srcUrl: string, folder = 'products'): Promise<
     await supabaseAdmin.from('media').insert({
       filename: filename.split('/').pop(),
       url: publicUrl,
-      size: buffer.byteLength,
+      size: optiBuffer.length,
       mime_type: contentType,
       alt_text: '',
     });

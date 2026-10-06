@@ -46,19 +46,29 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
+  /* Image allégée AVANT stockage (1600 px, JPEG/WebP 82) : une photo de
+     téléphone de 5 Mo devient ~200 Ko. Les photos de ticket gardent leur
+     pleine résolution : l'OCR en a besoin pour lire les petits chiffres. */
+  const { optimiserImage } = await import('@/lib/optimiser-image');
+  const brut = await file.arrayBuffer();
+  const opti = folder === 'tickets'
+    ? { buffer: Buffer.from(brut), mime: file.type, ext: file.name.split('.').pop()?.toLowerCase() || 'jpg', avant: file.size, apres: file.size }
+    : await optimiserImage(brut, file.type);
+
   // Génération nom unique
-  const ext       = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const ext       = opti.ext || file.name.split('.').pop()?.toLowerCase() || 'jpg';
   const slug      = file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 40);
   const timestamp = Date.now();
   const filename  = `${folder}/${slug}-${timestamp}.${ext}`;
 
-  // Upload vers Supabase Storage
-  const buffer = await file.arrayBuffer();
+  // Upload vers Supabase Storage — fichier immuable (nom horodaté) : il peut
+  // être mis en cache un an par le CDN et les navigateurs.
   const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
     .from(BUCKET)
-    .upload(filename, buffer, {
-      contentType: file.type,
+    .upload(filename, opti.buffer, {
+      contentType: opti.mime,
       upsert: false,
+      cacheControl: '31536000',
     });
 
   if (uploadError) {
@@ -76,8 +86,8 @@ export async function POST(req: NextRequest) {
     .insert({
       filename: file.name,
       url: publicUrl,
-      size: file.size,
-      mime_type: file.type,
+      size: opti.apres,
+      mime_type: opti.mime,
       alt_text: altText,
     })
     .select()
