@@ -90,6 +90,16 @@ async function restaurer() {
       const existe = (await c.query(`select to_regclass($1) r`, ['public.' + t])).rows[0].r;
       if (!existe) { console.log(`  ${t} : absente de la cible, ignorée`); continue; }
       if (remplacer) await c.query(`delete from public."${t}"`);
+      /* Colonnes réellement inscriptibles : une colonne CALCULÉE (generated
+         always as …) refuse toute valeur — inbox_messages.has_attachment
+         l'a montré au premier test. Une identité « always » exige
+         OVERRIDING SYSTEM VALUE pour garder ses numéros d'origine. */
+      const cols = (await c.query(
+        `select column_name, is_identity, identity_generation from information_schema.columns
+          where table_schema = 'public' and table_name = $1 and is_generated = 'NEVER'
+          order by ordinal_position`, [t])).rows;
+      const liste = cols.map(x => `"${x.column_name}"`).join(', ');
+      const forcer = cols.some(x => x.is_identity === 'YES' && x.identity_generation === 'ALWAYS') ? ' overriding system value' : '';
       let ajoutees = 0;
       for (let i = 0; i < lignes.length; i += 500) {
         const lot = lignes.slice(i, i + 500);
@@ -97,7 +107,7 @@ async function restaurer() {
            sa colonne (uuid, jsonb, tableaux, dates…) : pas de mapping à
            maintenir, et une colonne ajoutée depuis reste à NULL. */
         const r = await c.query(
-          `insert into public."${t}" select * from json_populate_recordset(null::public."${t}", $1::json) on conflict do nothing`,
+          `insert into public."${t}" (${liste})${forcer} select ${liste} from json_populate_recordset(null::public."${t}", $1::json) on conflict do nothing`,
           [JSON.stringify(lot)]);
         ajoutees += r.rowCount;
       }
