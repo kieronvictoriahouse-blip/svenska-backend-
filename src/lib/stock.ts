@@ -208,7 +208,11 @@ export async function restoreSaleStock(
     }))
     .filter(x => x.product_id && x.qty > 0);
 
-  const depuisExpedition = Object.entries(sorti || {})
+  /* shipped_qty compte des box quand la commande en contient : ce sont
+     leurs sachets qui étaient sortis, ce sont eux qui rentrent (054).
+     (Les mouvements, eux, sont déjà au niveau des sachets.) */
+  const { chargerLots, developperQuantites } = await import('@/lib/lots');
+  const depuisExpedition = Object.entries(developperQuantites(sorti || {}, await chargerLots()))
     .map(([product_id, qty]) => ({ product_id, qty: Number(qty) || 0 }))
     .filter(x => x.qty > 0);
 

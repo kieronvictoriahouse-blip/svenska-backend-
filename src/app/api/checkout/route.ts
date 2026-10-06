@@ -89,8 +89,15 @@ export async function POST(req: NextRequest) {
     /* Calculé une fois pour tout le panier : le réservé se déduit des
        commandes, il ne dépend pas de la ligne qu'on examine. */
     const { quantitesReservees } = await import('@/lib/reserve');
-    const reserve = await quantitesReservees();
+    const { chargerLots } = await import('@/lib/lots');
+    const [reserve, lots] = await Promise.all([quantitesReservees(), chargerLots()]);
     const giftClaims: Array<{ id: string }> = [];
+    /* Box (migration 054) : ce sont leurs sachets qui sont en rayon. On
+       cumule ici la demande du panier par sachet — box ET achats à
+       l'unité — pour la confronter au disponible après la boucle. Une
+       box et le même sachet à l'unité se disputent la même étagère. */
+    const demandeSachets: Record<string, number> = {};
+    const boxDuPanier: Array<{ id: string; name: string; qty: number }> = [];
 
     for (const item of items) {
       // Les cadeaux (offerts) sont mis de côté : validés + ajoutés à 0 € après le sous-total.
@@ -108,7 +115,17 @@ export async function POST(req: NextRequest) {
          dû à des commandes payées non expédiées. Comparer au stock brut
          laisserait vendre deux fois la même boîte : elle est encore en
          rayon, mais elle appartient déjà à quelqu'un. */
-      if (product.track_stock === true && typeof product.stock === 'number') {
+      const compoBox = lots[product.id];
+      if (compoBox) {
+        for (const it of compoBox) {
+          demandeSachets[it.product_id] = (demandeSachets[it.product_id] || 0) + it.qty * item.quantity;
+        }
+        boxDuPanier.push({ id: product.id, name: product.name_fr || product.id, qty: item.quantity });
+      } else {
+        demandeSachets[product.id] = (demandeSachets[product.id] || 0) + item.quantity;
+      }
+
+      if (!compoBox && product.track_stock === true && typeof product.stock === 'number') {
         const dispo = product.stock - (reserve[product.id] || 0);
         if (dispo <= 0 || item.quantity > dispo) {
           stockErrors.push({
@@ -152,6 +169,35 @@ export async function POST(req: NextRequest) {
     }
 
     // Stock insuffisant → on refuse la commande AVANT tout paiement.
+    /* Box : chaque sachet doit couvrir TOUTE la demande du panier. Si un
+       sachet manque, c'est la box qui est refusée (le client ne voit pas
+       ses composants), avec le nombre de box encore possibles. */
+    if (boxDuPanier.length) {
+      const ids = Object.keys(demandeSachets);
+      const { data: sachets } = await supabaseAdmin
+        .from('products').select('id, name_fr, stock, track_stock').in('id', ids);
+      const parId = Object.fromEntries((sachets || []).map((p: any) => [p.id, p]));
+      const dispoSachet = (id: string): number | null => {
+        const p = parId[id];
+        if (!p || p.track_stock !== true || typeof p.stock !== 'number') return null;
+        return p.stock - (reserve[id] || 0);
+      };
+      for (const b of boxDuPanier) {
+        let possibles: number | null = null;
+        for (const it of lots[b.id]) {
+          const d = dispoSachet(it.product_id);
+          if (d === null) continue;
+          /* Ce que le reste du panier prend déjà sur ce sachet. */
+          const autres = (demandeSachets[it.product_id] || 0) - it.qty * b.qty;
+          const p = Math.floor(Math.max(0, d - autres) / it.qty);
+          possibles = possibles === null ? p : Math.min(possibles, p);
+        }
+        if (possibles !== null && b.qty > possibles) {
+          stockErrors.push({ name: b.name, available: possibles, requested: b.qty });
+        }
+      }
+    }
+
     if (stockErrors.length > 0) {
       return NextResponse.json(
         { error: 'Stock insuffisant pour un ou plusieurs articles.', code: 'OUT_OF_STOCK', items: stockErrors },

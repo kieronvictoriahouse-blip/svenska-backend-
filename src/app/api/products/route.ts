@@ -41,9 +41,27 @@ export async function GET(req: NextRequest) {
      Le back-office, lui, garde le rayon brut : il affiche rayon et
      réservé côte à côte, il a besoin des deux. */
   const produits = data || [];
+
+  /* Box (migration 054) : pas de rayon propre, le disponible se déduit
+     des sachets. La vitrine le reçoit dans `stock` (avec track_stock à
+     vrai) et affiche donc « en stock / stock limité / bientôt » comme
+     pour n'importe quel produit ; le back-office le reçoit à part, dans
+     `lot_disponible`, pour ne pas le confondre avec un rayon. */
+  const { chargerLots, disponiblesLots } = await import('@/lib/lots');
+  const lots = await chargerLots();
+  const boxIds = (produits as any[]).filter(p => lots[p.id]).map(p => p.id);
+  let reserveLots: Record<string, number> | null = null;
+  let dispoBox: Record<string, number | null> = {};
+  if (boxIds.length) {
+    const { quantitesReservees } = await import('@/lib/reserve');
+    reserveLots = await quantitesReservees();
+    dispoBox = await disponiblesLots(lots, boxIds, reserveLots);
+    if (isAdmin) for (const p of produits as any[]) if (p.id in dispoBox) p.lot_disponible = dispoBox[p.id];
+  }
+
   if (!isAdmin) {
     const { quantitesReservees } = await import('@/lib/reserve');
-    const reserve = await quantitesReservees();
+    const reserve = reserveLots || await quantitesReservees();
     for (const p of produits as any[]) {
       /* Remise effective exposée à la vitrine : remise produit prioritaire,
          sinon remise de la catégorie (migration 052). Le front ne lit que
@@ -55,6 +73,11 @@ export async function GET(req: NextRequest) {
       p.discount_value = eff.discount_value ?? null;
       p.discount_start = eff.discount_start ?? null;
       p.discount_end   = eff.discount_end   ?? null;
+      if (p.id in dispoBox) {
+        const d = dispoBox[p.id];
+        if (d !== null) { p.track_stock = true; p.stock = d; }
+        continue;
+      }
       if (p.track_stock !== true || typeof p.stock !== 'number') continue;
       p.stock = p.stock - (reserve[p.id] || 0);
     }
@@ -82,6 +105,13 @@ export async function POST(req: NextRequest) {
     fields.extra_images = await Promise.all(
       fields.extra_images.map(async (u: string) => (await rehostImage(u)) || u)
     );
+  }
+
+  /* Box (migration 054) : composition nettoyée, et jamais de rayon propre. */
+  if (fields.bundle_items !== undefined) {
+    const c = (await import('@/lib/lots')).composition(fields.bundle_items);
+    fields.bundle_items = c;
+    if (c) { fields.track_stock = false; fields.stock = null; }
   }
 
   const { data, error } = await supabaseAdmin.from('products').insert(fields).select().single();

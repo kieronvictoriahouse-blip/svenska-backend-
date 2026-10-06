@@ -128,24 +128,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
      picking n'en portaient pas, et le contrôle quotidien ne les voyait
      donc pas. */
   const { adjustStock } = await import('@/lib/stock');
+
+  /* Une box (migration 054) n'a pas de rayon : ce sont ses sachets qui
+     partent dans le carton, donc eux qui sortent du stock. La commande,
+     elle, reste suivie par box (shipped_qty), comme le client l'a achetée. */
+  const { chargerLots } = await import('@/lib/lots');
+  const lots = await chargerLots();
+  const sorties: Array<{ product_id: string; qty: number; box?: string }> = [];
+  for (const [pid, n] of Object.entries(colis)) {
+    if (lots[pid]) for (const it of lots[pid]) sorties.push({ product_id: it.product_id, qty: n * it.qty, box: pid });
+    else sorties.push({ product_id: pid, qty: n });
+  }
+
   const { data: produits } = await supabaseAdmin
-    .from('products').select('id, track_stock').in('id', Object.keys(colis));
+    .from('products').select('id, track_stock')
+    .in('id', Array.from(new Set(sorties.map(s => s.product_id))));
   const suivi = new Set((produits || []).filter((p: any) => p.track_stock === true).map((p: any) => p.id));
 
-  const applied: Array<{ product_id: string; qty: number }> = [];
+  const applied: Array<{ product_id: string; qty: number; box?: string }> = [];
   const echecs: Array<{ product_id: string; erreur: string }> = [];
-  for (const [pid, n] of Object.entries(colis)) {
-    if (!suivi.has(pid)) { applied.push({ product_id: pid, qty: n }); continue; }
+  for (const s of sorties) {
+    if (!suivi.has(s.product_id)) { applied.push(s); continue; }
     try {
-      await adjustStock(pid, -n, {
+      await adjustStock(s.product_id, -s.qty, {
         reason: 'picking',
         reference: order.order_number,
         order_id: order.id,
-        note: `Expédition ${order.order_number}`,
+        note: s.box ? `Expédition ${order.order_number} — dans une box` : `Expédition ${order.order_number}`,
       });
-      applied.push({ product_id: pid, qty: n });
+      applied.push(s);
     } catch (e: any) {
-      echecs.push({ product_id: pid, erreur: e?.message || 'erreur inconnue' });
+      echecs.push({ product_id: s.product_id, erreur: e?.message || 'erreur inconnue' });
     }
   }
 

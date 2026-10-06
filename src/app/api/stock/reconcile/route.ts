@@ -43,11 +43,15 @@ async function compute() {
   }
 
   const sold: Record<string, number> = {};
+  /* Une box vendue a vendu ses sachets (migration 054) : sans ce
+     développement, le rapprochement « corrigerait » à la hausse le stock
+     de chaque sachet parti dans une box. */
+  const { chargerLots, developper } = await import('@/lib/lots');
+  const lots = await chargerLots();
   for (const o of orders || []) {
     if (o.is_test || o.exclude_from_stats || o.status === 'cancelled') continue;
-    for (const l of J(o.lines)) {
-      const q = Number(l.qty) || 0;
-      if (l.product_id && q) sold[l.product_id] = (sold[l.product_id] || 0) + q;
+    for (const l of developper(J(o.lines), lots)) {
+      if (l.qty) sold[l.product_id] = (sold[l.product_id] || 0) + l.qty;
     }
   }
 

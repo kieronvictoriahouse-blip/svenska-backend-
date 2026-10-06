@@ -32,6 +32,15 @@ type PickLine = {
   dejaExpedie: number;
   /** Ce qu'il reste a prelever aujourd'hui. */
   qty: number;
+  /** Box (migration 054) : ce qu'il faut mettre dans chaque carton. */
+  contenu?: Array<{ name: string; qty: number }>;
+};
+
+/** Composition d'une box telle que renvoyée par l'API (tableau ou JSON). */
+const lireLot = (v: any): Array<{ product_id: string; qty: number }> => {
+  let x = v;
+  if (typeof x === 'string') { try { x = JSON.parse(x); } catch { x = null; } }
+  return Array.isArray(x) ? x.filter((b: any) => b?.product_id && Number(b.qty) > 0) : [];
 };
 
 /* Une commande partiellement expediee revient dans la file : c'est la
@@ -93,6 +102,10 @@ export default function PreparationPage() {
         ean: p?.ean || undefined,
         image_url: l.image_url || p?.image_url,
         ref: p?.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : undefined,
+        contenu: lireLot(p?.bundle_items).map(b => {
+          const c = products.find(x => x.id === b.product_id);
+          return { name: c ? nomProduit({}, c, lang) : b.product_id, qty: Number(b.qty) };
+        }),
       };
     }).filter(l => l.qty > 0);
   }, [active, products, lang]);
@@ -406,6 +419,12 @@ export default function PreparationPage() {
                           <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>
                             {[l.ref, l.ean ? `EAN ${l.ean}` : t('sansEan')].filter(Boolean).join(' · ')}
                           </div>
+                          {!!l.contenu?.length && (
+                            <div style={{ marginTop: 5, padding: '6px 8px', background: '#F6F3EC', borderRadius: 6, fontSize: 11, color: T.text2, lineHeight: 1.55 }}>
+                              <b>Box — à mettre dans chaque carton :</b>
+                              {l.contenu.map((c, i) => <div key={i}>{c.qty} × {c.name}</div>)}
+                            </div>
+                          )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <button className="sc-iconbtn" style={{ width: 28, height: 28 }} onClick={() => adjust(l, -1)} aria-label={t('moins')}>

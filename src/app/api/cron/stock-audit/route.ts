@@ -100,6 +100,9 @@ export async function GET(req: NextRequest) {
      est encore. Compter le commandé rendrait chaque commande en
      attente d'expédition en faux écart. */
   const vendu: Record<string, number> = {};
+  /* Une box expédiée a sorti ses sachets, pas elle-même (migration 054). */
+  const { chargerLots } = await import('@/lib/lots');
+  const lots = await chargerLots();
   for (const o of orders || []) {
     if (!isReal(o)) continue;
     const envoye = (o as any).shipped_qty || null;
@@ -110,7 +113,12 @@ export async function GET(req: NextRequest) {
       const q = envoye
         ? Number(envoye[l.product_id]) || 0
         : (PARTIES.includes(o.status) ? Number(l.qty) || 0 : 0);
-      if (q) vendu[l.product_id] = (vendu[l.product_id] || 0) + q;
+      if (!q) continue;
+      if (lots[l.product_id]) {
+        for (const it of lots[l.product_id]) vendu[it.product_id] = (vendu[it.product_id] || 0) + q * it.qty;
+      } else {
+        vendu[l.product_id] = (vendu[l.product_id] || 0) + q;
+      }
     }
   }
 

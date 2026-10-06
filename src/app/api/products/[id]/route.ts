@@ -25,6 +25,25 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   /* Même règle que sur la liste : la fiche publique annonce le
      disponible. Sans ça, la vitrine et le tunnel se contredisent —
      « I LAGER » sur la page, refus au paiement. */
+  /* Box (migration 054) : contenu détaillé (pour la fiche) et disponible
+     déduit des sachets. Côté vitrine il remplace `stock`, côté
+     back-office il arrive à part dans `lot_disponible`. */
+  const { composition, disponiblesLots } = await import('@/lib/lots');
+  const compo = composition((data as any).bundle_items);
+  if (compo) {
+    const { data: sachets } = await supabaseAdmin
+      .from('products').select('id, name_fr, name_sv, name_en, image_url, price, cost_price, weight')
+      .in('id', compo.map(c => c.product_id));
+    (data as any).lot_contenu = compo.map(c => ({
+      ...c, ...((sachets || []).find((s: any) => s.id === c.product_id) || {}),
+    }));
+    const { quantitesReservees } = await import('@/lib/reserve');
+    const d = (await disponiblesLots({ [params.id]: compo }, [params.id], await quantitesReservees()))[params.id];
+    if (req.headers.get('authorization')) (data as any).lot_disponible = d;
+    else if (d !== null) { (data as any).track_stock = true; (data as any).stock = d; }
+    return NextResponse.json({ product: data });
+  }
+
   if (!req.headers.get('authorization')
       && (data as any).track_stock === true
       && typeof (data as any).stock === 'number') {
@@ -76,6 +95,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     'discount_type', 'discount_value', 'discount_start', 'discount_end',
   ];
   fields.forEach(f => { if (body[f] !== undefined) updateData[f] = body[f]; });
+
+  /* Composition d'une box (migration 054). Nettoyée ici : une box ne se
+     contient pas elle-même, et elle n'a jamais de rayon propre — son
+     stock, c'est celui de ses sachets. `null` repasse en produit simple. */
+  if (body.bundle_items !== undefined) {
+    const { composition } = await import('@/lib/lots');
+    const c = (composition(body.bundle_items) || []).filter(i => i.product_id !== params.id);
+    updateData.bundle_items = c.length ? c : null;
+    if (c.length) updateData.track_stock = false;
+  }
 
   /* Ne rien mettre a jour n'est pas une erreur, mais PostgREST refuse un
      PATCH vide : « Cannot coerce the result to a single JSON object ».

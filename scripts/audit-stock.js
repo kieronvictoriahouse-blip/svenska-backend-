@@ -51,7 +51,7 @@ const info = m => console.log('        ' + m);
 (async () => {
   const [{ data: produits }, { data: commandes }, { data: mouvements }] =
     await Promise.all([
-      sb.from('products').select('id, sku, name_fr, stock, track_stock, is_active'),
+      sb.from('products').select('id, sku, name_fr, stock, track_stock, is_active, bundle_items'),
       sb.from('orders').select('id, order_number, status, lines, shipped_qty, is_test, exclude_from_stats, created_at'),
       sb.from('stock_movements').select('*').order('created_at'),
     ]);
@@ -59,6 +59,26 @@ const info = m => console.log('        ' + m);
   const parId = Object.fromEntries((produits || []).map(p => [p.id, p]));
   const nom = id => (parId[id] ? `${parId[id].sku || '--'} ${parId[id].name_fr}` : `produit inconnu ${id}`);
   const vraie = o => !o.is_test && !o.exclude_from_stats && o.status !== 'cancelled';
+
+  /* Box (migration 054) — même logique que src/lib/lots.ts : une box n'a
+     pas de rayon, ce sont ses sachets qui sont réservés, sortis, vendus. */
+  const lots = {};
+  for (const p of produits || []) {
+    let c = p.bundle_items;
+    if (typeof c === 'string') { try { c = JSON.parse(c); } catch { c = null; } }
+    if (Array.isArray(c) && c.length) lots[p.id] = c.map(i => ({ product_id: i.product_id, qty: Math.trunc(Number(i.qty) || 0) })).filter(i => i.product_id && i.qty > 0);
+  }
+  const estBox = id => !!(lots[id] && lots[id].length);
+  const developper = lignes => {
+    const out = {};
+    for (const l of lignes) {
+      const n = Number(l.qty) || 0;
+      if (!l.product_id || n <= 0) continue;
+      if (estBox(l.product_id)) for (const it of lots[l.product_id]) out[it.product_id] = (out[it.product_id] || 0) + n * it.qty;
+      else out[l.product_id] = (out[l.product_id] || 0) + n;
+    }
+    return out;
+  };
 
   /* Réservé — même calcul que src/lib/reserve.ts. Si les deux
      divergent un jour, c'est ce fichier-ci qu'il faut corriger. */
@@ -69,7 +89,9 @@ const info = m => console.log('        ' + m);
     for (const l of J(o.lines)) {
       if (!l.product_id) continue;
       const du = (Number(l.qty) || 0) - (Number(envoye[l.product_id]) || 0);
-      if (du > 0) reserve[l.product_id] = (reserve[l.product_id] || 0) + du;
+      if (du <= 0) continue;
+      reserve[l.product_id] = (reserve[l.product_id] || 0) + du;
+      for (const it of lots[l.product_id] || []) reserve[it.product_id] = (reserve[it.product_id] || 0) + du * it.qty;
     }
   }
 
@@ -174,10 +196,8 @@ const info = m => console.log('        ' + m);
   for (const [ref, parProduit] of Object.entries(sorties)) {
     const o = (commandes || []).find(x => x.order_number === ref);
     if (!o) continue;
-    const du = {};
-    for (const l of J(o.lines)) {
-      if (l.product_id) du[l.product_id] = (du[l.product_id] || 0) + (Number(l.qty) || 0);
-    }
+    /* Une box a fait sortir ses sachets : le dû se compte en sachets. */
+    const du = developper(J(o.lines));
     for (const [pid, sorti] of Object.entries(parProduit)) {
       const ecart = sorti - (du[pid] || 0);
       if (ecart <= 0) continue;
@@ -207,6 +227,7 @@ const info = m => console.log('        ' + m);
   /* ── 3. Promet-on plus qu'on n'a ? ────────────────────────────── */
   titre('3. Promet-on plus quon na ?');
   const negatifs = (produits || [])
+    .filter(p => !estBox(p.id))
     .map(p => ({ p, r: reserve[p.id] || 0, v: (Number(p.stock) || 0) - (reserve[p.id] || 0) }))
     .filter(x => x.v < 0);
   if (!negatifs.length) ok('aucun produit nest promis au-dela du stock');
@@ -239,7 +260,7 @@ const info = m => console.log('        ' + m);
   const vendus = new Set();
   for (const o of commandes || []) {
     if (!vraie(o)) continue;
-    for (const l of J(o.lines)) if (l.product_id) vendus.add(l.product_id);
+    for (const id of Object.keys(developper(J(o.lines)))) vendus.add(id);
   }
   const nonSuivis = [...vendus].filter(id => parId[id] && parId[id].track_stock !== true);
   if (!nonSuivis.length) ok('tout ce qui se vend est suivi en stock');
@@ -250,7 +271,7 @@ const info = m => console.log('        ' + m);
 
   /* ── 7. Articles dus alors qu'ils sont retires ────────────────── */
   titre('7. Doit-on de la marchandise sur des articles retires ?');
-  const dusInactifs = Object.keys(reserve).filter(id => parId[id] && !parId[id].is_active);
+  const dusInactifs = Object.keys(reserve).filter(id => parId[id] && !parId[id].is_active && !estBox(id));
   if (!dusInactifs.length) ok('aucun article desactive nest encore du');
   for (const id of dusInactifs) {
     ko(`${nom(id)} : ${reserve[id]} dus, article desactive — invisible dans lecran Stocks`);

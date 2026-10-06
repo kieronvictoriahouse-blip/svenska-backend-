@@ -231,7 +231,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
      laisser une trace au journal, comme une vente ou une réception. */
   if (planRetour.length) {
     const { adjustStock } = await import('@/lib/stock');
-    for (const r of planRetour) {
+    /* Une box rendue fait rentrer ses sachets, pas la box (migration 054). */
+    const { chargerLots, developper } = await import('@/lib/lots');
+    const lotsRetour = await chargerLots();
+    for (const r of developper(planRetour as Array<{ product_id: string; qty: number }>, lotsRetour)) {
       try {
         await adjustStock(r.product_id as string, r.qty, {
           reason: 'order_restock',

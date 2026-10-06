@@ -31,11 +31,13 @@ export async function GET(req: NextRequest) {
 
   // Agréger les ventes par product_id
   const salesMap: Record<string, number> = {};
+  /* Une box vendue consomme ses sachets : c'est eux qu'il faut
+     recommander (migration 054). */
+  const { chargerLots, developper } = await import('@/lib/lots');
+  const lots = await chargerLots();
   for (const order of orders || []) {
-    for (const line of parseLines(order.lines)) {
-      if (line.product_id) {
-        salesMap[line.product_id] = (salesMap[line.product_id] || 0) + (parseFloat(line.qty) || 0);
-      }
+    for (const line of developper(parseLines(order.lines), lots)) {
+      salesMap[line.product_id] = (salesMap[line.product_id] || 0) + line.qty;
     }
   }
 

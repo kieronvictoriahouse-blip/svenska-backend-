@@ -57,6 +57,8 @@ type ProductFormData = {
   nutrition: Nutrition;
   extra_images: string[];
   variants: Variant[];
+  /** Box (migration 054) : produits contenus. Vide = produit simple. */
+  bundle_items: Array<{ product_id: string; qty: string }>;
 };
 
 const EMPTY: ProductFormData = {
@@ -78,6 +80,16 @@ const EMPTY: ProductFormData = {
   nutrition: { energie: '', graisses: '', dont_satures: '', glucides: '', dont_sucres: '', fibres: '', proteines: '', sel: '', portion: '' },
   extra_images: [],
   variants: [{ label: '', price: '' }],
+  bundle_items: [],
+};
+
+/** Composition reçue de l'API (tableau ou chaîne JSON) → lignes éditables. */
+const lireLot = (v: any): Array<{ product_id: string; qty: string }> => {
+  let x = v;
+  if (typeof x === 'string') { try { x = JSON.parse(x); } catch { x = null; } }
+  return Array.isArray(x)
+    ? x.filter((b: any) => b?.product_id).map((b: any) => ({ product_id: String(b.product_id), qty: String(b.qty ?? 1) }))
+    : [];
 };
 
 export type ProductTab = 'general' | 'prix' | 'photos' | 'seo';
@@ -149,7 +161,10 @@ export default function ProductForm({
     stock: initialData?.stock != null ? String(initialData.stock) : '',
     reorder_qty: (initialData as any)?.reorder_qty != null ? String((initialData as any).reorder_qty) : '',
     extra_images: (initialData as any)?.extra_images || [],
+    bundle_items: lireLot((initialData as any)?.bundle_items),
   });
+  /* Catalogue pour composer une box : chargé une fois, à la demande. */
+  const [catalogue, setCatalogue] = useState<any[]>([]);
   const [lang, setLang] = useState<'fr' | 'sv' | 'en'>('fr');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -170,7 +185,7 @@ export default function ProductForm({
        QUE si une remise est posée (ou l'était déjà). Ainsi, tant que la
        migration 049 n'a pas ajouté les colonnes, un produit sans remise
        s'enregistre normalement — on n'écrit jamais de colonne absente. */
-    const { discount_type: _dt, discount_value: _dv, discount_start: _ds, discount_end: _de, ...rest } = f;
+    const { discount_type: _dt, discount_value: _dv, discount_start: _ds, discount_end: _de, bundle_items: _bi, ...rest } = f;
     const hasDisc = !!_dt && parseFloat(_dv) > 0;
     const hadDisc = !!(initialData as any)?.discount_type;
     const payload: Record<string, any> = {
@@ -189,6 +204,15 @@ export default function ProductForm({
         .filter(v => v.label && v.price)
         .map(v => ({ label: v.label, price: parseFloat(v.price) })),
     };
+    /* Box (migration 054) : n'est envoyée que si elle existe (ou existait),
+       et une box n'a jamais de stock propre — ce sont ses sachets. */
+    const lot = (_bi || [])
+      .map(b => ({ product_id: b.product_id, qty: parseInt(b.qty) || 0 }))
+      .filter(b => b.product_id && b.qty > 0);
+    if (lot.length || lireLot((initialData as any)?.bundle_items).length) {
+      payload.bundle_items = lot.length ? lot : null;
+    }
+    if (lot.length) { payload.track_stock = false; payload.stock = null; }
     if (hasDisc || hadDisc) {
       payload.discount_type  = hasDisc ? _dt : null;
       payload.discount_value = hasDisc ? parseFloat(_dv) : null;
@@ -221,6 +245,23 @@ export default function ProductForm({
     set('variants', v);
   }
   function addVariant() { set('variants', [...form.variants, { label: '', price: '' }]); }
+  /* ── Box : lignes de composition ────────────────────────── */
+  const estBox = form.bundle_items.some(b => b.product_id);
+  function setLot(i: number, field: 'product_id' | 'qty', value: string) {
+    const v = [...form.bundle_items];
+    v[i] = { ...v[i], [field]: value };
+    set('bundle_items', v);
+  }
+  const ajouterAuLot = () => set('bundle_items', [...form.bundle_items, { product_id: '', qty: '1' }]);
+  const retirerDuLot = (i: number) => set('bundle_items', form.bundle_items.filter((_, idx) => idx !== i));
+  useEffect(() => {
+    if (tab && tab !== 'prix') return;
+    if (catalogue.length) return;
+    adminFetch('/api/products?limit=1000').then(r => r.json())
+      .then(d => setCatalogue((d.products || []).filter((p: any) => p.id !== initialData?.id)))
+      .catch(() => {});
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function removeVariant(i: number) {
     if (form.variants.length <= 1) return;
     set('variants', form.variants.filter((_, idx) => idx !== i));
@@ -461,6 +502,76 @@ export default function ProductForm({
                   </div>
                 ))}
               </Card>
+
+              <Card title="Composition de la box"
+                    action={<button type="button" className="sc-btn sc-btn-secondary" onClick={ajouterAuLot}><span className="ms">add</span>Ajouter un produit</button>}>
+                <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+                  Ajouter des produits transforme cette fiche en <b>box</b> : elle n&apos;a plus de stock propre.
+                  Elle est en vente tant que chacun de ses produits est disponible, une box payée les réserve,
+                  et ce sont eux qui sortent du stock à l&apos;expédition.
+                </div>
+                {form.bundle_items.map((b, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 30px', gap: 8, marginBottom: 8 }}>
+                    <select className="sc-input sc-select" value={b.product_id} onChange={e => setLot(i, 'product_id', e.target.value)}>
+                      <option value="">— Choisir un produit —</option>
+                      {catalogue
+                        .filter(p => !lireLot(p.bundle_items).length)
+                        .sort((a, c) => String(a.name_fr).localeCompare(String(c.name_fr), 'fr'))
+                        .map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name_fr} — {(Number(p.price) || 0).toFixed(2)} €
+                            {p.track_stock ? ` · rayon ${p.stock ?? 0}` : ' · non suivi'}{!p.is_active ? ' · désactivé' : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <input className="sc-input sc-num" type="number" min="1" step="1" value={b.qty}
+                           onChange={e => setLot(i, 'qty', e.target.value)} aria-label="Quantité dans la box" />
+                    <button type="button" className="sc-iconbtn" onClick={() => retirerDuLot(i)} aria-label="Retirer de la box">
+                      <span className="ms">delete</span>
+                    </button>
+                  </div>
+                ))}
+                {estBox && (() => {
+                  const lignes = form.bundle_items
+                    .map(b => ({ p: catalogue.find(x => x.id === b.product_id), q: parseInt(b.qty) || 0 }))
+                    .filter(x => x.p && x.q > 0);
+                  const valeur = lignes.reduce((s, x) => s + (Number(x.p.price) || 0) * x.q, 0);
+                  const cout = lignes.reduce((s, x) => s + (Number(x.p.cost_price) || 0) * x.q, 0);
+                  const sansPA = lignes.filter(x => !(Number(x.p.cost_price) > 0));
+                  const prix = parseFloat(form.price) || 0;
+                  const ecart = valeur - prix;
+                  const dispo = (initialData as any)?.lot_disponible;
+                  const ligne = (label: string, val: React.ReactNode, color?: string) => (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '3px 0', color: color || T.text2 }}>
+                      <span>{label}</span><b>{val}</b>
+                    </div>
+                  );
+                  return (
+                    <div style={{ marginTop: 6, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                      {ligne('Valeur des produits au prix du site', `${valeur.toFixed(2)} €`)}
+                      {prix > 0 && (ecart > 0.004
+                        ? ligne('Le client économise', `${ecart.toFixed(2)} € (${Math.round(ecart / valeur * 100)} %)`, T.green)
+                        : ecart < -0.004
+                          ? ligne('La box coûte de plus qu’à l’unité', `${(-ecart).toFixed(2)} €`, '#C97A2B')
+                          : ligne('Prix identique aux produits à l’unité', '='))}
+                      {ligne('Coût d’achat des produits', `${cout.toFixed(2)} €`)}
+                      {sansPA.length > 0 && (
+                        <div style={{ fontSize: 10.5, color: '#C97A2B', margin: '2px 0 4px' }}>
+                          Sans prix d&apos;achat (compté 0 €) : {sansPA.map(x => x.p.name_fr).join(', ')}
+                        </div>
+                      )}
+                      <button type="button" className="sc-btn sc-btn-secondary" style={{ marginTop: 6 }}
+                              onClick={() => set('cost_price', cout.toFixed(2))}>
+                        Reporter {cout.toFixed(2)} € dans le prix d&apos;achat
+                      </button>
+                      <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>
+                        Ajoute ensuite l&apos;emballage (carton, papier de soie) au prix d&apos;achat pour des marges justes.
+                      </div>
+                      {typeof dispo === 'number' && ligne('Box vendables maintenant', String(Math.max(0, dispo)), dispo > 0 ? T.ink : T.red)}
+                    </div>
+                  );
+                })()}
+              </Card>
             </>
           )}
 
@@ -598,7 +709,9 @@ export default function ProductForm({
                 <Switch on={form.is_active}     onChange={v => set('is_active', v)}     label="Visible sur le site" />
                 <Switch on={form.is_bestseller} onChange={v => set('is_bestseller', v)} label="Best-seller (affiché en home)" />
                 <Switch on={form.is_new}        onChange={v => set('is_new', v)}        label="Nouveauté" />
-                <Switch on={form.track_stock}   onChange={v => set('track_stock', v)}   label="Suivi de stock actif" />
+                {!estBox && (
+                  <Switch on={form.track_stock}   onChange={v => set('track_stock', v)}   label="Suivi de stock actif" />
+                )}
                 <Switch on={form.pickup_only}   onChange={v => set('pickup_only', v)}   label="Retrait uniquement"
                         hint={form.pickup_only ? 'Produit non expédiable. Tout panier le contenant passe en retrait en magasin.' : undefined} />
               </div>
@@ -616,7 +729,15 @@ export default function ProductForm({
 
           {show('prix') && (
             <Card title="Stock">
-              {!form.track_stock ? (
+              {estBox ? (
+                <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.5 }}>
+                  C&apos;est une <b>box</b> : pas de stock propre. Elle se vend tant que ses produits sont disponibles
+                  {typeof (initialData as any)?.lot_disponible === 'number'
+                    ? <> — <b>{Math.max(0, (initialData as any).lot_disponible)}</b> box possibles maintenant.</>
+                    : '.'}
+                  {' '}Pour en préparer davantage, réapprovisionne ses produits (Réceptions).
+                </div>
+              ) : !form.track_stock ? (
                 <div style={{ fontSize: 12, color: T.muted, fontStyle: 'italic' }}>
                   Le suivi de stock est désactivé. Active-le dans l&apos;onglet Général.
                 </div>

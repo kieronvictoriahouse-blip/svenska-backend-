@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { chargerLots, developper } from '@/lib/lots';
 
 /* ═══════════════════════════════════════════════════════════════
    VÉLOCITÉ DE VENTE, CORRIGÉE DES RUPTURES
@@ -54,11 +55,12 @@ export type Velocite = {
  * plutôt qu'avec un chiffre inventé.
  */
 export async function calculerVelocites(): Promise<Velocite[]> {
-  const [{ data: produits }, { data: commandes }, { data: receptions }] = await Promise.all([
+  const [{ data: produits }, { data: commandes }, { data: receptions }, lots] = await Promise.all([
     supabaseAdmin.from('products').select('id, track_stock, is_active'),
     supabaseAdmin.from('orders')
       .select('lines, created_at, status, is_test, exclude_from_stats'),
     supabaseAdmin.from('receptions').select('lines, received_at, created_at, status'),
+    chargerLots(),
   ]);
 
   const debutFenetre = jour(new Date(Date.now() - FENETRE_JOURS * 86400000));
@@ -88,9 +90,10 @@ export async function calculerVelocites(): Promise<Velocite[]> {
     if (o.is_test || o.exclude_from_stats) continue;
     if (['cancelled', 'pending'].includes(o.status)) continue;
     const d = jour(o.created_at);
-    for (const l of J(o.lines)) {
-      const q = Number(l.qty) || 0;
-      if (l.product_id && q > 0) ajoute(sorties, l.product_id, d, q);
+    /* Une box vendue consomme ses sachets : c'est eux qu'il faudra
+       racheter (migration 054). */
+    for (const l of developper(J(o.lines), lots)) {
+      if (l.qty > 0) ajoute(sorties, l.product_id, d, l.qty);
     }
   }
 
