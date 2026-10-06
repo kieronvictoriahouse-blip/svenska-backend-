@@ -81,8 +81,12 @@ async function enregistrerMigrations(instance) {
 }
 
 /** Les env à poser sur le projet Vercel de l'instance. */
-function variablesInstance({ url, anon, serviceKey, bucket, urlAdmin, urlBoutique }) {
+function variablesInstance({ url, anon, serviceKey, bucket, urlAdmin, urlBoutique, cpUrl, instanceId }) {
   return {
+    /* Pour que la boutique puisse demander à l'usine de poser SES clés
+       Stripe (écran Réglages → Paiements), authentifiée par CRON_SECRET. */
+    VENDD_CP_URL: cpUrl || '',
+    VENDD_INSTANCE_ID: instanceId || '',
     NEXT_PUBLIC_SUPABASE_URL: url,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: anon,
     SUPABASE_SERVICE_ROLE_KEY: serviceKey,

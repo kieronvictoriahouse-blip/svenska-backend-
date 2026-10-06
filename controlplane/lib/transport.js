@@ -34,6 +34,11 @@ function simuler(methode, url, corps) {
   if (u.includes('/database/query')) return [];
   if (u.includes('api.vercel.com') && u.includes('/projects') && methode === 'POST')
     return { id: 'prj_dry', name: corps?.name || 'dry' };
+  /* Lecture du projet avant déploiement : le vrai Vercel y renvoie le lien
+     GitHub (repoId numérique exigé par l'API v13). Sans lui, la
+     simulation s'arrêtait à la dernière étape et ne prouvait plus rien. */
+  if (u.includes('api.vercel.com') && u.includes('/projects/') && methode === 'GET')
+    return { id: 'prj_dry', link: { type: 'github', repoId: 999999999 } };
   if (u.includes('api.vercel.com') && u.includes('/env')) return { created: true };
   if (u.includes('api.vercel.com') && u.includes('/deployments')) return { id: 'dpl_dry', url: 'dry.vercel.app' };
   if (u.includes('/auth/v1/admin/users')) return { id: 'user-dry', email: corps?.email };

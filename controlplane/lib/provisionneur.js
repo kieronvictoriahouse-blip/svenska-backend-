@@ -96,6 +96,8 @@ async function avancer(instance, client, depot) {
         bucket: 'media',
         urlAdmin: instance.url_admin,
         urlBoutique: instance.url_boutique,
+        cpUrl: process.env.CP_URL || 'https://app.vendd.fr',
+        instanceId: client.sous_domaine,
       });
       await vercel.poserEnv(instance.vercel_project_id, variables);
       await note('env_posees', { nombre: Object.keys(variables).length });

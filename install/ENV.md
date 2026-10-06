@@ -26,12 +26,22 @@ imprime cette liste préremplie à la fin de l'installation.
 | `NEXT_PUBLIC_BACKEND_URL` | URL publique de l'admin (domaine Vercel) |
 | `NEXT_PUBLIC_FRONT_URL` | URL publique de la vitrine |
 
+## Usine Vendd — posées au provisionnement
+
+| Variable | Rôle |
+|---|---|
+| `VENDD_CP_URL` | adresse de l'usine (control plane), pour l'écran Paiements |
+| `VENDD_INSTANCE_ID` | sous-domaine de la boutique (son identifiant dans l'usine) |
+| `CRON_SECRET` | sert AUSSI à authentifier la boutique auprès de l'usine (POST /api/instances/stripe) |
+
+Une boutique sans `VENDD_CP_URL`/`VENDD_INSTANCE_ID` (ex. Swedish Cravings) n'est pas gérée par l'usine : l'écran Paiements y est en lecture seule.
+
 ## Client — ses comptes à lui, saisis à l'onboarding
 
 | Variable | Service | Obligatoire |
 |---|---|---|
-| `STRIPE_SECRET_KEY` | encaissement de SES ventes | oui |
-| `STRIPE_WEBHOOK_SECRET` | webhook créé PAR instance (URL propre) | oui |
+| `STRIPE_SECRET_KEY` | encaissement de SES ventes — **posée par le marchand lui-même** : Réglages → Paiements (vérifiée auprès de Stripe, transmise à l'usine qui la pose sur Vercel et redéploie ; jamais stockée en base) | oui |
+| `STRIPE_WEBHOOK_SECRET` | webhook créé AUTOMATIQUEMENT sur le compte du marchand par Réglages → Paiements | oui |
 | `STRIPE_SECRET_KEY_TEST` / `STRIPE_WEBHOOK_SECRET_TEST` | mode test | non |
 | `RESEND_API_KEY` / `RESEND_FROM` / `RESEND_WEBHOOK_SECRET` | emails transactionnels | oui (ou SMTP) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_FROM` | alternative SMTP | — |
