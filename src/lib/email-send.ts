@@ -7,6 +7,8 @@ export type SendOpts = {
   to: string; subject: string; html: string; from: string;
   attachments?: Attachment[];
   tags?: { name: string; value: string }[];
+  /** Adresse de réponse (ex. formulaire de contact : répondre au client). */
+  replyTo?: string;
 };
 
 export async function getWhiteLabelConfig(): Promise<Record<string, string>> {
@@ -29,7 +31,7 @@ export async function sendEmailSmtp(opts: SendOpts, cfg: Record<string, string>)
     tls: { rejectUnauthorized: false },
   });
   const attachments = opts.attachments?.map(a => ({ filename: a.filename, content: a.content }));
-  await transporter.sendMail({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, attachments });
+  await transporter.sendMail({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, attachments, ...(opts.replyTo ? { replyTo: opts.replyTo } : {}) });
 }
 
 export async function sendEmailResend(opts: SendOpts) {
@@ -44,6 +46,7 @@ export async function sendEmailResend(opts: SendOpts) {
       from: opts.from, to: opts.to, subject: opts.subject, html: opts.html,
       ...(attachments?.length ? { attachments } : {}),
       ...(opts.tags?.length ? { tags: opts.tags } : {}),
+      ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
     }),
   });
   const data = await res.json();
