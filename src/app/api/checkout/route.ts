@@ -348,6 +348,14 @@ export async function POST(req: NextRequest) {
 
     const relayCountry = (relay_point_pays || 'FR').toUpperCase();
     const isInternational = isMondialRelay && INTERNATIONAL_COUNTRIES.includes(relayCountry);
+    /* Un pays hors barème (ex. Suisse, encore proposée par l'ancien panier)
+       partait au tarif France. On refuse plutôt que de vendre à perte. */
+    if (isMondialRelay && relayCountry !== 'FR' && !isInternational) {
+      return NextResponse.json(
+        { error: 'Nous ne livrons pas encore ce pays en point relais.', code: 'COUNTRY_NOT_SERVED' },
+        { status: 400, headers: CORS },
+      );
+    }
 
     // Barème + opération « livraison offerte » : le serveur fait autorité,
     // le front n'affiche qu'une estimation.
@@ -423,8 +431,13 @@ export async function POST(req: NextRequest) {
       // retrait/relais (où aucune adresse de livraison n'est demandée).
       billing_address_collection: 'required',
       ...(stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
+      /* Livraison à domicile (plus proposée par le panier, gardée pour les
+         anciens liens) : le pays n'est connu que chez Stripe, après le
+         calcul du port — on la limite donc à la France, seul tarif appliqué
+         ici. L'ancienne liste laissait partir la Suisse ou le Royaume-Uni
+         à 4,90 €. */
       ...(isPickup || isMondialRelay ? {} : {
-        shipping_address_collection: { allowed_countries: ['FR', 'BE', 'CH', 'LU', 'MC', 'DE', 'ES', 'IT', 'NL', 'PT', 'SE', 'GB'] },
+        shipping_address_collection: { allowed_countries: ['FR', 'MC'] },
       }),
       shipping_options: [
         isPickup
@@ -458,7 +471,8 @@ export async function POST(req: NextRequest) {
           : {
               shipping_rate_data: {
                 type: 'fixed_amount',
-                fixed_amount: { amount: 490, currency: 'eur' },
+                // Même barème que le panier (lib/shipping) — plus de 4,90 € en dur.
+                fixed_amount: { amount: Math.round(shipRules.cost * 100), currency: 'eur' },
                 display_name: 'Livraison standard',
               },
             },
