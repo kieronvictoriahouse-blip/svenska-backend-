@@ -31,20 +31,32 @@ ${inner}
 </soap:Envelope>`;
 }
 
-export async function mrSoap(method: string, fields: Record<string, string>): Promise<string> {
-  const res = await fetch(MR_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'text/xml; charset=utf-8',
-      'SOAPAction': `"${MR_NS}${method}"`,
-    },
-    body: buildSoap(method, fields),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+/**
+ * Appel SOAP Mondial Relay. `delaiMs` : abandon au-delà (réponse lue
+ * comprise) — la recherche de points s'en sert pour ne pas laisser le
+ * panier tourner dans le vide ; la création d'étiquette n'en met pas.
+ */
+export async function mrSoap(method: string, fields: Record<string, string>, delaiMs?: number): Promise<string> {
+  const ctrl = delaiMs ? new AbortController() : null;
+  const minuteur = ctrl ? setTimeout(() => ctrl.abort(), delaiMs) : null;
+  try {
+    const res = await fetch(MR_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': `"${MR_NS}${method}"`,
+      },
+      body: buildSoap(method, fields),
+      ...(ctrl ? { signal: ctrl.signal } : {}),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
+    return await res.text();
+  } finally {
+    if (minuteur) clearTimeout(minuteur);
   }
-  return res.text();
 }
 
 export function formatMrPhone(p?: string): string {

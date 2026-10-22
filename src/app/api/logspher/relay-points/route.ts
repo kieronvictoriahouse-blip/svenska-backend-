@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  lireAvecDelai, langueRelais, MESSAGES_RELAIS, DELAI_MS,
+  normaliserHoraires, rechercherPointsMondialRelay,
+} from '@/lib/points-relais';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +39,11 @@ const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
    Si le moins cher n'a pas de point relais sur place, on descend à
    l'offre suivante plutôt que de renvoyer une liste vide.
+
+   Chaque appel amont est borné à 6 s. Si UGO ne répond pas pour la
+   France (l'essentiel des commandes), on interroge Mondial Relay en
+   direct. Rien du tout : 200 { points: [], erreur } — un message court
+   dans la langue du panier (`lang` = fr | en | sv), le détail en log.
    ═══════════════════════════════════════════════════════════════ */
 
 const NOMS_TRANSPORTEURS: Record<string, string> = {
@@ -59,17 +68,34 @@ function getApiKey() {
 }
 
 async function lsFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`LogSpher ${path} → ${res.status}: ${text?.slice(0, 200)}`);
-  return JSON.parse(text);
+  let r;
+  try {
+    r = await lireAvecDelai(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${getApiKey()}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+  } catch (e: any) {
+    throw new Error(e?.name === 'AbortError' ? `LogSpher ${path} → délai de ${DELAI_MS} ms dépassé` : (e?.message || String(e)));
+  }
+  if (!r.ok) throw new Error(`LogSpher ${path} → ${r.status}: ${r.texte?.slice(0, 200)}`);
+  return JSON.parse(r.texte);
+}
+
+/* UUID UGO du réseau Mondial Relay, retenu au passage du multi-rate :
+   le repli direct sur Mondial Relay (UGO muet) en a besoin pour que
+   l'étiquette parte chez le bon transporteur. Variable d'env facultative
+   pour l'avoir même sur une instance froide ; sans elle ni mémoire, les
+   points partent sans carrier_uuid et l'étiquette retombe sur le
+   multi-rate, comme pour les commandes d'avant la migration 051. */
+let uuidMondialRelay: string | null = process.env.LOGSPHER_MONDIALRELAY_UUID || null;
+
+/** Points Mondial Relay au format du panier, transporteur complété. */
+function pointsMondialRelay(points: any[], uuid: string | null) {
+  return points.map((p: any) => ({ ...p, carrier_name: 'Mondial Relay', carrier_uuid: uuid }));
 }
 
 export async function GET(req: NextRequest) {
@@ -80,15 +106,34 @@ export async function GET(req: NextRequest) {
   const city    = (searchParams.get('city') || searchParams.get('ville') || '').trim();
   const country = (searchParams.get('country') || searchParams.get('pays') || 'FR').toUpperCase();
   const poidsKg = Math.max(0.1, parseFloat(searchParams.get('poids') || '') || 0.8);
+  const lang    = langueRelais(searchParams.get('lang'));
+  const vide    = (cle: keyof typeof MESSAGES_RELAIS) =>
+    NextResponse.json({ points: [], erreur: MESSAGES_RELAIS[cle][lang] }, { headers: CORS });
 
   if (!cp && !city) {
-    return NextResponse.json({ error: 'cp ou ville requis' }, { status: 400, headers: CORS });
+    return NextResponse.json({ error: 'cp ou ville requis', points: [], erreur: MESSAGES_RELAIS.requis[lang] }, { status: 400, headers: CORS });
   }
 
   const demain = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+  // Pannes amont rencontrées : « indisponible » plutôt que « aucun point ».
+  let pannes = 0;
+
+  /* Mondial Relay en direct, au format du panier (null si rien). */
+  let mrEssaye = false;
+  const essayerMondialRelay = async (uuid: string | null) => {
+    mrEssaye = true;
+    const r = await rechercherPointsMondialRelay({ cp, pays: country, ville: city });
+    if (!r.ok) {
+      if (r.panne !== 'adresse') pannes++;
+      console.warn('[relay-points] Mondial Relay direct :', r.panne, r.detail);
+      return null;
+    }
+    return r.points.length ? pointsMondialRelay(r.points, uuid) : null;
+  };
 
   /* ── 1. Quelles offres existent vers cette destination ? ── */
   let offres: any[] = [];
+  let multiRateOk = false;
   try {
     const tarifs = await lsFetch('/api/carrier/multi-rate', {
       method: 'POST',
@@ -109,14 +154,28 @@ export async function GET(req: NextRequest) {
       .filter((o: any) => RESEAUX_AUTORISES.includes(String(o.carrier_name || '').toUpperCase()))
       .filter((o: any) => o.delivery_to_collection_point !== false)
       .sort((a: any, b: any) => (a.price_te ?? 1e9) - (b.price_te ?? 1e9));
+    multiRateOk = true;
+    const mr = offres.find((o: any) => String(o.carrier_name || '').toUpperCase() === 'MONDIALRELAY');
+    if (mr?.carrier_id) uuidMondialRelay = mr.carrier_id;
   } catch (e: any) {
+    pannes++;
     console.warn('[relay-points] multi-rate indisponible :', e?.message);
   }
 
   if (!offres.length) {
-    return NextResponse.json(
-      { points: [], erreur: 'Aucun transporteur ne dessert cette destination en point relais.' },
-      { headers: CORS });
+    /* France : UGO muet ou sans offre, on demande directement à Mondial
+       Relay — le réseau retenu pour la France de toute façon. */
+    if (country === 'FR') {
+      const points = await essayerMondialRelay(uuidMondialRelay);
+      if (points) {
+        return NextResponse.json({
+          points, carrier_name: 'Mondial Relay', carrier_uuid: uuidMondialRelay,
+          price_te: null, transit_time: null,
+        }, { headers: CORS });
+      }
+      return vide(pannes ? 'indisponible' : 'aucunPoint');
+    }
+    return vide(multiRateOk ? 'aucunTransporteur' : 'indisponible');
   }
 
   /* ── 2. Les points du moins cher ; on descend s'il n'en a pas ──
@@ -129,7 +188,6 @@ export async function GET(req: NextRequest) {
          point sans lui. Sa propre API SOAP, elle, travaille au code
          postal — c'est celle que le panier utilisait avant. On la garde
          pour lui plutot que de reclamer la ville au client. */
-  const origine = new URL(req.url).origin;
   const essayes: string[] = [];
   for (const offre of offres.slice(0, 3)) {
     const uuid = offre.carrier_id;
@@ -141,20 +199,11 @@ export async function GET(req: NextRequest) {
       let locations: any[];
 
       if (reseau === 'MONDIALRELAY') {
-        const res = await fetch(
-          `${origine}/api/mondial-relay/points?cp=${encodeURIComponent(cp)}&pays=${encodeURIComponent(country)}`
-          + (city ? `&ville=${encodeURIComponent(city)}` : ''));
-        const pts = res.ok ? await res.json() : null;
-        const bruts = Array.isArray(pts) ? pts : (pts?.points || []);
-        /* Cette route renvoie deja le format du panier : on ne remappe
-           pas, on complete seulement le transporteur. */
-        if (!bruts.length) continue;
+        // Déjà au format du panier : on complète seulement le transporteur.
+        const points = await essayerMondialRelay(uuid);
+        if (!points) continue;
         return NextResponse.json({
-          points: bruts.map((p: any) => ({
-            ...p,
-            carrier_name: 'Mondial Relay',
-            carrier_uuid: uuid,
-          })),
+          points,
           carrier_name: 'Mondial Relay',
           carrier_uuid: uuid,
           price_te: offre.price_te ?? null,
@@ -183,6 +232,8 @@ export async function GET(req: NextRequest) {
            donc « 3692 km ». On ramene tout en kilometres, une decimale. */
         const metres = Number(loc.distance || 0);
         const dist = metres ? Math.round(metres / 100) / 10 : 0;
+        // Horaires ramenés à [{ jour, plages }] — forme amont non garantie.
+        const horaires = normaliserHoraires(loc.opening_hours ?? loc.hours ?? loc.hours_formatted ?? loc.schedule);
         return {
           id:           String(loc.location_id || loc.dropoff_location_id || ''),
           name:         loc.name || '',
@@ -194,6 +245,7 @@ export async function GET(req: NextRequest) {
           carrier_uuid: uuid,
           distance:     dist ? String(dist) : undefined,
           hours:        loc.hours_formatted || undefined,
+          ...(horaires.length ? { horaires } : {}),
         };
       });
 
@@ -205,11 +257,21 @@ export async function GET(req: NextRequest) {
         transit_time: offre.transit_time ?? null,
       }, { headers: CORS });
     } catch (e: any) {
+      pannes++;
       console.warn('[relay-points] points indisponibles pour', uuid, ':', e?.message);
     }
   }
 
-  return NextResponse.json(
-    { points: [], erreur: 'Aucun point relais trouvé autour de cette adresse.' },
-    { headers: CORS });
+  // France : dernier recours, Mondial Relay en direct s'il n'a pas été essayé.
+  if (country === 'FR' && !mrEssaye) {
+    const points = await essayerMondialRelay(uuidMondialRelay);
+    if (points) {
+      return NextResponse.json({
+        points, carrier_name: 'Mondial Relay', carrier_uuid: uuidMondialRelay,
+        price_te: null, transit_time: null,
+      }, { headers: CORS });
+    }
+  }
+
+  return vide(pannes ? 'indisponible' : 'aucunPoint');
 }
