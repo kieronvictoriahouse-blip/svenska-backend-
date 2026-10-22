@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
+import { pourVitrine } from '@/lib/produit-public';
 
 export const maxDuration = 60;
 
@@ -10,6 +11,11 @@ export const maxDuration = 60;
 // ─── GET /api/products/[id] ───────────────────────────────────────
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   // Fiche produit : donnee de catalogue, lue par le site public.
+  /* Vue back-office sur jeton VALIDE seulement (cf. GET /api/products). */
+  const auth = !!req.headers.get('authorization');
+  const isAdmin = auth && !!(await requireAuth(req));
+  if (auth && !isAdmin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+
   const { data, error } = await supabaseAdmin
     .from('products')
     .select(`
@@ -32,19 +38,23 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const compo = composition((data as any).bundle_items);
   if (compo) {
     const { data: sachets } = await supabaseAdmin
-      .from('products').select('id, name_fr, name_sv, name_en, image_url, price, cost_price, weight')
+      .from('products').select('id, name_fr, name_sv, name_en, image_url, price, weight')
       .in('id', compo.map(c => c.product_id));
     (data as any).lot_contenu = compo.map(c => ({
       ...c, ...((sachets || []).find((s: any) => s.id === c.product_id) || {}),
     }));
     const { quantitesReservees } = await import('@/lib/reserve');
     const d = (await disponiblesLots({ [params.id]: compo }, [params.id], await quantitesReservees()))[params.id];
-    if (req.headers.get('authorization')) (data as any).lot_disponible = d;
-    else if (d !== null) { (data as any).track_stock = true; (data as any).stock = d; }
+    if (isAdmin) (data as any).lot_disponible = d;
+    else {
+      if (d !== null) { (data as any).track_stock = true; (data as any).stock = d; }
+      pourVitrine(data);
+    }
     return NextResponse.json({ product: data });
   }
 
-  if (!req.headers.get('authorization')
+  if (!isAdmin) pourVitrine(data);
+  if (!isAdmin
       && (data as any).track_stock === true
       && typeof (data as any).stock === 'number') {
     const { reservePour } = await import('@/lib/reserve');

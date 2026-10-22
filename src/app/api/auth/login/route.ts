@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { estAdmin } from '@/lib/auth';
 
 // ─── POST /api/auth/login ─────────────────────────────────────────
 export async function POST(req: NextRequest) {
@@ -13,6 +14,11 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: 'Identifiants incorrects' }, { status: 401 });
+  }
+  /* Mot de passe juste, mais compte qui n'est pas admin (ancien compte
+     client, par exemple) : pas de jeton, pas de cookie. */
+  if (!estAdmin(data.user)) {
+    return NextResponse.json({ error: 'Ce compte n’a pas accès à l’administration' }, { status: 403 });
   }
 
   const response = NextResponse.json({
@@ -49,6 +55,7 @@ export async function GET(req: NextRequest) {
   const token = authHeader.slice(7);
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !user) return NextResponse.json({ error: 'Token expiré' }, { status: 401 });
+  if (!estAdmin(user)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   return NextResponse.json({ user: { id: user.id, email: user.email } });
 }

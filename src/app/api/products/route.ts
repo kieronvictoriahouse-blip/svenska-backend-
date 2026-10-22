@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
 import { resolveDiscount } from '@/lib/product-price';
+import { pourVitrine, palierMarge } from '@/lib/produit-public';
 
 export const maxDuration = 60;
 
@@ -14,7 +15,14 @@ export async function GET(req: NextRequest) {
   const search     = searchParams.get('search');
   const sortOrder  = searchParams.get('sort_order');
 
-  const isAdmin = !!req.headers.get('authorization');
+  /* Vue back-office (fiches désactivées, rayon brut, prix d'achat) : sur
+     jeton VALIDE seulement. La simple présence d'un en-tête Authorization
+     suffisait, et n'importe qui peut en envoyer un. Un jeton refusé
+     répond 401 : adminFetch renvoie alors vers la connexion, au lieu
+     d'afficher en silence la vue publique. */
+  const auth = !!req.headers.get('authorization');
+  const isAdmin = auth && !!(await requireAuth(req));
+  if (auth && !isAdmin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   let query = supabaseAdmin
     .from('products')
     .select('*, product_variants(*), categories(name_fr, name_sv, name_en, slug, discount_type, discount_value, discount_start, discount_end)')
@@ -63,6 +71,9 @@ export async function GET(req: NextRequest) {
     const { quantitesReservees } = await import('@/lib/reserve');
     const reserve = reserveLots || await quantitesReservees();
     for (const p of produits as any[]) {
+      /* Le flux Shopping a besoin du palier de marge, pas du coût. */
+      p.margin_label = palierMarge(p);
+      pourVitrine(p);
       /* Remise effective exposée à la vitrine : remise produit prioritaire,
          sinon remise de la catégorie (migration 052). Le front ne lit que
          p.discount_* → on y écrit le jeu « gagnant », il n'a rien à changer.

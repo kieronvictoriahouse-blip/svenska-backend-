@@ -1,13 +1,10 @@
 // ─── ACHATS : src/app/api/purchases/route.ts ────────────────────
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 
-async function auth(req: NextRequest) {
-  const h = req.headers.get('Authorization');
-  if (!h?.startsWith('Bearer ')) return null;
-  const { data: { user } } = await supabaseAdmin.auth.getUser(h.slice(7));
-  return user;
-}
+// Contrôle commun (comptes admin seulement) : la copie locale acceptait tout compte Supabase.
+const auth = requireAuth;
 
 export async function GET(req: NextRequest) {
   if (!await auth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });

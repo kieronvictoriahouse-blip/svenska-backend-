@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
+import { pourVitrine } from '@/lib/produit-public';
 
 // ─── GET /api/homepage ────────────────────────────────────────────
 // Lecture publique — consommée par le front Netlify
@@ -14,8 +15,11 @@ export async function GET() {
 
   if (sError) return NextResponse.json({ error: sError.message }, { status: 500 });
 
+  /* Produits : lus avec la clé de service puis nettoyés, comme sur
+     /api/products. La clé anonyme ne lit plus le prix d'achat
+     (migration 055), et un select('*') anonyme serait refusé. */
   // Produits mis en avant (bestsellers)
-  const { data: bestsellers } = await supabase
+  const { data: bestsellers } = await supabaseAdmin
     .from('products')
     .select('*, categories(*), product_variants(*)')
     .eq('is_active', true)
@@ -24,7 +28,7 @@ export async function GET() {
     .limit(6);
 
   // Nouveautés
-  const { data: newArrivals } = await supabase
+  const { data: newArrivals } = await supabaseAdmin
     .from('products')
     .select('*, categories(*), product_variants(*)')
     .eq('is_active', true)
@@ -33,7 +37,7 @@ export async function GET() {
     .limit(4);
 
   // Snacks & Confiseries pour le fredagsmys band
-  const { data: snacks } = await supabase
+  const { data: snacks } = await supabaseAdmin
     .from('products')
     .select('*, categories(*)')
     .eq('is_active', true)
@@ -43,9 +47,9 @@ export async function GET() {
 
   return NextResponse.json({
     sections,
-    bestsellers,
-    new_arrivals: newArrivals,
-    snacks,
+    bestsellers: (bestsellers || []).map(pourVitrine),
+    new_arrivals: (newArrivals || []).map(pourVitrine),
+    snacks: (snacks || []).map(pourVitrine),
   });
 }
 

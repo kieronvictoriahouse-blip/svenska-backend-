@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { estAdmin } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   const { refresh_token } = await req.json();
@@ -7,6 +8,8 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token });
   if (error || !data.session) return NextResponse.json({ error: 'Session expirée' }, { status: 401 });
+  // Même règle qu'à la connexion : seul un compte admin repart avec un jeton.
+  if (!estAdmin(data.user)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const response = NextResponse.json({
     access_token:  data.session.access_token,

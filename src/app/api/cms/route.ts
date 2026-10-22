@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-
-async function requireAuth(req: NextRequest) {
-  const h = req.headers.get('Authorization');
-  if (!h?.startsWith('Bearer ')) return null;
-  const { data: { user } } = await supabaseAdmin.auth.getUser(h.slice(7));
-  return user;
-}
+// Contrôle commun (comptes admin seulement) : la copie locale acceptait tout compte Supabase.
+import { requireAuth } from '@/lib/auth';
 
 const DEFAULT_ROWS = [
   { key: 'hero_eyebrow',    label: 'Hero – Eyebrow',                      type: 'text',  value_fr: 'Nordic Pantry',    value_sv: 'Nordic Pantry',    value_en: 'Nordic Pantry' },

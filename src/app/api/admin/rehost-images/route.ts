@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { rehostImage, isSelfHosted } from '@/lib/rehost-image';
+// Contrôle commun (comptes admin seulement) : la copie locale acceptait tout compte Supabase.
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
-
-// ─── Auth ─────────────────────────────────────────────────────────
-async function requireAuth(req: NextRequest) {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.slice(7);
-  const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-  return user;
-}
 
 // Exécute des tâches async avec une concurrence bornée
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

@@ -91,12 +91,17 @@ const BUCKET = arg('bucket', 'media');
     motDePasse = randomBytes(12).toString('base64url');
     const u = await fetch(`${URL}/auth/v1/admin/users`, {
       method: 'POST', headers: entetes,
-      body: JSON.stringify({ email: ADMIN, password: motDePasse, email_confirm: true }),
+      /* role admin dans app_metadata : sans lui, requireAuth refuse le
+         compte (lib/auth.ts). */
+      body: JSON.stringify({ email: ADMIN, password: motDePasse, email_confirm: true, app_metadata: { role: 'admin' } }),
     });
     if (u.ok) console.log(`[ok] admin créé : ${ADMIN}`);
     else {
       const txt = await u.text();
-      if (/already.*(registered|exists)/i.test(txt)) { console.log(`[ok] admin déjà là : ${ADMIN}`); motDePasse = null; }
+      if (/already.*(registered|exists)/i.test(txt)) {
+        console.log(`[ok] admin déjà là : ${ADMIN} — s'il n'a pas encore accès : node scripts/marquer-admin.js ${ADMIN} --ecrire`);
+        motDePasse = null;
+      }
       else { console.error('admin :', txt); process.exit(1); }
     }
   }
