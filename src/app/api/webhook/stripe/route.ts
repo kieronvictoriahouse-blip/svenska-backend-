@@ -5,6 +5,36 @@ import { getWlConfig } from '@/lib/mailer';
 import { confirmationCommande } from '@/lib/customer-emails';
 import { sendEmail } from '@/lib/email-send';
 
+/* Usage d'un code promo, compté au paiement (et plus à l'ouverture de la
+   session Stripe, où chaque panier abandonné consommait un usage).
+   Appelé derrière la prise du statut « paid » : une seule fois par
+   commande, même si Stripe rejoue l'événement. Le compteur est relu et
+   réécrit sous condition, pour qu'un paiement simultané avec le même
+   code ne fasse pas perdre un usage. */
+async function compterUsagePromo(promoId: string, email: string) {
+  let unUsageParClient = false;
+  for (let essai = 0; essai < 3; essai++) {
+    const { data: p } = await supabaseAdmin
+      .from('promo_codes').select('used_count, single_use_per_customer').eq('id', promoId).maybeSingle();
+    if (!p) return;
+    unUsageParClient = !!p.single_use_per_customer;
+    const avant = p.used_count;
+    let maj = supabaseAdmin.from('promo_codes').update({ used_count: (Number(avant) || 0) + 1 }).eq('id', promoId);
+    maj = avant == null ? maj.is('used_count', null) : maj.eq('used_count', avant);
+    const { data: fait, error } = await maj.select('id');
+    if (error) throw error;
+    if (fait?.length) break;
+  }
+  const e = String(email || '').trim().toLowerCase();
+  if (unUsageParClient && e) {
+    const { error } = await supabaseAdmin.from('promo_code_usages').upsert(
+      { promo_code_id: promoId, customer_email: e },
+      { onConflict: 'promo_code_id,customer_email', ignoreDuplicates: true },
+    );
+    if (error) throw error;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const stripeKey        = process.env.STRIPE_SECRET_KEY;
   const stripeKeyTest    = process.env.STRIPE_SECRET_KEY_TEST;
@@ -159,6 +189,15 @@ export async function POST(req: NextRequest) {
       if (Object.keys(optional).length) {
         const { error: optErr } = await supabaseAdmin.from('orders').update(optional).eq('id', orderId);
         if (optErr) console.error('[webhook] MAJ commande (optionnel, non bloquant):', optErr.message);
+      }
+
+      /* Code promo : usage compté maintenant que la commande est payée.
+         Seules les sessions qui portent promo_code_id sont concernées —
+         celles ouvertes avant ce changement ont déjà été comptées. */
+      const promoId = session.metadata?.promo_code_id;
+      if (promoId) {
+        try { await compterUsagePromo(promoId, customerEmail || existing?.customer_email || ''); }
+        catch (e) { console.error('[webhook] usage du code promo non enregistré (non bloquant):', e); }
       }
 
       /* Relance des paniers : si ce client avait été relancé, son panier

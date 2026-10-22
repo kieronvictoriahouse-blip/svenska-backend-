@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
-import { evaluatePromo } from '@/lib/promo';
+import { evaluatePromo, PromoRefusal } from '@/lib/promo';
 import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/product-price';
 import crypto from 'crypto';
 
@@ -87,6 +87,7 @@ const ERREURS = {
   commande: { fr: 'Votre commande n’a pas pu être enregistrée. Réessayez dans un instant.', en: 'Your order could not be saved. Please try again in a moment.', sv: 'Din beställning kunde inte sparas. Försök igen om en stund.' },
   quantite: { fr: 'Une quantité du panier est invalide.', en: 'A quantity in your basket is invalid.', sv: 'Ett antal i varukorgen är ogiltigt.' },
   relais:   { fr: 'Choisissez un point relais pour finaliser la commande.', en: 'Please choose a relay point to complete your order.', sv: 'Välj ett utlämningsställe för att slutföra beställningen.' },
+  promo:    { fr: 'Ce code ne peut pas être utilisé pour cette commande.', en: 'This code cannot be used for this order.', sv: 'Koden kan inte användas för den här beställningen.' },
 };
 
 /* Numéro de commande : count + 1, colonne UNIQUE. Une seule commande
@@ -413,73 +414,62 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Subtotal invalide (prix produit à 0 ou manquant en base)', subtotal }, { status: 400, headers: CORS });
     }
 
-    // Promo code validation
+    /* Code promo — mêmes règles et même vocabulaire de refus que
+       /api/promo/validate. Tout refus remonte au panier (PROMO_REFUSED +
+       reason) : un code ignoré en silence faisait payer plein tarif un
+       client à qui le panier venait d'afficher la remise. Le coupon Stripe
+       n'est créé qu'au moment d'ouvrir la session. */
     let discountAmount = 0;
-    let stripeCouponId: string | null = null;
+    let coupon: Stripe.CouponCreateParams | null = null;
     let promoCodeId: string | null = null;
     let isFreeShippingPromo = false;
+    const codeSaisi = typeof promo_code === 'string' ? promo_code.toUpperCase().trim() : '';
 
-    if (promo_code && typeof promo_code === 'string') {
-      try {
-        const { data: promo } = await supabaseAdmin
-          .from('promo_codes')
-          .select('*')
-          .eq('code', promo_code.toUpperCase().trim())
-          .eq('is_active', true)
-          .maybeSingle();
+    if (codeSaisi) {
+      const refuser = (reason: PromoRefusal, minOrder = 0) => NextResponse.json(
+        { error: ERREURS.promo[langue], code: 'PROMO_REFUSED', reason, ...(minOrder ? { min_order: minOrder } : {}) },
+        { status: 400, headers: CORS },
+      );
+      const { data: promo, error: promoErr } = await supabaseAdmin
+        .from('promo_codes').select('*').eq('code', codeSaisi).maybeSingle();
+      if (promoErr) console.error('[checkout] lecture du code promo', promoErr.message);
+      if (promoErr || !promo) return refuser('invalid');
 
-        if (promo?.kind) {
-          /* Code fidélité ou code ami (@/lib/fidelite). Refusé, on le dit
-             au panier plutôt que de laisser le client payer plein tarif
-             sans le savoir — il comptait dessus. */
-          const { evaluerCodePerso } = await import('@/lib/fidelite');
-          const verdict = await evaluerCodePerso(promo, { email: customer_email, base: baseRemisable });
-          if (!verdict.ok) {
-            return NextResponse.json(
-              { error: 'Ce code ne peut pas être utilisé pour cette commande.', code: 'PROMO_REFUSED', reason: verdict.reason },
-              { status: 400, headers: CORS },
-            );
-          }
-          /* Montant fixe et non pourcentage Stripe : un pourcentage
-             porterait aussi sur les articles déjà en promotion. */
-          promoCodeId = promo.id;
-          const coupon = await stripe.coupons.create({ amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' });
-          stripeCouponId = coupon.id;
-          discountAmount = verdict.discount;
-        } else if (promo) {
-          // Vérifie l'usage client avant d'évaluer (une seule requête, si utile)
-          let alreadyUsedByCustomer = false;
-          if (promo.single_use_per_customer && customer_email) {
-            const { data: existingUsage } = await supabaseAdmin
-              .from('promo_code_usages')
-              .select('id')
-              .eq('promo_code_id', promo.id)
-              .eq('customer_email', customer_email.toLowerCase())
-              .maybeSingle();
-            alreadyUsedByCustomer = !!existingUsage;
-          }
-
-          // Mêmes règles que /api/promo/validate — cf. @/lib/promo
-          const verdict = evaluatePromo(promo, { subtotal, alreadyUsedByCustomer });
-          if (verdict.ok) {
-            promoCodeId = promo.id;
-            if (promo.type === 'percent') {
-              const coupon = await stripe.coupons.create({ percent_off: promo.value, duration: 'once' });
-              stripeCouponId = coupon.id;
-              discountAmount = (subtotal * promo.value) / 100;
-            } else if (promo.type === 'fixed') {
-              const discAmt = Math.min(subtotal, promo.value);
-              const coupon = await stripe.coupons.create({ amount_off: Math.round(discAmt * 100), currency: 'eur', duration: 'once' });
-              stripeCouponId = coupon.id;
-              discountAmount = discAmt;
-            } else if (promo.type === 'free_shipping') {
-              isFreeShippingPromo = true;
-            }
-          }
+      if (promo.kind) {
+        // Code fidélité ou code ami (@/lib/fidelite).
+        const { evaluerCodePerso } = await import('@/lib/fidelite');
+        const verdict = await evaluerCodePerso(promo, { email: customer_email, base: baseRemisable });
+        if (!verdict.ok) return refuser(verdict.reason);
+        /* Montant fixe et non pourcentage Stripe : un pourcentage
+           porterait aussi sur les articles déjà en promotion. */
+        coupon = { amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' };
+        discountAmount = verdict.discount;
+      } else {
+        // Usage du client vérifié avant d'évaluer (une seule requête, si utile)
+        let alreadyUsedByCustomer = false;
+        if (promo.single_use_per_customer && customer_email) {
+          const { data: existingUsage } = await supabaseAdmin
+            .from('promo_code_usages')
+            .select('id')
+            .eq('promo_code_id', promo.id)
+            .eq('customer_email', customer_email.toLowerCase())
+            .maybeSingle();
+          alreadyUsedByCustomer = !!existingUsage;
         }
-      } catch (promoErr) {
-        console.warn('[checkout] promo code error (non-fatal):', promoErr);
+
+        const verdict = evaluatePromo(promo, { subtotal, alreadyUsedByCustomer });
+        if (!verdict.ok) return refuser(verdict.reason, verdict.minOrder);
+        if (promo.type === 'percent') {
+          coupon = { percent_off: Number(promo.value), duration: 'once' };
+          discountAmount = verdict.discount;
+        } else if (promo.type === 'fixed') {
+          coupon = { amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' };
+          discountAmount = verdict.discount;
+        } else if (promo.type === 'free_shipping') {
+          isFreeShippingPromo = true;
+        }
       }
+      promoCodeId = promo.id;
     }
 
     const relayCountry = (relay_point_pays || 'FR').toUpperCase();
@@ -533,8 +523,7 @@ export async function POST(req: NextRequest) {
         relay_point_address: relay_point_address || null,
         relay_point_pays: relay_point_pays || 'FR',
       } : {}),
-      ...(promo_code && discountAmount > 0 ? { promo_code: promo_code.toUpperCase().trim() } : {}),
-      ...(promo_code && isFreeShippingPromo ? { promo_code: promo_code.toUpperCase().trim() } : {}),
+      ...(codeSaisi && (discountAmount > 0 || isFreeShippingPromo) ? { promo_code: codeSaisi } : {}),
       ...(customer_note ? { notes: String(customer_note).slice(0, 1000) } : {}),
     };
 
@@ -573,6 +562,8 @@ export async function POST(req: NextRequest) {
       rappel.push((nomsCadeaux.length > 1 ? RAPPEL.cadeaux : RAPPEL.cadeau)[langue] + nomsCadeaux.join(', '));
     }
     const messageValidation = rappel.join(' · ').slice(0, 1200);
+
+    const stripeCouponId = coupon ? (await stripe.coupons.create(coupon)).id : null;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -633,7 +624,10 @@ export async function POST(req: NextRequest) {
               },
             },
       ],
-      metadata: { order_id: orderId },
+      /* promo_code_id : l'usage du code est compté par le webhook, au
+         paiement — plus ici, où chaque panier abandonné consommait un
+         usage (max_uses, codes à usage unique). */
+      metadata: { order_id: orderId, ...(promoCodeId ? { promo_code_id: promoCodeId } : {}) },
       /* 3 h au lieu de 24 : l'expiration déclenche la 1re relance
          (webhook checkout.session.expired). Un client qui revient après
          repasse par le panier, qui recrée une session. */
@@ -641,26 +635,6 @@ export async function POST(req: NextRequest) {
       success_url: successUrl,
       cancel_url:  cancelUrl,
     });
-
-    // Increment promo usage counter + track per-user usage
-    if (promoCodeId) {
-      try {
-        const { data: p } = await supabaseAdmin.from('promo_codes').select('used_count, single_use_per_customer').eq('id', promoCodeId).single();
-        await supabaseAdmin.from('promo_codes').update({ used_count: (p?.used_count || 0) + 1 }).eq('id', promoCodeId);
-        if (p?.single_use_per_customer && customer_email) {
-          await supabaseAdmin.from('promo_code_usages').upsert(
-            { promo_code_id: promoCodeId, customer_email: customer_email.toLowerCase() },
-            { onConflict: 'promo_code_id,customer_email', ignoreDuplicates: true }
-          );
-        }
-      } catch (e) {
-        /* Non bloquant : la session de paiement est creee, refuser ici
-           empecherait la vente. Mais l'usage unique du code ne sera pas
-           enregistre, donc le code restera reutilisable — il faut le
-           savoir. */
-        console.error('[checkout] usage du code promo non enregistre', e);
-      }
-    }
 
     return NextResponse.json({ url: session.url }, { headers: CORS });
   } catch (e: unknown) {
