@@ -19,15 +19,45 @@ const ALLOWED = new Set([
   'ship_promo_label_fr','ship_promo_label_sv','ship_promo_label_en',
 ]);
 
+/* Champs servis sans authentification : ce que lisent la vitrine
+   (sd-api-client.js, inject-wl.js, mentions légales) et l'écran de connexion.
+   Liste blanche : une colonne ajoutée plus tard reste privée tant qu'elle
+   n'est pas ajoutée ici. Jamais de smtp_* ni de stripe_secret_key — jusqu'au
+   22/10/2026, ce GET public renvoyait la ligne entière, mot de passe SMTP
+   compris. */
+const PUBLIC_FIELDS = [
+  'id',
+  'site_name','site_slogan','site_description','logo_url','favicon_url',
+  'color_primary','color_secondary','color_bg','color_text',
+  'font_display','font_body','font_ui',
+  'email','phone','address','siret','tva','legal_name','rcs_city','shop_city',
+  'front_url','instagram','facebook','pinterest','currency','tva_rate','free_shipping_threshold',
+  'stripe_public_key',
+  'announcement_fr','announcement_sv','announcement_en',
+  'footer_desc_fr','footer_desc_sv','footer_desc_en',
+  'footer_tagline_fr','footer_tagline_sv','footer_tagline_en',
+  'ship_promo_active','ship_promo_threshold','ship_promo_threshold_intl',
+  'ship_promo_from','ship_promo_until',
+  'ship_promo_label_fr','ship_promo_label_sv','ship_promo_label_en',
+];
 
-export async function GET() {
+function publicOnly(row: Record<string, unknown>) {
+  return Object.fromEntries(PUBLIC_FIELDS.filter(k => k in row).map(k => [k, row[k]]));
+}
+
+export async function GET(req: NextRequest) {
   try {
+    // Ligne complète pour les écrans d'admin (adminFetch) : même contrôle que le PUT.
+    const admin = await requireAuth(req);
     const { data, error } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
     if (error) {
       console.error('[white-label] GET:', error.message);
       return NextResponse.json({ config: {} });
     }
-    return NextResponse.json({ config: data || {} });
+    if (admin) {
+      return NextResponse.json({ config: data || {} }, { headers: { 'Cache-Control': 'private, no-store' } });
+    }
+    return NextResponse.json({ config: data ? publicOnly(data) : {} });
   } catch (e: any) {
     console.error('[white-label] GET exception:', e.message);
     return NextResponse.json({ config: {} });
