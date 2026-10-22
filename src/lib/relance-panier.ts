@@ -5,6 +5,7 @@ import { sendEmail, getWhiteLabelConfig } from '@/lib/email-send';
 import { langueDeCommande, LangueClient } from '@/lib/langue-client';
 import { formatEuro } from '@/lib/emails-i18n';
 import { urlVitrine, urlAdmin } from '@/lib/urls-instance';
+import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
 
 /* ═══════════════════════════════════════════════════════════════
    RELANCE DES PANIERS ABANDONNÉS
@@ -147,6 +148,8 @@ function texteOffre(o: Offre, lang: LangueClient): { titre: string; texte: strin
 export async function composerRelance(p: {
   lignesBrutes: any[]; prenom?: string | null; lang: LangueClient; rang: Rang;
   offre: Offre | null; front: string; lienPanier: string; lienDesinscription: string;
+  /** Mode de livraison et pays du brouillon (France par défaut, comme l'aperçu). */
+  mode?: string | null; pays?: string | null;
 }): Promise<{ sujet: string; html: string }> {
   const { lignesBrutes, lang, rang, offre, front } = p;
   const ids = lignesBrutes.map(l => l.product_id).filter(Boolean);
@@ -167,9 +170,15 @@ export async function composerRelance(p: {
   });
 
   const t = offre ? texteOffre(offre, lang) : null;
+  /* Barème du pays du brouillon (lib/shipping, opération « livraison
+     offerte » comprise) : un panier suédois se voyait promettre le franco
+     de la France. Au retrait en boutique, il n'y a pas de port. */
   const cfg = await getWhiteLabelConfig();
-  const seuil = Number((cfg as any).free_shipping_threshold) || 29;
-  const noteLivraison = sousTotal >= seuil
+  const pays = String(p.pays || 'FR').trim().toUpperCase();
+  const seuil = resolveShipping(cfg, { isInternational: INTERNATIONAL_COUNTRIES.includes(pays) }).threshold;
+  const noteLivraison = p.mode === 'pickup'
+    ? (lang === 'en' ? 'Free in-store pickup.' : lang === 'sv' ? 'Gratis hämtning i butiken.' : 'Retrait gratuit en boutique.')
+    : sousTotal >= seuil
     ? (lang === 'en' ? 'Free delivery to a relay point on this basket.' : lang === 'sv' ? 'Fri frakt till utlämningsställe för den här varukorgen.' : 'Livraison en point relais offerte sur ce panier.')
     : (lang === 'en' ? `Free delivery from ${formatEuro(seuil, lang)} — only ${formatEuro(seuil - sousTotal, lang)} to go.`
       : lang === 'sv' ? `Fri frakt från ${formatEuro(seuil, lang)} — bara ${formatEuro(seuil - sousTotal, lang)} kvar.`
@@ -262,6 +271,7 @@ export async function envoyerRelance(orderId: string, rang: Rang): Promise<Resul
     const codeParam = offre?.kind === 'code' && offre.code ? `&code=${encodeURIComponent(offre.code)}` : '';
     const { sujet, html } = await composerRelance({
       lignesBrutes, prenom: o.customer_name, lang, rang, offre, front,
+      mode: o.delivery_mode, pays: o.delivery_mode === 'mondial_relay' ? o.relay_point_pays : 'FR',
       lienPanier: `${front}/panier.html?reprise=${o.id}.${o.recovery_token}${codeParam}&r=${rang}`,
       lienDesinscription: `${urlBackOffice()}/api/relance/desinscription?e=${encodeURIComponent(email)}&s=${signatureEmail(email)}`,
     });
