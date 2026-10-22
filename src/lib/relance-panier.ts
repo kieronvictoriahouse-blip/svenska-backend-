@@ -12,8 +12,9 @@ import { urlVitrine, urlAdmin } from '@/lib/urls-instance';
    Le panier demande l'email avant Stripe ; la commande brouillon le
    garde. Si le paiement n'aboutit pas :
      · relance 1 — à l'expiration de la session Stripe (≈ 3 h), via le
-       webhook `checkout.session.expired` ; le cron quotidien rattrape
-       celles que le webhook aurait manquées ;
+       webhook `checkout.session.expired` ; hors des heures d'envoi
+       (20 h – 8 h, Paris), elle attend le cron du matin, qui rattrape
+       aussi celles que le webhook aurait manquées ;
      · relance 2 — le lendemain matin, par le cron quotidien.
 
    Jamais plus de deux emails par panier, et aucun si :
@@ -43,6 +44,14 @@ export type Offre = {
 };
 
 export const jetonRelance = () => crypto.randomBytes(18).toString('base64url');
+
+/** Heures calmes : aucune relance entre 20 h et 8 h, heure de Paris. La
+ *  session Stripe expirant 3 h après le clic, la moitié des 1res relances
+ *  partait entre minuit et 3 h du matin. */
+export function heuresCalmes(d: Date = new Date()): boolean {
+  const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: 'numeric', hourCycle: 'h23' }).format(d));
+  return h < 8 || h >= 20;
+}
 
 /* Secret des liens de désinscription. Doit rester stable : un lien déjà
    envoyé doit fonctionner des semaines plus tard. */
@@ -261,7 +270,10 @@ export async function envoyerRelance(orderId: string, rang: Rang): Promise<Resul
     await sendEmail({ from, to: email, subject: sujet, html }, cfg);
     return { ok: true, raison: `relance ${rang} envoyée à ${email}` };
   } catch (e: any) {
-    // Échec d'envoi : on libère la prise pour qu'un prochain passage réessaie.
+    /* Échec d'envoi : on libère la prise pour qu'un prochain passage
+       réessaie — et on le dit dans les logs, pas seulement dans la
+       réponse du cron, que personne ne lit. */
+    console.error(`[relance-panier] relance ${rang} non envoyée`, orderId, e?.message || e);
     await supabaseAdmin.from('orders').update({ [col]: null }).eq('id', orderId).eq(col, maintenant);
     return { ok: false, raison: `échec d'envoi : ${e?.message || e}` };
   }

@@ -519,11 +519,17 @@ export async function POST(req: NextRequest) {
       /* 1re relance du panier abandonné. La session expire 3 h après le
          clic sur « Payer » (expires_at au checkout) : c'est ce délai
          qui cadence la relance. Toutes les vérifications (désinscrit,
-         a commandé depuis, panier plus récent…) sont dans la fonction. */
+         a commandé depuis, panier plus récent…) sont dans la fonction.
+         Entre 20 h et 8 h (Paris), rien ne part : le cron du matin
+         envoie les relances 1 restées en attente. */
       try {
-        const { envoyerRelance } = await import('@/lib/relance-panier');
-        const r = await envoyerRelance(abandonedOrderId, 1);
-        console.log('[webhook] relance panier', abandonedOrderId, r.raison);
+        const { envoyerRelance, heuresCalmes } = await import('@/lib/relance-panier');
+        if (heuresCalmes()) {
+          console.log('[webhook] relance panier reportée au passage du matin', abandonedOrderId);
+        } else {
+          const r = await envoyerRelance(abandonedOrderId, 1);
+          console.log('[webhook] relance panier', abandonedOrderId, r.raison);
+        }
       } catch (e) { console.error('[webhook] relance panier (non bloquant):', e); }
     }
   }
