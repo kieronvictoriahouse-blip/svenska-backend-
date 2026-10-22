@@ -88,6 +88,9 @@ const ERREURS = {
   quantite: { fr: 'Une quantité du panier est invalide.', en: 'A quantity in your basket is invalid.', sv: 'Ett antal i varukorgen är ogiltigt.' },
   relais:   { fr: 'Choisissez un point relais pour finaliser la commande.', en: 'Please choose a relay point to complete your order.', sv: 'Välj ett utlämningsställe för att slutföra beställningen.' },
   promo:    { fr: 'Ce code ne peut pas être utilisé pour cette commande.', en: 'This code cannot be used for this order.', sv: 'Koden kan inte användas för den här beställningen.' },
+  email:    { fr: 'Adresse email invalide.', en: 'Invalid email address.', sv: 'Ogiltig e-postadress.' },
+  retrait:  { fr: 'Votre panier contient un produit disponible en retrait en magasin uniquement (click & collect). Sélectionnez ce mode de livraison pour finaliser la commande.', en: 'Your basket contains an item available for in-store pickup only (click & collect). Please select this delivery method to complete your order.', sv: 'Din varukorg innehåller en vara som bara kan hämtas i butik (click & collect). Välj det leveranssättet för att slutföra beställningen.' },
+  pays:     { fr: 'Nous ne livrons pas encore ce pays en point relais.', en: 'We do not deliver to relay points in this country yet.', sv: 'Vi levererar ännu inte till utlämningsställen i det här landet.' },
 };
 
 /* Numéro de commande : count + 1, colonne UNIQUE. Une seule commande
@@ -116,15 +119,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays, relay_carrier_uuid } = body;
     let { customer_email } = body;
+    const langClient = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
+    langue = langClient || 'fr';
     /* Email demandé dans le panier (relance des paniers abandonnés) :
        une adresse mal formée est refusée ici plutôt que de partir chez
        Stripe puis de rater chaque relance. */
     if (typeof customer_email === 'string') customer_email = customer_email.trim().toLowerCase() || undefined;
     if (customer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(customer_email)) {
-      return NextResponse.json({ error: 'Adresse email invalide', code: 'BAD_EMAIL' }, { status: 400, headers: CORS });
+      return NextResponse.json({ error: ERREURS.email[langue], code: 'BAD_EMAIL' }, { status: 400, headers: CORS });
     }
-    const langClient = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
-    langue = langClient || 'fr';
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
 
@@ -403,7 +406,7 @@ export async function POST(req: NextRequest) {
     // pour toute la commande. On refuse tout autre mode côté serveur (l'UI peut être contournée).
     if (hasPickupOnly && !isPickup) {
       return NextResponse.json(
-        { error: 'Votre panier contient un produit disponible en retrait en magasin uniquement (click & collect). Sélectionnez ce mode de livraison pour finaliser la commande.', code: 'PICKUP_ONLY' },
+        { error: ERREURS.retrait[langue], code: 'PICKUP_ONLY' },
         { status: 400, headers: CORS },
       );
     }
@@ -459,10 +462,10 @@ export async function POST(req: NextRequest) {
 
         const verdict = evaluatePromo(promo, { subtotal, alreadyUsedByCustomer });
         if (!verdict.ok) return refuser(verdict.reason, verdict.minOrder);
-        if (promo.type === 'percent') {
+        if (promo.type === 'percent' && verdict.discount > 0) {
           coupon = { percent_off: Number(promo.value), duration: 'once' };
           discountAmount = verdict.discount;
-        } else if (promo.type === 'fixed') {
+        } else if (promo.type === 'fixed' && verdict.discount > 0) {
           coupon = { amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' };
           discountAmount = verdict.discount;
         } else if (promo.type === 'free_shipping') {
@@ -478,7 +481,7 @@ export async function POST(req: NextRequest) {
        partait au tarif France. On refuse plutôt que de vendre à perte. */
     if (isMondialRelay && relayCountry !== 'FR' && !isInternational) {
       return NextResponse.json(
-        { error: 'Nous ne livrons pas encore ce pays en point relais.', code: 'COUNTRY_NOT_SERVED' },
+        { error: ERREURS.pays[langue], code: 'COUNTRY_NOT_SERVED' },
         { status: 400, headers: CORS },
       );
     }
