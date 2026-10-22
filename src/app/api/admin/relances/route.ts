@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { lundiDe } from '@/lib/relance-panier';
+import { STATUTS_PAYES } from '@/lib/fidelite-regles';
 
 export const dynamic = 'force-dynamic';
 
 /* ═══════════════════════════════════════════════════════════════
    RELANCE DES PANIERS — BACK-OFFICE
 
-   GET    → paniers abandonnés des 60 derniers jours, chiffres, offres
+   GET    → paniers abandonnés des 60 derniers jours, chiffres (personnes
+            et brouillons bruts), offres
             des semaines à venir, codes promo et produits disponibles
             pour composer une offre.
    POST   → enregistre l'offre d'une semaine (ou « rien »).
@@ -25,13 +27,20 @@ export async function GET(req: NextRequest) {
 
   const depuis = new Date(Date.now() - 60 * 86400_000).toISOString();
   const lundi = lundiDe();
-  const [paniers, offres, codes, produits] = await Promise.all([
+  const [paniers, payees, offres, codes, produits] = await Promise.all([
     supabaseAdmin.from('orders')
-      .select('id, order_number, created_at, status, customer_email, total, lines, recovery_token, recovery_1_sent_at, recovery_2_sent_at, recovery_skip_reason, recovered_at, recovered_order_id')
+      .select('id, order_number, created_at, status, customer_email, total, lines, is_test, recovery_token, recovery_1_sent_at, recovery_2_sent_at, recovery_skip_reason, recovered_at, recovered_order_id')
       .in('status', ['pending', 'abandoned'])
       .gte('created_at', depuis)
       .order('created_at', { ascending: false })
-      .limit(300),
+      .limit(1000),
+    // Commandes payées de la période (remboursées comprises : le client a bien payé).
+    supabaseAdmin.from('orders')
+      .select('customer_email, created_at')
+      .in('status', [...STATUTS_PAYES, 'refunded'])
+      .gte('created_at', depuis)
+      .not('customer_email', 'is', null)
+      .limit(5000),
     supabaseAdmin.from('cart_recovery_offers').select('*')
       .gte('week_start', lundi).order('week_start', { ascending: true }).limit(20),
     supabaseAdmin.from('promo_codes')
@@ -58,18 +67,44 @@ export async function GET(req: NextRequest) {
       email: p.customer_email, total: Number(p.total) || 0,
       articles: lignes.map(l => `${l.qty} × ${l.name}`).join(', '),
       relancable: !!p.recovery_token,
+      test: !!p.is_test,
       r1: p.recovery_1_sent_at, r2: p.recovery_2_sent_at,
       raison: p.recovery_skip_reason, recupere: p.recovered_at,
       commande_recuperee: p.recovered_order_id ? R[p.recovered_order_id] || null : null,
     };
   });
 
+  /* Des PERSONNES, pas des brouillons. Un client qui clique cinq fois
+     sur « Payer » laisse cinq brouillons, et la plupart de ceux qui
+     partent chez Stripe finissent par payer. Compte : les emails
+     distincts ayant un brouillon non payé sur la période, hors commandes
+     de test, sauf si ce même email a payé une commande dans les 7 jours
+     qui suivent ce brouillon. Valeur : le dernier panier de chacun. */
+  const SEPT_JOURS = 7 * 86400_000;
+  const payeesPar = new Map<string, number[]>();
+  for (const o of payees.data || []) {
+    const e = String(o.customer_email || '').trim().toLowerCase();
+    if (e) payeesPar.set(e, [...(payeesPar.get(e) || []), Date.parse(o.created_at)]);
+  }
+  const personnes = new Map<string, { quand: number; total: number }>();
+  for (const r of rows) {
+    const e = String(r.email || '').trim().toLowerCase();
+    if (!e || r.test) continue;
+    const quand = Date.parse(r.cree);
+    if ((payeesPar.get(e) || []).some(d => d >= quand && d - quand <= SEPT_JOURS)) continue;
+    const deja = personnes.get(e);
+    if (!deja || quand > deja.quand) personnes.set(e, { quand, total: r.total });
+  }
+
   const avecEmail = rows.filter(r => r.email);
   const relances = rows.filter(r => r.r1);
   const recuperes = rows.filter(r => r.recupere);
   const stats = {
+    personnes: personnes.size,
+    valeur: Array.from(personnes.values()).reduce((s, p) => s + p.total, 0),
+    // Chiffres bruts, tous brouillons non payés confondus (tentatives, tests compris).
     paniers: rows.length,
-    valeur: rows.reduce((s, r) => s + r.total, 0),
+    valeur_brute: rows.reduce((s, r) => s + r.total, 0),
     avec_email: avecEmail.length,
     relances: relances.length,
     recuperes: recuperes.length,

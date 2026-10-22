@@ -8,7 +8,8 @@ import { TRL } from './i18n';
 /* ═══════════════════════════════════════════════════════════════
    PANIERS ABANDONNÉS — relances et geste de la semaine
 
-   En haut, ce que la relance rapporte (paniers, relancés, récupérés).
+   En haut, ce que la relance rapporte (personnes, brouillons bruts,
+   relancés, récupérés).
    Au milieu, le geste commercial de chaque semaine : un code promo
    existant, un produit offert, ou rien — et à quelle relance il
    s'ajoute. À droite, l'aperçu exact de l'email. En bas, chaque panier
@@ -127,8 +128,10 @@ export default function RelancesPage() {
       {/* ── Chiffres ─────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
         {[
-          [t('kPaniers'), `${s.paniers ?? '—'}`, s.valeur != null ? eur(s.valeur) : ''],
-          [t('kAvecEmail'), `${s.avec_email ?? '—'}`, ''],
+          /* Le chiffre qui compte : des personnes, pas des clics sur
+             « Payer ». Les brouillons bruts restent à côté, nommés comme tels. */
+          [t('kPersonnes'), `${s.personnes ?? '—'}`, s.valeur != null ? eur(s.valeur) : ''],
+          [t('kBrouillons'), `${s.paniers ?? '—'}`, s.avec_email != null ? `${s.avec_email} ${t('dontAvecEmail')}` : ''],
           [t('kRelances'), `${s.relances ?? '—'}`, ''],
           [t('kRecuperes'), `${s.recuperes ?? '—'}`, ''],
           [t('kCaRecupere'), s.ca_recupere != null ? eur(s.ca_recupere) : '—', ''],
@@ -140,6 +143,7 @@ export default function RelancesPage() {
           </div>
         ))}
       </div>
+      <div style={{ fontSize: 11, color: T.muted, margin: '-4px 0 12px', maxWidth: 900 }}>{t('aideChiffres')}</div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,640px)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
 
@@ -269,6 +273,7 @@ export default function RelancesPage() {
                     <td className="sc-num" style={{ textAlign: 'right', fontSize: 12.5 }}>{eur(p.total)}</td>
                     <td style={{ fontSize: 11.5 }}>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {p.test && <span className="sc-badge">{t('test')}</span>}
                         {p.recupere && (
                           <span className="sc-badge" style={{ background: BADGE.green.bg, color: BADGE.green.fg }}>
                             {t('recupere')}{p.commande_recuperee ? ` · ${p.commande_recuperee.order_number} · ${eur(p.commande_recuperee.total)}` : ''}
