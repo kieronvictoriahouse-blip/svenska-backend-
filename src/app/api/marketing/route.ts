@@ -20,10 +20,50 @@ export async function GET(req: NextRequest) {
   }
 
   if (tab === 'promo') {
+    // Les codes personnels (fidélité, code ami) ont leur onglet : un par client.
     const { data, error } = await supabaseAdmin.from('promo_codes')
-      .select('*').order('created_at', { ascending: false });
+      .select('*').is('kind', null).order('created_at', { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ codes: data || [] });
+  }
+
+  if (tab === 'fidelite') {
+    const [codes, parrainages] = await Promise.all([
+      supabaseAdmin.from('promo_codes')
+        .select('id, code, kind, owner_email, used_count, is_active, created_at')
+        .not('kind', 'is', null).order('created_at', { ascending: false }).limit(1000),
+      supabaseAdmin.from('referrals')
+        .select('id, referrer_email, referee_email, order_id, status, cancel_reason, created_at, validated_at')
+        .order('created_at', { ascending: false }).limit(500),
+    ]);
+    if (codes.error || parrainages.error) {
+      return NextResponse.json({ error: (codes.error || parrainages.error)!.message }, { status: 500 });
+    }
+    const ids = Array.from(new Set((parrainages.data || []).map(r => r.order_id)));
+    const { data: cmd } = ids.length
+      ? await supabaseAdmin.from('orders').select('id, order_number, total').in('id', ids)
+      : { data: [] as any[] };
+    const parId = Object.fromEntries((cmd || []).map(o => [o.id, o]));
+
+    // Taux du jour de chaque code fidélité, calculé comme au checkout.
+    const { finDuBonus, tauxFidelite, normEmail } = await import('@/lib/fidelite-regles');
+    const dernierValide: Record<string, string> = {};
+    for (const r of parrainages.data || []) {
+      const e = normEmail(r.referrer_email);
+      if (r.status === 'validated' && r.validated_at && !(dernierValide[e] > r.validated_at)) dernierValide[e] = r.validated_at;
+    }
+    return NextResponse.json({
+      codes: (codes.data || []).map(c => {
+        if (c.kind !== 'fidelite') return c;
+        const fin = finDuBonus(dernierValide[normEmail(c.owner_email)], c.created_at);
+        return { ...c, taux: tauxFidelite(fin), fin_bonus: fin ? fin.toISOString() : null };
+      }),
+      parrainages: (parrainages.data || []).map(r => ({
+        ...r,
+        order_number: parId[r.order_id]?.order_number || null,
+        order_total: parId[r.order_id]?.total ?? null,
+      })),
+    });
   }
 
   // Campagnes
@@ -69,6 +109,16 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
 
   if (!id) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
+
+  /* Annuler un parrainage (fraude, erreur). Seule action permise : le
+     −10 % du parrain se déduit des parrainages validés, il retombe seul. */
+  if (tab === 'parrainage') {
+    const { data, error } = await supabaseAdmin.from('referrals')
+      .update({ status: 'cancelled', cancel_reason: 'annule_back_office' })
+      .eq('id', id).neq('status', 'cancelled').select().maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ parrainage: data });
+  }
 
   if (tab === 'promo') {
     const { data, error } = await supabaseAdmin.from('promo_codes').update(body).eq('id', id).select().single();

@@ -33,16 +33,37 @@ export async function POST(req: NextRequest) {
   const code = String(body?.code || '').trim().toUpperCase();
   const subtotal = Number(body?.subtotal) || 0;
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+  // Part du panier hors articles déjà en promotion (codes personnels).
+  const base = typeof body?.base === 'number' && Number.isFinite(body.base) ? body.base : subtotal;
 
   if (!code || code.length > 64) return refuse('invalid');
 
+  // select('*') : seule la réponse ci-dessous est publique, et elle est filtrée.
   const { data: promo, error } = await supabaseAdmin
     .from('promo_codes')
-    .select('id, code, type, value, min_order, max_uses, used_count, valid_from, valid_until, is_active, single_use_per_customer')
+    .select('*')
     .eq('code', code)
     .maybeSingle();
 
   if (error || !promo) return refuse('invalid');
+
+  /* Code fidélité ou code ami : réservé à un email (cf. @/lib/fidelite).
+     On ne renvoie jamais à qui il appartient. */
+  if (promo.kind) {
+    const { evaluerCodePerso } = await import('@/lib/fidelite');
+    const verdict = await evaluerCodePerso(promo, { email, base });
+    if (!verdict.ok) return refuse(verdict.reason);
+    return NextResponse.json({
+      valid: true,
+      code:  promo.code,
+      type:  'percent',
+      value: verdict.taux,
+      min_order: 0,
+      discount: verdict.discount,
+      kind: promo.kind,
+      hors_promo: true,
+    }, { headers: CORS });
+  }
 
   // Usage client vérifié avant l'évaluation : une seule requête, seulement si utile
   let alreadyUsedByCustomer = false;

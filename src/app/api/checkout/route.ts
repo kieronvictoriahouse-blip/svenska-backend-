@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
 import { evaluatePromo } from '@/lib/promo';
-import { effectiveUnitPrice, resolveDiscount } from '@/lib/product-price';
+import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/product-price';
 import crypto from 'crypto';
 
 const CUSTOMER_SECRET = process.env.CUSTOMER_JWT_SECRET || process.env.SNIPCART_SECRET_KEY || 'sd-customer-secret';
@@ -83,6 +83,9 @@ export async function POST(req: NextRequest) {
     const lineItems: any[] = [];
     const orderLines: Array<{ product_id: string; name: string; name_en?: string; name_sv?: string; qty: number; price: number; image_url?: string }> = [];
     let subtotal = 0;
+    /* Part du panier hors articles déjà en promotion : c'est la seule
+       sur laquelle portent le code fidélité et le code ami. */
+    let baseRemisable = 0;
     let hasPickupOnly = false;
     const stockErrors: Array<{ name: string; available: number; requested: number }> = [];
 
@@ -144,13 +147,15 @@ export async function POST(req: NextRequest) {
          chez Stripe — l'affichage front n'est qu'un miroir, jamais cru. */
       const basePrice = variant ? variant.price : product.price;
       // Remise produit prioritaire, sinon remise de la catégorie (migration 052).
-      const price     = effectiveUnitPrice(basePrice, resolveDiscount(product, product.categories));
+      const remise    = resolveDiscount(product, product.categories);
+      const price     = effectiveUnitPrice(basePrice, remise);
       const suffix   = item.variant ? ` — ${item.variant}` : '';
       const name     = (product.name_fr || '') + suffix;
       const name_en  = (product.name_en || product.name_fr || '') + suffix;
       const name_sv  = (product.name_sv || product.name_fr || '') + suffix;
 
       subtotal += price * item.quantity;
+      if (!isDiscountActive(remise)) baseRemisable += price * item.quantity;
 
       orderLines.push({ product_id: product.id, name, name_en, name_sv, qty: item.quantity, price, ...(product.image_url ? { image_url: product.image_url } : {}) });
 
@@ -310,7 +315,25 @@ export async function POST(req: NextRequest) {
           .eq('is_active', true)
           .maybeSingle();
 
-        if (promo) {
+        if (promo?.kind) {
+          /* Code fidélité ou code ami (@/lib/fidelite). Refusé, on le dit
+             au panier plutôt que de laisser le client payer plein tarif
+             sans le savoir — il comptait dessus. */
+          const { evaluerCodePerso } = await import('@/lib/fidelite');
+          const verdict = await evaluerCodePerso(promo, { email: customer_email, base: baseRemisable });
+          if (!verdict.ok) {
+            return NextResponse.json(
+              { error: 'Ce code ne peut pas être utilisé pour cette commande.', code: 'PROMO_REFUSED', reason: verdict.reason },
+              { status: 400, headers: CORS },
+            );
+          }
+          /* Montant fixe et non pourcentage Stripe : un pourcentage
+             porterait aussi sur les articles déjà en promotion. */
+          promoCodeId = promo.id;
+          const coupon = await stripe.coupons.create({ amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' });
+          stripeCouponId = coupon.id;
+          discountAmount = verdict.discount;
+        } else if (promo) {
           // Vérifie l'usage client avant d'évaluer (une seule requête, si utile)
           let alreadyUsedByCustomer = false;
           if (promo.single_use_per_customer && customer_email) {

@@ -156,6 +156,48 @@
           </td>
         </tr>
 
+        <!-- ── STAMKUND · personlig kod, från 3:e beställningen ── -->
+<!--#if code_fidelite-->
+        <tr>
+          <td class="pad" style="padding:30px 40px 0 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; background-color:#F4EEE1;">
+              <tr>
+                <td style="padding:18px 20px; border-left:2px solid #B49256; font-family:Arial,Helvetica,sans-serif;">
+                  <div style="font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#B49256; font-weight:bold;">{{ fidelite_label }}</div>
+                  <div style="font-family:Georgia,'Times New Roman',Times,serif; font-size:20px; line-height:27px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;">{{ fidelite_titre }}</div>
+                  <div style="font-size:13px; line-height:20px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:6px;">{{ fidelite_texte }}</div>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;"><tr>
+                    <td style="border:1px dashed #44573D; padding:8px 16px; font-family:'Courier New',Courier,monospace; font-size:16px; line-height:20px; letter-spacing:2px; color:#44573D; font-weight:bold;">{{ code_fidelite }}</td>
+                  </tr></table>
+                  <div style="font-size:11px; line-height:17px; mso-line-height-rule:exactly; color:#948B79; padding-top:6px;">{{ fidelite_note }}</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+<!--/if-->
+
+        <!-- ── TIPSA EN VÄN · vänkod, från 1:a beställningen ── -->
+<!--#if code_ami-->
+        <tr>
+          <td class="pad" style="padding:22px 40px 0 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; background-color:#F4EEE1;">
+              <tr>
+                <td style="padding:18px 20px; border-left:2px solid #44573D; font-family:Arial,Helvetica,sans-serif;">
+                  <div style="font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#44573D; font-weight:bold;">{{ ami_label }}</div>
+                  <div style="font-family:Georgia,'Times New Roman',Times,serif; font-size:20px; line-height:27px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;">{{ ami_titre }}</div>
+                  <div style="font-size:13px; line-height:20px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:6px;">{{ ami_texte }}</div>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;"><tr>
+                    <td style="border:1px dashed #44573D; padding:8px 16px; font-family:'Courier New',Courier,monospace; font-size:16px; line-height:20px; letter-spacing:2px; color:#44573D; font-weight:bold;">{{ code_ami }}</td>
+                  </tr></table>
+                  <div style="font-size:11px; line-height:17px; mso-line-height-rule:exactly; color:#948B79; padding-top:8px;">{{ ami_lien }} <a href="{{{ boutique_url }}}/?parrain={{ code_ami }}" style="color:#44573D; text-decoration:underline; word-break:break-all;">{{ boutique_domaine }}/?parrain={{ code_ami }}</a></div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+<!--/if-->
+
         <tr>
           <td align="center" class="pad" style="padding:30px 40px 0 40px;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">

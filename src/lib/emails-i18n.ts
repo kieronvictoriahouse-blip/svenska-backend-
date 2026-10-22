@@ -1,4 +1,5 @@
 import { LangueClient, LOCALE_CLIENT } from '@/lib/langue-client';
+import { FIDELITE } from '@/lib/fidelite-regles';
 
 /* ═══════════════════════════════════════════════════════════════
    TEXTES DES EMAILS CLIENTS
@@ -178,3 +179,126 @@ export const titrePanache = (qte: number, lang: LangueClient) =>
   lang === 'sv' ? `Eller blanda dina ${qte} enheter som du vill`
   : lang === 'en' ? `Or mix your ${qte} units as you like`
   : `Ou répartissez vos ${qte} unités comme vous voulez`;
+
+/* ── Fidélité & parrainage ──────────────────────────────────── */
+
+const F = FIDELITE;
+
+const nbCommandes = (n: number, lang: LangueClient) =>
+  lang === 'sv' ? `${n} beställning${n > 1 ? 'ar' : ''}`
+  : lang === 'en' ? `${n} order${n > 1 ? 's' : ''}`
+  : `${n} commande${n > 1 ? 's' : ''}`;
+
+export const TF = T({
+  fideliteLabel: { fr: 'VOTRE CODE FIDÉLITÉ', en: 'YOUR LOYALTY CODE', sv: 'DIN STAMKUNDSKOD' },
+  fideliteNote: {
+    fr: 'Il ne fonctionne qu’avec cette adresse email.',
+    en: 'It only works with this email address.',
+    sv: 'Koden fungerar bara med den här e-postadressen.',
+  },
+  amiLabel: { fr: 'PARRAINAGE', en: 'REFER A FRIEND', sv: 'TIPSA EN VÄN' },
+  amiTitre: {
+    fr: 'Faites découvrir la Suède à un ami',
+    en: 'Share a taste of Sweden',
+    sv: 'Ge en vän smak av Sverige',
+  },
+  amiLien: { fr: 'Ou envoyez-lui ce lien :', en: 'Or send them this link:', sv: 'Eller skicka den här länken:' },
+  parrainageTitre: { fr: 'Votre ami a commandé', en: 'Your friend placed an order', sv: 'Din vän har beställt' },
+  parrainageSujet: {
+    fr: 'Votre ami a commandé — merci !',
+    en: 'Your friend placed an order — thank you!',
+    sv: 'Din vän har beställt — tack!',
+  },
+  faireCourses: { fr: 'FAIRE MES COURSES', en: 'SHOP NOW', sv: 'TILL BUTIKEN' },
+});
+
+export type BlocsFidelite = {
+  commandes: number; codeAmi: string | null; codeFidelite: string | null;
+  taux: number; finBonus: Date | null; nouveauFidele: boolean;
+};
+
+/**
+ * Blocs « code fidélité » et « code ami » de la confirmation de commande.
+ * Une variable vide masque son bloc : `code_fidelite` absent tant que le
+ * client n'a pas ses trois commandes.
+ */
+export function blocsFidelite(b: BlocsFidelite, lang: LangueClient): Record<string, string> {
+  const vars: Record<string, string> = {};
+
+  if (b.codeFidelite) {
+    const bonus = b.taux === F.tauxAmbassadeur && b.finBonus ? formatDate(b.finBonus, lang) : '';
+    vars.code_fidelite = b.codeFidelite;
+    vars.fidelite_label = TF.fideliteLabel[lang];
+    vars.fidelite_note = TF.fideliteNote[lang];
+    vars.fidelite_titre = b.nouveauFidele
+      ? (lang === 'sv' ? 'Välkommen bland våra stamkunder!' : lang === 'en' ? 'Welcome to our regulars!' : 'Bienvenue parmi nos fidèles !')
+      : (lang === 'sv' ? `−${b.taux} % på dina beställningar` : lang === 'en' ? `−${b.taux}% on your orders` : `−${b.taux} % sur vos commandes`);
+    vars.fidelite_texte = lang === 'sv'
+      ? (b.nouveauFidele ? `Tack för dina ${nbCommandes(b.commandes, lang)}! ` : '')
+        + `Din personliga kod ger dig −${b.taux} % på varje beställning, utom varor som redan är rabatterade.`
+        + (bonus ? ` Till och med ${bonus} tack vare ditt tips, därefter −${F.tauxFidele} %.`
+          : ` Tipsa en vän så höjs din kod till −${F.tauxAmbassadeur} % i ${F.dureeBonusMois} månader.`)
+      : lang === 'en'
+      ? (b.nouveauFidele ? `Thank you for your ${nbCommandes(b.commandes, lang)}! ` : '')
+        + `Your personal code gives you −${b.taux}% on every order, excluding items already on sale.`
+        + (bonus ? ` Until ${bonus}, thanks to your referral; then −${F.tauxFidele}%.`
+          : ` Refer a friend and your code goes up to −${F.tauxAmbassadeur}% for ${F.dureeBonusMois} months.`)
+      : (b.nouveauFidele ? `Merci pour vos ${nbCommandes(b.commandes, lang)} ! ` : '')
+        + `Votre code personnel vous donne −${b.taux} % sur chaque commande, hors articles déjà en promotion.`
+        + (bonus ? ` Jusqu’au ${bonus}, grâce à votre parrainage ; ensuite −${F.tauxFidele} %.`
+          : ` Parrainez un ami et votre code passe à −${F.tauxAmbassadeur} % pendant ${F.dureeBonusMois} mois.`);
+  }
+
+  if (b.codeAmi) {
+    const restantes = Math.max(0, F.seuilCommandes - b.commandes);
+    vars.code_ami = b.codeAmi;
+    vars.ami_label = TF.amiLabel[lang];
+    vars.ami_titre = TF.amiTitre[lang];
+    vars.ami_lien = TF.amiLien[lang];
+    vars.ami_texte = lang === 'sv'
+      ? `Med den här koden får din vän −${F.tauxFilleul} % på sin första beställning.`
+        + (b.codeFidelite
+          ? ` När vännen har beställt höjs din stamkundskod till −${F.tauxAmbassadeur} % i ${F.dureeBonusMois} månader.`
+          : ` Och du har ${nbCommandes(restantes, lang)} kvar till din stamkundskod: −${F.tauxFidele} % på dina beställningar, och −${F.tauxAmbassadeur} % i ${F.dureeBonusMois} månader när en vän har beställt.`)
+      : lang === 'en'
+      ? `With this code, your friend gets −${F.tauxFilleul}% off their first order.`
+        + (b.codeFidelite
+          ? ` As soon as they order, your loyalty code goes up to −${F.tauxAmbassadeur}% for ${F.dureeBonusMois} months.`
+          : ` And you are ${nbCommandes(restantes, lang)} away from your loyalty code: −${F.tauxFidele}% on your orders, and −${F.tauxAmbassadeur}% for ${F.dureeBonusMois} months once a friend has ordered.`)
+      : `Avec ce code, votre ami a −${F.tauxFilleul} % sur sa 1re commande.`
+        + (b.codeFidelite
+          ? ` Dès qu’il a commandé, votre code fidélité passe à −${F.tauxAmbassadeur} % pendant ${F.dureeBonusMois} mois.`
+          : ` Et vous, plus que ${nbCommandes(restantes, lang)} avant votre code fidélité : −${F.tauxFidele} % sur vos commandes, et −${F.tauxAmbassadeur} % pendant ${F.dureeBonusMois} mois dès qu’un ami a commandé.`);
+  }
+
+  return vars;
+}
+
+/** Corps de l'email « votre ami a commandé ». */
+export function corpsParrainage(
+  p: { boutique: string; finBonus: Date | null; restantes: number },
+  lang: LangueClient,
+): string {
+  const merci = lang === 'sv' ? `Tack vare dig har en ny kund upptäckt ${p.boutique}.`
+    : lang === 'en' ? `Thanks to you, a new customer has discovered ${p.boutique}.`
+    : `Grâce à vous, un nouveau client a découvert ${p.boutique}.`;
+  if (p.finBonus) {
+    const d = formatDate(p.finBonus, lang);
+    return merci + (lang === 'sv'
+      ? ` Din stamkundskod ger nu −${F.tauxAmbassadeur} % på varje beställning till och med ${d} (utom varor som redan är rabatterade).`
+      : lang === 'en'
+      ? ` Your loyalty code is now worth −${F.tauxAmbassadeur}% on every order until ${d} (excluding items already on sale).`
+      : ` Votre code fidélité vaut désormais −${F.tauxAmbassadeur} % sur chaque commande, jusqu’au ${d} (hors articles déjà en promotion).`);
+  }
+  return merci + (lang === 'sv'
+    ? ` Dina −${F.tauxAmbassadeur} % sparas: de börjar gälla med din stamkundskod när du har gjort ${F.seuilCommandes} beställningar (${p.restantes} kvar) och varar i ${F.dureeBonusMois} månader.`
+    : lang === 'en'
+    ? ` Your −${F.tauxAmbassadeur}% is set aside: it will start with your loyalty code once you have placed ${F.seuilCommandes} orders (${p.restantes} to go), and last ${F.dureeBonusMois} months.`
+    : ` Votre −${F.tauxAmbassadeur} % est gardé de côté : il démarrera avec votre code fidélité, dès que vous aurez passé ${F.seuilCommandes} commandes (plus que ${p.restantes}), et durera ${F.dureeBonusMois} mois.`);
+}
+
+/** Rappel du code ami au bas de l'email de parrainage. */
+export const encorePlus = (code: string, lang: LangueClient) =>
+  lang === 'sv' ? `Vill du tipsa fler? Din vänkod ${code} gäller för alla dina vänner.`
+  : lang === 'en' ? `Want to do it again? Your friend code ${code} works for all your friends.`
+  : `Envie de recommencer ? Votre code ami ${code} reste valable pour tous vos amis.`;

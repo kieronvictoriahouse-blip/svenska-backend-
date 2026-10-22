@@ -1,9 +1,10 @@
-import { renderEmail, sujetPersonnalise, EmailTemplate } from '@/lib/email-templates';
+import { renderEmail, sujetPersonnalise, contexteMarque, EmailTemplate } from '@/lib/email-templates';
 import { LangueClient, langueDeCommande } from '@/lib/langue-client';
 import {
   TE, SANS_PRENOM, SUJETS, texte, mentionPaiement, libelleLivraison,
   titreContenu, colisInfo, accrocheAvoir, corpsRupture, titreReliquat, noteReliquat, titrePanache,
   formatEuro, formatDate, formatDateHeure,
+  TF, BlocsFidelite, blocsFidelite, corpsParrainage, encorePlus,
 } from '@/lib/emails-i18n';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -88,7 +89,11 @@ function lignesDe(order: any, lang: LangueClient, produits?: Record<string, any>
 const sousTotalDe = (lignes: Array<{ brut: number }>) => lignes.reduce((s, l) => s + l.brut, 0);
 
 /** Options communes : la langue peut être imposée (aperçu, renvoi). */
-export type OptEmail = { lang?: LangueClient; produits?: Record<string, any>; mentionTva?: string };
+export type OptEmail = {
+  lang?: LangueClient; produits?: Record<string, any>; mentionTva?: string;
+  /** Codes fidélité / ami à annoncer (confirmation, après le paiement). */
+  fidelite?: BlocsFidelite;
+};
 
 const langueDe = (order: any, o?: OptEmail): LangueClient => o?.lang || langueDeCommande(order);
 
@@ -118,6 +123,41 @@ export async function confirmationCommande(order: any, o: OptEmail = {}) {
          annonçaient un paiement du 12 août 2026. */
       mention_paiement: mentionPaiement(
         order.paid_at || order.created_at, lang, o.mentionTva || TVA_DEFAUT),
+      ...(o.fidelite ? blocsFidelite(o.fidelite, lang) : {}),
+    }, lang),
+  };
+}
+
+/** « Votre ami a commandé » — au parrain, quand son parrainage est validé. */
+export async function parrainageValideEmail(
+  order: any,
+  p: { codeFidelite: string | null; finBonus: Date | null; codeAmi: string | null; commandesRestantes: number },
+  o: OptEmail = {},
+) {
+  const lang = langueDe(order, o);
+  const { boutique } = await contexteMarque();
+  const corps = corpsParrainage({
+    boutique: boutique || '',
+    finBonus: p.codeFidelite ? p.finBonus : null,
+    restantes: p.commandesRestantes,
+  }, lang);
+  return {
+    lang,
+    sujet: await sujetDe('email-fidelite', TF.parrainageSujet[lang], lang),
+    html: await renderEmail('email-fidelite', {
+      prenom: prenomDe(order?.customer_name, lang),
+      preheader: corps,
+      surtitre: TF.amiLabel[lang],
+      titre: TF.parrainageTitre[lang],
+      corps,
+      // Le code n'est rappelé que s'il vaut −10 % dès maintenant.
+      code_fidelite: p.codeFidelite && p.finBonus ? p.codeFidelite : '',
+      fidelite_label: TF.fideliteLabel[lang],
+      fidelite_note: TF.fideliteNote[lang],
+      cta: TF.faireCourses[lang],
+      code_ami: p.codeAmi || '',
+      ami_texte: p.codeAmi ? encorePlus(p.codeAmi, lang) : '',
+      ami_lien: TF.amiLien[lang],
     }, lang),
   };
 }

@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
     supabaseAdmin.from('promo_codes')
       .select('id, code, type, value, min_order, is_active, valid_until, single_use_per_customer')
       .in('type', ['percent', 'fixed', 'free_shipping'])
+      .is('kind', null) // pas les codes personnels (fidélité, code ami)
       .order('created_at', { ascending: false }),
     supabaseAdmin.from('products')
       .select('id, name_fr, stock, track_stock, is_active, price')

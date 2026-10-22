@@ -5,6 +5,7 @@ import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
 import { TMA, confirmerSuppressionCode, codeSupprime, relanceEnvoyee } from './i18n';
+import { FIDELITE } from '@/lib/fidelite-regles';
 
 type Campaign = {
   id: string; name: string; type: string; status: string; subject?: string;
@@ -17,6 +18,25 @@ type PromoCode = {
   id: string; code: string; type: string; value: number; min_order: number;
   max_uses?: number; used_count: number; valid_from?: string; valid_until?: string;
   is_active: boolean; single_use_per_customer: boolean; gift_product_ids?: string[];
+};
+/** Code fidélité ou code ami d'un client (migration 057). */
+type CodePerso = {
+  id: string; code: string; kind: 'fidelite' | 'parrainage'; owner_email: string;
+  used_count: number; is_active: boolean; created_at: string;
+  taux?: number; fin_bonus?: string | null;
+};
+type Parrainage = {
+  id: string; referrer_email: string; referee_email: string; order_id: string;
+  status: 'pending' | 'validated' | 'cancelled'; cancel_reason?: string | null;
+  created_at: string; validated_at?: string | null;
+  order_number?: string | null; order_total?: number | null;
+};
+const MOTIF_ANNULATION: Record<string, string> = {
+  propre_code: 'son propre code',
+  deja_client: 'déjà client',
+  meme_personne: 'même téléphone ou même nom que le parrain',
+  commande_annulee: 'commande annulée ou remboursée',
+  annule_back_office: 'annulé depuis le back-office',
 };
 type AbandonedCart = {
   id: string; customer_email: string; customer_name?: string; cart_total: number;
@@ -37,6 +57,7 @@ function MarketingInner() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [codes, setCodes] = useState<PromoCode[]>([]);
   const [carts, setCarts] = useState<AbandonedCart[]>([]);
+  const [fid, setFid] = useState<{ codes: CodePerso[]; parrainages: Parrainage[] }>({ codes: [], parrainages: [] });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showCodeModal, setShowCodeModal] = useState(false);
@@ -139,8 +160,19 @@ function MarketingInner() {
     } else if (tab === 'cart') {
       const res = await adminFetch('/api/marketing?tab=abandoned');
       setCarts((await res.json()).carts || []);
+    } else if (tab === 'fidelite') {
+      const j = await adminFetch('/api/marketing?tab=fidelite').then(r => r.json()).catch(() => ({}));
+      setFid({ codes: j.codes || [], parrainages: j.parrainages || [] });
     }
     setLoading(false);
+  }
+
+  async function annulerParrainage(p: Parrainage) {
+    if (!confirm(`Annuler le parrainage de ${p.referee_email} par ${p.referrer_email} ?`)) return;
+    const res = await adminFetch(`/api/marketing?tab=parrainage&id=${p.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (!res.ok) { showToast(t('msgErreur')); return; }
+    showToast('Parrainage annulé');
+    loadData();
   }
 
   async function saveCampaign() {
@@ -290,7 +322,7 @@ function MarketingInner() {
   `;
 
   const TABS: Array<[string, string]> = [
-    ['campaigns', 'Campagnes'], ['promo', 'Codes promo'], ['cart', 'Abandon panier'],
+    ['campaigns', 'Campagnes'], ['promo', 'Codes promo'], ['fidelite', 'Fidélité & parrainage'], ['cart', 'Abandon panier'],
   ];
 
   const campaignTone = (s: string) =>
@@ -314,6 +346,7 @@ function MarketingInner() {
           <div className="sc-sub">
             {tab === 'campaigns' ? `${campaigns.length} campagne(s) · ROAS ${roas}`
               : tab === 'promo' ? `${codes.length} code(s) · ${codes.filter(c => c.is_active).length} actif(s)`
+              : tab === 'fidelite' ? `${fid.codes.filter(c => c.kind === 'fidelite').length} client(s) fidèle(s) · ${fid.parrainages.filter(p => p.status === 'validated').length} parrainage(s) validé(s)`
               : `${carts.length} panier(s) abandonné(s) · ${recoveredCarts} récupéré(s)`}
           </div>
         </div>
@@ -669,6 +702,140 @@ function MarketingInner() {
           )}
         </>
       )}
+
+      {/* ══════════ FIDÉLITÉ & PARRAINAGE ══════════ */}
+      {tab === 'fidelite' && (() => {
+        // Un client = son code ami + son code fidélité éventuel.
+        const clients = Object.values(fid.codes.reduce<Record<string, { email: string; ami?: CodePerso; fid?: CodePerso }>>((acc, c) => {
+          const k = c.owner_email.toLowerCase();
+          acc[k] = acc[k] || { email: c.owner_email };
+          if (c.kind === 'parrainage') acc[k].ami = c; else acc[k].fid = c;
+          return acc;
+        }, {}));
+        const nb = (s: Parrainage['status']) => fid.parrainages.filter(p => p.status === s).length;
+        const ton = (s: Parrainage['status']) => s === 'validated' ? BADGE.green : s === 'pending' ? BADGE.amber : BADGE.gray;
+        const libelle = (s: Parrainage['status']) => s === 'validated' ? 'Validé' : s === 'pending' ? 'En attente' : 'Annulé';
+        const validationLe = (d: string) => fmtDate(new Date(new Date(d).getTime() + FIDELITE.delaiValidationJours * 86400_000).toISOString());
+        return (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+              {[
+                { l: 'Clients avec un code ami', v: String(clients.filter(c => c.ami).length) },
+                { l: 'Clients fidèles', v: String(clients.filter(c => c.fid).length) },
+                { l: 'Parrainages en attente', v: String(nb('pending')) },
+                { l: 'Parrainages validés', v: String(nb('validated')) },
+              ].map(k => (
+                <div key={k.l} className="sc-card" style={{ padding: '13px 15px' }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
+                  <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="sc-card" style={{ padding: '12px 15px', marginBottom: 12, fontSize: 12, lineHeight: 1.6, color: TH.text2b }}>
+              <strong style={{ color: TH.ink }}>Règles</strong> · Code ami dès la 1re commande payée : −{FIDELITE.tauxFilleul} % sur la 1re commande d’un nouveau client.
+              {' '}Code fidélité à la {FIDELITE.seuilCommandes}e commande payée, valable seulement avec l’email du client : −{FIDELITE.tauxFidele} %, porté à −{FIDELITE.tauxAmbassadeur} % pendant {FIDELITE.dureeBonusMois} mois après chaque parrainage validé.
+              {' '}Jamais sur les articles déjà en promotion. Un parrainage est validé {FIDELITE.delaiValidationJours} jours après la commande de l’ami, si elle n’a été ni annulée ni remboursée.
+            </div>
+
+            {loading && <div className="sc-empty">{tc('loading')}</div>}
+
+            {!loading && (
+              <div className="sc-card" style={{ overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ padding: '11px 15px', fontSize: 12.5, fontWeight: 600, color: TH.ink, borderBottom: `1px solid ${TH.border}` }}>Parrainages</div>
+                {fid.parrainages.length === 0 ? <div className="sc-empty">Aucun parrainage pour l’instant</div> : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="sc-table" style={{ minWidth: 760 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: 95 }}>Date</th>
+                          <th>Parrain</th>
+                          <th>Ami</th>
+                          <th style={{ width: 120 }}>Commande</th>
+                          <th style={{ width: 210 }}>{tc('status')}</th>
+                          <th style={{ width: 90 }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fid.parrainages.map(p => (
+                          <tr key={p.id}>
+                            <td style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(p.created_at)}</td>
+                            <td style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.referrer_email}</td>
+                            <td style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.referee_email}</td>
+                            <td className="sc-num" style={{ fontSize: 11.5 }}>
+                              {p.order_number || '—'}{p.order_total != null ? ` · ${fmt(p.order_total)}` : ''}
+                            </td>
+                            <td>
+                              <span className="sc-badge" style={{ background: ton(p.status).bg, color: ton(p.status).fg }}>{libelle(p.status)}</span>
+                              <div style={{ fontSize: 10.5, color: TH.muted, marginTop: 3 }}>
+                                {p.status === 'pending' ? `validation le ${validationLe(p.created_at)}`
+                                  : p.status === 'validated' ? `le ${fmtDate(p.validated_at || undefined)}`
+                                  : MOTIF_ANNULATION[p.cancel_reason || ''] || p.cancel_reason || ''}
+                              </div>
+                            </td>
+                            <td>
+                              {p.status !== 'cancelled' && (
+                                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
+                                        onClick={() => annulerParrainage(p)}>Annuler</button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!loading && (
+              <div className="sc-card" style={{ overflow: 'hidden' }}>
+                <div style={{ padding: '11px 15px', fontSize: 12.5, fontWeight: 600, color: TH.ink, borderBottom: `1px solid ${TH.border}` }}>Codes des clients</div>
+                {clients.length === 0 ? <div className="sc-empty">Les codes sont créés au paiement des commandes</div> : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="sc-table" style={{ minWidth: 700 }}>
+                      <thead>
+                        <tr>
+                          <th>{tc('client')}</th>
+                          <th style={{ width: 170 }}>Code ami</th>
+                          <th style={{ width: 150 }}>Code fidélité</th>
+                          <th style={{ width: 190 }}>Remise du client</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {clients.map(c => (
+                          <tr key={c.email}>
+                            <td style={{ fontSize: 12, wordBreak: 'break-all' }}>{c.email}</td>
+                            <td>
+                              {c.ami ? (
+                                <>
+                                  <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, color: TH.ink }}>{c.ami.code}</span>
+                                  <span style={{ fontSize: 10.5, color: TH.muted, marginLeft: 6 }}>{c.ami.used_count || 0}×</span>
+                                </>
+                              ) : '—'}
+                            </td>
+                            <td>
+                              {c.fid ? (
+                                <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, color: TH.ink }}>{c.fid.code}</span>
+                              ) : <span style={{ fontSize: 11.5, color: TH.muted }}>pas encore</span>}
+                            </td>
+                            <td style={{ fontWeight: 600, color: '#9E5A3C' }}>
+                              {c.fid ? `−${c.fid.taux ?? FIDELITE.tauxFidele} %` : '—'}
+                              {c.fid?.fin_bonus && (c.fid.taux === FIDELITE.tauxAmbassadeur) && (
+                                <span style={{ fontSize: 10.5, fontWeight: 400, color: TH.muted, marginLeft: 6 }}>jusqu’au {fmtDate(c.fid.fin_bonus)}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
         {showModal && (
           <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>

@@ -259,6 +259,23 @@ export async function POST(req: NextRequest) {
         console.error('[webhook] invoice/accounting error:', invErr);
       }
 
+      /* Fidélité & parrainage : parrainage éventuel et codes mérités,
+         annoncés dans la confirmation juste en dessous. Non bloquant. */
+      let fidelite: import('@/lib/fidelite').BilanFidelite | undefined;
+      if (customerEmail) {
+        try {
+          const { apresPaiement } = await import('@/lib/fidelite');
+          fidelite = await apresPaiement({
+            orderId,
+            email:     customerEmail,
+            nom:       customerName,
+            telephone: customerPhone,
+            promoCode: existing?.promo_code || null,
+            estTest:   isTestEvent || !!existing?.is_test,
+          });
+        } catch (e) { console.error('[webhook] fidélité (non bloquant):', e); }
+      }
+
       // Email de confirmation
       try {
         const cfg = await getWlConfig();
@@ -277,7 +294,7 @@ export async function POST(req: NextRequest) {
         };
 
         // Gabarit du handoff (src/emails/templates), rendu par customer-emails.
-        const mail = await confirmationCommande({ ...existing, ...orderForEmail });
+        const mail = await confirmationCommande({ ...existing, ...orderForEmail }, { fidelite });
         await sendEmail({
           from:    fromEmail,
           to:      customerEmail,

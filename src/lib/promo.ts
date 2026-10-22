@@ -12,7 +12,13 @@ export type PromoRefusal =
   | 'expired'      // après valid_until
   | 'exhausted'    // max_uses atteint
   | 'min_order'    // sous-total sous le minimum
-  | 'already_used';// déjà utilisé par ce client (single_use_per_customer)
+  | 'already_used' // déjà utilisé par ce client (single_use_per_customer)
+  // Codes personnels (fidélité, code ami) — cf. @/lib/fidelite
+  | 'email_required'   // il faut l'email du panier pour vérifier à qui il est
+  | 'not_owner'        // code fidélité d'un autre client
+  | 'own_code'         // son propre code ami
+  | 'not_new_customer' // code ami : réservé à une 1re commande
+  | 'only_promo_items';// le panier n'a que des articles déjà en promotion
 
 export type PromoVerdict =
   | { ok: true;  discount: number; freeShipping: boolean }
