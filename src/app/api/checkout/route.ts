@@ -79,7 +79,38 @@ function imageAbsolue(brut: unknown, vitrine: string): string | null {
 const uneLigne = (s: unknown, max = 300) =>
   String(s || '').replace(/\s*[\r\n]+\s*/g, ', ').replace(/\s{2,}/g, ' ').trim().slice(0, max);
 
+/* Messages renvoyés au panier, qui affiche `error` tel quel quand il ne
+   connaît pas le `code`. Le détail technique reste dans les logs : un
+   acheteur n'a rien à faire d'un message d'API. */
+const ERREURS = {
+  serveur:  { fr: 'Le paiement n’a pas pu démarrer. Réessayez dans un instant.', en: 'Payment could not be started. Please try again in a moment.', sv: 'Betalningen kunde inte startas. Försök igen om en stund.' },
+  commande: { fr: 'Votre commande n’a pas pu être enregistrée. Réessayez dans un instant.', en: 'Your order could not be saved. Please try again in a moment.', sv: 'Din beställning kunde inte sparas. Försök igen om en stund.' },
+  quantite: { fr: 'Une quantité du panier est invalide.', en: 'A quantity in your basket is invalid.', sv: 'Ett antal i varukorgen är ogiltigt.' },
+  relais:   { fr: 'Choisissez un point relais pour finaliser la commande.', en: 'Please choose a relay point to complete your order.', sv: 'Välj ett utlämningsställe för att slutföra beställningen.' },
+};
+
+/* Numéro de commande : count + 1, colonne UNIQUE. Une seule commande
+   supprimée suffit à faire retomber le compte sur un numéro déjà pris.
+   Aux essais suivants, on repart du plus grand numéro récent, un cran
+   plus loin à chaque fois au cas où un paiement concurrent vient de le
+   prendre. */
+async function numeroCommande(essai: number): Promise<string> {
+  const { count } = await supabaseAdmin.from('orders').select('id', { count: 'exact', head: true });
+  let n = (count || 0) + 1;
+  if (essai > 0) {
+    const { data } = await supabaseAdmin
+      .from('orders').select('order_number').order('created_at', { ascending: false }).limit(50);
+    const nums = (data || [])
+      .map((o: any) => parseInt(String(o.order_number || '').replace(/^\D+/, ''), 10))
+      .filter(Number.isFinite);
+    n = Math.max(n, Math.max(0, ...nums) + 1) + (essai - 1);
+  }
+  return `SD-${String(n).padStart(4, '0')}`;
+}
+
 export async function POST(req: NextRequest) {
+  // Langue des messages d'erreur : connue dès le corps lu, français sinon.
+  let langue: Langue = 'fr';
   try {
     const body = await req.json();
     const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays, relay_carrier_uuid } = body;
@@ -92,7 +123,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Adresse email invalide', code: 'BAD_EMAIL' }, { status: 400, headers: CORS });
     }
     const langClient = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
-    const langue: Langue = langClient || 'fr';
+    langue = langClient || 'fr';
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
 
@@ -100,7 +131,10 @@ export async function POST(req: NextRequest) {
     const stripeKey = isTestMode
       ? (process.env.STRIPE_SECRET_KEY_TEST || process.env.STRIPE_SECRET_KEY)
       : process.env.STRIPE_SECRET_KEY;
-    if (!stripeKey) return NextResponse.json({ error: 'Stripe non configuré' }, { status: 500, headers: CORS });
+    if (!stripeKey) {
+      console.error('[checkout] clé Stripe absente');
+      return NextResponse.json({ error: ERREURS.serveur[langue], code: 'SERVER_ERROR' }, { status: 500, headers: CORS });
+    }
 
     const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
 
@@ -123,6 +157,25 @@ export async function POST(req: NextRequest) {
     }
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Panier vide' }, { status: 400, headers: CORS });
+    }
+    /* Quantité entière et positive : une quantité négative faisait baisser
+       le sous-total, et toute valeur exotique finissait en erreur Stripe
+       après la création du brouillon. */
+    for (const it of items) {
+      if (!it || typeof it !== 'object') {
+        return NextResponse.json({ error: ERREURS.quantite[langue], code: 'BAD_QUANTITY' }, { status: 400, headers: CORS });
+      }
+      if (it.gift) continue;
+      const q = Number(it.quantity);
+      if (!Number.isInteger(q) || q < 1 || q > 999) {
+        return NextResponse.json({ error: ERREURS.quantite[langue], code: 'BAD_QUANTITY' }, { status: 400, headers: CORS });
+      }
+      it.quantity = q;
+    }
+    /* Un colis en point relais sans point relais ne peut pas partir : le
+       panier l'empêche, le serveur le refuse aussi. */
+    if (isMondialRelay && !relay_point_id) {
+      return NextResponse.json({ error: ERREURS.relais[langue], code: 'RELAY_POINT_REQUIRED' }, { status: 400, headers: CORS });
     }
 
     /* Normalisée et validée AVANT Stripe : le 28/08, une valeur d'env
@@ -454,47 +507,57 @@ export async function POST(req: NextRequest) {
     }
 
     // Créer la commande en statut pending AVANT Stripe
-    const { count: orderCount } = await supabaseAdmin
-      .from('orders').select('id', { count: 'exact', head: true });
-    const num = String((orderCount || 0) + 1).padStart(4, '0');
+    const brouillon = {
+      status:           'pending',
+      customer_email:   customer_email || null,
+      // Jeton du lien « reprendre mon panier » envoyé par la relance.
+      ...(customer_email ? { recovery_token: (await import('@/lib/relance-panier')).jetonRelance() } : {}),
+      ...(langClient ? { lang: langClient } : {}),
+      customer_name:    customerName || null,
+      // For pickup, Stripe won't collect address — store profile address now
+      ...(isPickup && customerAddress ? { shipping_address: customerAddress } : {}),
+      subtotal,
+      shipping:         shippingCost,
+      discount:         discountAmount > 0 ? Math.round(discountAmount * 100) / 100 : 0,
+      total:            grandTotal,
+      lines:            orderLines,
+      delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
+      /* Le transporteur du point relais choisi : c'est lui qui doit
+         produire l'etiquette. Sans cette valeur, tout partait en
+         Mondial Relay, y compris un point Shop2Shop. */
+      relay_carrier_uuid: relay_carrier_uuid || null,
+      ...(isTestMode ? { is_test: true } : {}),
+      ...(isMondialRelay && relay_point_id ? {
+        relay_point_id,
+        relay_point_name: relay_point_name || null,
+        relay_point_address: relay_point_address || null,
+        relay_point_pays: relay_point_pays || 'FR',
+      } : {}),
+      ...(promo_code && discountAmount > 0 ? { promo_code: promo_code.toUpperCase().trim() } : {}),
+      ...(promo_code && isFreeShippingPromo ? { promo_code: promo_code.toUpperCase().trim() } : {}),
+      ...(customer_note ? { notes: String(customer_note).slice(0, 1000) } : {}),
+    };
 
-    const { data: draftOrder } = await supabaseAdmin
-      .from('orders')
-      .insert({
-        order_number:     `SD-${num}`,
-        status:           'pending',
-        customer_email:   customer_email || null,
-        // Jeton du lien « reprendre mon panier » envoyé par la relance.
-        ...(customer_email ? { recovery_token: (await import('@/lib/relance-panier')).jetonRelance() } : {}),
-        ...(langClient ? { lang: langClient } : {}),
-        customer_name:    customerName || null,
-        // For pickup, Stripe won't collect address — store profile address now
-        ...(isPickup && customerAddress ? { shipping_address: customerAddress } : {}),
-        subtotal,
-        shipping:         shippingCost,
-        discount:         discountAmount > 0 ? Math.round(discountAmount * 100) / 100 : 0,
-        total:            grandTotal,
-        lines:            orderLines,
-        delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
-        /* Le transporteur du point relais choisi : c'est lui qui doit
-           produire l'etiquette. Sans cette valeur, tout partait en
-           Mondial Relay, y compris un point Shop2Shop. */
-        relay_carrier_uuid: relay_carrier_uuid || null,
-        ...(isTestMode ? { is_test: true } : {}),
-        ...(isMondialRelay && relay_point_id ? {
-          relay_point_id,
-          relay_point_name: relay_point_name || null,
-          relay_point_address: relay_point_address || null,
-          relay_point_pays: relay_point_pays || 'FR',
-        } : {}),
-        ...(promo_code && discountAmount > 0 ? { promo_code: promo_code.toUpperCase().trim() } : {}),
-        ...(promo_code && isFreeShippingPromo ? { promo_code: promo_code.toUpperCase().trim() } : {}),
-        ...(customer_note ? { notes: customer_note } : {}),
-      })
-      .select()
-      .single();
+    /* L'insertion n'était pas vérifiée : sur un numéro déjà pris, la
+       session Stripe partait sans commande rattachée (metadata vide) et le
+       paiement atterrissait hors du circuit normal. On retente sur un
+       doublon de numéro ; sinon, on s'arrête ici, AVANT tout paiement. */
+    let draftOrder: { id: string; order_number: string } | null = null;
+    for (let essai = 0; essai < 3 && !draftOrder; essai++) {
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .insert({ ...brouillon, order_number: await numeroCommande(essai) })
+        .select('id, order_number')
+        .single();
+      if (!error && data) { draftOrder = data; break; }
+      console.error('[checkout] brouillon non créé', JSON.stringify({ essai, code: error?.code, message: error?.message }));
+      if (error?.code !== '23505') break; // autre chose qu'un numéro en double : inutile d'insister
+    }
+    if (!draftOrder) {
+      return NextResponse.json({ error: ERREURS.commande[langue], code: 'ORDER_CREATE_FAILED' }, { status: 500, headers: CORS });
+    }
 
-    const orderId = draftOrder?.id || '';
+    const orderId = draftOrder.id;
     const successUrl = `${baseUrl}/success.html?order_id=${orderId}`;
     const cancelUrl  = `${baseUrl}/panier.html`;
     console.log('[checkout] successUrl:', successUrl, 'orderId:', orderId);
@@ -570,7 +633,7 @@ export async function POST(req: NextRequest) {
               },
             },
       ],
-      metadata: { order_id: draftOrder?.id || '' },
+      metadata: { order_id: orderId },
       /* 3 h au lieu de 24 : l'expiration déclenche la 1re relance
          (webhook checkout.session.expired). Un client qui revient après
          repasse par le panier, qui recrée une session. */
@@ -601,12 +664,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: session.url }, { headers: CORS });
   } catch (e: unknown) {
+    /* Le détail (message Stripe ou base, paramètre fautif) ne part que
+       dans les logs ; le client reçoit un message dans sa langue. */
     const err = e as any;
     const msg   = err?.message || 'Unknown error';
     const type  = err?.type  || err?.name  || '';
     const param = err?.param || '';
     const code  = err?.code  || err?.statusCode || '';
     console.error('[checkout]', JSON.stringify({ msg, type, param, code }));
-    return NextResponse.json({ error: msg, type, param, code }, { status: 500, headers: CORS });
+    return NextResponse.json({ error: ERREURS.serveur[langue], code: 'SERVER_ERROR' }, { status: 500, headers: CORS });
   }
 }
