@@ -145,7 +145,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const body = await req.json();
-  const updates = body.updates as { key: string; value_fr: string; value_sv: string; value_en: string }[];
+  // L'écran « Textes d'accueil » envoie { cms: [...] } ; { updates: [...] } reste accepté.
+  const updates = (body.updates ?? body.cms) as { key: string; value_fr: string; value_sv: string; value_en: string }[];
   if (!Array.isArray(updates)) return NextResponse.json({ error: 'updates[] requis' }, { status: 400 });
 
   for (const u of updates) {

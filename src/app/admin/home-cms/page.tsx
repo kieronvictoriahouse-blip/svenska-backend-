@@ -46,7 +46,8 @@ export default function HomeCmsPage() {
     setLoading(true);
     try {
       const d = await adminFetch('/api/cms').then(r => r.json());
-      const list: CmsItem[] = d.cms || [];
+      // Les réglages du carrousel (type 'setting') se règlent sur « Bannière d'accueil ».
+      const list: CmsItem[] = (d.cms || []).filter((i: CmsItem) => i.type !== 'setting');
       setItems(list);
       const ed: Record<string, CmsItem> = {};
       list.forEach(i => { ed[i.key] = { ...i }; });
