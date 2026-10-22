@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin, supabaseSession } from '@/lib/supabase';
 import { estAdmin } from '@/lib/auth';
 
 // ─── POST /api/auth/login ─────────────────────────────────────────
@@ -10,7 +10,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Email et mot de passe requis' }, { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+  // Client jetable : la session ouverte ici ne doit pas coller à supabaseAdmin (cf. lib/supabase).
+  const { data, error } = await supabaseSession().auth.signInWithPassword({ email, password });
 
   if (error) {
     return NextResponse.json({ error: 'Identifiants incorrects' }, { status: 401 });

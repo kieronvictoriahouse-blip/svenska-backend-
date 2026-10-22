@@ -17,6 +17,20 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseService, {
   },
 });
 
+/* Connexion et rafraîchissement admin : un client JETABLE, jamais
+   supabaseAdmin. supabase-js garde en mémoire la session ouverte par
+   signInWithPassword / refreshSession et l'envoie ensuite à la place de
+   la clé : sur une instance Vercel restée chaude, supabaseAdmin
+   interrogeait alors la base en tant que l'admin connecté, donc sous RLS
+   (« new row violates row-level security policy » sur home_slides, qui
+   n'a aucune règle). getUser(jeton) ne pose pas de session, il reste sur
+   supabaseAdmin. */
+export function supabaseSession() {
+  return createClient(supabaseUrl, supabaseAnon, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
 // Types TypeScript
 export type Product = {
   id: string;
