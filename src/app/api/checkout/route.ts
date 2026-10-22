@@ -35,6 +35,50 @@ export async function OPTIONS() {
 const ADMIN_TEST_EMAILS = (process.env.ADMIN_TEST_EMAILS || '')
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 
+/* ── Langue du client chez Stripe ─────────────────────────────────
+   La page de paiement suivait toujours le français, libellés compris,
+   quelle que soit la langue du panier. */
+type Langue = 'fr' | 'en' | 'sv';
+
+/** « 9,90 € » en français et en suédois, « €9.90 » en anglais. */
+const eur = (n: number, l: Langue) =>
+  l === 'en' ? `€${n.toFixed(2)}` : `${n.toFixed(2).replace('.', ',')} €`;
+
+const LIBELLES = {
+  retrait:       { fr: 'Retrait en magasin (Click & Collect)', en: 'In-store pickup (Click & Collect)', sv: 'Hämtning i butik (Click & Collect)' },
+  relais:        { fr: 'Livraison en point relais', en: 'Delivery to a relay point', sv: 'Leverans till utlämningsställe' },
+  relaisGratuit: { fr: 'Livraison gratuite en point relais', en: 'Free delivery to a relay point', sv: 'Fri frakt till utlämningsställe' },
+  relaisIntl:    { fr: 'Livraison en point relais — International', en: 'Delivery to a relay point — International', sv: 'Leverans till utlämningsställe — internationellt' },
+  gratuite:      { fr: 'Livraison gratuite', en: 'Free delivery', sv: 'Fri frakt' },
+  standard:      { fr: 'Livraison standard', en: 'Standard delivery', sv: 'Standardleverans' },
+};
+
+/* Rappel sous le bouton « Payer » : où va la commande, et le cadeau
+   glissé dans le colis — Stripe n'affiche ni l'un ni l'autre. Pas de
+   phrase « on vous prévient quand c'est prêt » au retrait : aucun email
+   de ce type n'existe aujourd'hui. */
+const RAPPEL = {
+  relais:   { fr: 'Livraison : ', en: 'Delivery to: ', sv: 'Leverans till: ' },
+  retrait:  { fr: 'Retrait : ', en: 'Pickup at: ', sv: 'Hämtas i butiken: ' },
+  cadeau:   { fr: 'Cadeau offert : ', en: 'Free gift: ', sv: 'Gåva: ' },
+  cadeaux:  { fr: 'Cadeaux offerts : ', en: 'Free gifts: ', sv: 'Gåvor: ' },
+};
+
+/* Stripe n'affiche une image que par URL absolue en https. Celles du
+   catalogue sont soit l'URL publique du stockage, soit un chemin du site
+   (« /media/… », que la vitrine réécrit vers le stockage). */
+function imageAbsolue(brut: unknown, vitrine: string): string | null {
+  const s = String(brut || '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s, vitrine + '/');
+    return u.protocol === 'https:' && u.href.length <= 2048 ? u.href : null;
+  } catch { return null; }
+}
+
+const uneLigne = (s: unknown, max = 300) =>
+  String(s || '').replace(/\s*[\r\n]+\s*/g, ', ').replace(/\s{2,}/g, ' ').trim().slice(0, max);
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -48,6 +92,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Adresse email invalide', code: 'BAD_EMAIL' }, { status: 400, headers: CORS });
     }
     const langClient = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
+    const langue: Langue = langClient || 'fr';
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
 
@@ -80,7 +125,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Panier vide' }, { status: 400, headers: CORS });
     }
 
+    /* Normalisée et validée AVANT Stripe : le 28/08, une valeur d'env
+       malformée a bloqué un client carte en main — « Not a valid URL »
+       est un message pour développeur, pas pour un acheteur. Lue dès ici :
+       les images des articles en dépendent. */
+    const { urlVitrine } = await import('@/lib/urls-instance');
+    const baseUrl = await urlVitrine();
+
     const lineItems: any[] = [];
+    // Cadeaux du colis, dans les trois langues, pour le rappel chez Stripe.
+    const cadeaux: Array<Record<Langue, string>> = [];
     const orderLines: Array<{ product_id: string; name: string; name_en?: string; name_sv?: string; qty: number; price: number; image_url?: string }> = [];
     let subtotal = 0;
     /* Part du panier hors articles déjà en promotion : c'est la seule
@@ -159,10 +213,14 @@ export async function POST(req: NextRequest) {
 
       orderLines.push({ product_id: product.id, name, name_en, name_sv, qty: item.quantity, price, ...(product.image_url ? { image_url: product.image_url } : {}) });
 
+      const image = imageAbsolue(product.image_url, baseUrl);
       lineItems.push({
         price_data: {
           currency: 'eur',
-          product_data: { name },
+          product_data: {
+            name: langue === 'en' ? name_en : langue === 'sv' ? name_sv : name,
+            ...(image ? { images: [image] } : {}),
+          },
           unit_amount: Math.round(price * 100),
         },
         quantity: item.quantity,
@@ -257,6 +315,7 @@ export async function POST(req: NextRequest) {
                 qty: 1, price: 0,
                 ...(gp.image_url ? { image_url: gp.image_url } : {}),
               });
+              cadeaux.push({ fr: gp.name_fr || '', en: gp.name_en || gp.name_fr || '', sv: gp.name_sv || gp.name_fr || '' });
             }
           }
         }
@@ -281,6 +340,7 @@ export async function POST(req: NextRequest) {
             qty: 1, price: 0,
             ...(c.image_url ? { image_url: c.image_url } : {}),
           });
+          cadeaux.push({ fr: c.name_fr || '', en: c.name_en || c.name_fr || '', sv: c.name_sv || c.name_fr || '' });
         }
       } catch (e) { console.warn('[checkout] cadeau de relance (non bloquant):', e); }
     }
@@ -434,25 +494,35 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    /* Normalisée et validée AVANT Stripe : le 28/08, une valeur d'env
-       malformée a bloqué un client carte en main — « Not a valid URL »
-       est un message pour développeur, pas pour un acheteur. */
-    const { urlVitrine } = await import('@/lib/urls-instance');
-    const baseUrl = await urlVitrine();
     const orderId = draftOrder?.id || '';
     const successUrl = `${baseUrl}/success.html?order_id=${orderId}`;
     const cancelUrl  = `${baseUrl}/panier.html`;
     console.log('[checkout] successUrl:', successUrl, 'orderId:', orderId);
 
+    const rappel: string[] = [];
+    if (isMondialRelay && relay_point_name) {
+      rappel.push(RAPPEL.relais[langue] + [uneLigne(relay_point_name, 120), uneLigne(relay_point_address)].filter(Boolean).join(', '));
+    } else if (isPickup && uneLigne(shipCfg?.address)) {
+      rappel.push(RAPPEL.retrait[langue] + uneLigne(shipCfg?.address));
+    }
+    const nomsCadeaux = cadeaux.map(c => c[langue]).filter(Boolean);
+    if (nomsCadeaux.length) {
+      rappel.push((nomsCadeaux.length > 1 ? RAPPEL.cadeaux : RAPPEL.cadeau)[langue] + nomsCadeaux.join(', '));
+    }
+    const messageValidation = rappel.join(' · ').slice(0, 1200);
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
       customer_email: customer_email || undefined,
-      // Stripe collecte le téléphone (plus de gate custom nom/téléphone côté front)
-      phone_number_collection: { enabled: true },
-      // Toujours une adresse de facturation → factures complètes même en
-      // retrait/relais (où aucune adresse de livraison n'est demandée).
+      locale: langue,
+      /* Téléphone : seulement quand un colis part — le transporteur s'en
+         sert (étiquette, SMS d'arrivée au relais). En Click & Collect, ce
+         n'était qu'un champ de plus avant de pouvoir payer. */
+      phone_number_collection: { enabled: !isPickup },
+      // Adresse de facturation exigée par la facture Factur-X (EN 16931).
       billing_address_collection: 'required',
+      ...(messageValidation ? { custom_text: { submit: { message: messageValidation } } } : {}),
       ...(stripeCouponId ? { discounts: [{ coupon: stripeCouponId }] } : {}),
       /* Livraison à domicile (plus proposée par le panier, gardée pour les
          anciens liens) : le pays n'est connu que chez Stripe, après le
@@ -468,7 +538,7 @@ export async function POST(req: NextRequest) {
               shipping_rate_data: {
                 type: 'fixed_amount',
                 fixed_amount: { amount: 0, currency: 'eur' },
-                display_name: 'Retrait en magasin (Click & Collect)',
+                display_name: LIBELLES.retrait[langue],
               },
             }
           : isMondialRelay
@@ -477,10 +547,10 @@ export async function POST(req: NextRequest) {
                 type: 'fixed_amount',
                 fixed_amount: { amount: freeShipping ? 0 : Math.round(shipRules.cost * 100), currency: 'eur' },
                 display_name: freeShipping
-                  ? 'Livraison gratuite en point relais'
+                  ? LIBELLES.relaisGratuit[langue]
                   : isInternational
-                  ? `Livraison en point relais — International (${shipRules.cost.toFixed(2)} €)`
-                  : 'Livraison en point relais',
+                  ? `${LIBELLES.relaisIntl[langue]} (${eur(shipRules.cost, langue)})`
+                  : LIBELLES.relais[langue],
               },
             }
           : freeShipping
@@ -488,7 +558,7 @@ export async function POST(req: NextRequest) {
               shipping_rate_data: {
                 type: 'fixed_amount',
                 fixed_amount: { amount: 0, currency: 'eur' },
-                display_name: 'Livraison gratuite',
+                display_name: LIBELLES.gratuite[langue],
               },
             }
           : {
@@ -496,7 +566,7 @@ export async function POST(req: NextRequest) {
                 type: 'fixed_amount',
                 // Même barème que le panier (lib/shipping) — plus de 4,90 € en dur.
                 fixed_amount: { amount: Math.round(shipRules.cost * 100), currency: 'eur' },
-                display_name: 'Livraison standard',
+                display_name: LIBELLES.standard[langue],
               },
             },
       ],
@@ -507,7 +577,6 @@ export async function POST(req: NextRequest) {
       expires_at: Math.floor(Date.now() / 1000) + 3 * 3600,
       success_url: successUrl,
       cancel_url:  cancelUrl,
-      locale: 'fr',
     });
 
     // Increment promo usage counter + track per-user usage
