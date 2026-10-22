@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
       const { data: order } = await supabaseAdmin
         .from('orders').select('id, order_number, status').eq('id', orderId).maybeSingle();
       if (!order) { skipped.push(`${s.id} (commande introuvable)`); continue; }
-      if (order.status === 'paid' || order.status === 'refunded') { skipped.push(order.order_number); continue; }
+      /* Seul un brouillon jamais soldé passe en « payée ». Le test ne
+         visait que « paid » et « refunded » : une commande expédiée,
+         livrée ou annulée retombait en « payée » à chaque passage. */
+      if (!['pending', 'abandoned'].includes(order.status)) { skipped.push(order.order_number); continue; }
 
       const full = s as any;
       const name  = full.shipping_details?.name || full.customer_details?.name || '';
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
         status:            'paid',
         stripe_session_id: s.id,
         updated_at:        new Date().toISOString(),
-      }).eq('id', orderId);
+      }).eq('id', orderId).in('status', ['pending', 'abandoned']);
       if (coreErr) { skipped.push(`${order.order_number} (erreur: ${coreErr.message})`); continue; }
 
       // optionnel — téléphone (colonne éventuellement absente)
