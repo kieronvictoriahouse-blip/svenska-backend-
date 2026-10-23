@@ -164,5 +164,86 @@ export function shellCss(accent: string): string {
     .sc-switch[aria-checked="true"]::after { transform: translateX(15px); }
 
     :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* ── Primitives de mise en page (toutes tailles) ──────────
+       Ce qui s'adapte au téléphone passe par ces classes plutôt que par
+       des styles en ligne : un écran les adopte, le mobile suit. */
+    .sc-app { height: 100vh; height: 100dvh; }
+    .sc-grid-2, .sc-grid-3, .sc-grid-4 { display: grid; gap: 12px; }
+    .sc-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sc-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .sc-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .sc-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    /* Conteneur qui défile horizontalement (tableaux larges, rangées de puces) */
+    .sc-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+    .sc-scroll-x > .sc-table { min-width: 640px; }
+    .sc-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .sc-sticky-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .sc-only-mobile { display: none !important; }
+    /* Fenêtre modale : centrée sur ordinateur, plein écran sur téléphone */
+    .sc-modal-back { position: fixed; inset: 0; z-index: 100; background: rgba(21,24,30,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .sc-modal { background: #fff; border-radius: 12px; width: 100%; max-width: 560px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto; box-shadow: 0 18px 48px rgba(21,24,30,.22); }
+    .sc-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid ${T.border}; position: sticky; top: 0; background: #fff; z-index: 1; }
+    .sc-modal-body { padding: 16px; }
+    .sc-modal-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid ${T.border}; position: sticky; bottom: 0; background: #fff; }
+
+    /* ═══ TÉLÉPHONE (< 900 px, même seuil que le shell) ═══════
+       Cibles tactiles de 44 px, champs à 16 px (sinon iOS zoome à
+       la saisie), grilles sur une colonne, tableaux lisibles. */
+    @media (max-width: 899px) {
+      .sc-screen { padding: 12px 12px 28px; }
+      .sc-head { align-items: stretch; gap: 10px; margin-bottom: 12px; }
+      .sc-head > * { min-width: 0; }
+      .sc-title { font-size: 19px; }
+      .sc-sub { font-size: 12.5px; }
+      .sc-actions { width: 100%; }
+      .sc-actions > .sc-btn { flex: 1 1 auto; justify-content: center; }
+      .sc-btn { min-height: 44px; padding: 10px 14px; font-size: 14px; }
+      .sc-btn .ms { font-size: 19px; }
+      .sc-iconbtn { width: 44px; height: 44px; }
+      .sc-iconbtn .ms { font-size: 20px; }
+      .sc-chip { height: 40px; padding: 0 14px; font-size: 13.5px; }
+      .sc-input, .sc-select { height: 44px; font-size: 16px; }
+      .sc-textarea { font-size: 16px; }
+      .sc-label { font-size: 12.5px; }
+      .sc-card-pad { padding: 14px; }
+      .sc-card-title { font-size: 14px; }
+      .sc-badge { font-size: 11px; padding: 3px 9px; }
+      .sc-table th { font-size: 10px; padding: 8px 10px; }
+      .sc-table td { font-size: 13.5px; padding: 10px; }
+      .sc-switch { width: 44px; height: 26px; border-radius: 13px; }
+      .sc-switch::after { width: 22px; height: 22px; }
+      .sc-switch[aria-checked="true"]::after { transform: translateX(18px); }
+      .sc-empty { padding: 36px 16px; font-size: 14px; }
+
+      .sc-grid-2, .sc-grid-3 { grid-template-columns: minmax(0, 1fr); }
+      .sc-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .sc-filters { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -12px; padding: 0 12px 4px; scrollbar-width: none; }
+      .sc-filters::-webkit-scrollbar { display: none; }
+      .sc-filters > * { flex-shrink: 0; }
+      .sc-hide-mobile { display: none !important; }
+      .sc-only-mobile { display: revert !important; }
+
+      /* Tableau en cartes : <table class="sc-table sc-stack">, chaque <td data-label="…">.
+         La cellule .sc-stack-main sert de titre de carte, .sc-stack-actions de pied. */
+      .sc-table.sc-stack, .sc-table.sc-stack tbody, .sc-table.sc-stack tr, .sc-table.sc-stack td { display: block; width: 100%; }
+      .sc-table.sc-stack thead { display: none; }
+      .sc-table.sc-stack tr { padding: 12px; border-bottom: 1px solid ${T.border}; }
+      .sc-table.sc-stack tbody tr:hover td { background: none; }
+      .sc-table.sc-stack td { border: none; padding: 3px 0; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; text-align: right; min-width: 0; }
+      .sc-table.sc-stack td[data-label]::before { content: attr(data-label); flex-shrink: 0; text-align: left; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: ${T.muted}; font-weight: 600; }
+      .sc-table.sc-stack td.sc-stack-main { display: block; text-align: left; font-size: 15px; font-weight: 600; color: ${T.ink}; padding-bottom: 6px; }
+      .sc-table.sc-stack td.sc-stack-main::before { content: none; }
+      .sc-table.sc-stack td.sc-stack-actions { justify-content: flex-start; flex-wrap: wrap; padding-top: 8px; }
+      .sc-table.sc-stack td.sc-stack-actions::before { content: none; }
+      .sc-table.sc-stack td:empty { display: none; }
+
+      /* Barre d'actions collée en bas de la zone qui défile (au-dessus des onglets) */
+      .sc-sticky-actions { position: sticky; bottom: 0; z-index: 5; margin: 16px -12px -28px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid ${T.border}; box-shadow: 0 -6px 18px rgba(21,24,30,.06); }
+      .sc-sticky-actions > .sc-btn { flex: 1 1 0; justify-content: center; }
+
+      .sc-modal-back { padding: 0; align-items: stretch; }
+      .sc-modal { max-width: none; max-height: none; height: 100%; border-radius: 0; }
+    }
 `;
 }

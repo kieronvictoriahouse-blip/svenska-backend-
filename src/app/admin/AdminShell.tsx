@@ -44,7 +44,8 @@ export default function AdminShell(p: ShellProps) {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: shellCss(p.accent) }} />
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: T.appBg }}>
+      {/* .sc-app : 100dvh — sur téléphone, 100vh passe sous la barre d'adresse */}
+      <div className="sc-app" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: T.appBg }}>
 
         <SuspensionBanner lang={p.lang} />
 
