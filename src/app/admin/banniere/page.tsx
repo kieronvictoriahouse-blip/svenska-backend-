@@ -15,13 +15,14 @@ import { TBA } from './i18n';
    n'est visible. Données : GET/PUT /api/hero.
    ═══════════════════════════════════════════════════════════════ */
 
-type Kind = 'default' | 'custom' | 'split' | 'image';
+type Kind = 'default' | 'custom' | 'split' | 'image' | 'html';
 type Theme = 'moss' | 'ink' | 'sand';
+type Fit = 'contain' | 'fill';
 type Lang = 'fr' | 'en' | 'sv';
 type Mode = 'image' | 'carousel';
 const LANGS: Lang[] = ['fr', 'en', 'sv'];
 const TEXTS = ['alt', 'eyebrow', 'title', 'tagline', 'subtitle', 'cta_label', 'cta2_label'] as const;
-const KINDS: Kind[] = ['default', 'custom', 'split', 'image'];
+const KINDS: Kind[] = ['default', 'custom', 'split', 'image', 'html'];
 const THEMES: Theme[] = ['moss', 'ink', 'sand'];
 const MAX_SLIDES = 12;
 const INTERVAL_MIN = 3, INTERVAL_MAX = 20;
@@ -39,8 +40,13 @@ type Slide = {
   is_active: boolean; kind: Kind; theme: Theme;
   image_url: string; image_mobile_url: string; link_url: string; link2_url: string;
   starts_on: string; ends_on: string;
-  [texte: string]: any;   // `${champ}_${langue}` : title_fr, alt_sv…
+  html_fit: Fit; html_width: number; html_height: number;
+  [texte: string]: any;   // `${champ}_${langue}` : title_fr, alt_sv, html_en…
 };
+
+/** « Code HTML » : le code d'une langue, repli sur le français. */
+const codeOf = (s: Slide, l: Lang) => s[`html_${l}`] || s.html_fr || '';
+const hasCode = (s: Slide) => LANGS.some(l => (s[`html_${l}`] || '').trim());
 
 /** Texte ou bannière : les deux portent un titre, des boutons et des liens. */
 const hasCopy = (k: Kind) => k === 'custom' || k === 'split';
@@ -51,6 +57,7 @@ const KIND_KEYS = {
   custom:  { label: 'kindCustom',  desc: 'kindCustomDesc',  icon: 'title',         size: 'tailleCustom',  sizeMobile: '' },
   split:   { label: 'kindSplit',   desc: 'kindSplitDesc',   icon: 'vertical_split', size: 'tailleSplit',  sizeMobile: 'tailleSplitMobile' },
   image:   { label: 'kindImage',   desc: 'kindImageDesc',   icon: 'wallpaper',     size: 'tailleImage',   sizeMobile: 'tailleImageMobile' },
+  html:    { label: 'kindHtml',    desc: 'kindHtmlDesc',    icon: 'code',          size: '',              sizeMobile: 'tailleHtmlMobile' },
 } as const;
 type State = { mode: Mode; interval: number; image: string; slides: Slide[] };
 type HeroDefaults = Record<'eyebrow' | 'title' | 'subtitle' | 'cta1' | 'cta2', Record<Lang, string>>;
@@ -67,8 +74,11 @@ function fromApi(s: any): Slide {
     image_url: s.image_url || '', image_mobile_url: s.image_mobile_url || '',
     link_url: s.link_url || '', link2_url: s.link2_url || '',
     starts_on: (s.starts_on || '').slice(0, 10), ends_on: (s.ends_on || '').slice(0, 10),
+    html_fit: s.html_fit === 'fill' ? 'fill' : 'contain',
+    html_width: Number(s.html_width) || 1920, html_height: Number(s.html_height) || 720,
   };
   for (const f of TEXTS) for (const l of LANGS) out[`${f}_${l}`] = s[`${f}_${l}`] || '';
+  for (const l of LANGS) out[`html_${l}`] = s[`html_${l}`] || '';
   return out;
 }
 
@@ -79,7 +89,54 @@ const payload = (s: State) => ({
 const snapshot = (s: State) => JSON.stringify(payload(s));
 
 function isVisible(s: Slide, today: string) {
-  return s.is_active && !!s.image_url && (!s.starts_on || today >= s.starts_on) && (!s.ends_on || today <= s.ends_on);
+  const content = s.kind === 'html' ? hasCode(s) : !!s.image_url;
+  return s.is_active && content && (!s.starts_on || today >= s.starts_on) && (!s.ends_on || today <= s.ends_on);
+}
+
+/* ── « Code HTML » : ce que le code référence ─────────────────── */
+
+/** Images du code : src, srcset, poster et url(…) du CSS, sans doublon. */
+function codeImages(html: string): string[] {
+  const out: string[] = [];
+  const add = (u: string) => { const v = u.trim(); if (v && !out.includes(v)) out.push(v); };
+  const re = /\b(?:src|poster)\s*=\s*(["'])(.*?)\1|url\(\s*(["']?)([^"')]+)\3\s*\)|\bsrcset\s*=\s*(["'])(.*?)\5/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    if (m[2] != null) add(m[2]);
+    else if (m[4] != null) add(m[4]);
+    else if (m[6] != null) m[6].split(',').forEach(p => add(p.trim().split(/\s+/)[0] || ''));
+  }
+  return out;
+}
+/** Une image du code déjà en ligne (adresse complète, /media/…, intégrée), ou à envoyer. */
+const imageEnLigne = (u: string) => /^(https?:\/\/|\/|data:image\/)/i.test(u);
+
+/** Liens du code, avec la position de leur adresse pour la remplacer sur place. */
+function codeLinks(html: string): { href: string; text: string; start: number; end: number }[] {
+  const out: { href: string; text: string; start: number; end: number }[] = [];
+  const re = /<a\b([^>]*?)\bhref\s*=\s*(["'])(.*?)\2([^>]*)>([\s\S]*?)<\/a\s*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const start = m.index + m[0].indexOf(m[2] + m[3] + m[2]) + 1;
+    out.push({ href: m[3], text: plain(m[5]).slice(0, 60), start, end: start + m[3].length });
+  }
+  return out;
+}
+
+/** Taille du design : la première largeur et hauteur en px de 3-4 chiffres du code. */
+function detectSize(html: string): { w: number; h: number } | null {
+  const w = /\bwidth\s*:\s*(\d{3,4})px/i.exec(html);
+  const h = /\bheight\s*:\s*(\d{3,4})px/i.exec(html);
+  return w && h ? { w: +w[1], h: +h[1] } : null;
+}
+
+/** Document du cadre isolé — même construction que la vitrine (js/hero-carousel.js). */
+function frameDoc(html: string): string {
+  const h = (html || '').replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
+  const head = '<meta charset="utf-8"><base target="_top"><style>html,body{margin:0;height:100%;overflow:hidden}</style>';
+  if (/<head[\s>]/i.test(h)) return h.replace(/<head([^>]*)>/i, `<head$1>${head}`);
+  if (/<html[\s>]/i.test(h)) return h.replace(/<html([^>]*)>/i, `<html$1><head>${head}</head>`);
+  return `<!doctype html><html><head>${head}</head><body>${h}</body></html>`;
 }
 
 /** Même règle que la vitrine : on n'interprète que <em> et <br>. */
@@ -172,7 +229,8 @@ export default function BannierePage() {
   /* ── Erreurs bloquantes, nommées par diapositive ─────────────── */
   function slideErrors(s: Slide): string[] {
     const e: string[] = [];
-    if (!s.image_url.trim()) e.push(t('imageRequise'));
+    if (s.kind === 'html') { if (!hasCode(s)) e.push(t('codeRequis')); }
+    else if (!s.image_url.trim()) e.push(t('imageRequise'));
     if (hasCopy(s.kind) && !LANGS.some(l => plain(s[`title_${l}`]))) e.push(t('titreRequis'));
     if (s.starts_on && s.ends_on && s.starts_on > s.ends_on) e.push(t('finAvantDebut'));
     return e;
@@ -245,6 +303,7 @@ export default function BannierePage() {
 
   function slideName(s: Slide): string {
     if (hasCopy(s.kind)) return plain(txt(s, 'title', lang)) || t('sansTitre');
+    if (s.kind === 'html') return plain(txt(s, 'alt', lang)) || t('kindHtml');
     if (s.kind === 'image') return plain(txt(s, 'alt', lang)) || s.image_url.split('/').pop()?.slice(0, 48) || t('sansTitre');
     return t('texteAccueil');
   }
@@ -402,7 +461,10 @@ export default function BannierePage() {
                           backgroundImage: s.image_url ? `url("${s.image_url.replace(/"/g, '%22')}")` : undefined,
                           backgroundSize: 'cover', backgroundPosition: 'center',
                           opacity: isVisible(s, today) ? 1 : .55,
-                        }} />
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {!s.image_url && s.kind === 'html' && <span className="ms" aria-hidden="true" style={{ fontSize: 18, color: T.muted }}>code</span>}
+                        </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 500, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {slideName(s)}
@@ -507,10 +569,10 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
         <div style={sub}>{t(K.desc)}</div>
       </div>
 
-      {/* Fond de la bannière promo */}
-      {s.kind === 'split' && (
+      {/* Fond de la bannière promo, ou autour d'un design de taille fixe */}
+      {(s.kind === 'split' || (s.kind === 'html' && s.html_fit === 'contain')) && (
         <div>
-          <div className="sc-label">{t('fond')}</div>
+          <div className="sc-label">{t(s.kind === 'html' ? 'fondAutour' : 'fond')}</div>
           <div role="radiogroup" aria-label={t('fond')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {THEMES.map(th => (
               <button key={th} role="radio" aria-checked={s.theme === th}
@@ -523,11 +585,14 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
         </div>
       )}
 
+      {s.kind === 'html' ? (
+        <HtmlEditor s={s} lang={lang} setLang={setLang} t={t} onChange={onChange} onPick={onPick} onError={onError} />
+      ) : (<>
       {/* Images, avec la taille conseillée pour CE type */}
       <div>
         <div className="sc-label">{t('image')}</div>
         <ImageField value={s.image_url} onChange={v => onChange({ image_url: v })} t={t} onPick={onPick} onError={onError} />
-        <div style={sub}>{t(K.size)}</div>
+        {K.size && <div style={sub}>{t(K.size)}</div>}
       </div>
       {K.sizeMobile && (
         <div>
@@ -612,6 +677,7 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
           <div style={sub}>{t('lien2Aide')}</div>
         </div>
       )}
+      </>)}
 
       {/* Période */}
       <div>
@@ -642,6 +708,226 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══ « Code HTML » : le code, ses images, ses liens, sa taille ════
+   On colle le code d'un design ; les images qu'il référence par un nom
+   de fichier (« photo.jpg ») sont listées pour être envoyées, et leur
+   adresse en ligne remplace le nom dans le code, dans toutes les
+   langues. Les liens du code se changent ici sans toucher au code. */
+
+const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+function HtmlEditor({ s, lang, setLang, t, onChange, onPick, onError }: {
+  s: Slide; lang: Lang; setLang: (l: Lang) => void; t: TFn;
+  onChange: (patch: Partial<Slide>) => void;
+  onPick: (cb: (url: string) => void) => void; onError: (m: string) => void;
+}) {
+  const code = s[`html_${lang}`] || '';
+  const setCode = (v: string) => onChange({ [`html_${lang}`]: v });
+  const ref = codeOf(s, lang);   // langue sans code : la vitrine reprend le français
+  const images = codeImages(ref);
+  const aEnvoyer = images.filter(u => !imageEnLigne(u)).length;
+  const links = codeLinks(code);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pending = useRef<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const sub: React.CSSProperties = { fontSize: 10.5, color: T.muted, marginTop: 4, lineHeight: 1.5 };
+
+  // Le même design dans toutes les langues : une image se remplace partout.
+  function replaceImage(from: string, to: string) {
+    const patch: Record<string, string> = {};
+    for (const l of LANGS) {
+      const h: string = s[`html_${l}`] || '';
+      if (h.includes(from)) patch[`html_${l}`] = h.split(from).join(to);
+    }
+    onChange(patch);
+  }
+
+  async function upload(file: File) {
+    const from = pending.current;
+    if (!from) return;
+    setBusy(from);
+    try { replaceImage(from, await uploadImage(file)); }
+    catch (e: any) { onError(e?.message || ''); }
+    finally { setBusy(null); if (fileRef.current) fileRef.current.value = ''; }
+  }
+
+  function setHref(i: number, href: string) {
+    const L = codeLinks(code)[i];
+    if (L) setCode(code.slice(0, L.start) + href.replace(/"/g, '%22') + code.slice(L.end));
+  }
+
+  function detect() {
+    const d = detectSize(ref);
+    if (d) onChange({ html_width: d.w, html_height: d.h });
+    else onError(t('tailleIntrouvable'));
+  }
+
+  return (
+    <>
+      {/* Le code, par langue */}
+      <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, background: '#fff', padding: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.text2b }}>{t('codeEn')}</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {LANGS.map(l => (
+              <button key={l} className={`sc-chip${lang === l ? ' on' : ''}`} style={{ height: 26, padding: '0 9px', fontSize: 11 }}
+                      aria-pressed={lang === l} onClick={() => setLang(l)}>{l.toUpperCase()}</button>
+            ))}
+          </div>
+        </div>
+        <label className="sc-label" htmlFor={`code-${s.key}`}>{t('codeHtml')}</label>
+        <textarea id={`code-${s.key}`} className="sc-input sc-textarea" rows={12} spellCheck={false} value={code}
+                  placeholder={lang === 'fr' ? t('phCode') : t('phCodeLangue')}
+                  style={{ fontFamily: MONO, fontSize: 11.5, lineHeight: 1.5, whiteSpace: 'pre', overflowX: 'auto' }}
+                  onChange={e => setCode(e.target.value)} />
+        <div style={sub}>{t('codeAide')} <span className="sc-num">({Math.round(code.length / 1000)} ko / 150)</span></div>
+        <div style={{ marginTop: 10 }}>
+          <label className="sc-label" htmlFor={`alt-${s.key}`}>{t('alt')}</label>
+          <input id={`alt-${s.key}`} className="sc-input" value={s[`alt_${lang}`] || ''} maxLength={200}
+                 placeholder={lang === 'fr' ? '' : txt(s, 'alt', 'fr')} onChange={e => onChange({ [`alt_${lang}`]: e.target.value })} />
+          <div style={sub}>{t('altAideHtml')}</div>
+        </div>
+      </div>
+
+      {/* Images du code */}
+      {images.length > 0 && (
+        <div>
+          <div className="sc-label">{t('imagesCode')}</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {images.map(u => {
+              const ok = imageEnLigne(u);
+              return (
+                <div key={u} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 7,
+                  border: `1px solid ${ok ? T.border : '#EBD9B4'}`, background: ok ? '#fff' : BADGE.amber.bg, flexWrap: 'wrap',
+                }}>
+                  <div style={{
+                    width: 40, height: 28, borderRadius: 4, flexShrink: 0, background: T.borderFaint2,
+                    backgroundImage: ok && !u.startsWith('data:') ? `url("${u.replace(/"/g, '%22')}")` : undefined,
+                    backgroundSize: 'cover', backgroundPosition: 'center',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {(!ok || u.startsWith('data:')) && <span className="ms" aria-hidden="true" style={{ fontSize: 15, color: T.muted }}>image</span>}
+                  </div>
+                  <span title={u} style={{ flex: '1 1 140px', minWidth: 0, fontFamily: MONO, fontSize: 11, color: T.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {u.startsWith('data:') ? t('imageIntegree') : u}
+                  </span>
+                  <span className="sc-badge" style={{ background: ok ? BADGE.green.bg : '#fff', color: ok ? BADGE.green.fg : BADGE.amber.fg }}>
+                    {t(ok ? 'imageOk' : 'imageAEnvoyer')}
+                  </span>
+                  <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px' }} disabled={busy === u}
+                          onClick={() => { pending.current = u; fileRef.current?.click(); }}>
+                    <span className="ms">upload</span>{busy === u ? t('envoi') : t(ok ? 'remplacer' : 'envoyer')}
+                  </button>
+                  <button className="sc-iconbtn" style={{ width: 30, height: 30 }} aria-label={`${t('mediatheque')} — ${u.slice(0, 40)}`}
+                          onClick={() => onPick(url => replaceImage(u, url))}>
+                    <span className="ms">perm_media</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ ...sub, color: aEnvoyer ? BADGE.amber.fg : T.muted }}>{t(aEnvoyer ? 'imagesCodeAide' : 'imagesCodeOk')}</div>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+                 onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
+        </div>
+      )}
+
+      {/* Liens du code : les boutons du design */}
+      {links.length > 0 && (
+        <div>
+          <div className="sc-label">{t('liensCode')}</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {links.map((L, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ flex: '0 1 34%', minWidth: 90, fontSize: 12, color: T.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {L.text || '—'}
+                </span>
+                <input className="sc-input" style={{ flex: '1 1 180px' }} value={L.href} placeholder={t('phLien')}
+                       aria-label={`${t('lien')} — ${L.text}`} onChange={e => setHref(i, e.target.value)} />
+              </div>
+            ))}
+          </div>
+          <div style={sub}>{t('liensCodeAide')}</div>
+        </div>
+      )}
+
+      {/* Taille du design */}
+      <div>
+        <div className="sc-label">{t('tailleDesign')}</div>
+        <div role="radiogroup" aria-label={t('tailleDesign')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {(['contain', 'fill'] as const).map(f => (
+            <button key={f} role="radio" aria-checked={s.html_fit === f}
+                    className={`sc-chip${s.html_fit === f ? ' on' : ''}`} onClick={() => onChange({ html_fit: f })}>
+              <span className="ms" style={{ fontSize: 16 }}>{f === 'fill' ? 'fit_screen' : 'aspect_ratio'}</span>
+              {t(f === 'fill' ? 'adaptatif' : 'tailleFixe')}
+            </button>
+          ))}
+        </div>
+        <div style={sub}>{t(s.html_fit === 'fill' ? 'adaptatifDesc' : 'tailleFixeDesc')}</div>
+        {s.html_fit === 'contain' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap', fontSize: 12, color: T.text2 }}>
+            <input type="number" className="sc-input sc-num" style={{ width: 84, height: 30 }} min={320} max={4000}
+                   aria-label={t('largeur')} value={s.html_width} onChange={e => onChange({ html_width: Number(e.target.value) || 0 })} />
+            ×
+            <input type="number" className="sc-input sc-num" style={{ width: 84, height: 30 }} min={200} max={4000}
+                   aria-label={t('hauteur')} value={s.html_height} onChange={e => onChange({ html_height: Number(e.target.value) || 0 })} />
+            px
+            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px' }} onClick={detect}>
+              <span className="ms">straighten</span>{t('detecter')}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Téléphone : une image à la place du design, souvent plus lisible */}
+      <div>
+        <div className="sc-label">{t('imageMobile')}</div>
+        <ImageField value={s.image_mobile_url} onChange={v => onChange({ image_mobile_url: v })} t={t} onPick={onPick} onError={onError} portrait />
+        <div style={sub}>{t('tailleHtmlMobile')}</div>
+        {s.image_mobile_url && (
+          <div style={{ marginTop: 8 }}>
+            <label className="sc-label" htmlFor={`lnm-${s.key}`}>{t('lienTel')}</label>
+            <input id={`lnm-${s.key}`} className="sc-input" value={s.link_url} placeholder={t('phLien')}
+                   onChange={e => onChange({ link_url: e.target.value })} />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* Code HTML en miniature : le design dans un cadre isolé (aucun script,
+   aucun lien actif dans l'aperçu), aux proportions réelles du hero. */
+function HtmlPreview({ s, lang, phone }: { s: Slide; lang: Lang; phone: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [bw, setBw] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBw(el.clientWidth));
+    ro.observe(el);
+    setBw(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const th = THEME_PREVIEW[s.theme] || THEME_PREVIEW.moss;
+  if (phone && s.image_mobile_url) {
+    return <div style={{ position: 'absolute', inset: 0, background: `center / cover no-repeat url("${s.image_mobile_url.replace(/"/g, '%22')}")` }} />;
+  }
+  const VW = phone ? 375 : 1440, VH = phone ? 716 : 748;
+  const fill = s.html_fit === 'fill';
+  const W = fill ? VW : (s.html_width || 1920), H = fill ? VH : (s.html_height || 720);
+  const sc = fill ? 1 : Math.min(VW / W, VH / H);
+  return (
+    <div ref={box} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: th.bg }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, width: VW, height: VH, transform: `scale(${bw / VW || 0})`, transformOrigin: '0 0' }}>
+        <iframe title="" sandbox="" srcDoc={frameDoc(codeOf(s, lang))} tabIndex={-1}
+                style={{ position: 'absolute', left: '50%', top: '50%', width: W, height: H, border: 0, pointerEvents: 'none', transform: `translate(-50%, -50%) scale(${sc})` }} />
+      </div>
     </div>
   );
 }
@@ -750,11 +1036,13 @@ function HeroPreview({ slides, interval, lang, setLang, defaults, accent, captio
           const src = (phone && s.image_mobile_url) || s.image_url;
           const on = i === idx % slides.length;
           const custom = s.kind === 'custom';
-          if (s.kind === 'split') {
+          if (s.kind === 'split' || s.kind === 'html') {
             return (
               <div key={s.key} aria-hidden={!on}
                    style={{ position: 'absolute', inset: 0, opacity: on ? 1 : 0, transition: 'opacity .9s ease' }}>
-                <SplitPreview s={s} src={src} lang={lang} phone={phone} t={t} />
+                {s.kind === 'split'
+                  ? <SplitPreview s={s} src={src} lang={lang} phone={phone} t={t} />
+                  : <HtmlPreview s={s} lang={lang} phone={phone} />}
               </div>
             );
           }

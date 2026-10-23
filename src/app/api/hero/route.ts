@@ -15,13 +15,15 @@ import { supabaseAdmin } from '@/lib/supabase';
 
    Réglages dans cms_home (hero_mode, hero_interval, hero_image) pour
    que l'image fixe reste celle de « Textes d'accueil ». Diapositives
-   dans home_slides (migrations 058, 059 pour « Bannière promo »).
+   dans home_slides (migrations 058, 059 « Bannière promo », 061 « Code HTML »).
    ═══════════════════════════════════════════════════════════════ */
 
 const LANGS = ['fr', 'en', 'sv'] as const;
 const TEXTS = ['alt', 'eyebrow', 'title', 'tagline', 'subtitle', 'cta_label', 'cta2_label'] as const;
-const KINDS = ['default', 'custom', 'image', 'split'] as const;
+const KINDS = ['default', 'custom', 'image', 'split', 'html'] as const;
 const THEMES = ['moss', 'ink', 'sand'] as const;
+const FITS = ['contain', 'fill'] as const;
+const HTML_MAX = 150_000;   // ~150 ko par langue : un design, pas des images intégrées en base64
 const MAX_LEN: Record<(typeof TEXTS)[number], number> = { alt: 200, eyebrow: 80, title: 160, tagline: 120, subtitle: 400, cta_label: 40, cta2_label: 40 };
 
 const INTERVAL_MIN = 3;
@@ -31,7 +33,9 @@ const MAX_SLIDES = 12;
 
 const PUBLIC_COLUMNS = [
   'id', 'kind', 'theme', 'image_url', 'image_mobile_url', 'link_url', 'link2_url', 'starts_on', 'ends_on',
+  'html_fit', 'html_width', 'html_height',
   ...TEXTS.flatMap(f => LANGS.map(l => `${f}_${l}`)),
+  ...LANGS.map(l => `html_${l}`),
 ].join(',');
 
 /** Date du jour à Paris : une promo « jusqu'au 31 » doit tenir jusqu'à
@@ -101,11 +105,27 @@ function cleanDay(v: unknown): string | null {
   return DAY.test(s) ? s : null;
 }
 
+/** Code d'un design collé dans « Code HTML ». La vraie protection est le
+ *  cadre sandbox de la vitrine (aucun script n'y tourne, aucun accès aux
+ *  cookies ni au panier) ; on retire quand même ici ce qui n'a rien à faire
+ *  dans une bannière, pour ne pas garder de code actif en base. */
+function cleanHtml(v: unknown): string {
+  return String(v ?? '').trim()
+    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+    .replace(/<\/?(script|iframe|object|embed|frame|frameset|applet|form|base|portal)\b[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*http-equiv[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // Liens : page du site ou http(s). Images : en plus, data:image/ (images intégrées).
+    .replace(/\b(href|action|formaction|xlink:href)\s*=\s*(["']?)\s*(javascript|vbscript|data):/gi, '$1=$2#')
+    .replace(/\b(src|srcset|poster)\s*=\s*(["']?)\s*(javascript|vbscript|data:(?!image\/))/gi, '$1=$2#');
+}
+
 function normaliseSlide(raw: any, i: number): { row?: Record<string, any>; error?: string } {
   const n = i + 1;
   const kind = KINDS.includes(raw?.kind) ? raw.kind : 'default';
   const image_url = cleanImage(raw?.image_url);
-  if (!image_url) return { error: `Diapositive ${n} : image manquante ou adresse invalide.` };
+  // « Code HTML » porte ses images dans son code : la photo n'y est qu'une vignette facultative.
+  if (!image_url && kind !== 'html') return { error: `Diapositive ${n} : image manquante ou adresse invalide.` };
 
   const row: Record<string, any> = {
     sort_order: i,
@@ -129,6 +149,23 @@ function normaliseSlide(raw: any, i: number): { row?: Record<string, any>; error
   }
   if ((kind === 'custom' || kind === 'split') && !LANGS.some(l => row[`title_${l}`])) {
     return { error: `Diapositive ${n} : ${kind === 'split' ? 'une bannière promo' : 'un texte propre'} demande au moins un titre.` };
+  }
+  const int = (v: unknown, min: number, max: number, def: number) => {
+    const x = parseInt(String(v ?? ''), 10);
+    return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : def;
+  };
+  row.html_fit = FITS.includes(raw?.html_fit) ? raw.html_fit : 'contain';
+  row.html_width = int(raw?.html_width, 320, 4000, 1920);
+  row.html_height = int(raw?.html_height, 200, 4000, 720);
+  for (const l of LANGS) {
+    const h = kind === 'html' ? cleanHtml(raw?.[`html_${l}`]) : '';
+    if (h.length > HTML_MAX) {
+      return { error: `Diapositive ${n} : code ${l.toUpperCase()} trop long (${Math.round(h.length / 1000)} ko, ${HTML_MAX / 1000} ko au plus). Remplacez les images intégrées par des images envoyées.` };
+    }
+    row[`html_${l}`] = h || null;
+  }
+  if (kind === 'html' && !LANGS.some(l => row[`html_${l}`])) {
+    return { error: `Diapositive ${n} : collez le code HTML du design.` };
   }
   if (typeof raw?.id === 'string' && UUID.test(raw.id)) row.id = raw.id;
   return { row };
