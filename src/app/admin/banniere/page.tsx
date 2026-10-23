@@ -15,22 +15,43 @@ import { TBA } from './i18n';
    n'est visible. Données : GET/PUT /api/hero.
    ═══════════════════════════════════════════════════════════════ */
 
-type Kind = 'default' | 'custom' | 'image';
+type Kind = 'default' | 'custom' | 'split' | 'image';
+type Theme = 'moss' | 'ink' | 'sand';
 type Lang = 'fr' | 'en' | 'sv';
 type Mode = 'image' | 'carousel';
 const LANGS: Lang[] = ['fr', 'en', 'sv'];
-const TEXTS = ['alt', 'eyebrow', 'title', 'subtitle', 'cta_label'] as const;
-const KINDS: Kind[] = ['default', 'custom', 'image'];
+const TEXTS = ['alt', 'eyebrow', 'title', 'tagline', 'subtitle', 'cta_label', 'cta2_label'] as const;
+const KINDS: Kind[] = ['default', 'custom', 'split', 'image'];
+const THEMES: Theme[] = ['moss', 'ink', 'sand'];
 const MAX_SLIDES = 12;
 const INTERVAL_MIN = 3, INTERVAL_MAX = 20;
 
+/* Fonds de la bannière promo, pour l'aperçu seulement : sur le site ils
+   dérivent des couleurs de la marque (variables CSS du white-label). */
+const THEME_PREVIEW: Record<Theme, { bg: string; fg: string; btn: string; btnFg: string }> = {
+  moss: { bg: '#364430', fg: '#FEFCF7', btn: '#FEFCF7', btnFg: '#1B2118' },
+  ink:  { bg: '#1B2118', fg: '#FEFCF7', btn: '#FEFCF7', btnFg: '#1B2118' },
+  sand: { bg: '#E9DDCF', fg: '#1B2118', btn: '#4E6651', btnFg: '#FFFFFF' },
+};
+
 type Slide = {
   key: string; id?: string;
-  is_active: boolean; kind: Kind;
-  image_url: string; image_mobile_url: string; link_url: string;
+  is_active: boolean; kind: Kind; theme: Theme;
+  image_url: string; image_mobile_url: string; link_url: string; link2_url: string;
   starts_on: string; ends_on: string;
   [texte: string]: any;   // `${champ}_${langue}` : title_fr, alt_sv…
 };
+
+/** Texte ou bannière : les deux portent un titre, des boutons et des liens. */
+const hasCopy = (k: Kind) => k === 'custom' || k === 'split';
+
+/** Libellés, icône et dimensions conseillées de chaque type (clés de i18n.ts). */
+const KIND_KEYS = {
+  default: { label: 'kindDefault', desc: 'kindDefaultDesc', icon: 'home',          size: 'tailleDefault', sizeMobile: '' },
+  custom:  { label: 'kindCustom',  desc: 'kindCustomDesc',  icon: 'title',         size: 'tailleCustom',  sizeMobile: '' },
+  split:   { label: 'kindSplit',   desc: 'kindSplitDesc',   icon: 'vertical_split', size: 'tailleSplit',  sizeMobile: 'tailleSplitMobile' },
+  image:   { label: 'kindImage',   desc: 'kindImageDesc',   icon: 'wallpaper',     size: 'tailleImage',   sizeMobile: 'tailleImageMobile' },
+} as const;
 type State = { mode: Mode; interval: number; image: string; slides: Slide[] };
 type HeroDefaults = Record<'eyebrow' | 'title' | 'subtitle' | 'cta1' | 'cta2', Record<Lang, string>>;
 
@@ -42,7 +63,9 @@ function fromApi(s: any): Slide {
     key: s.id || newKey(), id: s.id,
     is_active: s.is_active !== false,
     kind: KINDS.includes(s.kind) ? s.kind : 'default',
-    image_url: s.image_url || '', image_mobile_url: s.image_mobile_url || '', link_url: s.link_url || '',
+    theme: THEMES.includes(s.theme) ? s.theme : 'moss',
+    image_url: s.image_url || '', image_mobile_url: s.image_mobile_url || '',
+    link_url: s.link_url || '', link2_url: s.link2_url || '',
     starts_on: (s.starts_on || '').slice(0, 10), ends_on: (s.ends_on || '').slice(0, 10),
   };
   for (const f of TEXTS) for (const l of LANGS) out[`${f}_${l}`] = s[`${f}_${l}`] || '';
@@ -150,7 +173,7 @@ export default function BannierePage() {
   function slideErrors(s: Slide): string[] {
     const e: string[] = [];
     if (!s.image_url.trim()) e.push(t('imageRequise'));
-    if (s.kind === 'custom' && !LANGS.some(l => plain(s[`title_${l}`]))) e.push(t('titreRequis'));
+    if (hasCopy(s.kind) && !LANGS.some(l => plain(s[`title_${l}`]))) e.push(t('titreRequis'));
     if (s.starts_on && s.ends_on && s.starts_on > s.ends_on) e.push(t('finAvantDebut'));
     return e;
   }
@@ -221,12 +244,12 @@ export default function BannierePage() {
   }
 
   function slideName(s: Slide): string {
-    if (s.kind === 'custom') return plain(txt(s, 'title', lang)) || t('sansTitre');
+    if (hasCopy(s.kind)) return plain(txt(s, 'title', lang)) || t('sansTitre');
     if (s.kind === 'image') return plain(txt(s, 'alt', lang)) || s.image_url.split('/').pop()?.slice(0, 48) || t('sansTitre');
     return t('texteAccueil');
   }
 
-  const kindLabel = (k: Kind) => t(k === 'custom' ? 'kindCustom' : k === 'image' ? 'kindImage' : 'kindDefault');
+  const kindLabel = (k: Kind) => t(KIND_KEYS[k].label);
   const visibles = state.slides.filter(s => isVisible(s, today));
   // En mode image fixe, la liste est masquée : l'aperçu montre l'image fixe.
   const openSlide = state.mode === 'carousel' ? state.slides.find(s => s.key === open) || null : null;
@@ -387,7 +410,7 @@ export default function BannierePage() {
                           <div style={{ display: 'flex', gap: 5, marginTop: 3, flexWrap: 'wrap', minWidth: 0 }}>
                             <span className="sc-badge" title={st.label} style={{ ...fitBadge, background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>{st.label}</span>
                             {s.kind !== 'default' && (
-                              <span className="sc-badge" style={{ ...fitBadge, background: s.kind === 'custom' ? BADGE.plum.bg : BADGE.gray.bg, color: s.kind === 'custom' ? BADGE.plum.fg : BADGE.gray.fg }}>{kindLabel(s.kind)}</span>
+                              <span className="sc-badge" style={{ ...fitBadge, background: hasCopy(s.kind) ? BADGE.plum.bg : BADGE.gray.bg, color: hasCopy(s.kind) ? BADGE.plum.fg : BADGE.gray.fg }}>{kindLabel(s.kind)}</span>
                             )}
                             {errs.length > 0 && (
                               <span className="sc-badge" title={errs[0]} style={{ ...fitBadge, background: BADGE.red.bg, color: BADGE.red.fg }}>{errs[0]}</span>
@@ -463,7 +486,7 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
 }) {
   const field = (champ: string) => s[`${champ}_${lang}`] || '';
   const setField = (champ: string, v: string) => onChange({ [`${champ}_${lang}`]: v });
-  const kindDesc = s.kind === 'custom' ? 'kindCustomDesc' : s.kind === 'image' ? 'kindImageDesc' : 'kindDefaultDesc';
+  const K = KIND_KEYS[s.kind];
   const dateError = s.starts_on && s.ends_on && s.starts_on > s.ends_on;
   const sub: React.CSSProperties = { fontSize: 10.5, color: T.muted, marginTop: 4, lineHeight: 1.5 };
 
@@ -476,25 +499,41 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
           {KINDS.map(k => (
             <button key={k} role="radio" aria-checked={s.kind === k}
                     className={`sc-chip${s.kind === k ? ' on' : ''}`} onClick={() => onChange({ kind: k })}>
-              <span className="ms" style={{ fontSize: 16 }}>{k === 'custom' ? 'title' : k === 'image' ? 'wallpaper' : 'home'}</span>
-              {t(k === 'custom' ? 'kindCustom' : k === 'image' ? 'kindImage' : 'kindDefault')}
+              <span className="ms" style={{ fontSize: 16 }}>{KIND_KEYS[k].icon}</span>
+              {t(KIND_KEYS[k].label)}
             </button>
           ))}
         </div>
-        <div style={sub}>{t(kindDesc)}</div>
+        <div style={sub}>{t(K.desc)}</div>
       </div>
 
-      {/* Images */}
+      {/* Fond de la bannière promo */}
+      {s.kind === 'split' && (
+        <div>
+          <div className="sc-label">{t('fond')}</div>
+          <div role="radiogroup" aria-label={t('fond')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {THEMES.map(th => (
+              <button key={th} role="radio" aria-checked={s.theme === th}
+                      className={`sc-chip${s.theme === th ? ' on' : ''}`} onClick={() => onChange({ theme: th })}>
+                <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: THEME_PREVIEW[th].bg, border: '1px solid rgba(0,0,0,.15)' }} />
+                {t(th === 'moss' ? 'fondMousse' : th === 'ink' ? 'fondEncre' : 'fondSable')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Images, avec la taille conseillée pour CE type */}
       <div>
         <div className="sc-label">{t('image')}</div>
         <ImageField value={s.image_url} onChange={v => onChange({ image_url: v })} t={t} onPick={onPick} onError={onError} />
-        <div style={sub}>{t('imageAide')}</div>
+        <div style={sub}>{t(K.size)}</div>
       </div>
-      {s.kind === 'image' && (
+      {K.sizeMobile && (
         <div>
           <div className="sc-label">{t('imageMobile')}</div>
           <ImageField value={s.image_mobile_url} onChange={v => onChange({ image_mobile_url: v })} t={t} onPick={onPick} onError={onError} portrait />
-          <div style={sub}>{t('imageMobileAide')}</div>
+          <div style={sub}>{t(K.sizeMobile)}</div>
         </div>
       )}
 
@@ -510,7 +549,7 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
           </div>
         </div>
         <div style={{ display: 'grid', gap: 10 }}>
-          {s.kind === 'custom' && (
+          {hasCopy(s.kind) && (
             <>
               <div>
                 <label className="sc-label" htmlFor={`eb-${s.key}`}>{t('surtitre')}</label>
@@ -523,8 +562,15 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
                        placeholder={lang === 'fr' ? t('phTitre') : plain(txt(s, 'title', 'fr'))} onChange={e => setField('title', e.target.value)} />
                 <div style={sub}>{t('titreAide')}</div>
               </div>
+              {s.kind === 'split' && (
+                <div>
+                  <label className="sc-label" htmlFor={`tg-${s.key}`}>{t('accroche')}</label>
+                  <input id={`tg-${s.key}`} className="sc-input" value={field('tagline')} maxLength={120}
+                         placeholder={lang === 'fr' ? t('phAccroche') : txt(s, 'tagline', 'fr')} onChange={e => setField('tagline', e.target.value)} />
+                </div>
+              )}
               <div>
-                <label className="sc-label" htmlFor={`st-${s.key}`}>{t('sousTitreChamp')}</label>
+                <label className="sc-label" htmlFor={`st-${s.key}`}>{t(s.kind === 'split' ? 'texteChamp' : 'sousTitreChamp')}</label>
                 <textarea id={`st-${s.key}`} className="sc-input sc-textarea" rows={2} value={field('subtitle')} maxLength={400}
                           placeholder={lang === 'fr' ? '' : txt(s, 'subtitle', 'fr')} onChange={e => setField('subtitle', e.target.value)} />
               </div>
@@ -532,6 +578,11 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
                 <label className="sc-label" htmlFor={`cta-${s.key}`}>{t('bouton')}</label>
                 <input id={`cta-${s.key}`} className="sc-input" value={field('cta_label')} maxLength={40}
                        placeholder={lang === 'fr' ? t('phBouton') : txt(s, 'cta_label', 'fr')} onChange={e => setField('cta_label', e.target.value)} />
+              </div>
+              <div>
+                <label className="sc-label" htmlFor={`cta2-${s.key}`}>{t('bouton2')}</label>
+                <input id={`cta2-${s.key}`} className="sc-input" value={field('cta2_label')} maxLength={40}
+                       placeholder={lang === 'fr' ? t('phBouton2') : txt(s, 'cta2_label', 'fr')} onChange={e => setField('cta2_label', e.target.value)} />
               </div>
             </>
           )}
@@ -551,6 +602,14 @@ function SlideEditor({ s, idx, count, lang, setLang, t, onChange, onMove, onPick
           <input id={`ln-${s.key}`} className="sc-input" value={s.link_url} placeholder={t('phLien')}
                  onChange={e => onChange({ link_url: e.target.value })} />
           <div style={sub}>{t(s.kind === 'image' ? 'lienAideImage' : 'lienAideCustom')}</div>
+        </div>
+      )}
+      {hasCopy(s.kind) && (
+        <div>
+          <label className="sc-label" htmlFor={`ln2-${s.key}`}>{t('lien2')}</label>
+          <input id={`ln2-${s.key}`} className="sc-input" value={s.link2_url} placeholder={t('phLien2')}
+                 onChange={e => onChange({ link2_url: e.target.value })} />
+          <div style={sub}>{t('lien2Aide')}</div>
         </div>
       )}
 
@@ -684,12 +743,21 @@ function HeroPreview({ slides, interval, lang, setLang, defaults, accent, captio
 
       <div style={{
         position: 'relative', overflow: 'hidden', borderRadius: 8, background: '#16091a',
-        aspectRatio: phone ? '9 / 16' : '16 / 10', width: phone ? 'min(100%, 230px)' : '100%', margin: '0 auto',
+        /* Proportions réelles du hero : un écran moins l'en-tête (1440 × 748, 375 × 716). */
+        aspectRatio: phone ? '375 / 716' : '1440 / 748', width: phone ? 'min(100%, 230px)' : '100%', margin: '0 auto',
       }}>
         {slides.map((s, i) => {
           const src = (phone && s.image_mobile_url) || s.image_url;
           const on = i === idx % slides.length;
           const custom = s.kind === 'custom';
+          if (s.kind === 'split') {
+            return (
+              <div key={s.key} aria-hidden={!on}
+                   style={{ position: 'absolute', inset: 0, opacity: on ? 1 : 0, transition: 'opacity .9s ease' }}>
+                <SplitPreview s={s} src={src} lang={lang} phone={phone} t={t} />
+              </div>
+            );
+          }
           return (
             <div key={s.key} aria-hidden={!on}
                  style={{ position: 'absolute', inset: 0, opacity: on ? 1 : 0, transition: 'opacity .9s ease' }}>
@@ -715,7 +783,10 @@ function HeroPreview({ slides, interval, lang, setLang, defaults, accent, captio
                     )}
                     <div style={{ display: 'flex', gap: 5 }}>
                       {custom
-                        ? (s.link_url && <PreviewBtn label={txt(s, 'cta_label', lang) || t('phBouton')} filled accent={emColor} />)
+                        ? <>
+                            {s.link_url && <PreviewBtn label={txt(s, 'cta_label', lang) || t('phBouton')} filled accent={emColor} />}
+                            {s.link2_url && <PreviewBtn label={txt(s, 'cta2_label', lang)} accent={emColor} />}
+                          </>
                         : <><PreviewBtn label={d('cta1')} filled accent={emColor} /><PreviewBtn label={d('cta2')} accent={emColor} /></>}
                     </div>
                   </div>
@@ -741,6 +812,48 @@ function HeroPreview({ slides, interval, lang, setLang, defaults, accent, captio
         `}</style>
       </div>
       <div style={{ fontSize: 10.5, color: T.muted, marginTop: 8 }}>{t('apercuNote')}</div>
+    </div>
+  );
+}
+
+/* Bannière promo en miniature : fond de la marque à gauche (fondu dans la
+   photo), photo à droite ; sur téléphone, photo en haut et texte dessous. */
+function SplitPreview({ s, src, lang, phone, t }: { s: Slide; src: string; lang: Lang; phone: boolean; t: TFn }) {
+  const th = THEME_PREVIEW[s.theme] || THEME_PREVIEW.moss;
+  const fade = (dir: string) => `linear-gradient(${dir}, ${th.bg} 0%, ${th.bg} ${phone ? 78 : 62}%, transparent 100%)`;
+  const eyebrow = plain(txt(s, 'eyebrow', lang));
+  const tagline = plain(txt(s, 'tagline', lang));
+  const body = plain(txt(s, 'subtitle', lang));
+  const cta1 = s.link_url ? plain(txt(s, 'cta_label', lang)) || t('phBouton') : '';
+  const cta2 = s.link2_url ? plain(txt(s, 'cta2_label', lang)) : '';
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: th.bg, color: th.fg }}>
+      {src && (
+        <div style={{
+          position: 'absolute', background: `center / cover no-repeat url("${src.replace(/"/g, '%22')}")`,
+          ...(phone ? { top: 0, left: 0, right: 0, height: '46%' } : { top: 0, bottom: 0, right: 0, width: '64%' }),
+        }} />
+      )}
+      <div style={{
+        position: 'absolute',
+        ...(phone ? { left: 0, right: 0, bottom: 0, height: '64%', background: fade('0deg') } : { top: 0, bottom: 0, left: 0, width: '54%', background: fade('90deg') }),
+      }} />
+      <div style={{
+        position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left',
+        ...(phone ? { left: '7%', right: '7%', bottom: '9%' } : { left: '6%', top: 0, bottom: 0, width: '42%', justifyContent: 'center' }),
+      }}>
+        {eyebrow && <div style={{ fontSize: 5.5, letterSpacing: 2, textTransform: 'uppercase', opacity: .85, marginBottom: 6 }}>{eyebrow}</div>}
+        <div className="sc-preview-title"
+             style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300, fontSize: phone ? 22 : 28, lineHeight: .97, letterSpacing: -.5, marginBottom: 4 }}
+             dangerouslySetInnerHTML={{ __html: richText(txt(s, 'title', lang)) || '&nbsp;' }} />
+        {tagline && <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontStyle: 'italic', fontSize: phone ? 10 : 11, opacity: .9, marginBottom: 6 }}>{tagline}</div>}
+        <div style={{ width: 20, height: 1, background: th.fg, opacity: .4, marginBottom: 6 }} />
+        {body && <div style={{ fontSize: 6, lineHeight: 1.6, opacity: .88, marginBottom: 8 }}>{body.slice(0, 160)}</div>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {cta1 && <span style={{ fontSize: 5, letterSpacing: 1.2, textTransform: 'uppercase', padding: '5px 9px', background: th.btn, color: th.btnFg, whiteSpace: 'nowrap' }}>{cta1}</span>}
+          {cta2 && <span style={{ fontSize: 5, letterSpacing: 1.2, textTransform: 'uppercase', borderBottom: `1px solid ${th.fg}`, paddingBottom: 1, whiteSpace: 'nowrap' }}>{cta2}</span>}
+        </div>
+      </div>
     </div>
   );
 }

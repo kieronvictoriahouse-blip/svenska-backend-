@@ -15,13 +15,14 @@ import { supabaseAdmin } from '@/lib/supabase';
 
    Réglages dans cms_home (hero_mode, hero_interval, hero_image) pour
    que l'image fixe reste celle de « Textes d'accueil ». Diapositives
-   dans home_slides (migration 058).
+   dans home_slides (migrations 058, 059 pour « Bannière promo »).
    ═══════════════════════════════════════════════════════════════ */
 
 const LANGS = ['fr', 'en', 'sv'] as const;
-const TEXTS = ['alt', 'eyebrow', 'title', 'subtitle', 'cta_label'] as const;
-const KINDS = ['default', 'custom', 'image'] as const;
-const MAX_LEN: Record<(typeof TEXTS)[number], number> = { alt: 200, eyebrow: 80, title: 160, subtitle: 400, cta_label: 40 };
+const TEXTS = ['alt', 'eyebrow', 'title', 'tagline', 'subtitle', 'cta_label', 'cta2_label'] as const;
+const KINDS = ['default', 'custom', 'image', 'split'] as const;
+const THEMES = ['moss', 'ink', 'sand'] as const;
+const MAX_LEN: Record<(typeof TEXTS)[number], number> = { alt: 200, eyebrow: 80, title: 160, tagline: 120, subtitle: 400, cta_label: 40, cta2_label: 40 };
 
 const INTERVAL_MIN = 3;
 const INTERVAL_MAX = 20;
@@ -29,7 +30,7 @@ const INTERVAL_DEFAULT = 5;
 const MAX_SLIDES = 12;
 
 const PUBLIC_COLUMNS = [
-  'id', 'kind', 'image_url', 'image_mobile_url', 'link_url', 'starts_on', 'ends_on',
+  'id', 'kind', 'theme', 'image_url', 'image_mobile_url', 'link_url', 'link2_url', 'starts_on', 'ends_on',
   ...TEXTS.flatMap(f => LANGS.map(l => `${f}_${l}`)),
 ].join(',');
 
@@ -110,9 +111,11 @@ function normaliseSlide(raw: any, i: number): { row?: Record<string, any>; error
     sort_order: i,
     is_active: raw?.is_active !== false,
     kind,
+    theme: THEMES.includes(raw?.theme) ? raw.theme : 'moss',
     image_url,
     image_mobile_url: cleanImage(raw?.image_mobile_url) || null,
     link_url: cleanLink(raw?.link_url),
+    link2_url: cleanLink(raw?.link2_url),
     starts_on: cleanDay(raw?.starts_on),
     ends_on: cleanDay(raw?.ends_on),
     updated_at: new Date().toISOString(),
@@ -124,8 +127,8 @@ function normaliseSlide(raw: any, i: number): { row?: Record<string, any>; error
   if (row.starts_on && row.ends_on && row.starts_on > row.ends_on) {
     return { error: `Diapositive ${n} : la date de fin précède la date de début.` };
   }
-  if (kind === 'custom' && !LANGS.some(l => row[`title_${l}`])) {
-    return { error: `Diapositive ${n} : un texte propre demande au moins un titre.` };
+  if ((kind === 'custom' || kind === 'split') && !LANGS.some(l => row[`title_${l}`])) {
+    return { error: `Diapositive ${n} : ${kind === 'split' ? 'une bannière promo' : 'un texte propre'} demande au moins un titre.` };
   }
   if (typeof raw?.id === 'string' && UUID.test(raw.id)) row.id = raw.id;
   return { row };
