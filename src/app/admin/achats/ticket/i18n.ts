@@ -37,6 +37,14 @@ export const TTI = {
   msgAucuneLigne: { fr: 'Aucune ligne', en: 'No line', sv: 'Ingen rad' },
   msgTaux: { fr: 'Renseigne le taux de change', en: 'Enter the exchange rate', sv: 'Ange växelkursen' },
   msgBrouillon: { fr: 'Brouillon enregistré', en: 'Draft saved', sv: 'Utkast sparat' },
+  // Téléphone
+  photo: { fr: 'Photo du ticket', en: 'Receipt photo', sv: 'Foto av kvittot' },
+  rapide: { fr: 'Saisie rapide', en: 'Quick entry', sv: 'Snabbinmatning' },
+  modifierContexte: { fr: 'Modifier', en: 'Edit', sv: 'Ändra' },
+  replier: { fr: 'Replier', en: 'Collapse', sv: 'Fäll ihop' },
+  brouillon: { fr: 'Brouillon', en: 'Draft', sv: 'Utkast' },
+  creer: { fr: 'Créer la commande & entrer en stock', en: 'Create the order & receive stock', sv: 'Skapa ordern & lägg in i lager' },
+  creation: { fr: 'Création…', en: 'Creating…', sv: 'Skapar…' },
 };
 
 export const lignesLues = (n: number, lang: string) =>

@@ -3,6 +3,8 @@ import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE } from '@/lib/admin-theme';
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
+import { minTextCss } from '@/components/SegTabs';
 import { TPA } from './i18n';
 
 type Block =
@@ -95,10 +97,46 @@ const css = `
     .badge-shown { background:#E9F0E6; color:#3E5238; }
     .badge-hidden { background:#F1EDE7; color:#857C71; }
     .block-card { background:#fff; border:1px solid ${TH.border}; border-radius:10px; padding:13px 15px; margin-bottom:8px; }
+    .pg-list { min-width:660px; }
+
+    /* Aperçus d'image : la classe n'était définie nulle part, une photo
+       de 1 800 px s'affichait en taille réelle et débordait de l'écran
+       (ordinateur compris). */
+    .img-preview { display:block; max-width:100%; max-height:180px; width:auto; height:auto; object-fit:cover; border-radius:8px; border:1px solid ${TH.border}; margin-top:8px; }
+
+    /* ═══ Téléphone ═══ */
+    @media (max-width: 899px) {
+      .pg-list { min-width:0; }
+      .pg-header { align-items:stretch; gap:8px; margin-bottom:10px; }
+      .pg-title { font-size:19px; }
+      .back-btn { display:inline-flex; align-items:center; gap:6px; min-height:44px; margin:-6px 0 0 -4px; padding:0 4px; border:none; background:none; color:${TH.text3}; font-size:14px; cursor:pointer; }
+      .pg-tabs { gap:0; margin-bottom:12px; }
+      .pg-tab { flex:1 1 0; min-height:46px; font-size:14.5px; }
+      .pg-section { padding:14px 12px; }
+      .pg-section-title { font-size:15px; font-weight:600; color:${TH.ink}; margin-bottom:12px; }
+      .block-card { padding:12px; }
+      .block-card-header { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+      .block-type-badge { font-size:14px; font-weight:600; color:${TH.ink}; }
+      .block-actions { display:flex; gap:6px; }
+      .block-actions .btn { min-width:44px; justify-content:center; }
+      .add-block-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+      .add-block-row .btn { flex:1 1 0; }
+      .btn { min-height:44px; font-size:14px; justify-content:center; }
+      .form-label { font-size:12.5px; }
+      .form-control { height:44px; font-size:16px; }
+      textarea.form-control { height:auto; min-height:96px; }
+      .form-hint { font-size:12px; }
+      .checkbox-row { display:flex; align-items:center; gap:10px; min-height:44px; font-size:15px; cursor:pointer; }
+      .checkbox-row input { width:22px; height:22px; accent-color:var(--accent); }
+    }
+    /* globals.css (ancien thème) masque tout <span> d'un .btn sous 480 px */
+    @media (max-width: 480px) { .pg-wrap .btn span { display:inline-block; } }
+    ${minTextCss('.pg-wrap')}
   `;
 
 export default function PagesAdminPage() {
   const { t, tc, lang } = useT(TPA);
+  const isMobile = useIsMobile();
   const [pages, setPages] = useState<CmsPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'editor'>('list');
@@ -153,7 +191,7 @@ export default function PagesAdminPage() {
     try {
       const method = isNew ? 'POST' : 'PUT';
       const url = isNew ? '/api/pages' : `/api/pages/${editPage.slug}`;
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editPage),
@@ -223,8 +261,8 @@ export default function PagesAdminPage() {
         <div className="block-card-header">
           <span className={`block-type-badge ${typeBadge}`}>{idx + 1}. {typeLabel}</span>
           <div className="block-actions">
-            <button className="btn btn-secondary btn-xs" onClick={() => moveBlock(block.id, -1)} disabled={idx === 0}>&#8593;</button>
-            <button className="btn btn-secondary btn-xs" onClick={() => moveBlock(block.id, 1)} disabled={idx === editPage.blocks.length - 1}>&#8595;</button>
+            <button className="btn btn-secondary btn-xs" aria-label="Monter le bloc" onClick={() => moveBlock(block.id, -1)} disabled={idx === 0}>&#8593;</button>
+            <button className="btn btn-secondary btn-xs" aria-label="Descendre le bloc" onClick={() => moveBlock(block.id, 1)} disabled={idx === editPage.blocks.length - 1}>&#8595;</button>
             <button className="btn btn-danger btn-xs" onClick={() => removeBlock(block.id)}>{tc('delete')}</button>
           </div>
         </div>
@@ -261,7 +299,7 @@ export default function PagesAdminPage() {
             </div>
             <div className="form-group">
               <label className="form-label">{t('imageUrl')}</label>
-              <input className="form-control" value={block.image} onChange={e => updBlock(block.id, 'image', e.target.value)} placeholder="https://..." />
+              <input className="form-control" inputMode="url" autoCapitalize="none" spellCheck={false} value={block.image} onChange={e => updBlock(block.id, 'image', e.target.value)} placeholder="https://..." />
               {block.image && <img src={block.image} alt="" className="img-preview" />}
             </div>
           </>
@@ -288,7 +326,7 @@ export default function PagesAdminPage() {
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label">URL de l&apos;image</label>
-              <input className="form-control" value={block.url} onChange={e => updBlock(block.id, 'url', e.target.value)} placeholder="https://..." />
+              <input className="form-control" inputMode="url" autoCapitalize="none" spellCheck={false} value={block.url} onChange={e => updBlock(block.id, 'url', e.target.value)} placeholder="https://..." />
               {block.url && <img src={block.url} alt="" className="img-preview" />}
             </div>
             <div className="form-group">
@@ -327,7 +365,9 @@ export default function PagesAdminPage() {
             {!loading && pages.length > 0 && (
               <div className="sc-card" style={{ overflow: 'hidden' }}>
                 <div style={{ overflowX: 'auto' }}>
-                  <table className="sc-table" style={{ minWidth: 660 }}>
+                  {/* Téléphone : une carte par page (.sc-stack) ; les boutons
+                      Modifier / Supprimer étaient hors de l'écran. */}
+                  <table className="sc-table sc-stack pg-list">
                     <thead>
                       <tr>
                         <th>{t('colTitre')}</th>
@@ -346,30 +386,30 @@ export default function PagesAdminPage() {
                         ].filter(Boolean);
                         return (
                           <tr key={p.slug}>
-                            <td>
+                            <td className="sc-stack-main">
                               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                                 <span className="ms" style={{ fontSize: 17, color: TH.muted }}>article</span>
                                 <button onClick={() => openEdit(p.slug)}
-                                        style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: TH.ink, padding: 0, textAlign: 'left' }}>
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: isMobile ? 15.5 : 13, fontWeight: isMobile ? 600 : 500, color: TH.ink, padding: 0, textAlign: 'left', minHeight: isMobile ? 36 : undefined }}>
                                   {p.title_fr || p.slug}
                                 </button>
                               </div>
                             </td>
-                            <td className="sc-num" style={{ fontSize: 11.5, color: TH.muted }}>/{p.slug}</td>
-                            <td style={{ fontSize: 11.5, color: TH.text2b }}>{langs.join(' · ') || '—'}</td>
-                            <td>
+                            <td data-label="URL" className="sc-num" style={{ fontSize: 11.5, color: TH.muted, overflowWrap: 'anywhere' }}>/{p.slug}</td>
+                            <td data-label={t('traductions')} style={{ fontSize: 11.5, color: TH.text2b }}>{langs.join(' · ') || '—'}</td>
+                            <td data-label={t('navigation')}>
                               <span className="sc-badge" style={{
                                 background: p.show_in_nav ? BADGE.green.bg : BADGE.gray.bg,
                                 color: p.show_in_nav ? BADGE.green.fg : BADGE.gray.fg,
                               }}>{p.show_in_nav ? 'Visible' : 'Masquée'}</span>
                             </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-                                <button className="sc-iconbtn" onClick={() => openEdit(p.slug)} aria-label={tc('edit')}>
-                                  <span className="ms">edit</span>
+                            <td className="sc-stack-actions">
+                              <div style={{ display: 'flex', gap: isMobile ? 8 : 2, justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
+                                <button className={isMobile ? 'sc-btn sc-btn-secondary' : 'sc-iconbtn'} onClick={() => openEdit(p.slug)} aria-label={tc('edit')}>
+                                  <span className="ms">edit</span>{isMobile && tc('edit')}
                                 </button>
-                                <button className="sc-iconbtn" onClick={() => setConfirmSlug(p.slug)} aria-label={tc('delete')}>
-                                  <span className="ms">delete</span>
+                                <button className={isMobile ? 'sc-btn sc-btn-danger' : 'sc-iconbtn'} onClick={() => setConfirmSlug(p.slug)} aria-label={tc('delete')}>
+                                  <span className="ms">delete</span>{isMobile && tc('delete')}
                                 </button>
                               </div>
                             </td>
@@ -388,18 +428,21 @@ export default function PagesAdminPage() {
         {view === 'editor' && (
           <>
             <div className="pg-header">
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <button className="back-btn" onClick={() => setView('list')}>&#8592; Retour à la liste</button>
                 <div className="pg-title">{isNew ? 'Nouvelle page' : editPage.title_fr || editPage.slug || 'Éditer la page'}</div>
               </div>
-              <button className="btn btn-primary" onClick={savePage} disabled={saving}>
-                {saving ? 'Sauvegarde…' : 'Sauvegarder'}
-              </button>
+              {/* Téléphone : Sauvegarder passe dans la barre collée en bas */}
+              {!isMobile && (
+                <button className="btn btn-primary" onClick={savePage} disabled={saving}>
+                  {saving ? 'Sauvegarde…' : 'Sauvegarder'}
+                </button>
+              )}
             </div>
 
-            <div className="pg-tabs">
+            <div className="pg-tabs" role="tablist">
               {([['info', 'Informations'], ['hero', 'Hero'], ['blocks', 'Blocs']] as const).map(([k, l]) => (
-                <button key={k} className={`pg-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
+                <button key={k} role="tab" aria-selected={tab === k} className={`pg-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>
               ))}
             </div>
 
@@ -414,6 +457,9 @@ export default function PagesAdminPage() {
                       <input
                         className="form-control"
                         value={editPage.slug}
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         onChange={e => upd('slug', e.target.value.toLowerCase().replace(/\s+/g, '-'))}
                         placeholder="ma-page"
                         disabled={!isNew}
@@ -424,13 +470,14 @@ export default function PagesAdminPage() {
                       <label className="form-label">{t('ordreTri')}</label>
                       <input
                         type="number"
+                        inputMode="numeric"
                         className="form-control"
                         value={editPage.sort_order}
                         onChange={e => upd('sort_order', parseInt(e.target.value) || 99)}
                       />
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 24, marginBottom: 6 }}>
+                  <div style={{ display: 'flex', gap: isMobile ? 4 : 24, marginBottom: 6, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
                     <label className="checkbox-row">
                       <input type="checkbox" checked={editPage.show_in_nav} onChange={e => upd('show_in_nav', e.target.checked)} />
                       Afficher dans la navigation
@@ -487,7 +534,7 @@ export default function PagesAdminPage() {
                 <div className="pg-section-title">{t('sectionHero')}</div>
                 <div className="form-group">
                   <label className="form-label">{t('imageFond')}</label>
-                  <input className="form-control" value={editPage.hero_image} onChange={e => upd('hero_image', e.target.value)} placeholder="https://images.unsplash.com/..." />
+                  <input className="form-control" inputMode="url" autoCapitalize="none" spellCheck={false} value={editPage.hero_image} onChange={e => upd('hero_image', e.target.value)} placeholder="https://images.unsplash.com/..." />
                   {editPage.hero_image && (
                     <img src={editPage.hero_image} alt="Hero preview" className="img-preview" style={{ maxWidth: '100%', maxHeight: 200, marginTop: 10 }} />
                   )}
@@ -540,26 +587,40 @@ export default function PagesAdminPage() {
                 </div>
               </div>
             )}
+
+            {/* Téléphone : Sauvegarder toujours à portée, collé en bas */}
+            {isMobile && (
+              <div className="sc-sticky-actions">
+                <button className="sc-btn sc-btn-primary" onClick={savePage} disabled={saving}>
+                  <span className="ms">save</span>{saving ? 'Sauvegarde…' : 'Sauvegarder'}
+                </button>
+              </div>
+            )}
           </>
         )}
 
-        {/* CONFIRM DELETE DIALOG */}
+        {/* CONFIRM DELETE DIALOG — fenêtre du shell (les classes confirm-*
+            n'étaient définies nulle part : la question s'affichait en bas
+            de la liste, sans fond ni cadre). */}
         {confirmSlug && (
-          <div className="confirm-overlay" onClick={() => setConfirmSlug(null)}>
-            <div className="confirm-box" onClick={e => e.stopPropagation()}>
-              <div className="confirm-title">{t('supprimerPage')}</div>
-              <div className="confirm-sub">
-                La page <strong>{confirmSlug}</strong> sera supprimée définitivement.
+          <div className="sc-modal-back" onClick={() => setConfirmSlug(null)}>
+            <div className="sc-modal" role="alertdialog" aria-modal="true" aria-label={t('supprimerPage')} onClick={e => e.stopPropagation()}
+                 style={isMobile ? { height: 'auto', alignSelf: 'flex-end', borderRadius: '14px 14px 0 0' } : { maxWidth: 420 }}>
+              <div className="sc-modal-body">
+                <div style={{ fontSize: 15, fontWeight: 600, color: TH.ink, marginBottom: 6 }}>{t('supprimerPage')}</div>
+                <div style={{ fontSize: isMobile ? 14 : 12.5, color: TH.text2b, lineHeight: 1.5 }}>
+                  La page <strong>{confirmSlug}</strong> sera supprimée définitivement.
+                </div>
               </div>
-              <div className="confirm-btns">
-                <button className="btn btn-secondary" onClick={() => setConfirmSlug(null)}>{tc('cancel')}</button>
-                <button className="btn btn-danger" onClick={() => deletePage(confirmSlug)}>{tc('delete')}</button>
+              <div className="sc-modal-foot" style={isMobile ? { paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' } : undefined}>
+                <button className="sc-btn sc-btn-secondary" style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined} onClick={() => setConfirmSlug(null)}>{tc('cancel')}</button>
+                <button className="sc-btn sc-btn-danger" style={isMobile ? { flex: 1, justifyContent: 'center' } : undefined} onClick={() => deletePage(confirmSlug)}>{tc('delete')}</button>
               </div>
             </div>
           </div>
         )}
 
-        {toast && <div className="toast">{toast}</div>}
+        {toast && <div className="sc-toast" role="status" aria-live="polite">{toast}</div>}
       </div>
     </>
   );

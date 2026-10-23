@@ -140,14 +140,27 @@ export default function CategoriesPage() {
   /* ── Glisser-déposer : réordonne puis persiste les sort_order ── */
   function onDrop(targetId: string) {
     if (!drag || drag === targetId) { setDrag(null); return; }
-    const from = cats.findIndex(c => c.id === drag);
+    reorder(drag, targetId);
+    setDrag(null);
+  }
+
+  /* Téléphone : le glisser-déposer HTML ne marche pas au doigt. Les
+     flèches ↑ ↓ font le même déplacement, avec la même persistance. */
+  function moveBy(id: string, delta: number) {
+    const i = cats.findIndex(c => c.id === id);
+    const target = cats[i + delta];
+    if (i < 0 || !target) return;
+    reorder(id, target.id);
+  }
+
+  function reorder(fromId: string, targetId: string) {
+    const from = cats.findIndex(c => c.id === fromId);
     const to = cats.findIndex(c => c.id === targetId);
-    if (from < 0 || to < 0) { setDrag(null); return; }
+    if (from < 0 || to < 0) return;
     const next = [...cats];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setCats(next);
-    setDrag(null);
     // Persistance : uniquement les lignes dont l'ordre a réellement changé
     next.forEach((c, i) => {
       if (c.sort_order !== i) {
@@ -160,13 +173,41 @@ export default function CategoriesPage() {
     say(t('msgOrdre'));
   }
 
+  /* Téléphone : le tableau (800 px de large) devient une carte par
+     catégorie ; l'ordre se change avec ↑ ↓ ; la fenêtre promo passe en
+     plein écran. */
+  const css = `
+    .ca-count { min-width: 22px; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; background: #EFEBE4; color: #857C71; }
+    .ca-promo { cursor: pointer; padding: 3px 9px; border-radius: 9px; font-size: 11px; }
+    .ca-name { border: none; background: none; cursor: text; font-size: 13px; font-weight: 500; color: ${T.ink}; padding: 0; text-align: left; }
+    @media (min-width: 900px) {
+      .ca-table { min-width: 800px; }
+      .ca-rename { height: 28px; }
+    }
+    @media (max-width: 899px) {
+      .ca-count { height: 24px; min-width: 28px; font-size: 12.5px; border-radius: 12px; }
+      .ca-promo { min-height: 36px; padding: 6px 12px; font-size: 13px; border-radius: 10px; }
+      .ca-name { font-size: 15.5px; font-weight: 600; min-height: 40px; overflow-wrap: anywhere; flex: 1; }
+      .sc-table.sc-stack td.ca-main { display: flex; align-items: center; gap: 10px; }
+      .sc-table.sc-stack td.sc-stack-actions { gap: 8px; }
+      /* Carte compacte : les champs vont deux par deux, libellé au-dessus */
+      .sc-table.sc-stack.ca-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+      .sc-table.sc-stack.ca-table td { flex-direction: column; align-items: flex-start; justify-content: flex-start; text-align: left; gap: 5px; padding: 0; }
+      .sc-table.sc-stack.ca-table td.sc-stack-main, .sc-table.sc-stack.ca-table td.sc-stack-actions { grid-column: 1 / -1; }
+      .sc-table.sc-stack.ca-table td.sc-stack-actions { flex-direction: row; align-items: center; }
+    }
+  `;
+
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">
-            {cats.length} catégorie{cats.length > 1 ? 's' : ''} · glisse une ligne pour changer l’ordre en boutique
+            {cats.length} catégorie{cats.length > 1 ? 's' : ''}
+            <span className="sc-hide-mobile"> · glisse une ligne pour changer l’ordre en boutique</span>
+            <span className="sc-only-mobile"> · ↑ ↓ pour changer l’ordre en boutique</span>
           </div>
         </div>
         <div className="sc-actions">
@@ -213,7 +254,7 @@ export default function CategoriesPage() {
       {!loading && cats.length > 0 && (
         <div className="sc-card" style={{ overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table className="sc-table" style={{ minWidth: 800 }}>
+            <table className="sc-table sc-stack ca-table">
               <thead>
                 <tr>
                   <th style={{ width: 34 }} />
@@ -227,64 +268,70 @@ export default function CategoriesPage() {
                 </tr>
               </thead>
               <tbody>
-                {cats.map(c => (
+                {cats.map((c, i) => (
                   <tr key={c.id}
                       draggable
                       onDragStart={() => setDrag(c.id)}
                       onDragOver={e => e.preventDefault()}
                       onDrop={() => onDrop(c.id)}
                       style={{ opacity: drag === c.id ? .45 : 1, cursor: 'grab' }}>
-                    <td><span className="ms" style={{ fontSize: 17, color: T.muted3 }}>drag_indicator</span></td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <td className="sc-hide-mobile"><span className="ms" style={{ fontSize: 17, color: T.muted3 }}>drag_indicator</span></td>
+                    <td className="sc-stack-main ca-main">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                         <div style={thumbStyle(c.name_fr, 28)}>{c.emoji || initials(c.name_fr, 1)}</div>
                         {editing?.id === c.id ? (
-                          <input className="sc-input" autoFocus defaultValue={c.name_fr}
-                                 style={{ height: 28 }}
+                          <input className="sc-input ca-rename" autoFocus defaultValue={c.name_fr}
+                                 aria-label={t('nomFr')}
                                  onBlur={e => { patch(c.id, { name_fr: e.target.value }); setEditing(null); }}
                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                         ) : (
-                          <button onClick={() => setEditing(c)}
-                                  style={{ border: 'none', background: 'none', cursor: 'text', fontSize: 13, fontWeight: 500, color: T.ink, padding: 0 }}>
+                          <button className="ca-name" onClick={() => setEditing(c)} title="Renommer">
                             {c.name_fr}
                           </button>
                         )}
                       </div>
                     </td>
-                    <td style={{ color: T.text2b }}>{c.name_sv || '—'}</td>
-                    <td className="sc-num" style={{ fontSize: 11.5, color: T.muted }}>/{c.slug}</td>
-                    <td>
-                      <span style={{
-                        minWidth: 22, height: 18, padding: '0 7px', borderRadius: 9, fontSize: 10.5, fontWeight: 700,
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        background: '#EFEBE4', color: '#857C71',
-                      }}>{counts[c.id] || 0}</span>
+                    <td data-label={t('nomSv')} style={{ color: T.text2b }}>{c.name_sv || '—'}</td>
+                    <td data-label="URL" className="sc-num" style={{ fontSize: 11.5, color: T.muted, overflowWrap: 'anywhere' }}>/{c.slug}</td>
+                    <td data-label={tc('products')}>
+                      <span className="ca-count">{counts[c.id] || 0}</span>
                     </td>
-                    <td>
+                    <td data-label="Promo">
                       {promoLabel(c) ? (
                         <button
+                          className="ca-promo"
                           onClick={() => setPromo({ ...c, discount_start: (c.discount_start || '').slice(0, 10), discount_end: (c.discount_end || '').slice(0, 10) })}
                           title={promoActive(c) ? 'Promo active — cliquer pour modifier' : 'Promo programmée ou terminée — cliquer pour modifier'}
                           style={{
-                            border: 'none', cursor: 'pointer', padding: '3px 9px', borderRadius: 9, fontSize: 11, fontWeight: 700,
+                            border: 'none', fontWeight: 700,
                             background: promoActive(c) ? '#E7F0E4' : '#F1ECE2', color: promoActive(c) ? '#3D6B3A' : '#9A8F7F',
                           }}>
                           {promoLabel(c)}{promoActive(c) ? '' : ' •'}
                         </button>
                       ) : (
                         <button
+                          className="ca-promo"
                           onClick={() => setPromo({ ...c, discount_type: 'percent', discount_value: '' as any, discount_start: '', discount_end: '' })}
-                          style={{ border: '1px dashed #CDBFA6', background: 'transparent', cursor: 'pointer', padding: '3px 9px', borderRadius: 9, fontSize: 11, color: '#9A8F7F' }}>
+                          style={{ border: '1px dashed #CDBFA6', background: 'transparent', color: '#9A8F7F' }}>
                           + Promo
                         </button>
                       )}
                     </td>
-                    <td>
+                    <td data-label={t('visible')}>
                       <button className="sc-switch" role="switch" aria-checked={c.is_active !== false}
                               onClick={() => patch(c.id, { is_active: !(c.is_active !== false) })}
                               aria-label={`Visibilité de ${c.name_fr}`} />
                     </td>
-                    <td>
+                    <td className="sc-stack-actions">
+                      <button className="sc-iconbtn sc-only-mobile-flex" onClick={() => moveBy(c.id, -1)} disabled={i === 0}
+                              aria-label={`Monter ${c.name_fr}`} style={{ border: `1px solid ${T.borderField}` }}>
+                        <span className="ms">arrow_upward</span>
+                      </button>
+                      <button className="sc-iconbtn sc-only-mobile-flex" onClick={() => moveBy(c.id, 1)} disabled={i === cats.length - 1}
+                              aria-label={`Descendre ${c.name_fr}`} style={{ border: `1px solid ${T.borderField}` }}>
+                        <span className="ms">arrow_downward</span>
+                      </button>
+                      <span className="sc-only-mobile-flex" style={{ flex: 1 }} />
                       <button className="sc-iconbtn" onClick={() => remove(c)} aria-label={`Supprimer ${c.name_fr}`}>
                         <span className="ms">delete</span>
                       </button>
@@ -298,14 +345,18 @@ export default function CategoriesPage() {
       )}
 
       {promo && (
-        <div onClick={() => setPromo(null)}
-             style={{ position: 'fixed', inset: 0, background: 'rgba(30,26,22,.38)', zIndex: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div onClick={e => e.stopPropagation()} className="sc-card" style={{ width: 'min(440px,100%)', padding: 18 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, marginBottom: 2 }}>Promo — {promo.name_fr}</div>
-            <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>
+        <div className="sc-modal-back" onClick={() => setPromo(null)} style={{ zIndex: 210 }}>
+          <div onClick={e => e.stopPropagation()} className="sc-modal" role="dialog" aria-modal="true" aria-label={`Promo — ${promo.name_fr}`} style={{ maxWidth: 440 }}>
+            <div className="sc-modal-head">
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, minWidth: 0 }}>Promo — {promo.name_fr}</div>
+              <button type="button" className="sc-iconbtn" onClick={() => setPromo(null)} aria-label={tc('close')}><span className="ms">close</span></button>
+            </div>
+            <div className="sc-modal-body">
+            <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
               S’applique à tous les produits de cette catégorie. Une remise posée sur un produit précis reste prioritaire.
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="sc-grid-2">
+
               <div>
                 <label className="sc-label">Type</label>
                 <select className="sc-input" value={promo.discount_type || 'percent'}
@@ -332,12 +383,13 @@ export default function CategoriesPage() {
                        onChange={e => setPromo(p => p && ({ ...p, discount_end: e.target.value }))} />
               </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16 }}>
+            </div>
+            <div className="sc-modal-foot" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <button type="button" className="sc-btn sc-btn-secondary"
                       onClick={() => { const c = promo; setPromo(null); if (promoLabel(c)) clearPromo(c); }}>
                 Retirer la promo
               </button>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flex: '1 1 auto', justifyContent: 'flex-end' }}>
                 <button type="button" className="sc-btn sc-btn-secondary" onClick={() => setPromo(null)}>Annuler</button>
                 <button type="button" className="sc-btn sc-btn-green" onClick={savePromo}>
                   <span className="ms">save</span>Enregistrer
@@ -348,11 +400,7 @@ export default function CategoriesPage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 200 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 220 }}>{toast}</div>}
     </>
   );
 }

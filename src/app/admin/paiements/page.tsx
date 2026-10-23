@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
 
 /* ═══════════════════════════════════════════════════════════════
    RÉGLAGES → PAIEMENTS
@@ -79,9 +80,15 @@ export default function PaiementsPage() {
     </div>
   );
 
+  /* Téléphone : un titre (l'écran n'en avait pas, on ne savait plus où
+     l'on était après le menu) et des boutons pleine largeur. */
+  const mobile = useIsMobile();
+  const plein = mobile ? { width: '100%', justifyContent: 'center' as const } : {};
+
   return (
     <div style={{ maxWidth: 680 }}>
-      <p style={{ color: T.muted, fontSize: 13, margin: '0 0 18px' }}>{t('sousTitre')}</p>
+      {mobile && <div className="sc-head"><div className="sc-title">{t('titre')}</div></div>}
+      <p style={{ color: T.muted, fontSize: mobile ? 14 : 13, margin: '0 0 18px' }}>{t('sousTitre')}</p>
 
       <div className="sc-card" style={{ padding: '14px 16px' }}>
         {!etat ? <div style={{ color: T.muted }}>{t('chargement')}</div> : (
@@ -101,20 +108,20 @@ export default function PaiementsPage() {
             {!etat.geree_par_vendd ? (
               <div style={{ fontSize: 12, color: T.muted, marginTop: 12 }}>{t('nonGeree')}</div>
             ) : !ouvert ? (
-              <button className="sc-btn sc-btn-primary" style={{ marginTop: 14 }} onClick={() => { setOuvert(true); setRetour(null); }}>
+              <button className="sc-btn sc-btn-primary" style={{ marginTop: 14, ...plein }} onClick={() => { setOuvert(true); setRetour(null); }}>
                 {etat.branche ? t('remplacer') : t('brancher')}
               </button>
             ) : (
               <div style={{ marginTop: 14 }}>
-                <div style={{ fontSize: 12, color: T.text2, marginBottom: 8, lineHeight: 1.5 }}>{t('aide')}</div>
-                <input className="sc-input" type="password" autoComplete="off" spellCheck={false}
+                <div style={{ fontSize: mobile ? 13 : 12, color: T.text2, marginBottom: 8, lineHeight: 1.5 }}>{t('aide')}</div>
+                <input className="sc-input" type="password" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off"
                        placeholder={t('placeholder')} value={cle} onChange={e => setCle(e.target.value)} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button className="sc-btn sc-btn-primary" disabled={envoi || cle.trim().length < 20} onClick={enregistrer}>
+                  <button className="sc-btn sc-btn-primary" style={plein} disabled={envoi || cle.trim().length < 20} onClick={enregistrer}>
                     {envoi ? t('enCours') : t('envoyer')}
                   </button>
                 </div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>🔒 {t('securite')}</div>
+                <div style={{ fontSize: mobile ? 12.5 : 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>🔒 {t('securite')}</div>
               </div>
             )}
             {retour && (

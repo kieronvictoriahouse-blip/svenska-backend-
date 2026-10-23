@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import ProductForm, { ProductTab } from '@/components/ProductForm';
+import ProductForm, { ProductTab, FP_CSS } from '@/components/ProductForm';
+import { MenuActions, MenuItem, MenuSep } from '@/components/MenuActions';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
@@ -45,6 +46,8 @@ export default function EditProduitPage() {
   const [tab, setTab] = useState<ProductTab>('general');
   const [status, setStatus] = useState('');
   const [frontUrl, setFrontUrl] = useState('');
+  const moreBtn = useRef<HTMLButtonElement>(null);
+  const [more, setMore] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -108,64 +111,59 @@ export default function EditProduitPage() {
   if (!product) return <div className="sc-empty">{t('introuvable')}</div>;
 
   const category = categories.find(c => c.id === product.category_id);
+  const statusText = status === 'pending' ? 'Modifications en attente…'
+    : status === 'saving' ? 'Enregistrement…'
+    : status === 'saved' ? 'Enregistré'
+    : product.updated_at ? `Modifié ${since(product.updated_at)}` : '';
+  const apercuUrl = `${frontUrl}/produit.html?id=${id}`;
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: FP_CSS }} />
       {/* ── En-tête collant ─────────────────────────────── */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 20, background: '#fff',
-        margin: '-16px -18px 0', padding: '10px 18px 0',
-        borderBottom: `1px solid ${T.border}`,
-      }}>
+      <div className="sc-page-head sc-page-head-tabs">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Link href="/admin/produits" className="sc-iconbtn"
-                style={{ width: 30, height: 30, border: `1px solid ${T.borderField}` }} aria-label={t('retourProduits')}>
-            <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
+          <Link href="/admin/produits" className="sc-iconbtn sc-back" aria-label={t('retourProduits')}>
+            <span className="ms">arrow_back</span>
           </Link>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 10.5, color: T.muted }}>
+            <div className="fp-crumb">
               Produits{category ? ` · ${category.name_fr}` : ''}
             </div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div className="fp-name">
               {product.name_fr || 'Sans nom'}
             </div>
           </div>
-          <span style={{ fontSize: 11, color: status ? T.green : T.muted }}>
-            {status === 'pending' ? 'Modifications en attente…'
-              : status === 'saving' ? 'Enregistrement…'
-              : status === 'saved' ? 'Enregistré'
-              : product.updated_at ? `Modifié ${since(product.updated_at)}` : ''}
+          <span className="sc-hide-mobile" style={{ fontSize: 11, color: status ? T.green : T.muted }}>
+            {statusText}
           </span>
-          <div className="sc-actions">
+          <div className="sc-actions sc-hide-mobile">
             <button className="sc-btn sc-btn-danger" onClick={handleDelete} disabled={deleting}>
               <span className="ms">delete</span>{deleting ? '…' : 'Supprimer'}
             </button>
-            <a className="sc-btn sc-btn-secondary" href={`${frontUrl}/produit.html?id=${id}`} target="_blank" rel="noopener">
+            <a className="sc-btn sc-btn-secondary" href={apercuUrl} target="_blank" rel="noopener">
               <span className="ms">visibility</span>{t('apercu')}
             </a>
             <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving}>
               <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}
             </button>
           </div>
+          {/* Téléphone : Aperçu et Supprimer passent dans « ⋯ » ; Enregistrer
+              est en bas, sous le pouce. */}
+          <button ref={moreBtn} type="button" className="sc-iconbtn sc-only-mobile-flex" onClick={() => setMore(true)}
+                  aria-label="Plus d’actions" aria-haspopup="menu" aria-expanded={more} style={{ border: `1px solid ${T.borderField}` }}>
+            <span className="ms">more_horiz</span>
+          </button>
         </div>
 
         {/* Onglets */}
-        <div style={{ display: 'flex', gap: 4, marginTop: 10, overflowX: 'auto' }}>
-          {TABS.map(t => {
-            const on = tab === t.id;
-            return (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                style={{
-                  border: 'none', background: 'none', cursor: 'pointer',
-                  padding: '8px 12px', fontSize: 12.5, whiteSpace: 'nowrap',
-                  fontWeight: on ? 600 : 400,
-                  color: on ? 'var(--accent)' : T.text2,
-                  boxShadow: on ? 'inset 0 -2px 0 var(--accent)' : undefined,
-                }}>
-                {t.label}
-              </button>
-            );
-          })}
+        <div className="sc-tabstrip" role="tablist">
+          {TABS.map(t => (
+            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id}
+                    className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -184,11 +182,25 @@ export default function EditProduitPage() {
         />
       </div>
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 120 }}>
-          {toast}
-        </div>
-      )}
+      {/* Téléphone : enregistrement à portée de pouce, avec l'état de
+          l'enregistrement automatique. */}
+      <div className="sc-sticky-actions sc-only-mobile-flex" style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: status ? T.green : T.muted, lineHeight: 1.3 }}>
+          {statusText}
+        </span>
+        <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving}
+                style={{ flex: '0 0 auto', minWidth: 160, justifyContent: 'center' }}>
+          <span className="ms">save</span>{saving ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+
+      <MenuActions open={more} anchor={moreBtn.current} onClose={() => setMore(false)} title={product.name_fr}>
+        <MenuItem icon="visibility" label={t('apercu')} hint="Ouvre la fiche sur le site" href={apercuUrl} external />
+        <MenuSep />
+        <MenuItem icon="delete" label={deleting ? '…' : 'Supprimer le produit'} danger onClick={handleDelete} disabled={deleting} />
+      </MenuActions>
+
+      {toast && <div className="sc-toast" role="status">{toast}</div>}
     </>
   );
 }

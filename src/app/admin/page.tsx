@@ -145,41 +145,73 @@ export default function AdminHome() {
     outOfStock.length > 0 && { tone: BADGE.red, icon: 'error', text: `${outOfStock.length} rupture${outOfStock.length > 1 ? 's' : ''}${outOfStock[0] ? ' · ' + outOfStock[0].name_fr : ''}`, href: '/admin/stock' },
   ].filter(Boolean) as Array<{ tone: { bg: string; fg: string }; icon: string; text: string; href: string }>;
 
+  /* Téléphone : salutation plus courte, actions rapides en tuiles,
+     compteurs deux par deux, commandes récentes en liste (le tableau
+     défilait de côté). Tout est basculé en CSS : pas de saut au chargement. */
+  const css = `
+    .db-greet { font-family: 'Cormorant Garamond', serif; font-size: 31px; font-weight: 600; line-height: 1.05; color: ${T.ink}; }
+    .db-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .db-kpi-label { font-size: 9.5px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: ${T.muted}; }
+    .db-kpi-val { font-size: 25px; font-weight: 700; letter-spacing: -.5px; margin: 6px 0 8px; color: ${T.ink}; }
+    .db-alert { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; text-decoration: none; }
+    .db-link { font-size: 11.5px; color: var(--accent); text-decoration: none; }
+    .db-order { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid ${T.borderFaint}; text-decoration: none; min-height: 58px; }
+    .db-order:last-child { border-bottom: none; }
+    @media (max-width: 899px) {
+      .db-greet { font-size: 27px; }
+      .db-sub { font-size: 12.5px !important; }
+      .db-actions { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .db-actions > .sc-btn { flex-direction: column; justify-content: center; gap: 4px; min-height: 68px; padding: 8px 6px; font-size: 12.5px; white-space: normal; text-align: center; line-height: 1.2; }
+      .db-actions > .sc-btn .ms { font-size: 22px; }
+      .db-kpi { padding: 12px !important; }
+      .db-kpi-head { flex-wrap: wrap; gap: 4px 8px; }
+      .db-kpi-label { font-size: 12px; letter-spacing: .5px; }
+      .db-kpi-val { font-size: 21px; margin: 4px 0 8px; }
+      .db-alerts { flex-direction: column; flex-wrap: nowrap !important; gap: 6px !important; }
+      .db-alert { display: flex; min-height: 44px; font-size: 14px; padding: 9px 14px; border-radius: 10px; }
+      .db-alert-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .db-link { font-size: 13.5px; display: inline-flex; align-items: center; min-height: 40px; margin: -10px 0; }
+      .db-card-head { padding: 10px 14px !important; }
+      .db-txt { font-size: 14px !important; }
+    }
+  `;
+
   return (
     <div style={{ maxWidth: 1500, margin: '0 auto', padding: '2px 2px 40px' }}>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
 
       {/* ── Salutation + actions ───────────────────────────── */}
       <div className="sc-head">
         <div>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 31, fontWeight: 600, lineHeight: 1.05, color: T.ink }}>
+          <div className="db-greet">
             {greeting}, <em style={{ color: 'var(--accent)' }}>{firstName}</em>
           </div>
-          <div style={{ fontSize: 12, color: T.text3, marginTop: 3 }}>
+          <div className="db-sub" style={{ fontSize: 12, color: T.text3, marginTop: 3 }}>
             {dateLabel} · {products.length} produit{products.length > 1 ? 's' : ''} · dernière synchro il y a {syncMin} min
           </div>
         </div>
-        <div className="sc-actions">
+        <div className="sc-actions db-actions">
           <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>{t('nouveauProduit')}</Link>
           <Link href="/admin/home-cms" className="sc-btn sc-btn-secondary"><span className="ms">edit_note</span>{t('modifierHome')}</Link>
           <Link href="/admin/medias" className="sc-btn sc-btn-secondary"><span className="ms">photo_library</span>{t('photos')}</Link>
         </div>
       </div>
 
-      {/* ── KPI ────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 10 }}>
+      {/* ── KPI : quatre colonnes, deux sur téléphone ──────── */}
+      <div className="sc-grid-4" style={{ gap: 10, marginBottom: 10 }}>
         {KPIS.map(k => {
           const up = (k.delta ?? 0) >= 0;
           return (
-            <div key={k.label} className="sc-card" style={{ padding: '13px 15px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: T.muted }}>{k.label}</span>
+            <div key={k.label} className="sc-card db-kpi" style={{ padding: '13px 15px 12px', minWidth: 0 }}>
+              <div className="db-kpi-head">
+                <span className="db-kpi-label">{k.label}</span>
                 {k.delta !== null && (
                   <span className="sc-badge" style={{ background: up ? BADGE.green.bg : BADGE.amber.bg, color: up ? BADGE.green.fg : BADGE.amber.fg }}>
                     {up ? '+' : ''}{k.raw ? k.delta : `${k.delta} %`}
                   </span>
                 )}
               </div>
-              <div className="sc-num" style={{ fontSize: 25, fontWeight: 700, letterSpacing: -.5, margin: '6px 0 8px', color: T.ink }}>{k.value}</div>
+              <div className="sc-num db-kpi-val">{k.value}</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 20 }}>
                 {k.bars.map((v, i) => (
                   <div key={i} style={{ flex: 1, height: `${Math.max(12, v)}%`, borderRadius: 2, background: 'var(--accent)', opacity: 0.35 + v / 160 }} />
@@ -192,15 +224,13 @@ export default function AdminHome() {
 
       {/* ── Alertes ────────────────────────────────────────── */}
       {alerts.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="db-alerts" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           {alerts.map((a, i) => (
-            <Link key={i} href={a.href} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 20,
+            <Link key={i} href={a.href} className="db-alert" style={{
               background: a.tone.bg, color: a.tone.fg, border: `1px solid ${a.tone.fg}22`,
-              fontSize: 12, fontWeight: 500, textDecoration: 'none',
             }}>
               <span className="ms" style={{ fontSize: 16 }}>{a.icon}</span>
-              {a.text}
+              <span className="db-alert-txt">{a.text}</span>
               <span className="ms" style={{ fontSize: 15 }}>arrow_forward</span>
             </Link>
           ))}
@@ -212,11 +242,36 @@ export default function AdminHome() {
 
         {/* Commandes récentes */}
         <div className="sc-card" style={{ flex: '2 1 460px', minWidth: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
+          <div className="db-card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
             <span className="sc-card-title">{t('commandesRecentes')}</span>
-            <Link href="/admin/commandes" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>{t('toutVoir')}</Link>
+            <Link href="/admin/commandes" className="db-link">{t('toutVoir')}</Link>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+
+          {/* Téléphone : une ligne par commande, numéro + client à gauche,
+              montant + statut à droite. */}
+          <div className="sc-only-mobile">
+            {loading && <div className="sc-empty">{tc('loading')}</div>}
+            {!loading && recent.length === 0 && <div className="sc-empty">{t('aucuneCommande')}</div>}
+            {recent.map(o => {
+              const s = ORDER_STATUS[o.status] || { label: o.status, tone: 'gray' as const };
+              return (
+                <Link key={o.id} href="/admin/commandes" className="db-order">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="sc-num" style={{ fontSize: 14.5, fontWeight: 600, color: T.ink }}>{o.order_number}</div>
+                    <div style={{ fontSize: 13, color: T.text2b, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {o.customer_name || '—'} · {new Date(o.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div className="sc-num" style={{ fontSize: 14.5, fontWeight: 600, color: T.ink }}>{eur(netOf(o))}</div>
+                    <span className="sc-badge" style={{ background: BADGE[s.tone].bg, color: BADGE[s.tone].fg, marginTop: 3 }}>{s.label}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="sc-hide-mobile" style={{ overflowX: 'auto' }}>
             <table className="sc-table" style={{ minWidth: 520 }}>
               <tbody>
                 {loading && <tr><td colSpan={5}><div className="sc-empty">{tc('loading')}</div></td></tr>}
@@ -257,7 +312,7 @@ export default function AdminHome() {
                     ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 26)} />
                     : <div style={thumbStyle(p.name_fr, 26)}>{initials(p.name_fr, 1)}</div>}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name_fr}</div>
+                    <div className="db-txt" style={{ fontSize: 12.5, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name_fr}</div>
                   </div>
                   <span className="sc-badge sc-num" style={{
                     background: (p.stock || 0) <= 0 ? BADGE.red.bg : BADGE.orange.bg,
@@ -267,7 +322,7 @@ export default function AdminHome() {
               ))}
             </div>
             <div style={{ borderTop: `1px solid ${T.borderFaint}`, padding: '9px 15px', background: T.surfaceAlt }}>
-              <Link href="/admin/achats" style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>{t('creerCommande')}</Link>
+              <Link href="/admin/achats" className="db-link">{t('creerCommande')}</Link>
             </div>
           </div>
 
@@ -280,8 +335,8 @@ export default function AdminHome() {
               {top.map((t, i) => (
                 <div key={i} style={{ marginBottom: 9 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: T.text2b, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
-                    <span className="sc-num" style={{ fontSize: 12, fontWeight: 600, color: T.ink }}>{t.qty}</span>
+                    <span className="db-txt" style={{ fontSize: 12, color: T.text2b, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                    <span className="sc-num db-txt" style={{ fontSize: 12, fontWeight: 600, color: T.ink }}>{t.qty}</span>
                   </div>
                   <div style={{ height: 4, borderRadius: 2, background: T.borderFaint2 }}>
                     <div style={{ height: '100%', width: `${(t.qty / topMax) * 100}%`, borderRadius: 2, background: 'var(--accent)' }} />

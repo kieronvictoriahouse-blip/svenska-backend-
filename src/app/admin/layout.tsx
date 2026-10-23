@@ -3,14 +3,15 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getAdminLang, setAdminLang, subscribeAdminLang, AdminLang } from '@/lib/admin-i18n';
 import { getValidToken, adminFetch } from '@/lib/auth-client';
-import { NavBadge, isFullBleed, isBare } from '@/lib/admin-nav';
+import { NavBadge, isFullBleed, isBare, ADMIN_SEARCH_EVENT } from '@/lib/admin-nav';
 import { T } from '@/lib/admin-theme';
 import AdminShell from './AdminShell';
 
 /* Authentification, configuration boutique et compteurs de navigation.
-   Le rendu est entièrement délégué à <AdminShell>. */
-
-const MOBILE_BP = 900;
+   Le rendu est entièrement délégué à <AdminShell>.
+   La bascule ordinateur / téléphone (900 px) est faite en CSS dans le
+   shell : mesurée ici en JS, elle valait « ordinateur » au premier rendu
+   et la sidebar apparaissait puis glissait à chaque chargement. */
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -22,7 +23,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [frontUrl, setFrontUrl] = useState('');
   const [lang, setLang] = useState<AdminLang>('fr');
   const [navOpen, setNavOpen] = useState(false);
-  const [mobile, setMobile] = useState(false);
   const [counts, setCounts] = useState<Record<NavBadge, number>>({ stock: 0, orders: 0, receptions: 0 });
 
   /* La query string est lue côté client : `useSearchParams()` ferait bailout
@@ -32,15 +32,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const s = window.location.search;
     setSearch(prev => (prev === s ? prev : s));
   });
-
-  /* Bascule mobile mesurée en JS : le handoff pilote des comportements
-     structurels avec ce seuil, pas seulement du style. */
-  useEffect(() => {
-    const onResize = () => setMobile(window.innerWidth < MOBILE_BP);
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
 
   useEffect(() => {
     setEmail(localStorage.getItem('sd_admin_email') || 'Admin');
@@ -107,7 +98,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AdminShell
       pathname={pathname}
       search={search}
-      mobile={mobile}
       navOpen={navOpen}
       setNavOpen={setNavOpen}
       siteName={siteName}
@@ -118,8 +108,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       onLang={l => { setLang(l); setAdminLang(l); }}
       counts={counts}
       fullBleed={isFullBleed(pathname)}
-      onSearch={q => router.push(`/admin/produits?q=${encodeURIComponent(q)}`)}
-      onUserClick={() => { localStorage.clear(); router.replace('/login'); }}
+      onSearch={q => {
+        router.push(`/admin/produits?q=${encodeURIComponent(q)}`);
+        // Liste déjà ouverte : elle ne relit pas l'URL, on lui passe la recherche.
+        window.dispatchEvent(new CustomEvent(ADMIN_SEARCH_EVENT, { detail: q }));
+      }}
+      /* Appelé après confirmation dans le menu de l'avatar (plus au simple tap). */
+      onLogout={() => { localStorage.clear(); router.replace('/login'); }}
     >
       {children}
     </AdminShell>

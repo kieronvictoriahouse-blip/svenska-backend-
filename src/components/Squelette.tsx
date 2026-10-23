@@ -44,12 +44,16 @@ const largeurDe = (ligne: number, colonne: number, total: number) =>
 export function SqueletteTable({ lignes = 6, colonnes = 5, vignette = false, entete = true }: {
   lignes?: number; colonnes?: number; vignette?: boolean; entete?: boolean;
 }) {
+  /* Téléphone : les tableaux y deviennent des listes ou des cartes ; on
+     ne garde que les deux premières colonnes, sinon cinq barres de 40 px
+     se serrent sur la largeur d'un écran. */
+  const col = (c: number) => (c >= 2 ? 'sc-hide-mobile' : undefined);
   return (
     <div className="sc-card" style={{ overflow: 'hidden' }} aria-busy="true">
       {entete && (
         <div style={{ display: 'flex', gap: 14, padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
           {Array.from({ length: colonnes }).map((_, c) => (
-            <div key={c} style={{ flex: c === 0 ? 2 : 1 }}><Barre largeur="52%" hauteur={8} /></div>
+            <div key={c} className={col(c)} style={{ flex: c === 0 ? 2 : 1 }}><Barre largeur="52%" hauteur={8} /></div>
           ))}
         </div>
       )}
@@ -60,7 +64,7 @@ export function SqueletteTable({ lignes = 6, colonnes = 5, vignette = false, ent
         }}>
           {vignette && <Barre largeur={30} hauteur={30} rond style={{ flexShrink: 0 }} />}
           {Array.from({ length: colonnes }).map((_, c) => (
-            <div key={c} style={{ flex: c === 0 ? 2 : 1, minWidth: 0 }}>
+            <div key={c} className={col(c)} style={{ flex: c === 0 ? 2 : 1, minWidth: 0 }}>
               <Barre largeur={largeurDe(l, c, colonnes)} />
               {c === 0 && <Barre largeur="45%" hauteur={8} style={{ marginTop: 6 }} />}
             </div>
@@ -71,10 +75,30 @@ export function SqueletteTable({ lignes = 6, colonnes = 5, vignette = false, ent
   );
 }
 
-/** Bandeau de compteurs (les cartes KPI en haut des écrans). */
+/** Liste de cartes d'une ligne (vignette, deux lignes de texte, valeur à
+ *  droite) : la forme des listes produits / commandes sur téléphone. */
+export function SqueletteListe({ n = 6, vignette = 46 }: { n?: number; vignette?: number }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} aria-busy="true">
+      {Array.from({ length: n }).map((_, i) => (
+        <div key={i} className="sc-card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12 }}>
+          <Barre largeur={vignette} hauteur={vignette} style={{ borderRadius: 9, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Barre largeur={largeurDe(i, 0, 3)} hauteur={12} />
+            <Barre largeur="46%" hauteur={9} style={{ marginTop: 8 }} />
+            <Barre largeur="30%" hauteur={11} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Bandeau de compteurs (les cartes KPI en haut des écrans) : quatre
+ *  colonnes sur ordinateur, deux sur téléphone (.sc-grid-4). */
 export function SqueletteKpis({ n = 4 }: { n?: number }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}
+    <div className="sc-grid-4" style={{ gap: 10, marginBottom: 12 }}
          aria-busy="true">
       {Array.from({ length: n }).map((_, i) => (
         <div key={i} className="sc-card" style={{ padding: '13px 15px' }}>

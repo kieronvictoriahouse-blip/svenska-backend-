@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
+import { T } from '@/lib/admin-theme';
 import {
   Produit, Fournisseur, Enrichi, Methode, enrichir, trier, totaux,
   eur, kr, sekVersEur,
@@ -21,6 +22,57 @@ import { TNC, referencesAjoutees } from './i18n';
 
    Tout raisonne en cartons : un fournisseur ne livre pas 37 pots.
    ═══════════════════════════════════════════════════════════════ */
+
+/* Téléphone : magasins en rangée qui défile, catalogue sur deux lignes
+   par article, et le panier dans une feuille plein écran ouverte par une
+   barre collée en bas (avant, il fallait descendre sous 40 articles
+   pour le trouver). Ordinateur inchangé. */
+const CSS = `
+  @media (max-width: 899px) {
+    .nc-head { margin: -12px -12px 0 !important; padding: 8px 12px 10px !important; }
+    .nc-back { width: 44px !important; height: 44px !important; }
+    .nc-fil { font-size: 12px !important; }
+    .nc-fournisseurs { flex-wrap: nowrap !important; overflow-x: auto; margin: 0 -12px; padding: 0 12px 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .nc-fournisseurs::-webkit-scrollbar { display: none; }
+    .nc-fcard { flex: 0 0 76% !important; }
+    .nc-fcard-pied { font-size: 12.5px !important; }
+    .nc-range { height: 32px !important; }
+    .nc-eyebrow { font-size: 11.5px !important; }
+
+    .nc-barre { padding: 12px !important; gap: 10px !important; }
+    .nc-recherche { max-width: none !important; flex: 1 1 100% !important; }
+    .nc-recherche input { height: 44px !important; font-size: 16px !important; padding-left: 36px !important; }
+    .nc-recherche .ms { font-size: 20px !important; left: 10px !important; }
+    .nc-filtres { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 100%; scrollbar-width: none; }
+    .nc-filtres::-webkit-scrollbar { display: none; }
+    .nc-filtre { height: 40px; padding: 0 14px !important; font-size: 14px !important; flex-shrink: 0; border: 1px solid ${T.border} !important; }
+    .nc-remplir { flex: 1 1 100%; justify-content: center; min-height: 44px; font-size: 14px !important; }
+    .nc-espace { display: none; }
+
+    .nc-ligne { padding: 12px !important; row-gap: 8px !important; }
+    .nc-ligne-info { flex: 1 1 calc(100% - 46px) !important; }
+    .nc-ligne-sub, .nc-sv { font-size: 12.5px !important; }
+    .nc-ligne-num:first-of-type { margin-left: 46px; }
+    .nc-ligne-k { font-size: 12px !important; letter-spacing: .4px !important; }
+    .nc-ligne-add { margin-left: auto; min-height: 44px; font-size: 14px !important; padding: 0 16px !important; }
+
+    .nc-porte { width: 22px !important; height: 22px !important; margin-top: 10px !important; }
+    .nc-step { width: 44px !important; height: 44px !important; font-size: 20px; border-radius: 9px !important; }
+    .nc-port { width: 96px !important; height: 44px !important; font-size: 16px !important; }
+    .nc-methode { min-height: 44px; font-size: 13.5px !important; }
+    .nc-tout { min-height: 44px; font-size: 13.5px !important; }
+    .nc-panier-txt { font-size: 12.5px !important; }
+    /* overflow: clip ne crée pas de conteneur de défilement : le bouton
+       d'envoi peut rester collé en bas de la feuille. */
+    .nc-panier-card { overflow: clip !important; }
+    .nc-envoi { position: sticky; bottom: 0; background: #fff; z-index: 2; padding-bottom: calc(13px + env(safe-area-inset-bottom)) !important; }
+    .nc-envoi > button { height: 48px !important; font-size: 15px !important; }
+
+    .nc-barre-bas { align-items: center; }
+    .nc-barre-bas .nc-resume { flex: 1 1 auto; min-width: 0; }
+    .sc-sticky-actions.nc-barre-bas > .sc-btn { flex: 0 0 auto; }
+  }
+`;
 
 const FILTRES = [
   { id: 'Urgent', label: 'Urgent' },
@@ -70,6 +122,8 @@ function Composition() {
   const [confirme, setConfirme] = useState<any>(null);
   const [toast, setToast] = useState('');
   const [w, setW] = useState(1400);
+  /* Téléphone : panier en feuille plein écran. */
+  const [panierOuvert, setPanierOuvert] = useState(false);
 
   const say = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(''), 4000); }, []);
   const mobile = w < 900;
@@ -244,17 +298,17 @@ function Composition() {
 
   /* ── En-tête collant ──────────────────────────────────── */
   const entete = (
-    <div style={{
+    <div className="nc-head" style={{
       position: 'sticky', top: 0, zIndex: 20, background: C.surface,
       margin: '-16px -18px 0', padding: '10px 18px 12px', borderBottom: `1px solid ${C.border}`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Link href="/admin/achats" className="sc-iconbtn"
+        <Link href="/admin/achats" className="sc-iconbtn nc-back"
               style={{ width: 30, height: 30, border: `1px solid ${C.champ}` }} aria-label={tr('retourAchats')}>
           <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
         </Link>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 10.5, color: C.t5 }}>{tr('filAriane')}</div>
+          <div className="nc-fil" style={{ fontSize: 10.5, color: C.t5 }}>{tr('filAriane')}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>
               {modifieId ? `Modifier ${numeroModifie}` : 'Nouvelle commande'}
@@ -285,7 +339,7 @@ function Composition() {
             {fournisseur ? ` et le délai de ${fournisseur.delay} jours` : ''}
           </div>
         </div>
-        <input id="couverture" type="range" min={2} max={12} step={1} value={semaines}
+        <input id="couverture" className="nc-range" type="range" min={2} max={12} step={1} value={semaines}
                onChange={e => setSemaines(Number(e.target.value))}
                style={{ flex: '1 1 200px', minWidth: 160, accentColor: C.or, cursor: 'pointer', height: 4 }} />
       </div>
@@ -306,7 +360,7 @@ function Composition() {
       width: mobile ? '100%' : 320, flexShrink: 0,
       position: mobile ? 'static' : 'sticky', top: 70, alignSelf: 'flex-start',
     }}>
-      <div className="sc-card" style={{ overflow: 'hidden' }}>
+      <div className="sc-card nc-panier-card" style={{ overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1, background: C.ligne }}>
           {compteur(String(t.lignes), 'lignes')}
           {compteur(String(t.unites), 'unités')}
@@ -329,14 +383,14 @@ function Composition() {
             return (
               <div key={p.id} style={{ display: 'flex', gap: 9, padding: '10px 12px', borderBottom: `1px solid ${C.ligneFaible}` }}>
                 {port.montant > 0 ? (
-                  <input type="checkbox" checked={!portExclus[p.id]}
+                  <input type="checkbox" className="nc-porte" checked={!portExclus[p.id]}
                          onChange={e => setPortExclus(x => ({ ...x, [p.id]: !e.target.checked }))}
                          title={tr('portePartTransport')}
                          style={{ width: 15, height: 15, marginTop: 8, accentColor: C.accent, cursor: 'pointer', flexShrink: 0 }} />
                 ) : <Vignette p={p} taille={30} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <NomProduit p={p} taille={12.5} />
-                  <div className="sc-num" style={{ fontSize: 11, color: C.t4, marginTop: 2 }}>
+                  <div className="sc-num nc-panier-txt" style={{ fontSize: 11, color: C.t4, marginTop: 2 }}>
                     {cartons} × {p.packEffectif} = {u} u.
                     {portePort && part && (
                       <span style={{ color: C.accent }}>
@@ -346,17 +400,17 @@ function Composition() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
                     <Jauge valeur={couvApres / Math.max(1, cible)} couleur={surstock ? C.ambre : C.vert} largeur={70} hauteur={4} />
-                    <span style={{ fontSize: 10.5, color: surstock ? C.ambre : C.t5 }}>
+                    <span className="nc-panier-txt" style={{ fontSize: 10.5, color: surstock ? C.ambre : C.t5 }}>
                       couvre {couvApres > 180 ? '> 6 mois' : `${couvApres} j`}
                     </span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button onClick={() => regler(p.id, cartons - 1)} aria-label={tr('cartonMoins')}
+                    <button className="nc-step" onClick={() => regler(p.id, cartons - 1)} aria-label={tr('cartonMoins')}
                             style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.champ}`, background: '#fff', cursor: 'pointer', lineHeight: 1 }}>−</button>
-                    <span className="sc-num" style={{ fontSize: 12.5, fontWeight: 700, minWidth: 18, textAlign: 'center' }}>{cartons}</span>
-                    <button onClick={() => regler(p.id, cartons + 1)} aria-label={tr('cartonPlus')}
+                    <span className="sc-num" style={{ fontSize: mobile ? 16 : 12.5, fontWeight: 700, minWidth: mobile ? 26 : 18, textAlign: 'center' }}>{cartons}</span>
+                    <button className="nc-step" onClick={() => regler(p.id, cartons + 1)} aria-label={tr('cartonPlus')}
                             style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.champ}`, background: '#fff', cursor: 'pointer', lineHeight: 1 }}>+</button>
                   </div>
                   <span className="sc-num" style={{ fontSize: 11.5, fontWeight: 600, color: C.vert }}>
@@ -385,7 +439,7 @@ function Composition() {
             <label htmlFor="port" style={{ fontSize: 12, color: C.t2, flex: 1 }}>{tr('transportTnt')}</label>
             <input id="port" inputMode="decimal" value={portTexte}
                    onChange={e => setPortTexte(e.target.value)} placeholder="0,00"
-                   className="sc-input sc-num"
+                   className="sc-input sc-num nc-port"
                    style={{ width: 76, height: 28, fontSize: 12, textAlign: 'right', padding: '0 8px' }} />
             <span style={{ fontSize: 12, color: C.t4 }}>€</span>
           </div>
@@ -394,7 +448,8 @@ function Composition() {
             <>
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                 {([['equal', 'Par unité'], ['prorata', 'Au prorata du prix']] as const).map(([id, lib]) => (
-                  <button key={id} onClick={() => setPortMethode(id as Methode)}
+                  <button key={id} className="nc-methode" onClick={() => setPortMethode(id as Methode)}
+                          aria-pressed={portMethode === id}
                           style={{
                             flex: 1, border: `1px solid ${portMethode === id ? C.accent : C.champ}`,
                             background: portMethode === id ? `${C.accent}12` : '#fff',
@@ -404,10 +459,10 @@ function Composition() {
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-                <span style={{ fontSize: 11, color: C.t4, flex: 1, lineHeight: 1.45 }}>
+                <span className="nc-panier-txt" style={{ fontSize: 11, color: C.t4, flex: 1, lineHeight: 1.45 }}>
                   Réparti sur {lignesPanier.filter(p => !portExclus[p.id]).length} des {lignesPanier.length} lignes cochées ci-dessus.
                 </span>
-                <button onClick={() => setPortExclus({})}
+                <button className="nc-tout" onClick={() => setPortExclus({})}
                         style={{ border: 'none', background: 'none', color: C.accent, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>
                   Tout cocher
                 </button>
@@ -461,7 +516,7 @@ function Composition() {
           </Controle>
         </div>
 
-        <div style={{ padding: 13, borderTop: `1px solid ${C.ligne}`, display: 'flex', gap: 8 }}>
+        <div className="nc-envoi" style={{ padding: 13, borderTop: `1px solid ${C.ligne}`, display: 'flex', gap: 8 }}>
           <button onClick={envoyer} disabled={!t.pretAEnvoyer || envoi} aria-live="polite"
                   style={{
                     flex: 1, height: 40, borderRadius: 8, border: 'none', fontFamily: 'inherit',
@@ -484,6 +539,7 @@ function Composition() {
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
       {entete}
 
       {perdues.length > 0 && (
@@ -532,10 +588,10 @@ function Composition() {
       )}
 
       <div style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 9.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600, marginBottom: 8 }}>
+        <div className="nc-eyebrow" style={{ fontSize: 9.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600, marginBottom: 8 }}>
           1 · Où achètes-tu ?
         </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div className="nc-fournisseurs" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {fournisseurs.map(f => (
             <CarteFournisseur key={f.id} f={f} actif={f.id === supId} onClick={() => changerFournisseur(f.id)} />
           ))}
@@ -547,14 +603,16 @@ function Composition() {
       <div style={{ display: 'flex', gap: 12, marginTop: 14, alignItems: 'flex-start', flexWrap: mobile ? 'wrap' : 'nowrap' }}>
         <div style={{ flex: '2 1 540px', minWidth: 0 }}>
           <div className="sc-card" style={{ overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}`, flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', maxWidth: 260, flex: '1 1 180px' }}>
+            <div className="nc-barre" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}`, flexWrap: 'wrap' }}>
+              <div className="nc-recherche" style={{ position: 'relative', maxWidth: 260, flex: '1 1 180px' }}>
                 <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
-                <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
+                <input className="sc-input" value={q} onChange={e => setQ(e.target.value)} aria-label={tr('rechercher')}
                        placeholder={tr('rechercher')} style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12, background: C.fond }} />
               </div>
+              {/* display: contents sur ordinateur : les puces restent dans la rangée */}
+              <div className="nc-filtres" style={mobile ? undefined : { display: 'contents' }}>
               {FILTRES.map(f => (
-                <button key={f.id} onClick={() => setFiltre(f.id)}
+                <button key={f.id} className="nc-filtre" onClick={() => setFiltre(f.id)} aria-pressed={filtre === f.id}
                         style={{
                           border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 6,
                           padding: '5px 10px', fontSize: 11.5,
@@ -562,8 +620,9 @@ function Composition() {
                           color: filtre === f.id ? '#fff' : C.t3, fontWeight: filtre === f.id ? 600 : 400,
                         }}>{f.label}</button>
               ))}
-              <span style={{ flex: 1 }} />
-              <button onClick={remplirAutomatiquement}
+              </div>
+              <span className="nc-espace" style={{ flex: 1 }} />
+              <button className="nc-remplir" onClick={remplirAutomatiquement}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid #E3D6E3',
                         background: '#F3EDF3', color: '#6E4470', borderRadius: 7, padding: '6px 12px',
@@ -582,8 +641,40 @@ function Composition() {
           </div>
         </div>
 
-        {panierBloc}
+        {!mobile && panierBloc}
       </div>
+
+      {/* ── Téléphone : barre du panier collée en bas, panier en feuille ── */}
+      {mobile && (
+        <div className="sc-sticky-actions nc-barre-bas">
+          <div className="nc-resume">
+            <div className="sc-num" style={{ fontSize: 17, fontWeight: 700, color: C.t1 }}>{eur(t.eurAvecPort)}</div>
+            <div style={{ fontSize: 12.5, color: C.t4 }}>
+              {t.lignes} {tr('lignes')} · {t.unites} {tr('unites')}
+              {!t.pretAEnvoyer && t.lignes > 0 && <span style={{ color: C.ambre }}> · {tr('aCompleter')}</span>}
+            </div>
+          </div>
+          <button className="sc-btn sc-btn-primary" onClick={() => setPanierOuvert(true)}>
+            <span className="ms">shopping_cart</span>{tr('voirPanier')}
+          </button>
+        </div>
+      )}
+      {mobile && panierOuvert && (
+        <div className="sc-modal-back" onClick={e => { if (e.target === e.currentTarget) setPanierOuvert(false); }}>
+          <div className="sc-modal" role="dialog" aria-modal="true" aria-label={tr('panier')}>
+            <div className="sc-modal-head">
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>{tr('panier')}</div>
+                {fournisseur && <div style={{ fontSize: 12.5, color: C.t4 }}>{fournisseur.name}</div>}
+              </div>
+              <button className="sc-iconbtn" onClick={() => setPanierOuvert(false)} aria-label={tr('fermer')}>
+                <span className="ms">close</span>
+              </button>
+            </div>
+            <div style={{ padding: 12 }}>{panierBloc}</div>
+          </div>
+        </div>
+      )}
 
       {confirme && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.45)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -601,12 +692,7 @@ function Composition() {
         </div>
       )}
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: mobile ? 70 : 24, right: 24, background: C.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 320, maxWidth: 'calc(100vw - 48px)',
-        }}>{toast}</div>
-      )}
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 320 }}>{toast}</div>}
     </>
   );
 }

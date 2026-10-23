@@ -4,6 +4,8 @@ import { T as TH } from '@/lib/admin-theme';
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
+import SegTabs, { minTextCss } from '@/components/SegTabs';
 import { TGE } from './i18n';
 
 const supabase = createClient(
@@ -56,6 +58,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function GestionPage() {
   const { t, tc, lang } = useT(TGE);
+  const isMobile = useIsMobile();
   const [page, setPage] = useState<'dashboard' | 'factures' | 'achats' | 'marges' | 'transport' | 'params'>('dashboard');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -404,7 +407,84 @@ export default function GestionPage() {
     .g-modal-body { padding:18px; max-height:74vh; overflow-y:auto; }
     .g-modal-footer { padding:13px 18px; border-top:1px solid ${TH.border}; display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
 
-    .g-toast { position:fixed; bottom:24px; right:24px; background:${TH.ink}; color:#fff; padding:10px 18px; border-radius:7px; font-size:12.5px; z-index:300; }
+    /* Mise en page déplacée des styles en ligne (mêmes valeurs sur ordinateur) */
+    .g-dash-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .g-tr-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .g-trline { display:grid; grid-template-columns:2fr 1fr 60px 28px; gap:6px; margin-bottom:6px; align-items:center; }
+    .fs12 { font-size:12px; }
+    .g-lines td { padding:3px 4px; }
+    .g-lines td.g-ln-qty { width:60px; } .g-lines td.g-ln-qty .form-control { width:60px; }
+    .g-lines td.g-ln-pu { width:90px; } .g-lines td.g-ln-pu .form-control { width:90px; }
+    .g-lines td.g-ln-tva { width:65px; } .g-lines td.g-ln-tva .form-control { width:65px; }
+    .g-lines td.g-ln-total { padding:3px 8px; font-family:var(--font-mono); font-size:12px; white-space:nowrap; }
+    .g-lines td.g-ln-x { padding:0; }
+    .g-totals { min-width:220px; }
+    .g-prev { border:1px solid var(--linen); border-radius:var(--r); padding:32px; font-size:13px; line-height:1.6; }
+    .g-prev-top { display:flex; justify-content:space-between; margin-bottom:32px; }
+    .g-mlist, .g-sub { display:none; }
+
+    /* ═══ Téléphone ═══ */
+    @media (max-width: 899px) {
+      .g-stats { grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; }
+      .g-stat { padding:12px; }
+      .g-stat-num { font-size:19px; letter-spacing:-.3px; }
+      .g-stat-label { font-size:12px; letter-spacing:.6px; }
+      .g-dash-2, .g-tr-2 { grid-template-columns:minmax(0,1fr); gap:12px; }
+      .g-card-header { padding:8px 8px 8px 14px; }
+      .g-card-title { font-size:14px; }
+      .btn { min-height:44px; font-size:14px; justify-content:center; }
+      .btn-sm { min-width:44px; padding:8px 12px; font-size:13.5px; }
+      .btn-sm .ms { font-size:20px !important; }
+      .form-label { font-size:12.5px; }
+      .form-control, .form-control.fs12 { height:44px; font-size:16px; }
+      textarea.form-control { height:auto; }
+      .badge { font-size:11px; }
+      .empty { font-size:14px; padding:32px 16px; }
+      .result-row { font-size:14px; }
+      .g-totals { min-width:0; width:100%; }
+
+      /* Tableaux en cartes (classe partagée .sc-stack) sur deux colonnes */
+      .sc-table.sc-stack.g-pairs tr { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:14px; }
+      .sc-table.sc-stack.g-pairs td.sc-stack-main, .sc-table.sc-stack.g-pairs td.sc-stack-actions, .sc-table.sc-stack.g-pairs td.g-full { grid-column:1 / -1; }
+      .sc-table.sc-stack.g-pairs td { font-size:13.5px; }
+      .sc-table.sc-stack td.sc-stack-main .g-sub { display:block; font-size:12.5px; font-weight:400; color:${TH.muted}; margin-top:2px; }
+
+      /* Marges : liste compacte (une ligne par produit) */
+      .g-mlist { display:block; }
+      .g-mrow { display:flex; align-items:center; gap:10px; padding:10px 6px 10px 14px; border-bottom:1px solid ${TH.borderFaint}; text-decoration:none; color:inherit; min-height:56px; }
+      .g-mrow:last-child { border-bottom:none; }
+
+      /* Répartition transport : nom sur une ligne, valeur · quantité · retirer dessous */
+      .g-trline { grid-template-columns:minmax(0,1fr) 76px 44px; gap:8px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid ${TH.borderFaint}; }
+      .g-trline > :first-child { grid-column:1 / -1; }
+      .g-x { min-width:44px; min-height:44px; font-size:18px !important; }
+
+      /* Lignes de facture : une carte par ligne */
+      .g-lines, .g-lines tbody { display:block; width:100%; }
+      .g-lines thead { display:none; }
+      .g-lines tr { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; padding:10px 0; border-bottom:1px solid ${TH.border}; }
+      .g-lines td, .g-lines td.g-ln-qty, .g-lines td.g-ln-pu, .g-lines td.g-ln-tva { display:block; width:auto; padding:0; }
+      .g-lines td .form-control, .g-lines td.g-ln-qty .form-control, .g-lines td.g-ln-pu .form-control, .g-lines td.g-ln-tva .form-control { width:100%; }
+      .g-lines td[data-label]::before { content:attr(data-label); display:block; font-size:12px; font-weight:600; color:${TH.text2b}; margin-bottom:4px; }
+      .g-lines td.g-ln-desc { grid-column:1 / -1; }
+      .g-lines td.g-ln-total { grid-column:1 / 3; padding:0; align-self:center; font-size:14px; font-family:inherit; }
+      .g-lines td.g-ln-total::before { display:inline !important; margin-right:6px; }
+      .g-lines td.g-ln-x { display:flex; justify-content:flex-end; }
+
+      /* Fenêtres : plein écran, en-tête et pied collés */
+      .g-modal-overlay { padding:0; align-items:stretch; }
+      .g-modal { max-width:none !important; margin:0; border-radius:0; border:none; min-height:100%; display:flex; flex-direction:column; }
+      .g-modal-header { position:sticky; top:0; z-index:2; background:#fff; padding:6px 6px 6px 16px; }
+      .g-modal-body { max-height:none; flex:1; padding:16px; }
+      .g-modal-footer { position:sticky; bottom:0; background:#fff; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); }
+      .g-modal-footer > .btn { flex:1 1 0; }
+      .g-prev { padding:16px; }
+      .g-prev-top { flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+    }
+    /* globals.css (ancien thème) masque tout <span> d'un .btn sous 480 px :
+       les boutons-icônes (modifier, aperçu, PDF…) devenaient des cases vides. */
+    @media (max-width: 480px) { .g-root .btn span { display:inline-block; } }
+    ${minTextCss('.g-root')}
   `;
 
   const NAV = [
@@ -429,9 +509,15 @@ export default function GestionPage() {
     ['transport', 'Répartition transport'],
     ['params', 'Paramètres'],
   ];
+  // Téléphone : libellés courts + icônes, les cinq onglets visibles d'un coup
+  const G_TABS_M: Record<string, [string, string]> = {
+    dashboard: ['Aperçu', 'space_dashboard'], factures: ['Factures', 'receipt_long'],
+    marges: ['Marges', 'percent'], transport: ['Transport', 'local_shipping'], params: ['Réglages', 'settings'],
+  };
+  const realSorted = [...realProds].sort((a, b) => (b.sell - b.revient) / b.sell - (a.sell - a.revient) / a.sell);
 
   return (
-    <>
+    <div className="g-root">
       <style dangerouslySetInnerHTML={{ __html: css }} />
 
       <div className="sc-head">
@@ -452,7 +538,7 @@ export default function GestionPage() {
               <span className="ms">calculate</span>{t('simulation')}
             </button>
           )}
-          {page === 'params' && (
+          {page === 'params' && !isMobile && (
             <button className="sc-btn sc-btn-green" onClick={saveParamsToDb}>
               <span className="ms">save</span>{t('sauvegarder')}
             </button>
@@ -463,7 +549,12 @@ export default function GestionPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}`, overflowX: 'auto' }}>
+      <div className="sc-only-mobile" style={{ marginBottom: 12 }}>
+        <SegTabs label="Sections de la facturation" value={page} onChange={k => setPage(k as any)}
+                 tabs={G_TABS.map(([k, l]) => ({ key: k as typeof page, label: G_TABS_M[k][0], icon: G_TABS_M[k][1], title: l, badge: k === 'factures' ? invoices.length : undefined }))} />
+      </div>
+
+      <div className="sc-hide-mobile" style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}`, overflowX: 'auto' }}>
         {G_TABS.map(([k, l]) => {
           const on = page === k;
           return (
@@ -496,7 +587,7 @@ export default function GestionPage() {
                   <div className="g-stat"><span className="g-stat-icon"></span><div><div className="g-stat-num mono">{fmt(pending)}</div><div className="g-stat-label">EN ATTENTE</div></div></div>
                   <div className="g-stat"><span className="g-stat-icon"></span><div><div className="g-stat-num mono">{fmtPct(avgMargin)}</div><div className="g-stat-label">MARGE MOY.</div></div></div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="g-dash-2">
                   <div className="g-card">
                     <div className="g-card-header"><span className="g-card-title">{t('dernieres')}</span><button className="btn btn-secondary btn-sm" onClick={() => setPage('factures')}>{t('voirTout')}</button></div>
                     {invoices.slice(0, 5).map(i => (
@@ -531,23 +622,25 @@ export default function GestionPage() {
             {/* ── FACTURES ── */}
             {page === 'factures' && (
               <div className="g-card">
-                <table className="g-table">
+                {/* Téléphone : chaque facture devient une carte (.sc-stack) sur deux
+                    colonnes ; avant, montants, statut et actions sortaient de l'écran. */}
+                <table className="g-table sc-table sc-stack g-pairs">
                   <thead><tr><th>N°</th><th>{tc('client')}</th><th>Date</th><th>{t('echeance')}</th><th style={{ textAlign: 'right' }}>HT</th><th style={{ textAlign: 'right' }}>TVA</th><th style={{ textAlign: 'right' }}>TTC</th><th>{tc('status')}</th><th>{tc('actions')}</th></tr></thead>
                   <tbody>
                     {invoices.map(i => {
                       const echeance = i.date ? new Date(new Date(i.date + 'T12:00').getTime() + (params.payment_days || 30) * 86400000).toISOString().slice(0, 10) : undefined;
                       return (
                         <tr key={i.id}>
-                          <td className="mono" style={{ fontSize: 12 }}>{i.number}</td>
-                          <td><strong>{i.client_name}</strong>{i.client_email && <><br /><span style={{ fontSize: 11, color: 'var(--dust)' }}>{i.client_email}</span></>}</td>
-                          <td>{fmtDate(i.date)}</td>
-                          <td style={{ color: 'var(--dust)' }}>{fmtDate(echeance)}</td>
-                          <td className="price">{fmt(i.total_ht)}</td>
-                          <td className="price">{fmt(i.total_tva)}</td>
-                          <td className="price" style={{ fontWeight: 700 }}>{fmt(i.total_ttc)}</td>
-                          <td><span className={`badge ${STATUS_BADGE[i.status] || ''}`}>{STATUS_LABEL[i.status] || i.status}</span></td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 4 }}>
+                          <td className="mono sc-hide-mobile" style={{ fontSize: 12 }}>{i.number}</td>
+                          <td className="sc-stack-main"><strong>{i.client_name}</strong>{i.client_email && <><br /><span style={{ fontSize: 11, color: 'var(--dust)' }}>{i.client_email}</span></>}<span className="g-sub mono">{i.number}</span></td>
+                          <td data-label="Date">{fmtDate(i.date)}</td>
+                          <td data-label={t('echeance')} style={{ color: 'var(--dust)' }}>{fmtDate(echeance)}</td>
+                          <td data-label="HT" className="price">{fmt(i.total_ht)}</td>
+                          <td data-label="TVA" className="price">{fmt(i.total_tva)}</td>
+                          <td data-label="TTC" className="price" style={{ fontWeight: 700 }}>{fmt(i.total_ttc)}</td>
+                          <td data-label={tc('status')}><span className={`badge ${STATUS_BADGE[i.status] || ''}`}>{STATUS_LABEL[i.status] || i.status}</span></td>
+                          <td className="sc-stack-actions">
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                               <button className="btn btn-secondary btn-sm" title={tc('edit')} onClick={() => openEditInvoice(i)}>
                                 <span className="ms" style={{ fontSize: 16 }}>edit</span>
                               </button>
@@ -626,7 +719,7 @@ export default function GestionPage() {
                 <div className="g-card" style={{ marginBottom: 16, padding: '12px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, flexWrap: 'wrap' }}>
                     <span>🎯 Objectif marge minimum :</span>
-                    <input type="number" className="form-control mono" style={{ width: 70 }} value={marginTarget} onChange={e => setMarginTarget(parseFloat(e.target.value) || 40)} />
+                    <input type="number" inputMode="decimal" aria-label="Objectif de marge minimum (%)" className="form-control mono" style={{ width: 70 }} value={marginTarget} onChange={e => setMarginTarget(parseFloat(e.target.value) || 40)} />
                     <span style={{ color: 'var(--dust)' }}>% — Alerte en dessous de ce seuil</span>
                     {realProds.length > 0 && (
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--moss)', fontWeight: 600, background: 'var(--moss-pale)', padding: '3px 10px', borderRadius: 20 }}>
@@ -638,7 +731,31 @@ export default function GestionPage() {
 
                 {realProds.length > 0 ? (
                   <div className="g-card">
-                    <table className="g-table">
+                    {/* Téléphone : une ligne par produit (nom, marge %, PMP → prix),
+                        toucher la ligne ouvre la fiche produit comme le crayon. */}
+                    <div className="g-mlist">
+                      {realSorted.map(p => {
+                        const pct = p.sell > 0 ? (p.sell - p.revient) / p.sell * 100 : 0;
+                        const st = (p as any).stock;
+                        return (
+                          <a key={p.id} href={`/admin/produits/${p.id}`} className="g-mrow" aria-label={`${p.name} — ${t('editerProduit')}`}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                                <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: TH.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                <span className="mono" style={{ fontSize: 14.5, fontWeight: 700, color: marginColor(pct), whiteSpace: 'nowrap' }}>{fmtPct(pct)}</span>
+                              </div>
+                              <div className="mono" style={{ fontSize: 12.5, color: TH.text3, marginTop: 3 }}>
+                                PMP {fmt(p.revient)} → {fmt(p.sell)} · marge {fmt(p.sell - p.revient)}
+                                {st != null && <> · stock <span style={{ color: st === 0 ? TH.red : st <= 3 ? TH.amberText : TH.green, fontWeight: 600 }}>{st}</span></>}
+                              </div>
+                              {p.cat && <div style={{ fontSize: 12, color: TH.muted, marginTop: 1 }}>{p.cat}</div>}
+                            </div>
+                            <span className="ms" style={{ fontSize: 20, color: TH.muted3 }}>chevron_right</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                    <table className="g-table sc-hide-mobile">
                       <thead>
                         <tr>
                           <th>{tc('product')}</th>
@@ -653,7 +770,7 @@ export default function GestionPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...realProds].sort((a, b) => (b.sell - b.revient) / b.sell - (a.sell - a.revient) / a.sell).map(p => {
+                        {realSorted.map(p => {
                           const pct = p.sell > 0 ? (p.sell - p.revient) / p.sell * 100 : 0;
                           return (
                             <tr key={p.id}>
@@ -699,27 +816,27 @@ export default function GestionPage() {
                     <div className="g-card-header">
                       <span className="g-card-title" style={{ fontSize: 12, color: 'var(--dust)' }}>Simulations manuelles ({products.length})</span>
                     </div>
-                    <table className="g-table">
+                    <table className="g-table sc-table sc-stack g-pairs">
                       <thead><tr><th>{tc('product')}</th><th>{t('categorie')}</th><th style={{ textAlign: 'right' }}>{t('achat')}</th><th style={{ textAlign: 'right' }}>{t('transport')}</th><th style={{ textAlign: 'right' }}>{t('autres')}</th><th style={{ textAlign: 'right' }}>{t('revient')}</th><th style={{ textAlign: 'right' }}>{t('vente')}</th><th style={{ textAlign: 'right' }}>{t('margeEur')}</th><th style={{ textAlign: 'right' }}>{t('margePct')}</th><th></th><th></th></tr></thead>
                       <tbody>
                         {products.map(p => {
                           const pct = (p.sell - p.revient) / p.sell * 100;
                           return (
                             <tr key={p.id}>
-                              <td><strong>{p.name}</strong></td>
-                              <td style={{ fontSize: 12, color: 'var(--dust)' }}>{p.cat || '—'}</td>
-                              <td className="price">{fmt(p.buy)}</td>
-                              <td className="price">{p.trans > 0 ? fmt(p.trans) : '—'}</td>
-                              <td className="price">{p.other > 0 ? fmt(p.other) : '—'}</td>
-                              <td className="price" style={{ fontWeight: 600 }}>{fmt(p.revient)}</td>
-                              <td className="price">{fmt(p.sell)}</td>
-                              <td className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
-                              <td><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
-                              <td>
+                              <td className="sc-stack-main"><strong>{p.name}</strong></td>
+                              <td data-label={t('categorie')} style={{ fontSize: 12, color: 'var(--dust)' }}>{p.cat || '—'}</td>
+                              <td data-label={t('achat')} className="price">{fmt(p.buy)}</td>
+                              <td data-label={t('transport')} className="price">{p.trans > 0 ? fmt(p.trans) : '—'}</td>
+                              <td data-label={t('autres')} className="price">{p.other > 0 ? fmt(p.other) : '—'}</td>
+                              <td data-label={t('revient')} className="price" style={{ fontWeight: 600 }}>{fmt(p.revient)}</td>
+                              <td data-label={t('vente')} className="price">{fmt(p.sell)}</td>
+                              <td data-label={t('margeEur')} className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
+                              <td data-label={t('margePct')} style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
+                              <td className="sc-hide-mobile"><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
+                              <td className="sc-stack-actions">
                                 <div style={{ display: 'flex', gap: 4 }}>
-                                  <button className="btn btn-secondary btn-sm" onClick={() => openEditProduct(p)}>✏️</button>
-                                  <button className="btn btn-danger btn-sm" onClick={() => deleteProduct(p.id)}>🗑</button>
+                                  <button className="btn btn-secondary btn-sm" aria-label={tc('edit')} title={tc('edit')} onClick={() => openEditProduct(p)}>✏️</button>
+                                  <button className="btn btn-danger btn-sm" aria-label={tc('delete')} title={tc('delete')} onClick={() => deleteProduct(p.id)}>🗑</button>
                                 </div>
                               </td>
                             </tr>
@@ -734,12 +851,12 @@ export default function GestionPage() {
 
             {/* ── TRANSPORT ── */}
             {page === 'transport' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="g-tr-2">
                 <div>
-                  <div className="g-card" style={{ padding: 20 }}>
+                  <div className="g-card" style={{ padding: isMobile ? 14 : 20 }}>
                     <div className="form-group">
-                      <label className="form-label">{t('coutTransport')}</label>
-                      <input type="number" className="form-control mono" placeholder={t('exMontant')} step="0.01" value={trCost} onChange={e => setTrCost(e.target.value)} />
+                      <label className="form-label" htmlFor="g-trcost">{t('coutTransport')}</label>
+                      <input id="g-trcost" type="number" inputMode="decimal" className="form-control mono" placeholder={t('exMontant')} step="0.01" value={trCost} onChange={e => setTrCost(e.target.value)} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">{t('methodeRepart')}</label>
@@ -752,11 +869,11 @@ export default function GestionPage() {
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--dust)', marginBottom: 8 }}>{tc('products')}</div>
                       {trLines.map((l, i) => (
-                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 60px 28px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                          <input className="form-control" style={{ fontSize: 12 }} value={l.name} onChange={e => { const nl = [...trLines]; nl[i].name = e.target.value; setTrLines(nl); }} placeholder={tc('product')} />
-                          <input type="number" className="form-control mono" style={{ fontSize: 12 }} value={trMethod === 'weight' ? l.weight : l.value} step="0.01" onChange={e => { const nl = [...trLines]; if (trMethod === 'weight') nl[i].weight = e.target.value; else nl[i].value = e.target.value; setTrLines(nl); }} placeholder="0.00" />
-                          <input type="number" className="form-control mono" style={{ fontSize: 12 }} value={l.qty} min={1} onChange={e => { const nl = [...trLines]; nl[i].qty = parseInt(e.target.value) || 1; setTrLines(nl); }} />
-                          <button onClick={() => setTrLines(trLines.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                        <div key={i} className="g-trline">
+                          <input className="form-control fs12" aria-label={tc('product')} value={l.name} onChange={e => { const nl = [...trLines]; nl[i].name = e.target.value; setTrLines(nl); }} placeholder={tc('product')} />
+                          <input type="number" inputMode="decimal" aria-label={trMethod === 'weight' ? 'Poids' : 'Valeur (€ achat)'} className="form-control mono fs12" value={trMethod === 'weight' ? l.weight : l.value} step="0.01" onChange={e => { const nl = [...trLines]; if (trMethod === 'weight') nl[i].weight = e.target.value; else nl[i].value = e.target.value; setTrLines(nl); }} placeholder="0.00" />
+                          <input type="number" inputMode="numeric" aria-label="Quantité" className="form-control mono fs12" value={l.qty} min={1} onChange={e => { const nl = [...trLines]; nl[i].qty = parseInt(e.target.value) || 1; setTrLines(nl); }} />
+                          <button className="g-x" aria-label={tc('delete')} onClick={() => setTrLines(trLines.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14 }}>✕</button>
                         </div>
                       ))}
                       <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }} onClick={() => setTrLines([...trLines, { name: '', weight: '', value: '', qty: 1 }])}>+ Ajouter</button>
@@ -766,8 +883,9 @@ export default function GestionPage() {
                 </div>
                 <div>
                   {trResult.length > 0 && (
-                    <div className="g-card" style={{ padding: 20 }}>
+                    <div className="g-card" style={{ padding: isMobile ? 14 : 20 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>{t('resultatRepart')}</div>
+                      <div className="sc-scroll-x">
                       <table className="g-table">
                         <thead><tr><th>{tc('product')}</th><th>Qté</th><th>%</th><th style={{ textAlign: 'right' }}>{tc('total')}</th><th style={{ textAlign: 'right' }}>/ unité</th></tr></thead>
                         <tbody>
@@ -782,6 +900,7 @@ export default function GestionPage() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                       <div style={{ marginTop: 12, padding: '8px 14px', background: 'var(--moss-pale)', borderRadius: 'var(--r)', fontSize: 12, color: 'var(--moss)', fontWeight: 600 }}>
                         Total réparti : {fmt(parseFloat(trCost) || 0)}
                       </div>
@@ -800,25 +919,35 @@ export default function GestionPage() {
                   <div className="g-grid-2">
                     <div className="form-group"><label className="form-label">{t('raisonSociale')}</label><input className="form-control" value={params.company} onChange={e => setParams(p => ({ ...p, company: e.target.value }))} /></div>
                     <div className="form-group"><label className="form-label">{t('statutJuridique')}</label><input className="form-control" value={params.legal} onChange={e => setParams(p => ({ ...p, legal: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">SIRET</label><input className="form-control mono" value={params.siret} onChange={e => setParams(p => ({ ...p, siret: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">N° TVA intracommunautaire</label><input className="form-control mono" value={params.tva} onChange={e => setParams(p => ({ ...p, tva: e.target.value }))} /></div>
-                    <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{tc('address')}</label><textarea className="form-control" value={params.address} onChange={e => setParams(p => ({ ...p, address: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" value={params.email} onChange={e => setParams(p => ({ ...p, email: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">{tc('phone')}</label><input className="form-control" value={params.phone} onChange={e => setParams(p => ({ ...p, phone: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">IBAN</label><input className="form-control mono" value={params.iban} onChange={e => setParams(p => ({ ...p, iban: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">{t('tauxTva')}</label><input type="number" className="form-control mono" value={params.tva_rate} onChange={e => setParams(p => ({ ...p, tva_rate: parseFloat(e.target.value) || 20 }))} /></div>
-                    <div className="form-group"><label className="form-label">{t('delaiPaiement')}</label><input type="number" className="form-control mono" value={params.payment_days} onChange={e => setParams(p => ({ ...p, payment_days: parseInt(e.target.value) || 30 }))} /></div>
-                    <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{t('mentions')}</label><textarea className="form-control" value={params.legal_mention} onChange={e => setParams(p => ({ ...p, legal_mention: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">SIRET</label><input className="form-control mono" inputMode="numeric" value={params.siret} onChange={e => setParams(p => ({ ...p, siret: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">N° TVA intracommunautaire</label><input className="form-control mono" autoCapitalize="characters" spellCheck={false} value={params.tva} onChange={e => setParams(p => ({ ...p, tva: e.target.value }))} /></div>
+                    {/* 1 / -1 plutôt que span 2 : sur une colonne (téléphone), span 2
+                        créait une seconde colonne implicite qui débordait de l'écran. */}
+                    <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{tc('address')}</label><textarea className="form-control" value={params.address} onChange={e => setParams(p => ({ ...p, address: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} value={params.email} onChange={e => setParams(p => ({ ...p, email: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{tc('phone')}</label><input className="form-control" inputMode="tel" autoComplete="tel" value={params.phone} onChange={e => setParams(p => ({ ...p, phone: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">IBAN</label><input className="form-control mono" autoCapitalize="characters" autoComplete="off" spellCheck={false} value={params.iban} onChange={e => setParams(p => ({ ...p, iban: e.target.value }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('tauxTva')}</label><input type="number" inputMode="decimal" className="form-control mono" value={params.tva_rate} onChange={e => setParams(p => ({ ...p, tva_rate: parseFloat(e.target.value) || 20 }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('delaiPaiement')}</label><input type="number" inputMode="numeric" className="form-control mono" value={params.payment_days} onChange={e => setParams(p => ({ ...p, payment_days: parseInt(e.target.value) || 30 }))} /></div>
+                    <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{t('mentions')}</label><textarea className="form-control" value={params.legal_mention} onChange={e => setParams(p => ({ ...p, legal_mention: e.target.value }))} /></div>
                   </div>
                 </div>
                 <div className="g-card" style={{ padding: 20 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>🔢 Numérotation des factures</div>
                   <div className="g-grid-2">
                     <div className="form-group"><label className="form-label">{t('prefixe')}</label><input className="form-control mono" value={params.inv_prefix} onChange={e => setParams(p => ({ ...p, inv_prefix: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">{t('prochainNum')}</label><input type="number" className="form-control mono" value={params.inv_next} onChange={e => setParams(p => ({ ...p, inv_next: parseInt(e.target.value) || 1 }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('prochainNum')}</label><input type="number" inputMode="numeric" className="form-control mono" value={params.inv_next} onChange={e => setParams(p => ({ ...p, inv_next: parseInt(e.target.value) || 1 }))} /></div>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--dust)', marginTop: 4 }}>{t('prochaineFacture')} <strong className="mono">{params.inv_prefix}{String(params.inv_next).padStart(4, '0')}</strong></div>
                 </div>
+                {/* Téléphone : Enregistrer reste à portée du pouce en bas de l'écran */}
+                {isMobile && (
+                  <div className="sc-sticky-actions">
+                    <button className="sc-btn sc-btn-green" onClick={saveParamsToDb}>
+                      <span className="ms">save</span>{t('sauvegarder')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -830,11 +959,11 @@ export default function GestionPage() {
           <div className="g-modal">
             <div className="g-modal-header">
               <span className="g-modal-title">{editingInvoice ? 'Éditer — ' + editingInvoice.number : 'Nouvelle facture'}</span>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowInvoiceModal(false)}>✕</button>
+              <button className="btn btn-secondary btn-sm" aria-label={tc('cancel')} onClick={() => setShowInvoiceModal(false)}>✕</button>
             </div>
             <div className="g-modal-body">
               <div className="g-grid-3" style={{ marginBottom: 14 }}>
-                <div className="form-group"><label className="form-label">N° facture</label><input className="form-control mono" value={invForm.number} onChange={e => setInvForm(f => ({ ...f, number: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">N° facture</label><input className="form-control mono" autoCapitalize="characters" value={invForm.number} onChange={e => setInvForm(f => ({ ...f, number: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">Date</label><input type="date" className="form-control" value={invForm.date} onChange={e => setInvForm(f => ({ ...f, date: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">{tc('status')}</label>
                   <select className="form-control" value={invForm.status} onChange={e => setInvForm(f => ({ ...f, status: e.target.value }))}>
@@ -844,24 +973,25 @@ export default function GestionPage() {
               </div>
               <div className="g-grid-3" style={{ marginBottom: 14 }}>
                 <div className="form-group"><label className="form-label">{t('clientReq')}</label><input className="form-control" value={invForm.client_name} onChange={e => setInvForm(f => ({ ...f, client_name: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" value={invForm.client_email} onChange={e => setInvForm(f => ({ ...f, client_email: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" inputMode="email" autoCapitalize="none" spellCheck={false} value={invForm.client_email} onChange={e => setInvForm(f => ({ ...f, client_email: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">{tc('address')}</label><input className="form-control" value={invForm.client_address} onChange={e => setInvForm(f => ({ ...f, client_address: e.target.value }))} /></div>
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--dust)', marginBottom: 8 }}>{t('lignes')}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                {/* Téléphone : une carte par ligne (description, puis Qté · P.U. · TVA, puis total) */}
+                <table className="g-lines" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr>{['Description', 'Qté', 'P.U. HT', 'TVA %', 'Total', ''].map(h => <th key={h} style={{ padding: '4px 6px', textAlign: 'left', color: 'var(--dust)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>)}</tr></thead>
                   <tbody>
                     {invoiceLines.map((l, i) => {
                       const update = (field: string, val: any) => { const nl = [...invoiceLines]; (nl[i] as any)[field] = val; setInvoiceLines(nl); };
                       return (
                         <tr key={i}>
-                          <td style={{ padding: '3px 4px' }}><input className="form-control" style={{ fontSize: 12 }} value={l.desc} onChange={e => update('desc', e.target.value)} placeholder={t('phDescription')} /></td>
-                          <td style={{ padding: '3px 4px', width: 60 }}><input type="number" className="form-control mono" style={{ fontSize: 12, width: 60 }} value={l.qty} min={1} onChange={e => update('qty', parseFloat(e.target.value) || 1)} /></td>
-                          <td style={{ padding: '3px 4px', width: 90 }}><input type="number" className="form-control mono" style={{ fontSize: 12, width: 90 }} value={l.price} step="0.01" onChange={e => update('price', parseFloat(e.target.value) || 0)} /></td>
-                          <td style={{ padding: '3px 4px', width: 65 }}><input type="number" className="form-control mono" style={{ fontSize: 12, width: 65 }} value={l.tva} min={0} max={100} onChange={e => update('tva', parseFloat(e.target.value) || 0)} /></td>
-                          <td style={{ padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(l.qty * l.price)}</td>
-                          <td><button onClick={() => setInvoiceLines(invoiceLines.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}>✕</button></td>
+                          <td className="g-ln-desc"><input className="form-control fs12" aria-label="Description" value={l.desc} onChange={e => update('desc', e.target.value)} placeholder={t('phDescription')} /></td>
+                          <td className="g-ln-qty" data-label="Qté"><input type="number" inputMode="decimal" aria-label="Quantité" className="form-control mono fs12" value={l.qty} min={1} onChange={e => update('qty', parseFloat(e.target.value) || 1)} /></td>
+                          <td className="g-ln-pu" data-label="P.U. HT"><input type="number" inputMode="decimal" aria-label="Prix unitaire HT" className="form-control mono fs12" value={l.price} step="0.01" onChange={e => update('price', parseFloat(e.target.value) || 0)} /></td>
+                          <td className="g-ln-tva" data-label="TVA %"><input type="number" inputMode="decimal" aria-label="TVA %" className="form-control mono fs12" value={l.tva} min={0} max={100} onChange={e => update('tva', parseFloat(e.target.value) || 0)} /></td>
+                          <td className="g-ln-total" data-label="Total">{fmt(l.qty * l.price)}</td>
+                          <td className="g-ln-x"><button className="g-x" aria-label={tc('delete')} onClick={() => setInvoiceLines(invoiceLines.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}>✕</button></td>
                         </tr>
                       );
                     })}
@@ -871,7 +1001,7 @@ export default function GestionPage() {
               </div>
               {(() => { const { ht, tva, ttc } = calcInvoiceTotals(invoiceLines); return (
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <div className="result-box" style={{ minWidth: 220 }}>
+                  <div className="result-box g-totals">
                     <div className="result-row"><span>{t('totalHt')}</span><span className="mono">{fmt(ht)}</span></div>
                     <div className="result-row"><span>TVA</span><span className="mono">{fmt(tva)}</span></div>
                     <div className="result-row result-total"><span>{t('totalTtc')}</span><span className="mono">{fmt(ttc)}</span></div>
@@ -895,7 +1025,7 @@ export default function GestionPage() {
       {showPurchaseModal && (
         <div className="g-modal-overlay" onClick={e => e.target === e.currentTarget && setShowPurchaseModal(false)}>
           <div className="g-modal">
-            <div className="g-modal-header"><span className="g-modal-title">{t('saisirAchat')}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowPurchaseModal(false)}>✕</button></div>
+            <div className="g-modal-header"><span className="g-modal-title">{t('saisirAchat')}</span><button className="btn btn-secondary btn-sm" aria-label="Fermer" onClick={() => setShowPurchaseModal(false)}>✕</button></div>
             <div className="g-modal-body">
               <div className="g-grid-2">
                 <div className="form-group"><label className="form-label">{t('fournisseurReq')}</label><input className="form-control" value={purForm.supplier} onChange={e => setPurForm(f => ({ ...f, supplier: e.target.value }))} /></div>
@@ -906,11 +1036,11 @@ export default function GestionPage() {
                     <option value="received">{t('recue')}</option><option value="pending">{t('enAttente')}</option><option value="paid">{t('payee')}</option>
                   </select>
                 </div>
-                <div className="form-group"><label className="form-label">{t('montantHt')}</label><input type="number" className="form-control mono" value={purForm.amount} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, amount: v, total: calcPurchaseTotal(v, f.transport) })); }} /></div>
-                <div className="form-group"><label className="form-label">{t('fraisTransport')}</label><input type="number" className="form-control mono" value={purForm.transport} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, transport: v, total: calcPurchaseTotal(f.amount, v) })); }} /></div>
+                <div className="form-group"><label className="form-label">{t('montantHt')}</label><input type="number" inputMode="decimal" className="form-control mono" value={purForm.amount} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, amount: v, total: calcPurchaseTotal(v, f.transport) })); }} /></div>
+                <div className="form-group"><label className="form-label">{t('fraisTransport')}</label><input type="number" inputMode="decimal" className="form-control mono" value={purForm.transport} step="0.01" onChange={e => { const v = e.target.value; setPurForm(f => ({ ...f, transport: v, total: calcPurchaseTotal(f.amount, v) })); }} /></div>
                 <div className="form-group"><label className="form-label">{tc('total')}</label><input type="number" className="form-control mono" value={purForm.total} readOnly style={{ background: 'var(--cream)' }} /></div>
                 <div className="form-group"><label className="form-label">{t('produitsListe')}</label><input className="form-control" value={purForm.products} onChange={e => setPurForm(f => ({ ...f, products: e.target.value }))} placeholder={t('phProduits')} /></div>
-                <div className="form-group" style={{ gridColumn: 'span 2' }}><label className="form-label">{tc('notes')}</label><textarea className="form-control" value={purForm.notes} onChange={e => setPurForm(f => ({ ...f, notes: e.target.value }))} /></div>
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{tc('notes')}</label><textarea className="form-control" value={purForm.notes} onChange={e => setPurForm(f => ({ ...f, notes: e.target.value }))} /></div>
               </div>
             </div>
             <div className="g-modal-footer">
@@ -925,16 +1055,16 @@ export default function GestionPage() {
       {showMarginModal && (
         <div className="g-modal-overlay" onClick={e => e.target === e.currentTarget && setShowMarginModal(false)}>
           <div className="g-modal">
-            <div className="g-modal-header"><span className="g-modal-title">{editingProduct ? 'Éditer — ' + editingProduct.name : 'Nouveau produit'}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowMarginModal(false)}>✕</button></div>
+            <div className="g-modal-header"><span className="g-modal-title">{editingProduct ? 'Éditer — ' + editingProduct.name : 'Nouveau produit'}</span><button className="btn btn-secondary btn-sm" aria-label="Fermer" onClick={() => setShowMarginModal(false)}>✕</button></div>
             <div className="g-modal-body">
               <div className="g-grid-2">
                 <div className="form-group"><label className="form-label">{t('nomReq')}</label><input className="form-control" value={mpForm.name} onChange={e => { const f = { ...mpForm, name: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
                 <div className="form-group"><label className="form-label">{t('categorie')}</label><input className="form-control" value={mpForm.cat} onChange={e => setMpForm(f => ({ ...f, cat: e.target.value }))} placeholder={t('phCategories')} /></div>
-                <div className="form-group"><label className="form-label">{t('prixAchatReq')}</label><input type="number" className="form-control mono" value={mpForm.buy} step="0.01" onChange={e => { const f = { ...mpForm, buy: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">{t('quotePart')}</label><input type="number" className="form-control mono" value={mpForm.trans} step="0.01" onChange={e => { const f = { ...mpForm, trans: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">{t('autresCouts')}</label><input type="number" className="form-control mono" value={mpForm.other} step="0.01" onChange={e => { const f = { ...mpForm, other: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">{t('prixVenteReq')}</label><input type="number" className="form-control mono" value={mpForm.sell} step="0.01" onChange={e => { const f = { ...mpForm, sell: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
-                <div className="form-group"><label className="form-label">{tc('stock')}</label><input type="number" className="form-control mono" value={mpForm.stock} onChange={e => setMpForm(f => ({ ...f, stock: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">{t('prixAchatReq')}</label><input type="number" inputMode="decimal" className="form-control mono" value={mpForm.buy} step="0.01" onChange={e => { const f = { ...mpForm, buy: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('quotePart')}</label><input type="number" inputMode="decimal" className="form-control mono" value={mpForm.trans} step="0.01" onChange={e => { const f = { ...mpForm, trans: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('autresCouts')}</label><input type="number" inputMode="decimal" className="form-control mono" value={mpForm.other} step="0.01" onChange={e => { const f = { ...mpForm, other: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{t('prixVenteReq')}</label><input type="number" inputMode="decimal" className="form-control mono" value={mpForm.sell} step="0.01" onChange={e => { const f = { ...mpForm, sell: e.target.value }; setMpForm(f); calcMpResult(f); }} /></div>
+                <div className="form-group"><label className="form-label">{tc('stock')}</label><input type="number" inputMode="numeric" className="form-control mono" value={mpForm.stock} onChange={e => setMpForm(f => ({ ...f, stock: e.target.value }))} /></div>
               </div>
               {mpResult && (
                 <div className="result-box">
@@ -960,12 +1090,12 @@ export default function GestionPage() {
             <div className="g-modal-header">
               <span className="g-modal-title">Facture {previewInvoice.number}</span>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => setPreviewInvoice(null)}>✕</button>
+                <button className="btn btn-secondary btn-sm" aria-label="Fermer" onClick={() => setPreviewInvoice(null)}>✕</button>
               </div>
             </div>
             <div className="g-modal-body">
-              <div style={{ border: '1px solid var(--linen)', borderRadius: 'var(--r)', padding: 32, fontSize: 13, lineHeight: 1.6 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 32 }}>
+              <div className="g-prev">
+                <div className="g-prev-top">
                   <div><div style={{ fontFamily: 'var(--font-d)', fontSize: 22, fontWeight: 600, color: 'var(--moss)' }}>{params.company}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>{params.legal}</div><div style={{ fontSize: 12, color: 'var(--dust)', marginTop: 4, whiteSpace: 'pre-line' }}>{params.address}</div></div>
                   <div style={{ textAlign: 'right' }}><div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>FACTURE {previewInvoice.number}</div><div style={{ fontSize: 12, color: 'var(--dust)' }}>Date : {fmtDate(previewInvoice.date)}</div></div>
                 </div>
@@ -974,6 +1104,7 @@ export default function GestionPage() {
                   <div style={{ fontWeight: 600 }}>{previewInvoice.client_name}</div>
                   <div style={{ fontSize: 12, color: 'var(--dust)', whiteSpace: 'pre-line' }}>{previewInvoice.client_address}</div>
                 </div>
+                <div className="sc-scroll-x">
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                   <thead><tr style={{ background: 'var(--cream)' }}>{['Description', 'Qté', 'P.U. HT', 'TVA', 'Total HT'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Description' ? 'left' : 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--dust)' }}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -988,6 +1119,7 @@ export default function GestionPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <div style={{ minWidth: 220 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}><span>{t('totalHt')}</span><span className="mono">{fmt(previewInvoice.total_ht)}</span></div>
@@ -1003,7 +1135,7 @@ export default function GestionPage() {
         </div>
       )}
 
-      {toast && <div className="g-toast">{toast}</div>}
-    </>
+      {toast && <div className="sc-toast" role="status" aria-live="polite">{toast}</div>}
+    </div>
   );
 }

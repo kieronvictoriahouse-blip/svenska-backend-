@@ -5,7 +5,40 @@ import { adminFetch as adminFetchMarque } from '@/lib/auth-client';
 import dynamic from 'next/dynamic';
 import { adminFetch } from '@/lib/auth-client';
 import { useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
+import { T } from '@/lib/admin-theme';
+import EmailApercu from '@/components/EmailApercu';
 import { TED, testEnvoye, confirmerEnvoi, emailsEnvoyes } from './i18n';
+
+/* ═══ Téléphone (< 900 px) ═══════════════════════════════════════
+   Page plein écran (sans .sc-screen) : la hauteur de l'éditeur retire
+   la topbar ET la barre d'onglets. Les barres de commande passent sur
+   plusieurs lignes, champs à 16 px et boutons de 44 px ; en mode HTML,
+   code et aperçu ne tiennent pas côte à côte sur 390 px : un
+   sélecteur « Code / Aperçu » les montre l'un après l'autre, l'aperçu
+   réduit à la largeur de l'écran. L'ordinateur garde ses styles en ligne. */
+const ED_CSS = `
+  .ed-onglets { overflow-x: auto; scrollbar-width: none; }
+  .ed-onglets::-webkit-scrollbar { display: none; }
+  .ed-onglet { white-space: nowrap; flex-shrink: 0; }
+  @media (max-width: 899px) {
+    .ed-onglet { min-height: 48px; padding: 10px 14px !important; font-size: 14px !important; }
+    .ed-barre { padding: 10px 12px !important; gap: 8px !important; }
+    .ed-champ { flex: 1 1 100% !important; min-width: 0 !important; width: 100%; font-size: 16px !important; min-height: 44px; }
+    .ed-groupe { flex: 1 1 100%; }
+    .ed-groupe > button { flex: 1 1 0; }
+    .ed-btn { min-height: 44px; font-size: 14px !important; justify-content: center; }
+    .ed-btn-s { min-height: 40px; font-size: 13px !important; padding: 8px 12px !important; }
+    .ed-petit { font-size: 12.5px !important; }
+    .ed-test { flex-wrap: wrap; padding: 10px 12px !important; }
+    .ed-test > .ed-btn { flex: 1 1 auto; }
+    .ed-promo { padding: 12px !important; max-height: none !important; }
+    .ed-promo-champ { min-width: 0 !important; flex: 1 1 100% !important; }
+    .ed-promo-actions { flex: 1 1 100%; }
+    .ed-produits { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important; }
+    .ed-toast { left: 12px !important; right: 12px !important; top: 60px !important; text-align: center; }
+  }
+`;
 
 const EmailEditor = dynamic<any>(() => import('react-email-editor').then((m: any) => ({ default: m.default })), {
   ssr: false,
@@ -35,6 +68,9 @@ const SEGMENTS: Record<string, string> = {
 
 export default function EmailEditorPage() {
   const { t, tc, lang } = useT(TED);
+  const mobile = useIsMobile();
+  // Téléphone, mode HTML : on montre le code OU l'aperçu.
+  const [vueHtml, setVueHtml] = useState<'code' | 'apercu'>('code');
   const editorRef = useRef<any>(null);
   const barsRef = useRef<HTMLDivElement>(null);
   const [editorHeight, setEditorHeight] = useState(600);
@@ -78,12 +114,15 @@ export default function EmailEditorPage() {
   useLayoutEffect(() => {
     const calc = () => {
       const bars = barsRef.current?.offsetHeight || 0;
-      setEditorHeight(window.innerHeight - 52 - bars);
+      /* Sur téléphone, la topbar (48) ET la barre d'onglets (58) : avec
+         52 seulement, le bas de l'éditeur passait sous les onglets. */
+      const chrome = window.innerWidth < 900 ? 48 + 58 : 52;
+      setEditorHeight(Math.max(320, window.innerHeight - chrome - bars));
     };
     calc();
     window.addEventListener('resize', calc);
     return () => window.removeEventListener('resize', calc);
-  }, [promoMode]);
+  }, [promoMode, mobile]);
 
   useEffect(() => {
     adminFetch('/api/marketing', { cache: 'no-store' })
@@ -332,8 +371,9 @@ signature_phrase: "Merci d'être là, et à très vite."`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif' }}>
+      <style dangerouslySetInnerHTML={{ __html: ED_CSS }} />
       {toast && (
-        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: '#1e293b', color: '#fff', padding: '12px 20px', borderRadius: 8, fontSize: 14, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+        <div className="ed-toast" role="status" style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: '#1e293b', color: '#fff', padding: '12px 20px', borderRadius: 8, fontSize: 14, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
           {toast}
         </div>
       )}
@@ -342,21 +382,21 @@ signature_phrase: "Merci d'être là, et à très vite."`;
       <div ref={barsRef}>
 
       {/* MODE TABS */}
-      <div style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', display: 'flex' }}>
+      <div className="ed-onglets" role="tablist" style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', display: 'flex' }}>
         <button
-          onClick={() => setPromoMode('editor')}
+          onClick={() => setPromoMode('editor')} className="ed-onglet" role="tab" aria-selected={promoMode === 'editor'}
           style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', background: promoMode === 'editor' ? '#fff' : 'transparent', borderBottom: promoMode === 'editor' ? '2px solid #3b82f6' : '2px solid transparent', marginBottom: -2, fontSize: 13, fontWeight: 600, color: promoMode === 'editor' ? '#1d4ed8' : '#64748b' }}
         >
           ✏️ Éditeur Drag & Drop
         </button>
         <button
-          onClick={() => { setPromoMode('promo'); setShowProducts(true); }}
+          onClick={() => { setPromoMode('promo'); setShowProducts(true); }} className="ed-onglet" role="tab" aria-selected={promoMode === 'promo'}
           style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', background: promoMode === 'promo' ? '#fff' : 'transparent', borderBottom: promoMode === 'promo' ? '2px solid #10b981' : '2px solid transparent', marginBottom: -2, fontSize: 13, fontWeight: 600, color: promoMode === 'promo' ? '#065f46' : '#64748b' }}
         >
           🛍️ Générateur Promo Produits
         </button>
         <button
-          onClick={() => setPromoMode('html')}
+          onClick={() => setPromoMode('html')} className="ed-onglet" role="tab" aria-selected={promoMode === 'html'}
           style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', background: promoMode === 'html' ? '#fff' : 'transparent', borderBottom: promoMode === 'html' ? '2px solid #f59e0b' : '2px solid transparent', marginBottom: -2, fontSize: 13, fontWeight: 600, color: promoMode === 'html' ? '#92400e' : '#64748b' }}
         >
           &lt;&gt; Code HTML
@@ -364,48 +404,48 @@ signature_phrase: "Merci d'être là, et à très vite."`;
       </div>
 
       {/* CONTROL BAR */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 20px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button onClick={() => setMode('select')} style={{ padding: '5px 11px', borderRadius: 6, border: `1px solid ${mode === 'select' ? '#3b82f6' : '#d1d5db'}`, cursor: 'pointer', background: mode === 'select' ? '#eff6ff' : '#fff', fontSize: 12, fontWeight: 600, color: mode === 'select' ? '#1d4ed8' : '#64748b' }}>
+      <div className="ed-barre" style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 20px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="ed-groupe" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button onClick={() => setMode('select')} className="ed-btn" aria-pressed={mode === 'select'} style={{ padding: '5px 11px', borderRadius: 6, border: `1px solid ${mode === 'select' ? '#3b82f6' : '#d1d5db'}`, cursor: 'pointer', background: mode === 'select' ? '#eff6ff' : '#fff', fontSize: 12, fontWeight: 600, color: mode === 'select' ? '#1d4ed8' : '#64748b' }}>
             Existante
           </button>
-          <button onClick={() => setMode('new')} style={{ padding: '5px 11px', borderRadius: 6, border: `1px solid ${mode === 'new' ? '#10b981' : '#d1d5db'}`, cursor: 'pointer', background: mode === 'new' ? '#f0fdf4' : '#fff', fontSize: 12, fontWeight: 600, color: mode === 'new' ? '#065f46' : '#64748b' }}>
+          <button onClick={() => setMode('new')} className="ed-btn" aria-pressed={mode === 'new'} style={{ padding: '5px 11px', borderRadius: 6, border: `1px solid ${mode === 'new' ? '#10b981' : '#d1d5db'}`, cursor: 'pointer', background: mode === 'new' ? '#f0fdf4' : '#fff', fontSize: 12, fontWeight: 600, color: mode === 'new' ? '#065f46' : '#64748b' }}>
             ＋ Nouvelle
           </button>
         </div>
 
         {mode === 'select' ? (
-          <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, minWidth: 180 }}>
+          <select value={selectedId} onChange={e => setSelectedId(e.target.value)} className="ed-champ" aria-label="Campagne" style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, minWidth: 180 }}>
             <option value="">— Sélectionner —</option>
             {campaigns.map(c => <option key={c.id} value={c.id}>{c.name} ({c.status})</option>)}
           </select>
         ) : (
-          <input value={campName} onChange={e => setCampName(e.target.value)} placeholder={t('phNomCampagne')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, minWidth: 200 }} />
+          <input value={campName} onChange={e => setCampName(e.target.value)} placeholder={t('phNomCampagne')} className="ed-champ" aria-label={t('phNomCampagne')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, minWidth: 200 }} />
         )}
 
-        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={t('phObjet')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, flex: 1, minWidth: 180 }} />
+        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder={t('phObjet')} className="ed-champ" aria-label={t('phObjet')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, flex: 1, minWidth: 180 }} />
 
-        <select value={segment} onChange={e => setSegment(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }}>
+        <select value={segment} onChange={e => setSegment(e.target.value)} className="ed-champ" aria-label="Segment" style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }}>
           {Object.entries(SEGMENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
 
         {promoMode === 'editor' && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={exportAndSave} disabled={saving} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+          <div className="ed-groupe" style={{ display: 'flex', gap: 8 }}>
+            <button onClick={exportAndSave} disabled={saving} className="ed-btn" style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: saving ? '#94a3b8' : '#3b82f6', color: '#fff', fontSize: 13, fontWeight: 600 }}>
               {saving ? '⏳…' : '💾 Sauvegarder'}
             </button>
-            <button onClick={exportAndSend} disabled={sending || !selectedId} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sending ? '#94a3b8' : (!selectedId ? '#e2e8f0' : '#10b981'), color: !selectedId ? '#94a3b8' : '#fff', fontSize: 13, fontWeight: 600 }}>
+            <button onClick={exportAndSend} disabled={sending || !selectedId} className="ed-btn" style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sending ? '#94a3b8' : (!selectedId ? '#e2e8f0' : '#10b981'), color: !selectedId ? '#94a3b8' : '#fff', fontSize: 13, fontWeight: 600 }}>
               {sending ? '⏳…' : '🚀 Envoyer'}
             </button>
           </div>
         )}
 
         {promoMode === 'html' && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={saveHtml} disabled={saving} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: saving ? '#94a3b8' : '#f59e0b', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+          <div className="ed-groupe" style={{ display: 'flex', gap: 8 }}>
+            <button onClick={saveHtml} disabled={saving} className="ed-btn" style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: saving ? '#94a3b8' : '#f59e0b', color: '#fff', fontSize: 13, fontWeight: 600 }}>
               {saving ? '⏳…' : '💾 Sauvegarder'}
             </button>
-            <button onClick={sendHtml} disabled={sending || !selectedId} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sending ? '#94a3b8' : (!selectedId ? '#e2e8f0' : '#10b981'), color: !selectedId ? '#94a3b8' : '#fff', fontSize: 13, fontWeight: 600 }}>
+            <button onClick={sendHtml} disabled={sending || !selectedId} className="ed-btn" style={{ padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: sending ? '#94a3b8' : (!selectedId ? '#e2e8f0' : '#10b981'), color: !selectedId ? '#94a3b8' : '#fff', fontSize: 13, fontWeight: 600 }}>
               {sending ? '⏳…' : '🚀 Envoyer'}
             </button>
           </div>
@@ -416,16 +456,17 @@ signature_phrase: "Merci d'être là, et à très vite."`;
 
       {/* BARRE TEST EMAIL */}
       {(promoMode === 'html' || promoMode === 'editor') && (
-        <div style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a', padding: '7px 20px', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#92400e', whiteSpace: 'nowrap' }}>🧪 Envoyer un test :</span>
+        <div className="ed-test" style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a', padding: '7px 20px', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span className="ed-petit" style={{ fontSize: 11, fontWeight: 700, color: '#92400e', whiteSpace: 'nowrap' }}>🧪 Envoyer un test :</span>
           <input
             value={testEmail}
             onChange={e => setTestEmail(e.target.value)}
             placeholder="ton@email.com"
-            type="email"
+            type="email" inputMode="email" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+            aria-label="Adresse du test" className="ed-champ"
             style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fcd34d', fontSize: 13, minWidth: 200, background: '#fff' }}
           />
-          <button
+          <button className="ed-btn"
             onClick={() => {
               if (promoMode === 'html') {
                 sendTestEmail(htmlContent);
@@ -438,7 +479,20 @@ signature_phrase: "Merci d'être là, et à très vite."`;
           >
             {sendingTest ? '⏳…' : '📨 Envoyer à moi'}
           </button>
-          <span style={{ fontSize: 11, color: '#92400e' }}>{t('testSeul')}</span>
+          <span className="ed-petit" style={{ fontSize: 11, color: '#92400e' }}>{t('testSeul')}</span>
+        </div>
+      )}
+
+      {/* Téléphone, mode HTML : code OU aperçu (côte à côte, chacun ferait 195 px) */}
+      {mobile && promoMode === 'html' && (
+        <div role="tablist" style={{ display: 'flex', gap: 6, padding: '8px 12px', background: T.topbar }}>
+          {([['code', 'Code HTML'], ['apercu', `👁 ${t('previsualisation')}`]] as Array<['code' | 'apercu', string]>).map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={vueHtml === k} onClick={() => setVueHtml(k)}
+                    style={{
+                      flex: 1, minHeight: 44, borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+                      background: vueHtml === k ? '#fff' : 'transparent', color: vueHtml === k ? T.ink : 'rgba(255,255,255,.7)',
+                    }}>{l}</button>
+          ))}
         </div>
       )}
 
@@ -446,25 +500,25 @@ signature_phrase: "Merci d'être là, et à très vite."`;
 
       {/* PROMO PRODUCT GENERATOR */}
       {promoMode === 'promo' && (
-        <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: 16, overflow: 'auto', maxHeight: '60vh' }}>
+        <div className="ed-promo" style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: 16, overflow: 'auto', maxHeight: '60vh' }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>{t('objetPromo')}</label>
-              <input value={promoSubject} onChange={e => setPromoSubject(e.target.value)} placeholder={t('phIntro')} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
+            <div className="ed-promo-champ" style={{ flex: 1, minWidth: 200 }}>
+              <label className="ed-petit" style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>{t('objetPromo')}</label>
+              <input value={promoSubject} onChange={e => setPromoSubject(e.target.value)} placeholder={t('phIntro')} className="ed-champ" aria-label={t('objetPromo')} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
             </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>{t('introduction')}</label>
-              <input value={promoIntro} onChange={e => setPromoIntro(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
+            <div className="ed-promo-champ" style={{ flex: 1, minWidth: 200 }}>
+              <label className="ed-petit" style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>{t('introduction')}</label>
+              <input value={promoIntro} onChange={e => setPromoIntro(e.target.value)} className="ed-champ" aria-label={t('introduction')} style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <button
+            <div className="ed-promo-actions" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button className="ed-btn"
                 onClick={generateForClaude}
                 disabled={selectedProducts.length === 0}
                 style={{ padding: '8px 18px', borderRadius: 7, border: 'none', cursor: 'pointer', background: selectedProducts.length === 0 ? '#94a3b8' : '#6366f1', color: '#fff', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}
               >
                 {`🤖 Générer pour Claude (${selectedProducts.length} produit${selectedProducts.length > 1 ? 's' : ''})`}
               </button>
-              <button
+              <button className="ed-btn"
                 onClick={generateAndSavePromo}
                 disabled={generatingPromo || selectedProducts.length === 0}
                 style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid #d1d5db', cursor: 'pointer', background: '#fff', color: '#64748b', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
@@ -477,7 +531,7 @@ signature_phrase: "Merci d'être là, et à très vite."`;
           {products.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#94a3b8', padding: 32 }}>⏳ Chargement des produits…</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            <div className="ed-produits" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
               {products.map(p => {
                 const sel = selectedProducts.includes(p.id);
                 return (
@@ -507,14 +561,14 @@ signature_phrase: "Merci d'être là, et à très vite."`;
             <div style={{ marginTop: 20, borderRadius: 10, overflow: 'hidden', border: '2px solid #6366f1' }}>
               <div style={{ background: '#6366f1', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>🤖 Prêt pour Claude</span>
-                <button onClick={() => setClaudeBlock(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                <button onClick={() => setClaudeBlock(null)} aria-label="Fermer" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16, minWidth: 32, minHeight: 32 }}>✕</button>
               </div>
 
               {/* Prompt suggéré */}
               <div style={{ background: '#eef2ff', padding: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#4338ca' }}>💬 Prompt à copier dans Claude</span>
-                  <button
+                  <button className="ed-btn-s"
                     onClick={() => copyToClipboard(claudeBlock.prompt, 'prompt')}
                     style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: copiedWhat === 'prompt' ? '#10b981' : '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700 }}
                   >
@@ -529,13 +583,13 @@ signature_phrase: "Merci d'être là, et à très vite."`;
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>📄 Données produits HTML</span>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button
+                    <button className="ed-btn-s"
                       onClick={() => copyToClipboard(claudeBlock.html, 'html')}
                       style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: copiedWhat === 'html' ? '#10b981' : '#64748b', color: '#fff', fontSize: 11, fontWeight: 700 }}
                     >
                       {copiedWhat === 'html' ? '✓ Copié !' : '📋 Copier le HTML'}
                     </button>
-                    <button
+                    <button className="ed-btn-s"
                       onClick={() => { setHtmlContent(claudeBlock.html); setPromoMode('html'); setClaudeBlock(null); showToast(t('msgHtmlOuvert')); }}
                       style={{ padding: '4px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', background: '#f59e0b', color: '#fff', fontSize: 11, fontWeight: 700 }}
                     >
@@ -560,7 +614,8 @@ signature_phrase: "Merci d'être là, et à très vite."`;
       {promoMode === 'html' && (
         <div style={{ display: 'flex', height: editorHeight }}>
           {/* Code pane */}
-          <div style={{ display: 'flex', flexDirection: 'column', width: '50%', background: '#1e293b', borderRight: '2px solid #0f172a' }}>
+          {(!mobile || vueHtml === 'code') && (
+          <div style={{ display: 'flex', flexDirection: 'column', width: mobile ? '100%' : '50%', background: '#1e293b', borderRight: '2px solid #0f172a' }}>
             <div style={{ padding: '6px 14px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', fontWeight: 700 }}>HTML</span>
               <span style={{ fontSize: 11, color: '#475569' }}>{t('editezCode')}</span>
@@ -576,27 +631,35 @@ signature_phrase: "Merci d'être là, et à très vite."`;
                 outline: 'none',
                 padding: '14px',
                 fontFamily: '"Fira Code", "Cascadia Code", Consolas, monospace',
-                fontSize: 12,
+                fontSize: mobile ? 16 : 12,
                 lineHeight: 1.6,
                 background: '#1e293b',
                 color: '#e2e8f0',
                 tabSize: 2,
               }}
+              autoCapitalize="off" autoCorrect="off" aria-label="HTML"
               placeholder="<!-- Collez ou écrivez votre HTML email ici -->"
             />
           </div>
+          )}
           {/* Preview pane */}
-          <div style={{ display: 'flex', flexDirection: 'column', width: '50%', background: '#f1f5f9' }}>
+          {(!mobile || vueHtml === 'apercu') && (
+          <div style={{ display: 'flex', flexDirection: 'column', width: mobile ? '100%' : '50%', background: '#f1f5f9' }}>
             <div style={{ padding: '6px 14px', background: '#e2e8f0', flexShrink: 0 }}>
-              <span style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>👁 {t('previsualisation')}</span>
+              <span className="ed-petit" style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>👁 {t('previsualisation')}</span>
             </div>
-            <iframe
-              srcDoc={htmlContent || `<div style="font-family:sans-serif;color:#94a3b8;padding:40px;text-align:center">${t('aucunHtml')}</div>`}
-              sandbox="allow-same-origin"
-              style={{ flex: 1, border: 'none', background: '#fff' }}
-              title={t('titreApercu')}
-            />
+            {/* Sur téléphone, l'email est réduit à la largeur de l'écran et
+                c'est ce panneau qui défile. */}
+            <div style={mobile ? { flex: 1, overflowY: 'auto' } : { flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <EmailApercu
+                html={htmlContent || `<div style="font-family:sans-serif;color:#94a3b8;padding:40px;text-align:center">${t('aucunHtml')}</div>`}
+                sandbox="allow-same-origin" ajuster={mobile}
+                style={{ flex: 1, border: 'none', background: '#fff' }}
+                title={t('titreApercu')}
+              />
+            </div>
           </div>
+          )}
         </div>
       )}
 

@@ -1,9 +1,17 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Admin',
   description: 'Tableau de bord administration',
+};
+
+/* viewportFit « cover » : sans lui, les marges env(safe-area-inset-*) du
+   shell (barre d'onglets, tiroir) valent 0 sur iPhone. */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

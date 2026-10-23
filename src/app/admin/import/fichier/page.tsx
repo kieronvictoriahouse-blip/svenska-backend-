@@ -144,13 +144,23 @@ export default function ImportFichierPage() {
 
   return (
     <div style={{ maxWidth: 980 }}>
+      {/* Téléphone : boutons sur toute la largeur, aperçu dans un cadre qui
+          défile (c'est un vrai tableau), bilan qui passe à la ligne. */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media (max-width: 899px) {
+          .if-boutons > .sc-btn { flex: 1 1 100%; justify-content: center; }
+          .if-tete > .sc-btn { flex: 1 1 100%; justify-content: center; }
+          .if-apercu { margin: 0 -14px; padding: 0 14px; }
+          .if-apercu td, .if-apercu th { white-space: nowrap; font-size: 12.5px; padding: 8px !important; }
+        }
+      ` }} />
       <p style={{ color: T.text2, fontSize: 13, margin: '0 0 6px' }}>{t('intro')}</p>
       <p style={{ color: T.muted, fontSize: 12, margin: '0 0 14px' }}>{t('colonnes')}</p>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div className="if-boutons" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="sc-btn sc-btn-secondary" onClick={telechargerModele}><span className="ms">download</span>{t('modele')}</button>
         <label className="sc-btn sc-btn-primary" style={{ cursor: 'pointer' }}>
           <span className="ms">upload_file</span>{t('choisir')}
-          <input type="file" accept=".csv,text/csv" style={{ display: 'none' }}
+          <input type="file" accept=".csv,text/csv,text/comma-separated-values,application/vnd.ms-excel" style={{ display: 'none' }}
                  onChange={e => { const f = e.target.files?.[0]; if (f) lireFichier(f); e.target.value = ''; }} />
         </label>
       </div>
@@ -158,7 +168,7 @@ export default function ImportFichierPage() {
 
       {lignes.length > 0 && (
         <div className="sc-card" style={{ padding: '12px 14px', marginBottom: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div className="if-tete" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
             <b>{t('apercu')} — {lignes.length} {t('lignes')}
               {lignes.length > aImporter.length && <span style={{ color: '#C97A2B', fontWeight: 400 }}> · {lignes.length - aImporter.length} {t('invalides')}</span>}
             </b>
@@ -166,7 +176,7 @@ export default function ImportFichierPage() {
               {envoi ? `${t('enCours')} ${envoi.fait}/${envoi.total}…` : `${t('importer')} ${aImporter.length} ${t('produits')}`}
             </button>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="sc-scroll-x if-apercu" style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
               <thead><tr style={{ color: T.muted, textAlign: 'left' }}>
                 {['#', 'nom', 'prix', 'prix_achat', 'ean', 'categorie', 'stock', 'image'].map(h => <th key={h} style={{ padding: '4px 6px' }}>{h}</th>)}
@@ -194,7 +204,7 @@ export default function ImportFichierPage() {
       {resultats && (
         <div className="sc-card" style={{ padding: '12px 14px' }}>
           <b>{t('bilan')}</b>
-          <div style={{ display: 'flex', gap: 16, margin: '8px 0', fontSize: 13 }}>
+          <div style={{ display: 'flex', gap: 16, margin: '8px 0', fontSize: 13, flexWrap: 'wrap' }}>
             <span style={{ color: T.green }}>✓ {compte('cree')} {t('crees')}</span>
             <span style={{ color: T.muted }}>{compte('ignore')} {t('ignores')}</span>
             <span style={{ color: compte('erreur') ? T.red : T.muted }}>{compte('erreur')} {t('erreurs')}</span>

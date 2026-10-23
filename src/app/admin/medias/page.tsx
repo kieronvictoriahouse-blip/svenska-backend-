@@ -29,6 +29,7 @@ export default function MediasPage() {
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -74,8 +75,31 @@ export default function MediasPage() {
   const filtered = media.filter(m =>
     !search || (m.filename || '').toLowerCase().includes(search.toLowerCase()));
 
+  /* Téléphone : recherche pleine largeur, « Prendre une photo » ouvre
+     directement l'appareil photo, grille de deux colonnes, textes lisibles. */
+  const css = `
+    .me-search { width: 220px; background: #F7F4EF; }
+    .me-dims { font-size: 9.5px; }
+    .me-file { font-size: 11.5px; }
+    .me-size { font-size: 10.5px; }
+    .me-drop-t { font-size: 13px; }
+    .me-drop-s { font-size: 11px; }
+    @media (min-width: 900px) { .me-search { height: 32px; } }
+    @media (max-width: 899px) {
+      .me-search { width: 100%; flex: 1 1 100%; }
+      .me-drop { padding: 18px 16px !important; }
+      .me-dims { font-size: 11px; }
+      .me-file { font-size: 13px; }
+      .me-size { font-size: 12px; }
+      .me-drop-t { font-size: 14.5px; }
+      .me-drop-s { font-size: 12.5px; }
+      .me-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+    }
+  `;
+
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
@@ -85,8 +109,11 @@ export default function MediasPage() {
           </div>
         </div>
         <div className="sc-actions">
-          <input className="sc-input" style={{ height: 32, width: 220, background: '#F7F4EF' }}
+          <input className="sc-input me-search" type="search"
                  placeholder={t('chercher')} value={search} onChange={e => setSearch(e.target.value)} />
+          <button className="sc-btn sc-btn-secondary sc-only-mobile-flex" onClick={() => camRef.current?.click()} disabled={uploading}>
+            <span className="ms">photo_camera</span>Prendre une photo
+          </button>
           <button className="sc-btn sc-btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
             <span className="ms">upload_file</span>{uploading ? 'Envoi…' : 'Ajouter'}
           </button>
@@ -95,6 +122,7 @@ export default function MediasPage() {
 
       {/* Zone de dépôt */}
       <button
+        className="me-drop"
         onClick={() => fileRef.current?.click()}
         onDragOver={e => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
@@ -106,27 +134,29 @@ export default function MediasPage() {
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
         }}>
         <span className="ms" style={{ fontSize: 26, color: T.muted }}>{uploading ? 'hourglass_top' : 'cloud_upload'}</span>
-        <span style={{ fontSize: 13, fontWeight: 500, color: T.ink }}>
-          {uploading ? 'Envoi en cours…' : 'Dépose tes photos ici'}
+        <span className="me-drop-t" style={{ fontWeight: 500, color: T.ink }}>
+          {uploading ? 'Envoi en cours…' : <><span className="sc-hide-mobile">Dépose tes photos ici</span><span className="sc-only-mobile">Touche ici pour choisir des photos</span></>}
         </span>
-        <span style={{ fontSize: 11, color: T.muted }}>JPG, PNG, WebP — 5 Mo maximum par fichier</span>
+        <span className="me-drop-s" style={{ color: T.muted }}>JPG, PNG, WebP — 5 Mo maximum par fichier</span>
       </button>
       <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
              onChange={e => upload(e.target.files)} />
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+             onChange={e => { upload(e.target.files); e.target.value = ''; }} />
 
       {loading && <div className="sc-empty">{tc('loading')}</div>}
       {!loading && filtered.length === 0 && <div className="sc-empty">{t('aucun')}</div>}
 
       {!loading && filtered.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
+        <div className="me-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
           {filtered.map(m => (
             <div key={m.id} className="sc-card" style={{ overflow: 'hidden' }}>
               <div style={{ position: 'relative', aspectRatio: '1', background: '#F7F4EF' }}>
                 <img src={m.url} alt={m.alt_text || ''} loading="lazy"
                      style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                 {(m.width && m.height) && (
-                  <span className="sc-num" style={{
-                    position: 'absolute', bottom: 6, left: 6, fontSize: 9.5,
+                  <span className="sc-num me-dims" style={{
+                    position: 'absolute', bottom: 6, left: 6,
                     background: 'rgba(28,32,40,.72)', color: '#fff', padding: '2px 6px', borderRadius: 4,
                   }}>{m.width}×{m.height}</span>
                 )}
@@ -139,21 +169,17 @@ export default function MediasPage() {
                 </div>
               </div>
               <div style={{ padding: '8px 10px' }}>
-                <div style={{ fontSize: 11.5, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div className="me-file" style={{ color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {m.filename || 'sans nom'}
                 </div>
-                <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{fmtSize(m.size)}</div>
+                <div className="sc-num me-size" style={{ color: T.muted }}>{fmtSize(m.size)}</div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 200 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 200 }}>{toast}</div>}
     </>
   );
 }

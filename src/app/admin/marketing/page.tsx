@@ -319,6 +319,72 @@ function MarketingInner() {
     .btn-primary { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
     .btn-secondary { background:#fff; }
     .empty { padding:40px; text-align:center; color:${TH.muted}; font-size:12.5px; }
+
+    /* Onglets : une rangée qui défile de côté plutôt que des libellés
+       coupés sur deux lignes. */
+    .mk-tabs { overflow-x:auto; scrollbar-width:none; }
+    .mk-tabs::-webkit-scrollbar { display:none; }
+    .mk-tab { white-space:nowrap; flex-shrink:0; }
+    .mk-toast { position:fixed; bottom:24px; right:24px; background:${TH.ink}; color:#fff; padding:10px 18px; border-radius:7px; font-size:12.5px; z-index:1100; }
+
+    /* ═══ Téléphone (< 900 px) — l'ordinateur garde ses styles en ligne ═══ */
+    @media (max-width: 899px) {
+      .mk-tabs { margin-left:-12px; margin-right:-12px; padding:0 12px; }
+      .mk-tab { min-height:44px; padding:10px 12px !important; font-size:14px !important; }
+      .mk-kpis { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:8px !important; }
+      .mk-kpi { padding:12px !important; }
+      .mk-kpi-l { font-size:11px !important; letter-spacing:.6px !important; }
+      .mk-kpi-v { font-size:20px !important; }
+      .mk-petit { font-size:12.5px !important; }
+      .mk-mini { font-size:11.5px !important; }
+
+      /* Carte campagne : nom, puis envoyés | CA, puis les deux jauges */
+      .mk-camp { display:grid !important; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px 16px !important; }
+      .mk-camp-nom { grid-column:1 / -1; }
+      .mk-camp-nom > div:first-child { flex-wrap:wrap; }
+      .mk-camp-env { text-align:left !important; order:1; }
+      .mk-camp-ca { order:2; }
+      .mk-camp-g { order:3; min-width:0 !important; }
+
+      /* Tableaux en cartes (sc-stack) : la largeur minimale n'a plus lieu d'être */
+      .mk-tbl { min-width:0 !important; }
+      .mk-tbl td.sc-stack-main { font-size:15px !important; }
+      .mk-tbl td.sc-stack-main .sc-num { font-size:14px !important; }
+      .mk-tbl td.sc-stack-main > div:first-child { font-size:15px !important; }
+      .mk-tbl td { overflow-wrap:anywhere; }
+      /* Modifier / supprimer un code : en haut à droite de sa carte */
+      .mk-tbl tr { position:relative; }
+      .mk-tbl td.mk-coin { position:absolute; top:4px; right:4px; width:auto !important; padding:0 !important; }
+      .mk-tbl td.mk-coin-titre { padding-right:96px !important; }
+      .mk-use { flex:1 1 auto; justify-content:flex-end; max-width:65%; }
+      .mk-use > div { min-width:70px; }
+      .mk-sm { font-size:14px !important; padding:10px 14px !important; }
+
+      /* Interrupteurs (livraison offerte, usage unique) : 44 × 26 */
+      .toggle { min-height:44px; }
+      .toggle-slider { width:44px; height:26px; border-radius:13px; }
+      .toggle-slider::after { width:22px; height:22px; }
+      .toggle input:checked + .toggle-slider::after { transform:translateX(18px); }
+
+      /* Fenêtres : plein écran, pied toujours visible, champs à 16 px */
+      .mk-ov { padding:0 !important; align-items:stretch !important; }
+      .mk-ov .modal { max-width:none; max-height:none; height:100%; margin:0; border-radius:0; }
+      .mk-ov .modal-header { padding:6px 8px 6px 16px; gap:8px; }
+      .mk-ov .modal-title { font-size:20px; }
+      .mk-ov .modal-header .btn { width:44px; height:44px; justify-content:center; padding:0; font-size:18px; }
+      .mk-ov .modal-body { padding:16px; }
+      .mk-ov .modal-footer { padding:10px 12px calc(10px + env(safe-area-inset-bottom)); gap:8px; }
+      .mk-ov .modal-footer .btn { flex:1 1 0; justify-content:center; }
+      .form-control { height:44px; font-size:16px; }
+      .form-label { font-size:12.5px; }
+      .grid-2 { grid-template-columns:minmax(0,1fr); gap:0; }
+      .btn { min-height:44px; font-size:14px; padding:10px 14px; }
+      .mk-check { min-height:40px; font-size:15px !important; }
+      .mk-check input { width:20px; height:20px; flex-shrink:0; }
+      .mk-ov .mk-qte { width:auto !important; flex:1 1 120px; }
+
+      .mk-toast { left:12px; right:12px; bottom:calc(58px + 16px + env(safe-area-inset-bottom)); font-size:14px; padding:12px 16px; text-align:center; }
+    }
   `;
 
   const TABS: Array<[string, string]> = [
@@ -365,11 +431,11 @@ function MarketingInner() {
       </div>
 
       {/* Onglets */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}` }}>
+      <div className="mk-tabs" role="tablist" style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${TH.border}` }}>
         {TABS.map(([k, l]) => {
           const on = tab === k;
           return (
-            <button key={k} onClick={() => setTab(k)}
+            <button key={k} onClick={() => setTab(k)} className="mk-tab" role="tab" aria-selected={on}
               style={{
                 border: 'none', background: 'none', cursor: 'pointer', padding: '9px 13px', fontSize: 12.5,
                 fontWeight: on ? 600 : 400, color: on ? 'var(--accent)' : TH.text2,
@@ -382,16 +448,16 @@ function MarketingInner() {
       {/* ══════════ CAMPAGNES ══════════ */}
       {tab === 'campaigns' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+          <div className="mk-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
             {[
               { l: 'Campagnes', v: String(campaigns.length) },
               { l: 'Envoyés', v: campaigns.reduce((s, c) => s + (c.sent_count || 0), 0).toLocaleString('fr-FR') },
               { l: 'CA généré', v: fmt(totalRevCamp) },
               { l: 'ROAS', v: String(roas) },
             ].map(k => (
-              <div key={k.l} className="sc-card" style={{ padding: '13px 15px' }}>
-                <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
-                <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
+              <div key={k.l} className="sc-card mk-kpi" style={{ padding: '13px 15px' }}>
+                <div className="mk-kpi-l" style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
+                <div className="sc-num mk-kpi-v" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
               </div>
             ))}
           </div>
@@ -405,40 +471,40 @@ function MarketingInner() {
               const clickRate = c.sent_count ? (c.click_count / c.sent_count) * 100 : 0;
               const tone = campaignTone(c.status);
               return (
-                <div key={c.id} className="sc-card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 15px', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                <div key={c.id} className="sc-card mk-camp" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 15px', flexWrap: 'wrap' }}>
+                  <div className="mk-camp-nom" style={{ flex: '1 1 180px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: TH.ink }}>{c.name}</span>
                       <span className="sc-badge" style={{ background: tone.bg, color: tone.fg }}>{campaignLabel(c.status)}</span>
                     </div>
-                    <div style={{ fontSize: 11, color: TH.muted }}>
+                    <div className="mk-petit" style={{ fontSize: 11, color: TH.muted }}>
                       {SEGMENTS[c.target_segment] || c.target_segment} · {fmtDate(c.created_at)}
                     </div>
                   </div>
 
-                  <div style={{ textAlign: 'center', minWidth: 70 }}>
+                  <div className="mk-camp-env" style={{ textAlign: 'center', minWidth: 70 }}>
                     <div className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: TH.ink }}>{c.sent_count || 0}</div>
-                    <div style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>{t('envoyes')}</div>
+                    <div className="mk-mini" style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>{t('envoyes')}</div>
                   </div>
 
-                  <div style={{ flex: '1 1 120px', minWidth: 100 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
+                  <div className="mk-camp-g" style={{ flex: '1 1 120px', minWidth: 100 }}>
+                    <div className="mk-petit" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
                       <span>{t('ouvertures')}</span><span className="sc-num">{fmtPct(openRate)}</span>
                     </div>
                     <Gauge value={openRate} max={100} color="var(--accent)" />
                   </div>
 
-                  <div style={{ flex: '1 1 120px', minWidth: 100 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
+                  <div className="mk-camp-g" style={{ flex: '1 1 120px', minWidth: 100 }}>
+                    <div className="mk-petit" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: TH.muted, marginBottom: 3 }}>
                       <span>{t('clics')}</span><span className="sc-num">{fmtPct(clickRate)}</span>
                     </div>
                     {/* Échelle ×2 : les taux de clic sont bas, sinon la barre est illisible */}
                     <Gauge value={clickRate * 2} max={100} color={TH.blue} />
                   </div>
 
-                  <div style={{ textAlign: 'right', minWidth: 90 }}>
+                  <div className="mk-camp-ca" style={{ textAlign: 'right', minWidth: 90 }}>
                     <div className="sc-num" style={{ fontSize: 14, fontWeight: 700, color: TH.green }}>{fmt(c.revenue_generated || 0)}</div>
-                    <div style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>CA généré</div>
+                    <div className="mk-mini" style={{ fontSize: 9.5, color: TH.muted, textTransform: 'uppercase', letterSpacing: .8 }}>CA généré</div>
                   </div>
                 </div>
               );
@@ -461,12 +527,12 @@ function MarketingInner() {
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: shipPromoLive ? '#065F46' : TH.muted }}>
                   Opération livraison offerte
                 </div>
-                <div style={{ fontSize: 11.5, color: TH.muted, marginTop: 3 }}>
+                <div className="mk-petit" style={{ fontSize: 11.5, color: TH.muted, marginTop: 3 }}>
                   Abaisse le seuil de franco pour tout le monde, sans code à saisir. Hors opération : <strong>{fmt(baseThreshold)}</strong>.
                 </div>
               </div>
               <label className="toggle">
-                <input type="checkbox" checked={ship.ship_promo_active}
+                <input type="checkbox" checked={ship.ship_promo_active} aria-label="Opération livraison offerte"
                        onChange={e => setShip(s => ({ ...s, ship_promo_active: e.target.checked }))} />
                 <span className="toggle-slider" />
               </label>
@@ -483,13 +549,13 @@ function MarketingInner() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginTop: 14 }}>
                   <div>
                     <label className="sc-label">{t('seuilFr')}</label>
-                    <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="25"
+                    <input className="sc-input sc-num" type="number" inputMode="decimal" min="0" step="0.01" placeholder="25"
                            value={ship.ship_promo_threshold}
                            onChange={e => setShip(s => ({ ...s, ship_promo_threshold: e.target.value }))} />
                   </div>
                   <div>
                     <label className="sc-label">{t('seuilIntl')}</label>
-                    <input className="sc-input sc-num" type="number" min="0" step="0.01" placeholder="vide = inchangé"
+                    <input className="sc-input sc-num" type="number" inputMode="decimal" min="0" step="0.01" placeholder="vide = inchangé"
                            value={ship.ship_promo_threshold_intl}
                            onChange={e => setShip(s => ({ ...s, ship_promo_threshold_intl: e.target.value }))} />
                   </div>
@@ -557,7 +623,7 @@ function MarketingInner() {
           {!loading && codes.length > 0 && (
             <div className="sc-card" style={{ overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
-                <table className="sc-table" style={{ minWidth: 760 }}>
+                <table className="sc-table sc-stack mk-tbl" style={{ minWidth: 760 }}>
                   <thead>
                     <tr>
                       <th style={{ width: 130 }}>Code</th>
@@ -576,24 +642,24 @@ function MarketingInner() {
                       const full = quota > 0 && used >= quota;
                       return (
                         <tr key={c.id}>
-                          <td>
+                          <td className="sc-stack-main mk-coin-titre">
                             <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, color: TH.ink }}>
                               {c.code}
                             </span>
                           </td>
-                          <td style={{ fontWeight: 600, color: '#9E5A3C' }}>
+                          <td data-label={t('remise')} style={{ fontWeight: 600, color: '#9E5A3C' }}>
                             {c.type === 'percent' ? `−${c.value} %`
                               : c.type === 'fixed' ? `−${fmt(c.value)}`
                               : c.type === 'gift' ? `${(c.gift_product_ids || []).length} cadeau(x)`
                               : 'Livraison offerte'}
                           </td>
-                          <td style={{ color: TH.text2b }}>
+                          <td data-label={t('condition')} style={{ color: TH.text2b }}>
                             {c.min_order ? `dès ${fmt(c.min_order)}` : '—'}
                             {c.single_use_per_customer ? ' · 1×/client' : ''}
                           </td>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span className="sc-num" style={{ fontSize: 11.5, minWidth: 52, color: full ? TH.red : TH.text2b }}>
+                          <td data-label={t('utilisations')}>
+                            <div className="mk-use" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span className="sc-num mk-petit" style={{ fontSize: 11.5, minWidth: 52, color: full ? TH.red : TH.text2b }}>
                                 {used}{quota ? ` / ${quota}` : ''}
                               </span>
                               {quota > 0 && (
@@ -603,14 +669,14 @@ function MarketingInner() {
                               )}
                             </div>
                           </td>
-                          <td style={{ fontSize: 11.5, color: TH.muted }}>
+                          <td data-label={t('validite')} className="mk-petit" style={{ fontSize: 11.5, color: TH.muted }}>
                             {fmtDate(c.valid_from)} → {fmtDate(c.valid_until)}
                           </td>
-                          <td>
+                          <td data-label={tc('status')}>
                             <button className="sc-switch" role="switch" aria-checked={c.is_active}
                                     onClick={() => toggleCode(c)} aria-label={`Activer ${c.code}`} />
                           </td>
-                          <td>
+                          <td className="sc-stack-actions mk-coin">
                             <div style={{ display: 'flex', gap: 2 }}>
                               <button className="sc-iconbtn" onClick={() => openEditCode(c)} aria-label={tc('edit')}><span className="ms">edit</span></button>
                               <button className="sc-iconbtn" onClick={() => deleteCode(c)} aria-label={tc('delete')}><span className="ms">delete</span></button>
@@ -630,16 +696,16 @@ function MarketingInner() {
       {/* ══════════ ABANDON PANIER ══════════ */}
       {tab === 'cart' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+          <div className="mk-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
             {[
               { l: 'Paniers abandonnés', v: String(carts.length) },
               { l: 'Récupérés', v: String(recoveredCarts) },
               { l: 'Valeur récupérée', v: fmt(recoveredValue) },
               { l: 'Taux', v: carts.length ? fmtPct((recoveredCarts / carts.length) * 100) : '—' },
             ].map(k => (
-              <div key={k.l} className="sc-card" style={{ padding: '13px 15px' }}>
-                <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
-                <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
+              <div key={k.l} className="sc-card mk-kpi" style={{ padding: '13px 15px' }}>
+                <div className="mk-kpi-l" style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
+                <div className="sc-num mk-kpi-v" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
               </div>
             ))}
           </div>
@@ -650,7 +716,7 @@ function MarketingInner() {
           {!loading && carts.length > 0 && (
             <div className="sc-card" style={{ overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
-                <table className="sc-table" style={{ minWidth: 700 }}>
+                <table className="sc-table sc-stack mk-tbl" style={{ minWidth: 700 }}>
                   <thead>
                     <tr>
                       <th>{tc('client')}</th>
@@ -664,30 +730,30 @@ function MarketingInner() {
                   <tbody>
                     {carts.map(c => (
                       <tr key={c.id}>
-                        <td>
+                        <td className="sc-stack-main">
                           <div style={{ fontSize: 12.5, color: TH.ink }}>{c.customer_name || '—'}</div>
-                          <div style={{ fontSize: 10.5, color: TH.muted, wordBreak: 'break-all' }}>{c.customer_email}</div>
+                          <div className="mk-petit" style={{ fontSize: 10.5, color: TH.muted, wordBreak: 'break-all', fontWeight: 400 }}>{c.customer_email}</div>
                         </td>
-                        <td className="sc-num sc-right" style={{ fontWeight: 600 }}>{fmt(c.cart_total)}</td>
-                        <td style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(c.created_at)}</td>
-                        <td style={{ fontSize: 11.5, color: TH.muted }}>
+                        <td data-label={t('panier')} className="sc-num sc-right" style={{ fontWeight: 600 }}>{fmt(c.cart_total)}</td>
+                        <td data-label={t('abandonneLe')} className="mk-petit" style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(c.created_at)}</td>
+                        <td data-label={t('relances')} className="mk-petit" style={{ fontSize: 11.5, color: TH.muted }}>
                           {c.email_1_sent_at ? '1' : '—'}{c.email_2_sent_at ? ' · 2' : ''}
                         </td>
-                        <td>
+                        <td data-label={tc('status')}>
                           <span className="sc-badge" style={{
                             background: c.recovered ? BADGE.green.bg : BADGE.gray.bg,
                             color: c.recovered ? BADGE.green.fg : BADGE.gray.fg,
                           }}>{c.recovered ? 'Récupéré' : 'En attente'}</span>
                         </td>
-                        <td>
+                        <td className="sc-stack-actions">
                           {!c.recovered && (
                             <div style={{ display: 'flex', gap: 4 }}>
                               {!c.email_1_sent_at && (
-                                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
+                                <button className="sc-btn sc-btn-secondary mk-sm" style={{ padding: '5px 9px', fontSize: 11 }}
                                         onClick={() => sendRelance(c.id, 1)}>{t('relance1')}</button>
                               )}
                               {c.email_1_sent_at && !c.email_2_sent_at && (
-                                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
+                                <button className="sc-btn sc-btn-secondary mk-sm" style={{ padding: '5px 9px', fontSize: 11 }}
                                         onClick={() => sendRelance(c.id, 2)}>{t('relance2')}</button>
                               )}
                             </div>
@@ -718,16 +784,16 @@ function MarketingInner() {
         const validationLe = (d: string) => fmtDate(new Date(new Date(d).getTime() + FIDELITE.delaiValidationJours * 86400_000).toISOString());
         return (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+            <div className="mk-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
               {[
                 { l: 'Clients avec un code ami', v: String(clients.filter(c => c.ami).length) },
                 { l: 'Clients fidèles', v: String(clients.filter(c => c.fid).length) },
                 { l: 'Parrainages en attente', v: String(nb('pending')) },
                 { l: 'Parrainages validés', v: String(nb('validated')) },
               ].map(k => (
-                <div key={k.l} className="sc-card" style={{ padding: '13px 15px' }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
-                  <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
+                <div key={k.l} className="sc-card mk-kpi" style={{ padding: '13px 15px' }}>
+                  <div className="mk-kpi-l" style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: TH.muted }}>{k.l}</div>
+                  <div className="sc-num mk-kpi-v" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: TH.ink }}>{k.v}</div>
                 </div>
               ))}
             </div>
@@ -745,7 +811,7 @@ function MarketingInner() {
                 <div style={{ padding: '11px 15px', fontSize: 12.5, fontWeight: 600, color: TH.ink, borderBottom: `1px solid ${TH.border}` }}>Parrainages</div>
                 {fid.parrainages.length === 0 ? <div className="sc-empty">Aucun parrainage pour l’instant</div> : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table className="sc-table" style={{ minWidth: 760 }}>
+                    <table className="sc-table sc-stack mk-tbl" style={{ minWidth: 760 }}>
                       <thead>
                         <tr>
                           <th style={{ width: 95 }}>Date</th>
@@ -759,23 +825,25 @@ function MarketingInner() {
                       <tbody>
                         {fid.parrainages.map(p => (
                           <tr key={p.id}>
-                            <td style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(p.created_at)}</td>
-                            <td style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.referrer_email}</td>
-                            <td style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.referee_email}</td>
-                            <td className="sc-num" style={{ fontSize: 11.5 }}>
+                            <td data-label="Date" className="mk-petit" style={{ fontSize: 11.5, color: TH.muted }}>{fmtDate(p.created_at)}</td>
+                            <td data-label="Parrain" style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.referrer_email}</td>
+                            <td data-label="Ami" style={{ fontSize: 12, wordBreak: 'break-all' }}>{p.referee_email}</td>
+                            <td data-label="Commande" className="sc-num mk-petit" style={{ fontSize: 11.5 }}>
                               {p.order_number || '—'}{p.order_total != null ? ` · ${fmt(p.order_total)}` : ''}
                             </td>
-                            <td>
-                              <span className="sc-badge" style={{ background: ton(p.status).bg, color: ton(p.status).fg }}>{libelle(p.status)}</span>
-                              <div style={{ fontSize: 10.5, color: TH.muted, marginTop: 3 }}>
-                                {p.status === 'pending' ? `validation le ${validationLe(p.created_at)}`
-                                  : p.status === 'validated' ? `le ${fmtDate(p.validated_at || undefined)}`
-                                  : MOTIF_ANNULATION[p.cancel_reason || ''] || p.cancel_reason || ''}
+                            <td data-label={tc('status')}>
+                              <div>
+                                <span className="sc-badge" style={{ background: ton(p.status).bg, color: ton(p.status).fg }}>{libelle(p.status)}</span>
+                                <div className="mk-petit" style={{ fontSize: 10.5, color: TH.muted, marginTop: 3 }}>
+                                  {p.status === 'pending' ? `validation le ${validationLe(p.created_at)}`
+                                    : p.status === 'validated' ? `le ${fmtDate(p.validated_at || undefined)}`
+                                    : MOTIF_ANNULATION[p.cancel_reason || ''] || p.cancel_reason || ''}
+                                </div>
                               </div>
                             </td>
-                            <td>
+                            <td className="sc-stack-actions">
                               {p.status !== 'cancelled' && (
-                                <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 9px', fontSize: 11 }}
+                                <button className="sc-btn sc-btn-secondary mk-sm" style={{ padding: '5px 9px', fontSize: 11 }}
                                         onClick={() => annulerParrainage(p)}>Annuler</button>
                               )}
                             </td>
@@ -793,7 +861,7 @@ function MarketingInner() {
                 <div style={{ padding: '11px 15px', fontSize: 12.5, fontWeight: 600, color: TH.ink, borderBottom: `1px solid ${TH.border}` }}>Codes des clients</div>
                 {clients.length === 0 ? <div className="sc-empty">Les codes sont créés au paiement des commandes</div> : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table className="sc-table" style={{ minWidth: 700 }}>
+                    <table className="sc-table sc-stack mk-tbl" style={{ minWidth: 700 }}>
                       <thead>
                         <tr>
                           <th>{tc('client')}</th>
@@ -805,25 +873,27 @@ function MarketingInner() {
                       <tbody>
                         {clients.map(c => (
                           <tr key={c.email}>
-                            <td style={{ fontSize: 12, wordBreak: 'break-all' }}>{c.email}</td>
-                            <td>
+                            <td className="sc-stack-main" style={{ fontSize: 12, wordBreak: 'break-all' }}>{c.email}</td>
+                            <td data-label="Code ami">
                               {c.ami ? (
-                                <>
+                                <span>
                                   <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, color: TH.ink }}>{c.ami.code}</span>
-                                  <span style={{ fontSize: 10.5, color: TH.muted, marginLeft: 6 }}>{c.ami.used_count || 0}×</span>
-                                </>
+                                  <span className="mk-petit" style={{ fontSize: 10.5, color: TH.muted, marginLeft: 6 }}>{c.ami.used_count || 0}×</span>
+                                </span>
                               ) : '—'}
                             </td>
-                            <td>
+                            <td data-label="Code fidélité">
                               {c.fid ? (
                                 <span className="sc-num" style={{ background: '#F1EDE7', borderRadius: 6, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, color: TH.ink }}>{c.fid.code}</span>
-                              ) : <span style={{ fontSize: 11.5, color: TH.muted }}>pas encore</span>}
+                              ) : <span className="mk-petit" style={{ fontSize: 11.5, color: TH.muted }}>pas encore</span>}
                             </td>
-                            <td style={{ fontWeight: 600, color: '#9E5A3C' }}>
-                              {c.fid ? `−${c.fid.taux ?? FIDELITE.tauxFidele} %` : '—'}
-                              {c.fid?.fin_bonus && (c.fid.taux === FIDELITE.tauxAmbassadeur) && (
-                                <span style={{ fontSize: 10.5, fontWeight: 400, color: TH.muted, marginLeft: 6 }}>jusqu’au {fmtDate(c.fid.fin_bonus)}</span>
-                              )}
+                            <td data-label="Remise du client" style={{ fontWeight: 600, color: '#9E5A3C' }}>
+                              <span>
+                                {c.fid ? `−${c.fid.taux ?? FIDELITE.tauxFidele} %` : '—'}
+                                {c.fid?.fin_bonus && (c.fid.taux === FIDELITE.tauxAmbassadeur) && (
+                                  <span className="mk-petit" style={{ fontSize: 10.5, fontWeight: 400, color: TH.muted, marginLeft: 6 }}>jusqu’au {fmtDate(c.fid.fin_bonus)}</span>
+                                )}
+                              </span>
                             </td>
                           </tr>
                         ))}
@@ -838,9 +908,9 @@ function MarketingInner() {
       })()}
 
         {showModal && (
-          <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-            <div className="modal">
-              <div className="modal-header"><span className="modal-title">{t('nouvelleCampagne')}</span><button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>✕</button></div>
+          <div className="modal-overlay mk-ov" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+            <div className="modal" role="dialog" aria-label={t('nouvelleCampagne')}>
+              <div className="modal-header"><span className="modal-title">{t('nouvelleCampagne')}</span><button className="btn btn-secondary btn-sm" aria-label={tc('close')} onClick={() => setShowModal(false)}>✕</button></div>
               <div className="modal-body">
                 <div className="form-group"><label className="form-label">{t('nomReq')}</label><input className="form-control" value={campForm.name} onChange={e => setCampForm(f => ({ ...f, name: e.target.value }))} placeholder={t('phCampagne')} /></div>
                 <div className="grid-2">
@@ -862,7 +932,7 @@ function MarketingInner() {
                   <div className="form-group"><label className="form-label">{t('contenuHtml')}</label><textarea className="form-control" value={campForm.content} onChange={e => setCampForm(f => ({ ...f, content: e.target.value }))} placeholder="<h1>{t('bonjour')}</h1>..." /></div>
                 </>}
                 {['meta_ads', 'google_ads', 'social_ads'].includes(campForm.type) && (
-                  <div className="form-group"><label className="form-label">{t('budget')}</label><input type="number" className="form-control" value={campForm.budget} onChange={e => setCampForm(f => ({ ...f, budget: e.target.value }))} placeholder="500" /></div>
+                  <div className="form-group"><label className="form-label">{t('budget')}</label><input type="number" inputMode="decimal" className="form-control" value={campForm.budget} onChange={e => setCampForm(f => ({ ...f, budget: e.target.value }))} placeholder="500" /></div>
                 )}
               </div>
               <div className="modal-footer">
@@ -875,13 +945,13 @@ function MarketingInner() {
 
         {/* Modal code promo */}
         {showCodeModal && (
-          <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowCodeModal(false); setEditingCode(null); } }}>
-            <div className="modal">
-              <div className="modal-header"><span className="modal-title">{editingCode ? `Modifier "${editingCode.code}"` : 'Nouveau code promo'}</span><button className="btn btn-secondary btn-sm" onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>✕</button></div>
+          <div className="modal-overlay mk-ov" onClick={e => { if (e.target === e.currentTarget) { setShowCodeModal(false); setEditingCode(null); } }}>
+            <div className="modal" role="dialog" aria-label={editingCode ? `Modifier "${editingCode.code}"` : 'Nouveau code promo'}>
+              <div className="modal-header"><span className="modal-title">{editingCode ? `Modifier "${editingCode.code}"` : 'Nouveau code promo'}</span><button className="btn btn-secondary btn-sm" aria-label={tc('close')} onClick={() => { setShowCodeModal(false); setEditingCode(null); }}>✕</button></div>
               <div className="modal-body">
                 <div className="grid-2">
                   {codeForm.type !== 'gift' && (
-                  <div className="form-group"><label className="form-label">{t('codeReq')}</label><input className="form-control mono" value={codeForm.code} style={{ textTransform: 'uppercase' }} onChange={e => setCodeForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder={t('phCode')} /></div>
+                  <div className="form-group"><label className="form-label">{t('codeReq')}</label><input className="form-control mono" value={codeForm.code} autoCapitalize="characters" autoCorrect="off" spellCheck={false} style={{ textTransform: 'uppercase' }} onChange={e => setCodeForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder={t('phCode')} /></div>
                   )}
                   <div className="form-group">
                     <label className="form-label">Type</label>
@@ -893,10 +963,10 @@ function MarketingInner() {
                     </select>
                   </div>
                   {codeForm.type !== 'gift' && (
-                  <div className="form-group"><label className="form-label">{t('valeurReq')}</label><input type="number" className="form-control mono" value={codeForm.value} onChange={e => setCodeForm(f => ({ ...f, value: e.target.value }))} placeholder={codeForm.type === 'percent' ? '10' : '5'} /></div>
+                  <div className="form-group"><label className="form-label">{t('valeurReq')}</label><input type="number" inputMode="decimal" className="form-control mono" value={codeForm.value} onChange={e => setCodeForm(f => ({ ...f, value: e.target.value }))} placeholder={codeForm.type === 'percent' ? '10' : '5'} /></div>
                   )}
-                  <div className="form-group"><label className="form-label">{codeForm.type === 'gift' ? 'Cadeau offert dès (€) *' : 'Commande minimum (€)'}</label><input type="number" className="form-control mono" value={codeForm.min_order} onChange={e => setCodeForm(f => ({ ...f, min_order: e.target.value }))} placeholder={codeForm.type === 'gift' ? '10' : ''} /></div>
-                  <div className="form-group"><label className="form-label">{t('maxUtil')}</label><input type="number" className="form-control mono" value={codeForm.max_uses} onChange={e => setCodeForm(f => ({ ...f, max_uses: e.target.value }))} placeholder={t('phIllimite')} /></div>
+                  <div className="form-group"><label className="form-label">{codeForm.type === 'gift' ? 'Cadeau offert dès (€) *' : 'Commande minimum (€)'}</label><input type="number" inputMode="decimal" className="form-control mono" value={codeForm.min_order} onChange={e => setCodeForm(f => ({ ...f, min_order: e.target.value }))} placeholder={codeForm.type === 'gift' ? '10' : ''} /></div>
+                  <div className="form-group"><label className="form-label">{t('maxUtil')}</label><input type="number" inputMode="numeric" className="form-control mono" value={codeForm.max_uses} onChange={e => setCodeForm(f => ({ ...f, max_uses: e.target.value }))} placeholder={t('phIllimite')} /></div>
                   <div className="form-group"><label className="form-label">{t('valideDu')}</label><input type="date" className="form-control" value={codeForm.valid_from} onChange={e => setCodeForm(f => ({ ...f, valid_from: e.target.value }))} /></div>
                   <div className="form-group"><label className="form-label">{t('valideAu')}</label><input type="date" className="form-control" value={codeForm.valid_until} onChange={e => setCodeForm(f => ({ ...f, valid_until: e.target.value }))} /></div>
                 </div>
@@ -906,15 +976,15 @@ function MarketingInner() {
                     <div style={{ fontSize: 11.5, color: '#6A7280', marginBottom: 10 }}>{t('declencheurAide')}</div>
 
                     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                      <div style={{ width: 110 }}>
+                      <div className="mk-qte" style={{ width: 110 }}>
                         <label className="form-label" style={{ fontSize: 11 }}>{t('qteDeclencheur')}</label>
-                        <input type="number" min={1} className="form-control" placeholder="2"
+                        <input type="number" inputMode="numeric" min={1} className="form-control" placeholder="2"
                                value={codeForm.gift_trigger_qty}
                                onChange={e => setCodeForm(f => ({ ...f, gift_trigger_qty: e.target.value }))} />
                       </div>
-                      <div style={{ width: 130 }}>
+                      <div className="mk-qte" style={{ width: 130 }}>
                         <label className="form-label" style={{ fontSize: 11 }}>{t('maxCadeaux')}</label>
-                        <input type="number" min={1} className="form-control" placeholder={t('illimite')}
+                        <input type="number" inputMode="numeric" min={1} className="form-control" placeholder={t('illimite')}
                                value={codeForm.gift_max}
                                onChange={e => setCodeForm(f => ({ ...f, gift_max: e.target.value }))} />
                       </div>
@@ -925,7 +995,7 @@ function MarketingInner() {
                       {products.map(p => {
                         const on = codeForm.gift_trigger_product_ids.includes(p.id);
                         return (
-                          <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13, cursor: 'pointer' }}>
+                          <label key={p.id} className="mk-check" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13, cursor: 'pointer' }}>
                             <input type="checkbox" checked={on} onChange={() => setCodeForm(f => ({
                               ...f,
                               gift_trigger_product_ids: on
@@ -961,7 +1031,7 @@ function MarketingInner() {
                         : products.map(p => {
                             const on = codeForm.gift_product_ids.includes(p.id);
                             return (
-                              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13, cursor: 'pointer' }}>
+                              <label key={p.id} className="mk-check" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13, cursor: 'pointer' }}>
                                 <input type="checkbox" checked={on} onChange={() => setCodeForm(f => ({ ...f, gift_product_ids: on ? f.gift_product_ids.filter(x => x !== p.id) : [...f.gift_product_ids, p.id] }))} />
                                 {p.name_fr}
                               </label>
@@ -990,11 +1060,7 @@ function MarketingInner() {
           </div>
         )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: TH.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="mk-toast" role="status">{toast}</div>}
     </>
   );
 }

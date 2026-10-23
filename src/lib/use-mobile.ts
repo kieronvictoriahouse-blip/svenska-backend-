@@ -11,7 +11,8 @@ export const MOBILE_BP = 900;
 export function useIsMobile(bp: number = MOBILE_BP): boolean {
   const [mobile, setMobile] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${bp - 1}px)`);
+    // « screen » comme dans shell-css.ts : une page imprimée garde sa structure d'ordinateur.
+    const mq = window.matchMedia(`screen and (max-width: ${bp - 1}px)`);
     const on = () => setMobile(mq.matches);
     on();
     mq.addEventListener('change', on);

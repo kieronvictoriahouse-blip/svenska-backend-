@@ -101,9 +101,12 @@ export type ScannerProps = {
   label?: string;
   /** Bouton de simulation, utile hors mobile et pour tester le flux. */
   onSimulate?: () => void;
+  /** Allume la caméra dès l'affichage (scanner ouvert en plein écran sur
+   *  téléphone : l'utilisateur vient déjà de toucher « Scanner »). */
+  autoStart?: boolean;
 };
 
-export default function BarcodeScanner({ onScan, compact = false, label = 'Vise le code-barres', onSimulate }: ScannerProps) {
+export default function BarcodeScanner({ onScan, compact = false, label = 'Vise le code-barres', onSimulate, autoStart = false }: ScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const lastRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
@@ -128,6 +131,11 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const [error, setError] = useState('');
   const [supported, setSupported] = useState<boolean | null>(null);
   const [manual, setManual] = useState('');
+
+  /* Composant démonté pendant l'ouverture de la caméra (scanner plein
+     écran refermé aussitôt) : le flux obtenu après coup doit être coupé. */
+  const monteRef = useRef(true);
+  useEffect(() => { monteRef.current = true; return () => { monteRef.current = false; }; }, []);
 
   useEffect(() => {
     /* La lecture ne depend plus du navigateur : zxing-cpp tourne
@@ -257,6 +265,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           width: { ideal: 1280 }, height: { ideal: 720 },
         },
       });
+      if (!monteRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
       streamRef.current = stream;
 
       const track = stream.getVideoTracks()[0];
@@ -394,15 +403,31 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
 
   useEffect(() => () => stop(), [stop]);
 
+  /* Différé d'un tour : en mode strict, React monte / démonte / remonte —
+     sans ce délai, deux flux caméra s'ouvraient et l'un restait allumé. */
+  useEffect(() => {
+    if (!autoStart || !navigator.mediaDevices?.getUserMedia) return;
+    const t = setTimeout(() => { start(); }, 0);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const camH = compact ? '4 / 3' : '16 / 10';
 
   return (
-    <div style={{ background: '#15181E', borderRadius: 12, padding: 12 }}>
+    <div className="sc-scanner" style={{ background: '#15181E', borderRadius: 12, padding: 12 }}>
+      {/* Téléphone : saisie manuelle à 44 px et 16 px (sinon iOS zoome à
+          la frappe), textes d'aide lisibles. Ordinateur inchangé. */}
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes scanline { 0% { top: 24%; } 50% { top: 72%; } 100% { top: 24%; } }
+        @media (max-width: 899px) {
+          .sc-scanner .sc-scan-manual input { height: 44px !important; font-size: 16px !important; }
+          .sc-scanner .sc-scan-manual button { height: 44px !important; min-width: 56px; font-size: 14px !important; }
+          .sc-scanner .sc-scan-help { font-size: 12px !important; }
+          .sc-scanner .sc-scan-label { font-size: 13px !important; color: rgba(255,255,255,.7) !important; }
+        }
       ` }} />
 
-      <div style={{
+      <div className="sc-scan-view" style={{
         position: 'relative', aspectRatio: camH, background: '#0E1116',
         borderRadius: 9, overflow: 'hidden',
       }}>
@@ -443,7 +468,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           animation: 'scanline 2.6s ease-in-out infinite', pointerEvents: 'none',
         }} />
 
-        <div style={{
+        <div className="sc-scan-label" style={{
           position: 'absolute', left: 0, right: 0, bottom: 10, textAlign: 'center',
           fontSize: 11.5, color: 'rgba(255,255,255,.45)', pointerEvents: 'none',
         }}>{error || label}</div>
@@ -464,8 +489,11 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         </div>
       )}
 
+      {/* type="button" partout : dans le formulaire produit, ces boutons
+          soumettaient le formulaire (enregistrement intempestif). */}
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button
+          type="button"
           onClick={active ? stop : start}
           style={{
             flex: 1, height: 44, borderRadius: 9, border: 'none',
@@ -479,7 +507,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         {/* La lampe change tout sur une étiquette mate en réserve ; le
             bouton n'apparaît que si l'appareil sait la piloter. */}
         {active && torcheDispo && (
-          <button onClick={basculerTorche} aria-label="Éclairage"
+          <button type="button" onClick={basculerTorche} aria-label="Éclairage"
                   style={{
                     width: 52, height: 44, borderRadius: 9, cursor: 'pointer',
                     border: '1px solid rgba(255,255,255,.16)',
@@ -494,11 +522,16 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
 
       {/* Saisie manuelle : filet de sécurité quand la caméra manque ou
           que le code est abîmé. */}
-      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+      <div className="sc-scan-manual" style={{ display: 'flex', gap: 6, marginTop: 8 }}>
         <input
           value={manual}
           onChange={e => setManual(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && manual.trim()) { emit(manual.trim(), undefined, true); setManual(''); } }}
+          onKeyDown={e => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();   // pas de soumission implicite du formulaire englobant
+            if (manual.trim()) { emit(manual.trim(), undefined, true); setManual(''); }
+          }}
+          enterKeyHint="done"
           placeholder="ou saisir l'EAN…"
           inputMode="numeric"
           style={{
@@ -507,13 +540,14 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
             fontSize: 12.5, outline: 'none', fontVariantNumeric: 'tabular-nums',
           }} />
         <button
+          type="button"
           onClick={() => { if (manual.trim()) { emit(manual.trim(), undefined, true); setManual(''); } }}
           style={{
             height: 34, padding: '0 12px', borderRadius: 7, border: '1px solid rgba(255,255,255,.16)',
             background: 'transparent', color: '#F4EEE1', fontSize: 12.5, cursor: 'pointer',
           }}>OK</button>
         {onSimulate && (
-          <button onClick={onSimulate}
+          <button type="button" onClick={onSimulate}
             style={{
               height: 34, padding: '0 12px', borderRadius: 7, border: '1px solid rgba(255,255,255,.16)',
               background: 'transparent', color: 'rgba(244,238,225,.7)', fontSize: 12.5, cursor: 'pointer',
@@ -522,7 +556,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       </div>
 
       {active && (
-        <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', marginTop: 7, lineHeight: 1.5 }}>
+        <div className="sc-scan-help" style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', marginTop: 7, lineHeight: 1.5 }}>
           Reste à 15–20 cm et zoome : sous 10 cm la plupart des objectifs ne font plus le point.
           {objectif && <><br />Objectif : {objectif}</>}
           {diag && <><br />{diag}</>}
@@ -531,7 +565,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       )}
 
       {supported === false && (
-        <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', marginTop: 7, lineHeight: 1.5 }}>
+        <div className="sc-scan-help" style={{ fontSize: 10.5, color: 'rgba(255,255,255,.4)', marginTop: 7, lineHeight: 1.5 }}>
           Ce navigateur ne donne pas accès à la caméra. Saisis le code au clavier,
           ou ouvre le back-office depuis un téléphone.
         </div>

@@ -19,6 +19,11 @@ export function shellCss(accent: string): string {
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-thumb { background: #D9D3CA; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
     ::-webkit-scrollbar-track { background: transparent; }
+    /* Écran tactile : barres de défilement natives (superposées), pas la
+       gouttière de 10 px d'ordinateur qui mange la largeur d'un téléphone. */
+    @media (hover: none) and (pointer: coarse) {
+      ::-webkit-scrollbar { width: 0; height: 0; }
+    }
     @keyframes sc-slide-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
     /* ── Squelettes de chargement ─────────────────────────────
@@ -97,7 +102,9 @@ export function shellCss(accent: string): string {
     .sc-overlay { position: fixed; inset: 48px 0 0 0; background: rgba(21,24,30,.45); z-index: 45; backdrop-filter: blur(2px); border: none; }
 
     /* ── Barre d'onglets mobile ───────────────────────────── */
-    .sc-tabs { flex-shrink: 0; height: 58px; background: #fff; border-top: 1px solid ${T.borderField}; display: flex; align-items: stretch; padding-bottom: env(safe-area-inset-bottom); z-index: 70; }
+    /* La hauteur inclut la zone de sécurité : en box-sizing border-box, un
+       padding-bottom pris DANS les 58 px écrasait les onglets sur iPhone. */
+    .sc-tabs { flex-shrink: 0; height: 58px; height: calc(58px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid ${T.borderField}; display: flex; align-items: stretch; padding-bottom: env(safe-area-inset-bottom); z-index: 70; }
     .sc-tab { flex: 1; position: relative; background: none; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; color: ${T.muted}; text-decoration: none; }
     .sc-tab .ms { font-size: 22px; }
     .sc-tab.on { color: var(--accent); }
@@ -151,9 +158,10 @@ export function shellCss(accent: string): string {
     .sc-chip.on { background: ${T.ink}; color: #fff; border-color: ${T.ink}; font-weight: 600; }
     .sc-chip.on:hover { background: ${T.inkHover}; }
 
-    .sc-iconbtn { width: 26px; height: 26px; border-radius: 6px; border: 1px solid transparent; background: none; color: ${T.muted}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all .12s; }
+    .sc-iconbtn { width: 26px; height: 26px; border-radius: 6px; border: 1px solid transparent; background: none; color: ${T.muted}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all .12s; text-decoration: none; }
     .sc-iconbtn .ms { font-size: 16px; }
     .sc-iconbtn:hover { background: ${T.borderFaint2}; border-color: ${T.border}; color: ${T.text2}; }
+    .sc-iconbtn:disabled { opacity: .35; cursor: not-allowed; }
 
     .sc-empty { padding: 48px 20px; text-align: center; color: ${T.muted}; font-size: 12.5px; }
 
@@ -187,10 +195,71 @@ export function shellCss(accent: string): string {
     .sc-modal-body { padding: 16px; }
     .sc-modal-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid ${T.border}; position: sticky; bottom: 0; background: #fff; }
 
+    /* ── Coquille : éléments propres au téléphone ─────────────
+       Ils sont TOUJOURS rendus et masqués ici sur ordinateur. Les
+       piloter en JS faisait apparaître la sidebar d'ordinateur puis
+       glisser le tiroir au chargement d'une page sur téléphone (l'état
+       « mobile » vaut faux au premier rendu). Le CSS, lui, est juste
+       dès la première image. */
+    .sc-burger, .sc-tabs, .sc-overlay, .sc-top-iconbtn, .sc-side-head, .sc-msearch { display: none; }
+    .sc-top-iconbtn { width: 48px; border: none; background: none; color: rgba(255,255,255,.75); align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+    .sc-side-head { height: 56px; flex-shrink: 0; align-items: center; gap: 10px; padding: 0 4px 0 16px; border-bottom: 1px solid ${T.border}; }
+    .sc-side-head .sc-brand-name { color: ${T.ink}; font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sc-msearch { position: absolute; inset: 0; z-index: 2; background: ${T.topbar}; align-items: center; gap: 4px; padding: 0 2px 0 10px; }
+    .sc-msearch input { flex: 1; min-width: 0; height: 36px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.08); color: #fff; font-size: 16px; padding: 0 12px; outline: none; }
+    .sc-msearch input::placeholder { color: rgba(255,255,255,.45); }
+    .sc-msearch input:focus { border-color: rgba(255,255,255,.35); }
+    .sc-msearch input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+
+    /* ── Menu d'actions (MenuActions) : liste déroulante sur
+       ordinateur, feuille du bas sur téléphone ──────────────── */
+    @keyframes sc-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .sc-menu-back { position: fixed; inset: 0; z-index: 95; background: transparent; border: none; cursor: default; }
+    .sc-menu { position: fixed; z-index: 96; background: #fff; border: 1px solid ${T.border}; border-radius: 10px; box-shadow: 0 14px 36px rgba(21,24,30,.18); min-width: 220px; max-width: calc(100vw - 16px); padding: 6px; outline: none; animation: sc-slide-in .14s ease-out; }
+    .sc-menu-title { padding: 8px 10px 6px; font-size: 11px; color: ${T.muted}; overflow-wrap: anywhere; }
+    .sc-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 7px 10px; border-radius: 7px; border: none; background: none; font-size: 12.5px; color: ${T.text2}; text-decoration: none; cursor: pointer; text-align: left; }
+    .sc-menu-item:hover { background: ${T.borderFaint2}; }
+    .sc-menu-item:disabled { opacity: .5; cursor: not-allowed; }
+    .sc-menu-item .ms { font-size: 18px; color: ${T.muted}; }
+    .sc-menu-item.danger, .sc-menu-item.danger .ms { color: ${T.red}; }
+    .sc-menu-sep { height: 1px; background: ${T.border}; margin: 6px 4px; }
+    .sc-menu-row { display: flex; gap: 6px; padding: 6px 10px; align-items: center; flex-wrap: wrap; }
+    .sc-menu-grab { display: none; }
+
+    /* ── En-tête collant qui déborde jusqu'aux bords de .sc-screen ──
+       Les marges négatives suivent le padding de .sc-screen ; en ligne
+       elles débordaient de 6 px de chaque côté sur téléphone. */
+    .sc-page-head { position: sticky; top: 0; z-index: 20; background: #fff; margin: -16px -18px 14px; padding: 14px 18px 12px; border-bottom: 1px solid ${T.border}; }
+    .sc-page-head.sc-page-head-tabs { margin-bottom: 0; padding: 10px 18px 0; }
+
+    /* Bouton retour d'un en-tête de fiche : 30 px encadré, 44 px sur téléphone */
+    .sc-back { width: 30px; height: 30px; border: 1px solid ${T.borderField}; flex-shrink: 0; }
+    .sc-back .ms { font-size: 18px; }
+
+    /* Onglets d'écran (fiche produit…) : défilent horizontalement si besoin */
+    .sc-tabstrip { display: flex; gap: 4px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
+    .sc-tabstrip::-webkit-scrollbar { display: none; }
+    .sc-tabstrip > button { border: none; background: none; cursor: pointer; padding: 8px 12px; font-size: 12.5px; white-space: nowrap; color: ${T.text2}; font-weight: 400; flex-shrink: 0; }
+    .sc-tabstrip > button.on { color: var(--accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+
+    /* Message éphémère : en bas à droite sur ordinateur, sous la topbar
+       sur téléphone (en bas il passait sous la barre d'onglets et les
+       barres d'actions collées). */
+    .sc-toast { position: fixed; bottom: 24px; right: 24px; z-index: 120; background: ${T.ink}; color: #fff; padding: 10px 18px; border-radius: 7px; font-size: 12.5px; box-shadow: 0 8px 24px rgba(21,24,30,.2); }
+
+    /* Affiché seulement sur téléphone, en flex (.sc-only-mobile rend un bloc) */
+    .sc-only-mobile-flex { display: none !important; }
+
+    /* Lecteur de code-barres : en ligne sur ordinateur, plein écran sur
+       téléphone. <div class="sc-scan-sheet"><div class="sc-scan-sheet-head">…</div>…</div> */
+    .sc-scan-sheet-head { display: none; }
+
     /* ═══ TÉLÉPHONE (< 900 px, même seuil que le shell) ═══════
        Cibles tactiles de 44 px, champs à 16 px (sinon iOS zoome à
-       la saisie), grilles sur une colonne, tableaux lisibles. */
-    @media (max-width: 899px) {
+       la saisie), grilles sur une colonne, tableaux lisibles.
+       « screen » : une feuille A4 fait ~720 px de large, sans lui
+       l'impression prenait la mise en page téléphone. */
+    @media screen and (max-width: 899px) {
       .sc-screen { padding: 12px 12px 28px; }
       .sc-head { align-items: stretch; gap: 10px; margin-bottom: 12px; }
       .sc-head > * { min-width: 0; }
@@ -244,6 +313,81 @@ export function shellCss(accent: string): string {
 
       .sc-modal-back { padding: 0; align-items: stretch; }
       .sc-modal { max-width: none; max-height: none; height: 100%; border-radius: 0; }
+      .sc-modal-head { padding-top: calc(14px + env(safe-area-inset-top)); }
+      .sc-modal-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+    }
+
+    /* ═══ TÉLÉPHONE — coquille ════════════════════════════════
+       Topbar : burger · marque · recherche · avatar (menu). Langue et
+       « Voir le site » passent dans le menu de l'avatar. La sidebar
+       devient un tiroir plein hauteur AU-DESSUS de la topbar et des
+       onglets (avant, ses derniers liens passaient sous les onglets). */
+    @media screen and (max-width: 899px) {
+      .sc-burger, .sc-top-iconbtn { display: flex; }
+      .sc-tabs { display: flex; }
+      .sc-top .sc-search-wrap, .sc-top .sc-top-link, .sc-top .sc-lang { display: none; }
+      .sc-top-iconbtn .ms, .sc-burger .ms { font-size: 23px !important; }
+      .sc-brand { flex: 1 1 auto; min-width: 0; padding: 0 10px 0 12px; border-right: none; }
+      .sc-brand > div:last-child { min-width: 0; }
+      .sc-brand-name { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sc-brand-sub { display: none; }
+      .sc-user { padding: 0 12px; flex-shrink: 0; }
+      .sc-avatar { width: 32px; height: 32px; font-size: 12px; }
+      .sc-msearch { display: flex; }
+
+      .sc-side { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); z-index: 90; transform: translateX(-102%); visibility: hidden; transition: transform .22s cubic-bezier(.4,0,.2,1), visibility 0s linear .22s; box-shadow: 6px 0 28px rgba(21,24,30,.16); padding-top: env(safe-area-inset-top); }
+      .sc-side.open { transform: none; visibility: visible; transition: transform .22s cubic-bezier(.4,0,.2,1), visibility 0s; }
+      .sc-side-head { display: flex; }
+      .sc-overlay { display: block; position: fixed; inset: 0; z-index: 85; }
+      .sc-nav-glabel { font-size: 12px; letter-spacing: 1.6px; padding: 16px 18px 6px; }
+      .sc-nav-item { min-height: 46px; padding: 10px 14px; font-size: 15px; gap: 12px; }
+      .sc-nav-item .ms { font-size: 22px; }
+      .sc-nav-badge { min-width: 24px; height: 22px; font-size: 12px; border-radius: 11px; }
+      .sc-side-foot { font-size: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+
+      .sc-tab span.lbl { font-size: 12px; letter-spacing: 0; max-width: 100%; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sc-tab-badge { top: 5px; min-width: 18px; height: 18px; font-size: 11px; border-radius: 9px; }
+
+      .sc-menu-back { background: rgba(21,24,30,.45); }
+      .sc-menu { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important; max-width: none; min-width: 0; max-height: 86vh; max-height: 86dvh; overflow-y: auto; border-radius: 16px 16px 0 0; border: none; padding: 6px 10px calc(10px + env(safe-area-inset-bottom)); animation: sc-sheet-in .2s ease-out; }
+      .sc-menu-grab { display: block; width: 38px; height: 4px; border-radius: 2px; background: ${T.borderField}; margin: 4px auto 6px; }
+      .sc-menu-title { font-size: 13px; padding: 6px 12px 8px; }
+      .sc-menu-item { min-height: 50px; font-size: 15.5px; padding: 10px 12px; gap: 14px; }
+      .sc-menu-item .ms { font-size: 22px; }
+      .sc-menu-row { padding: 8px 12px; }
+
+      .sc-page-head { margin: -12px -12px 12px; padding: 10px 12px; }
+      .sc-page-head.sc-page-head-tabs { margin-bottom: 0; padding: 8px 12px 0; }
+      .sc-back { width: 44px; height: 44px; }
+      .sc-back .ms { font-size: 22px; }
+      .sc-tabstrip { margin: 6px -12px 0; padding: 0 8px; gap: 0; }
+      .sc-tabstrip > button { min-height: 46px; padding: 10px 12px; font-size: 14.5px; }
+
+      .sc-toast { left: 12px; right: 12px; bottom: auto; top: calc(56px + env(safe-area-inset-top)); padding: 12px 16px; border-radius: 10px; font-size: 14px; text-align: center; }
+
+      .sc-only-mobile-flex { display: flex !important; }
+
+      /* Un <textarea class="sc-input sc-textarea"> prenait les 44 px des champs
+         d'une ligne : la description d'un produit s'éditait dans une fente. */
+      textarea.sc-input, .sc-textarea { height: auto; min-height: 88px; }
+
+      .sc-scan-sheet { position: fixed !important; inset: 0; z-index: 110; margin: 0 !important; max-width: none !important; border: none !important; border-radius: 0 !important; background: ${T.topbar} !important; display: flex; flex-direction: column; overflow-y: auto !important; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+      .sc-scan-sheet-head { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 6px 4px 6px 16px; color: #fff; flex-shrink: 0; }
+      .sc-scan-sheet-head .sc-scan-sheet-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; }
+      .sc-scan-sheet-head .sc-scan-sheet-sub { font-size: 12.5px; font-weight: 400; color: rgba(255,255,255,.6); margin-top: 2px; line-height: 1.4; }
+      .sc-scan-sheet-head button { width: 48px; height: 48px; border: none; background: none; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+      .sc-scan-sheet .sc-scan-view { aspect-ratio: 3 / 4 !important; max-height: calc(100vh - 320px); max-height: calc(100dvh - 320px); min-height: 220px; }
+    }
+
+    /* ═══ IMPRESSION ══════════════════════════════════════════
+       Seul le contenu de la page sort : ni barre du haut, ni
+       navigation, ni barres d'actions, et rien n'est coupé à la
+       hauteur de l'écran (.sc-app fait 100dvh et masque le reste). */
+    @media print {
+      .sc-top, .sc-side, .sc-tabs, .sc-overlay, .sc-sticky-actions, .sc-toast { display: none !important; }
+      .sc-app { height: auto !important; overflow: visible !important; display: block !important; }
+      .sc-app > div { display: block !important; }
+      .sc-main { overflow: visible !important; }
     }
 `;
 }

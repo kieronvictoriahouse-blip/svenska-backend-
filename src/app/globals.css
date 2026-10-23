@@ -356,7 +356,8 @@ textarea.form-control { resize: vertical; min-height: 90px; }
   .stats-grid { grid-template-columns: 1fr; }
   .form-grid-3, .form-grid-2 { grid-template-columns: 1fr; }
   .page-content { padding: 12px; }
-  .btn span { display: none; } /* icône seule sur très petit écran */
+  /* Plus de « .btn span { display: none } » ici : il masquait aussi les
+     icônes (<span class="ms">), et les boutons à icône seule s'affichaient vides. */
   .search-bar { width: 100%; }
   .search-bar input { max-width: 100%; }
 }

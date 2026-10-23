@@ -194,6 +194,11 @@ export const MOBILE_TABS: Array<{ href: string; icon: string; label: Trad; badge
   { href: '#menu',            icon: 'menu',            label: { fr: 'Menu', en: 'Menu', sv: 'Meny' }, menu: true },
 ];
 
+/** Évènement window émis par la recherche de la topbar (detail = texte
+ *  cherché). La liste Produits déjà affichée ne relit pas l'URL quand
+ *  seule la query change : elle écoute cet évènement. */
+export const ADMIN_SEARCH_EVENT = 'sc-admin-search';
+
 /** Tous les items, à plat — pratique pour le hub et la palette de commandes. */
 export const ALL_ITEMS: NavItem[] = NAV.flatMap(g => g.items);
 

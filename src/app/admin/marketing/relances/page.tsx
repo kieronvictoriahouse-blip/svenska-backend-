@@ -3,7 +3,37 @@ import { useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
+import EmailApercu from '@/components/EmailApercu';
 import { TRL } from './i18n';
+
+/* Téléphone (< 900 px) : le geste de la semaine et l'aperçu s'empilent
+   au lieu de se partager 360 px, les sélecteurs passent sur une colonne,
+   l'email d'aperçu est réduit à la largeur de l'écran, les paniers
+   deviennent des cartes. L'ordinateur garde ses styles en ligne. */
+const RL_CSS = `
+  .rl-toast { position: fixed; bottom: 24px; right: 24px; background: ${T.ink}; color: #fff; padding: 10px 18px; border-radius: 7px; font-size: 12.5px; z-index: 300; }
+  @media (max-width: 899px) {
+    .rl-grid, .rl-g2 { grid-template-columns: minmax(0, 1fr) !important; }
+    .rl-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+    .rl-petit { font-size: 12.5px !important; }
+    .rl-sem { min-height: 44px; display: inline-flex !important; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 14px !important; }
+    .rl-sm { font-size: 14px !important; padding: 10px 14px !important; }
+    .rl-sm-groupe { flex-wrap: wrap; }
+    .rl-semaine-tete { flex-wrap: wrap; }
+    .rl-langue { width: 84px !important; }
+    .rl-tbl { min-width: 0 !important; }
+    .rl-tbl td { overflow-wrap: anywhere; }
+    /* Le client en titre de carte, la date ensuite */
+    .rl-tbl tr { display: flex !important; flex-direction: column; }
+    .rl-tbl td.sc-stack-main { order: -1; }
+    .rl-tbl td.sc-stack-main { font-size: 15px !important; }
+    .rl-tbl td[data-label] { font-size: 13.5px !important; }
+    .rl-tbl td.rl-suivi { font-size: 12.5px !important; }
+    .rl-tbl td.rl-suivi > div { justify-content: flex-end; }
+    .rl-toast { left: 12px; right: 12px; bottom: calc(58px + 16px + env(safe-area-inset-bottom)); font-size: 14px; padding: 12px 16px; text-align: center; }
+  }
+`;
 
 /* ═══════════════════════════════════════════════════════════════
    PANIERS ABANDONNÉS — relances et geste de la semaine
@@ -40,6 +70,7 @@ type Brouillon = {
 
 export default function RelancesPage() {
   const { t, tc, lang } = useT(TRL);
+  const mobile = useIsMobile();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
@@ -117,16 +148,19 @@ export default function RelancesPage() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+      <style dangerouslySetInnerHTML={{ __html: RL_CSS }} />
+      {/* Mêmes valeurs que les styles en ligne d'avant, mais par les
+          classes du shell : elles s'adaptent au téléphone. */}
+      <div className="sc-head">
         <div style={{ maxWidth: 760 }}>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
-          <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>{t('sousTitre')}</div>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">{t('sousTitre')}</div>
         </div>
         <button className="sc-btn sc-btn-secondary" onClick={load}><span className="ms">refresh</span>{t('actualiser')}</button>
       </div>
 
       {/* ── Chiffres ─────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
+      <div className="rl-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
         {[
           /* Le chiffre qui compte : des personnes, pas des clics sur
              « Payer ». Les brouillons bruts restent à côté, nommés comme tels. */
@@ -137,15 +171,15 @@ export default function RelancesPage() {
           [t('kCaRecupere'), s.ca_recupere != null ? eur(s.ca_recupere) : '—', ''],
         ].map(([k, v, sub], i) => (
           <div key={i} className="sc-card" style={{ padding: '12px 14px' }}>
-            <div style={{ fontSize: 10.5, color: T.muted, fontWeight: 600, letterSpacing: '.2px' }}>{k}</div>
+            <div className="rl-petit" style={{ fontSize: 10.5, color: T.muted, fontWeight: 600, letterSpacing: '.2px' }}>{k}</div>
             <div className="sc-num" style={{ fontSize: 20, fontWeight: 600, color: T.ink, marginTop: 4 }}>{loading ? '…' : v}</div>
-            {sub && <div style={{ fontSize: 11, color: T.muted }}>{sub}</div>}
+            {sub && <div className="rl-petit" style={{ fontSize: 11, color: T.muted }}>{sub}</div>}
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: T.muted, margin: '-4px 0 12px', maxWidth: 900 }}>{t('aideChiffres')}</div>
+      <div className="rl-petit" style={{ fontSize: 11, color: T.muted, margin: '-4px 0 12px', maxWidth: 900 }}>{t('aideChiffres')}</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,640px)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
+      <div className="rl-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,640px)', gap: 12, alignItems: 'start', marginBottom: 12 }}>
 
         {/* ── Geste de la semaine ─────────────────────────────── */}
         <div className="sc-card" style={{ overflow: 'hidden' }}>
@@ -153,7 +187,7 @@ export default function RelancesPage() {
             {t('gesteTitre')}
           </div>
           {!loading && !codes.length && (
-            <div style={{ padding: '10px 15px', fontSize: 11.5, color: T.muted, background: T.surfaceAlt }}>{t('aucunCode')}</div>
+            <div className="rl-petit" style={{ padding: '10px 15px', fontSize: 11.5, color: T.muted, background: T.surfaceAlt }}>{t('aucunCode')}</div>
           )}
           {semaines.map((w, i) => {
             const b = edits[w];
@@ -161,22 +195,22 @@ export default function RelancesPage() {
             const existe = (data?.offres || []).some((x: any) => x.week_start === w);
             return (
               <div key={w} style={{ padding: '12px 15px', borderBottom: `1px solid ${T.borderFaint}`, background: apercu.semaine === w ? T.surfaceAlt : undefined }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                  <button onClick={() => setApercu(a => ({ ...a, semaine: w }))}
+                <div className="rl-semaine-tete" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                  <button onClick={() => setApercu(a => ({ ...a, semaine: w }))} className="rl-sem" aria-pressed={apercu.semaine === w}
                           style={{ all: 'unset', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: T.ink }}>
                     {t('semaineDu')} {jour(w, lang)}
                     {i === 0 && <span className="sc-badge" style={{ marginLeft: 8, background: BADGE.green.bg, color: BADGE.green.fg }}>{t('enCours')}</span>}
                   </button>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div className="rl-sm-groupe" style={{ display: 'flex', gap: 6 }}>
                     {existe && (
-                      <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
+                      <button className="sc-btn sc-btn-secondary rl-sm" style={{ padding: '4px 9px', fontSize: 11 }}
                               disabled={busy === w} onClick={() => retirer(w)}>{t('retirer')}</button>
                     )}
-                    <button className="sc-btn sc-btn-primary" style={{ padding: '4px 11px', fontSize: 11 }}
+                    <button className="sc-btn sc-btn-primary rl-sm" style={{ padding: '4px 11px', fontSize: 11 }}
                             disabled={busy === w} onClick={() => enregistrer(w)}>{t('enregistrer')}</button>
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0,1fr)', gap: 8 }}>
+                <div className="rl-g2" style={{ display: 'grid', gridTemplateColumns: '150px minmax(0,1fr)', gap: 8 }}>
                   <select className="sc-input" value={b.kind} onChange={e => set(w, { kind: e.target.value as Brouillon['kind'] })}>
                     <option value="none">{t('rien')}</option>
                     <option value="code">{t('code')}</option>
@@ -196,12 +230,12 @@ export default function RelancesPage() {
                       ))}
                     </select>
                   )}
-                  {b.kind === 'none' && <div />}
+                  {b.kind === 'none' && <div className="sc-hide-mobile" />}
                 </div>
                 {b.kind !== 'none' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0,1fr)', gap: 8, marginTop: 8 }}>
+                  <div className="rl-g2" style={{ display: 'grid', gridTemplateColumns: '150px minmax(0,1fr)', gap: 8, marginTop: 8 }}>
                     <div>
-                      <label style={label}>{t('surQuelle')}</label>
+                      <label className="rl-petit" style={label}>{t('surQuelle')}</label>
                       <select className="sc-input" style={{ width: '100%' }} value={b.apply_to}
                               onChange={e => set(w, { apply_to: e.target.value as Brouillon['apply_to'] })}>
                         <option value="r2">{t('r2')}</option>
@@ -210,7 +244,7 @@ export default function RelancesPage() {
                       </select>
                     </div>
                     <div>
-                      <label style={label}>{t('message')}</label>
+                      <label className="rl-petit" style={label}>{t('message')}</label>
                       <input className="sc-input" style={{ width: '100%' }} value={b.message_fr}
                              placeholder={t('messageAide')} onChange={e => set(w, { message_fr: e.target.value })} />
                     </div>
@@ -219,29 +253,31 @@ export default function RelancesPage() {
               </div>
             );
           })}
-          <div style={{ padding: '11px 15px', background: T.surfaceAlt, fontSize: 11.5, color: T.muted }}>{t('noteLegale')}</div>
+          <div className="rl-petit" style={{ padding: '11px 15px', background: T.surfaceAlt, fontSize: 11.5, color: T.muted }}>{t('noteLegale')}</div>
         </div>
 
         {/* ── Aperçu ──────────────────────────────────────────── */}
         <div className="sc-card" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '10px 15px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, flex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, flex: mobile ? '1 1 100%' : 1 }}>
               {t('apercu')}{apercu.semaine && <span style={{ fontWeight: 400, color: T.muted }}> · {jour(apercu.semaine, lang)}</span>}
             </div>
             {[1, 2].map(r => (
-              <button key={r} className={`sc-btn ${apercu.rang === r ? 'sc-btn-primary' : 'sc-btn-secondary'}`}
-                      style={{ padding: '4px 10px', fontSize: 11 }}
+              <button key={r} className={`sc-btn rl-sm ${apercu.rang === r ? 'sc-btn-primary' : 'sc-btn-secondary'}`}
+                      style={{ padding: '4px 10px', fontSize: 11 }} aria-pressed={apercu.rang === r}
                       onClick={() => setApercu(a => ({ ...a, rang: r as 1 | 2 }))}>
                 {t(r === 1 ? 'relance1' : 'relance2')}
               </button>
             ))}
-            <select className="sc-input" style={{ width: 70 }} value={apercu.lang}
+            <select className="sc-input rl-langue" style={{ width: 70 }} value={apercu.lang} aria-label="Langue de l’aperçu"
                     onChange={e => setApercu(a => ({ ...a, lang: e.target.value }))}>
               <option value="fr">FR</option><option value="en">EN</option><option value="sv">SV</option>
             </select>
           </div>
-          {sujet && <div style={{ padding: '8px 15px', fontSize: 12, color: T.text2b, borderBottom: `1px solid ${T.borderFaint}` }}><strong>{t('sujet')} :</strong> {sujet}</div>}
-          <iframe title="apercu" srcDoc={html} style={{ width: '100%', height: 760, border: 0, background: '#F1EEE9' }} />
+          {sujet && <div className="rl-petit" style={{ padding: '8px 15px', fontSize: 12, color: T.text2b, borderBottom: `1px solid ${T.borderFaint}` }}><strong>{t('sujet')} :</strong> {sujet}</div>}
+          {/* Email de 600 px : réduit à la largeur de l'écran sur téléphone. */}
+          <EmailApercu title="apercu" html={html} ajuster={mobile} fond="#F1EEE9"
+                       style={{ width: '100%', height: 760, border: 0, background: '#F1EEE9' }} />
         </div>
       </div>
 
@@ -252,7 +288,7 @@ export default function RelancesPage() {
           <div className="sc-empty">{t('aucunPanier')}</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="sc-table">
+            <table className="sc-table sc-stack rl-tbl">
               <thead>
                 <tr>
                   <th style={{ width: 96 }}>{t('colDate')}</th>
@@ -265,13 +301,13 @@ export default function RelancesPage() {
               <tbody>
                 {(data.paniers as any[]).map(p => (
                   <tr key={p.id}>
-                    <td className="sc-num" style={{ fontSize: 12 }}>{dt(p.cree, lang)}</td>
-                    <td style={{ fontSize: 12.5, color: p.email ? T.ink : T.muted }}>
+                    <td data-label={t('colDate')} className="sc-num" style={{ fontSize: 12 }}>{dt(p.cree, lang)}</td>
+                    <td className="sc-stack-main" style={{ fontSize: 12.5, color: p.email ? T.ink : T.muted }}>
                       {p.email ? <a href={`mailto:${p.email}`} style={{ color: 'inherit' }}>{p.email}</a> : t('sansEmail')}
                     </td>
-                    <td style={{ fontSize: 12, color: T.text2b }}>{p.articles || '—'}</td>
-                    <td className="sc-num" style={{ textAlign: 'right', fontSize: 12.5 }}>{eur(p.total)}</td>
-                    <td style={{ fontSize: 11.5 }}>
+                    <td data-label={t('colPanier')} style={{ fontSize: 12, color: T.text2b }}>{p.articles || '—'}</td>
+                    <td data-label={t('colMontant')} className="sc-num" style={{ textAlign: 'right', fontSize: 12.5 }}>{eur(p.total)}</td>
+                    <td data-label={t('colSuivi')} className="rl-suivi rl-petit" style={{ fontSize: 11.5 }}>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
                         {p.test && <span className="sc-badge">{t('test')}</span>}
                         {p.recupere && (
@@ -294,12 +330,7 @@ export default function RelancesPage() {
         )}
       </div>
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
-        }}>{toast}</div>
-      )}
+      {toast && <div className="rl-toast" role="status">{toast}</div>}
     </>
   );
 }

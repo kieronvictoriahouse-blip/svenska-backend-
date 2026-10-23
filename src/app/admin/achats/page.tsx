@@ -2,9 +2,11 @@
 import Link from 'next/link';
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, AdminLang, nomProduit } from '@/lib/admin-i18n';
 import { SqueletteTable } from '@/components/Squelette';
+import { MenuActions, MenuItem, MenuSep } from '@/components/MenuActions';
+import { useIsMobile } from '@/lib/use-mobile';
 import { TAC, tauxDuJour } from './i18n2';
 import { traduire } from '@/lib/admin-i18n';
 
@@ -96,6 +98,14 @@ export default function AchatsPage() {
   const [sendLang, setSendLang] = useState<'sv' | 'en'>('sv');
   const [sendEmailInput, setSendEmailInput] = useState('');
   const [sendingPdf, setSendingPdf] = useState(false);
+  /* Téléphone : cartes au lieu des tableaux, actions secondaires dans « ⋯ ». */
+  const mobile = useIsMobile();
+  const [plus, setPlus] = useState(false);
+  const plusRef = useRef<HTMLButtonElement>(null);
+  /* Sur téléphone, les suggestions (souvent une douzaine de cartes) partent
+     repliées : leur en-tête dit déjà combien de ruptures et de stocks
+     faibles ; les commandes d'achat restent visibles sans défiler. */
+  useEffect(() => { if (mobile) setShowSuggestions(false); }, [mobile]);
 
   const L = lang;
   const t = (key: keyof typeof T) => T[key][L] || T[key].fr;
@@ -383,6 +393,61 @@ export default function AchatsPage() {
     .lang-toggle { display:flex; gap:4px; }
     .lang-btn { padding:4px 10px; font-size:11px; border:1px solid ${TH.borderField}; border-radius:6px; cursor:pointer; background:#fff; }
     .lang-btn.active { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
+
+    .ac-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); gap:10px; margin-bottom:12px; }
+    .sc-actions > .ac-plus { flex:0 0 48px; width:48px; padding:0; justify-content:center; }
+
+    /* ═══ Téléphone ═══════════════════════════════════════════
+       Liste : cartes (commandes, suggestions) au lieu de tableaux de
+       760–800 px. Fenêtres : plein écran, en-tête et pied collés, champs
+       à 44 px / 16 px, lignes de commande en cartes. */
+    @media (max-width: 899px) {
+      .ac-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+      .ac-kpi { padding:10px 12px !important; }
+      .ac-kpi-l { font-size:12px !important; letter-spacing:.8px !important; }
+      .ac-kpi-v { font-size:20px !important; margin-top:3px !important; }
+      .ac-statuts { margin-bottom:12px; }
+
+      .ac-item { padding:12px 14px; border-bottom:1px solid ${TH.border}; }
+      .ac-item:last-child { border-bottom:none; }
+      .ac-item-l1 { display:flex; align-items:center; gap:8px; }
+      .ac-item-num { font-size:15px; font-weight:700; color:${TH.ink}; }
+      .ac-item-sub { font-size:13px; color:${TH.text2b}; margin-top:4px; }
+      .ac-item-acts { display:flex; align-items:center; gap:6px; margin-top:10px; }
+      .ac-item-acts .sc-select { flex:1; min-width:0; }
+      .ac-item-acts .sc-iconbtn { border:1px solid ${TH.borderField}; background:#fff; text-decoration:none; }
+
+      .modal-overlay, .pg-modal-overlay { padding:0; align-items:stretch; backdrop-filter:none; }
+      .modal, .pg-modal { max-width:none !important; margin:0; border:none; border-radius:0; min-height:100%; display:flex; flex-direction:column; }
+      .modal-header { position:sticky; top:0; z-index:2; background:#fff; padding:8px 8px 8px 16px; }
+      .modal-header .btn { width:44px; height:44px; justify-content:center; padding:0; font-size:16px; }
+      .modal-title { font-size:16px; }
+      .modal-body { max-height:none; flex:1; overflow:visible; padding:16px; }
+      .modal-footer { position:sticky; bottom:0; background:#fff; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); box-shadow:0 -6px 18px rgba(21,24,30,.06); }
+      .modal-footer > .btn { flex:1 1 0; justify-content:center; }
+      .modal-footer > div { flex:1 1 100%; }
+      .modal-footer > div > .btn { flex:1 1 0; justify-content:center; }
+      .btn { min-height:44px; font-size:14px; padding:10px 14px; }
+      .btn-sm { font-size:13.5px; }
+      .form-label { font-size:12.5px; }
+      .form-control { height:44px; font-size:16px; }
+      textarea.form-control { height:auto; }
+      .form-hint { font-size:12px; }
+      .grid-2, .grid-3 { display:grid; grid-template-columns:minmax(0,1fr); gap:0 12px; }
+      .currency-box { border:1px solid ${TH.border}; border-radius:10px; padding:12px; margin-bottom:14px; }
+      .currency-box .form-group { margin-bottom:10px !important; }
+      .rate-info { font-size:13px; margin-top:8px; color:${TH.green}; }
+      .totals-box { font-size:16px; font-weight:700; color:${TH.ink}; padding:12px 0; border-top:1px solid ${TH.border}; margin-top:8px; }
+      .lines-table, .lines-table tbody { display:block; width:100%; }
+      .lines-table thead { display:none; }
+      .lines-table tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px 0; border-bottom:1px solid ${TH.border}; align-items:end; }
+      .lines-table td { display:block; padding:0 !important; min-width:0; font-size:14px; }
+      .lines-table td:first-child { grid-column:1 / -1; }
+      .lines-table td[data-label]::before { content:attr(data-label); display:block; font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:${TH.muted}; margin-bottom:4px; }
+      .lines-table td.ac-retirer { grid-column:1 / -1; justify-self:end; }
+      .lines-table td.ac-retirer button { min-height:44px; padding:0 12px !important; font-size:14px; }
+      .lines-input { width:100% !important; height:44px; font-size:16px; border:1px solid ${TH.borderField}; border-radius:7px; padding:0 10px; background:#fff; color:${TH.ink}; }
+    }
   `;
 
   /* ═══════════════════════════════════════════════════════════════
@@ -413,6 +478,35 @@ export default function AchatsPage() {
     { label: 'Suggestions',     value: String(suggestions.length), tone: suggestions.length ? BADGE.orange : null },
   ];
 
+  const ouvrirSaisieManuelle = () => {
+    setForm({ status: 'draft', supplier_id: '', expected_date: '', notes: '', lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] });
+    setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
+    setEditingOrder(null); setShowModal(true);
+  };
+
+  /** Ajoute une suggestion de réappro à une commande manuelle (même geste
+   *  que le bouton « Commander » du tableau). */
+  const commanderSuggestion = (s: any) => {
+    setForm(f => ({
+      ...f,
+      lines: [...f.lines.filter(l => l.product_id), {
+        product_id: s.id,
+        name: s.name_fr,
+        qty: s.suggested > 0 ? s.suggested : 10,
+        unit_cost: s.cost_price || 0,
+        unit_cost_eur: s.cost_price || 0,
+        total: (s.suggested > 0 ? s.suggested : 10) * (s.cost_price || 0),
+      }],
+    }));
+    setCurrency('EUR'); setExchangeRate(1);
+    setEditingOrder(null); setShowModal(true);
+  };
+
+  const nomFournisseur = (o: PurchaseOrder) => {
+    const sup = o.contacts;
+    return sup?.company || `${sup?.first_name || ''} ${sup?.last_name || ''}`.trim() || o.supplier_name || '—';
+  };
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
@@ -424,6 +518,32 @@ export default function AchatsPage() {
             {orders.length} commande(s) d’achat · {receivedCount} reçue(s)
           </div>
         </div>
+        {mobile ? (
+          /* Téléphone : l'action principale + « ⋯ » ; le filtre de statut
+             passe en rangée de puces sous les indicateurs. */
+          <div className="sc-actions">
+            <Link href="/admin/achats/nouvelle" className="sc-btn sc-btn-primary">
+              <span className="ms">auto_awesome</span>{t('newBtn')}
+            </Link>
+            <button ref={plusRef} className="sc-btn sc-btn-secondary ac-plus" aria-label={t2('plusActions')}
+                    aria-haspopup="menu" aria-expanded={plus} onClick={() => setPlus(v => !v)}>
+              <span className="ms">more_horiz</span>
+            </button>
+            <MenuActions open={plus} anchor={plusRef.current} onClose={() => setPlus(false)}>
+              <MenuItem icon="edit_note" label={t2('saisieManuelle')} onClick={ouvrirSaisieManuelle} />
+              <MenuItem icon="inventory_2" label={t2('conditionnements')} hint={t2('conditionnementsTitre')} href="/admin/achats/conditionnements" />
+              <MenuItem icon="receipt_long" label={t2('saisieTicket')} href="/admin/achats/ticket" />
+              <MenuSep />
+              <div className="sc-menu-row">
+                <span style={{ fontSize: 13, color: TH.muted, marginRight: 4 }}>{t2('langueEcran')}</span>
+                {(['fr', 'en', 'sv'] as AdminLang[]).map(l => (
+                  <button key={l} className={`sc-chip${lang === l ? ' on' : ''}`} aria-pressed={lang === l}
+                          onClick={() => { setLang(l); setAdminLang(l); }}>{l.toUpperCase()}</button>
+                ))}
+              </div>
+            </MenuActions>
+          </div>
+        ) : (
         <div className="sc-actions">
           <div style={{ display: 'flex', gap: 4 }}>
             {(['fr', 'en', 'sv'] as AdminLang[]).map(l => (
@@ -443,32 +563,41 @@ export default function AchatsPage() {
           {/* La saisie manuelle reste accessible : elle sert aux cas que
               le réappro ne couvre pas, et c'est le seul chemin d'édition
               d'une commande existante. */}
-          <button className="sc-btn" onClick={() => {
-            setForm({ status: 'draft', supplier_id: '', expected_date: '', notes: '', lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] });
-            setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
-            setEditingOrder(null); setShowModal(true);
-          }}>
+          <button className="sc-btn" onClick={ouvrirSaisieManuelle}>
             <span className="ms">edit_note</span>{t2('saisieManuelle')}
           </button>
           <Link href="/admin/achats/nouvelle" className="sc-btn sc-btn-primary">
             <span className="ms">auto_awesome</span>{t('newBtn')}
           </Link>
         </div>
+        )}
       </div>
 
       {/* KPI */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
+      <div className="ac-kpis">
         {A_KPIS.map(k => (
-          <div key={k.label} className="sc-card" style={{ padding: '13px 15px' }}>
-            <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: k.tone ? k.tone.fg : TH.muted }}>
+          <div key={k.label} className="sc-card ac-kpi" style={{ padding: '13px 15px' }}>
+            <div className="ac-kpi-l" style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: k.tone ? k.tone.fg : TH.muted }}>
               {k.label}
             </div>
-            <div className="sc-num" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: k.tone ? k.tone.fg : TH.ink }}>
+            <div className="sc-num ac-kpi-v" style={{ fontSize: 23, fontWeight: 700, marginTop: 5, color: k.tone ? k.tone.fg : TH.ink }}>
               {k.value}
             </div>
           </div>
         ))}
       </div>
+
+      {/* Téléphone : filtre de statut en puces (le menu déroulant reste sur ordinateur) */}
+      {mobile && (
+        <div className="sc-filters ac-statuts">
+          <button className={`sc-chip${filter === '' ? ' on' : ''}`} aria-pressed={filter === ''} onClick={() => setFilter('')}>{t('allStatuses')}</button>
+          {Object.entries(STATUSES).map(([k, v]) => (
+            <button key={k} className={`sc-chip${filter === k ? ' on' : ''}`} aria-pressed={filter === k} onClick={() => setFilter(k)}>
+              {(v as any)[L] || (v as any).fr}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Suggestions de réappro */}
       {suggestions.length > 0 && (
@@ -487,7 +616,45 @@ export default function AchatsPage() {
             <span className="ms" style={{ fontSize: 18, color: TH.muted }}>{showSuggestions ? 'expand_less' : 'expand_more'}</span>
           </button>
 
-          {showSuggestions && (
+          {showSuggestions && mobile && (
+            <div>
+              {suggestions.map(s => {
+                const tone = s.urgency === 'rupture' ? BADGE.red
+                  : s.urgency === 'faible' ? BADGE.orange : BADGE.blue;
+                const label = s.urgency === 'rupture' ? 'Rupture'
+                  : s.urgency === 'faible' ? 'Faible' : 'Attention';
+                return (
+                  <div key={s.id} className="ac-item">
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: TH.ink, lineHeight: 1.35 }}>{nomProduit(s, lang)}</span>
+                      <span className="sc-badge" style={{ background: tone.bg, color: tone.fg }}>{label}</span>
+                    </div>
+                    <div className="ac-item-sub sc-num">
+                      {tc('stock')}{' '}
+                      <b style={{ color: s.stock <= 0 ? TH.red : s.stock <= (s.stock_alert ?? 5) ? '#C97A2B' : TH.ink }}>{s.stock}</b>
+                      {s.onOrder > 0 && <span style={{ color: TH.blue }}> · +{s.onOrder} {t2('enCommande')}</span>}
+                      {' · '}{t2('ventes90')} {s.sold30}
+                      {' · '}{s.velocity > 0 ? `${s.velocity.toFixed(2)}/j` : '—'}
+                      {' · '}{t2('autonomie')}{' '}
+                      <span style={{ color: s.daysLeft <= 14 ? TH.red : undefined }}>
+                        {s.velocity > 0 ? (s.daysLeft >= 999 ? '∞' : `${s.daysLeft} j`) : '—'}
+                      </span>
+                    </div>
+                    <div className="ac-item-acts">
+                      <span className="sc-num" style={{ flex: 1, fontSize: 18, fontWeight: 700, color: TH.green }}>
+                        {s.suggested > 0 ? `+${s.suggested}` : '—'}
+                      </span>
+                      <button className="sc-btn sc-btn-secondary" onClick={() => commanderSuggestion(s)}>
+                        <span className="ms">add</span>{t2('commander')}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {showSuggestions && !mobile && (
             <div style={{ overflowX: 'auto' }}>
               <table className="sc-table" style={{ minWidth: 760 }}>
                 <thead>
@@ -528,21 +695,7 @@ export default function AchatsPage() {
                           {s.suggested > 0 ? `+${s.suggested}` : '—'}
                         </td>
                         <td>
-                          <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => {
-                            setForm(f => ({
-                              ...f,
-                              lines: [...f.lines.filter(l => l.product_id), {
-                                product_id: s.id,
-                                name: s.name_fr,
-                                qty: s.suggested > 0 ? s.suggested : 10,
-                                unit_cost: s.cost_price || 0,
-                                unit_cost_eur: s.cost_price || 0,
-                                total: (s.suggested > 0 ? s.suggested : 10) * (s.cost_price || 0),
-                              }],
-                            }));
-                            setCurrency('EUR'); setExchangeRate(1);
-                            setEditingOrder(null); setShowModal(true);
-                          }}>
+                          <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => commanderSuggestion(s)}>
                             <span className="ms" style={{ fontSize: 15 }}>add</span>{t2('commander')}
                           </button>
                         </td>
@@ -556,7 +709,62 @@ export default function AchatsPage() {
         </div>
       )}
 
+      {/* Téléphone : une carte par commande d'achat */}
+      {mobile && (
+        <div className="sc-card" style={{ overflow: 'hidden' }}>
+          {loading && <SqueletteTable lignes={6} colonnes={3} entete={false} />}
+          {!loading && orders.length === 0 && <div className="sc-empty">{tc('noData')}</div>}
+          {!loading && orders.map(o => {
+            const st: any = STATUSES[o.status as keyof typeof STATUSES] || { color: '#6A7280', fr: o.status };
+            return (
+              <div key={o.id} className="ac-item">
+                <div className="ac-item-l1">
+                  <span className="sc-num ac-item-num">{o.number}</span>
+                  <span className="sc-badge" style={{ background: st.color + '20', color: st.color }}>{st[L] || st.fr}</span>
+                  <span style={{ flex: 1 }} />
+                  <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: TH.ink }}>{fmt(o.total)}</span>
+                </div>
+                <div className="ac-item-sub">
+                  {nomFournisseur(o)} · {linesCount(o)} {t2('lignes').toLowerCase()} · {t2('attendue')} {fmtDate(o.expected_date)}
+                  {o.currency && o.currency !== 'EUR' && (
+                    <span style={{ color: TH.blue }}> · {o.currency}{o.exchange_rate ? ` × ${o.exchange_rate}` : ''}</span>
+                  )}
+                </div>
+                <div className="ac-item-acts">
+                  <select className="sc-input sc-select" aria-label={tc('status')}
+                          value={o.status} onChange={e => updateStatus(o.id, e.target.value)}>
+                    {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
+                  </select>
+                  {o.supplier_id ? (
+                    <Link className="sc-iconbtn" href={`/admin/achats/nouvelle?id=${o.id}`} aria-label={t('editTitle')}>
+                      <span className="ms">edit</span>
+                    </Link>
+                  ) : (
+                    <button className="sc-iconbtn" onClick={() => openEdit(o)} aria-label={t('editTitle')}>
+                      <span className="ms">edit</span>
+                    </button>
+                  )}
+                  <a className="sc-iconbtn" href={`/admin/documents/bon-de-commande/${o.id}`} target="_blank" rel="noopener" aria-label={t2('bonA4')}>
+                    <span className="ms">print</span>
+                  </a>
+                  <button className="sc-iconbtn" onClick={() => openSendModal(o)} aria-label={t2('pdfEnvoyer')}>
+                    <span className="ms">send</span>
+                  </button>
+                </div>
+                {['confirmed', 'partial'].includes(o.status) && (
+                  <button className="sc-btn sc-btn-green" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+                          onClick={() => openReception(o)}>
+                    <span className="ms">local_shipping</span>{t('reception').replace('📬 ', '')}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Table des commandes d'achat */}
+      {!mobile && (
       <div className="sc-card" style={{ overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
           <table className="sc-table" style={{ minWidth: 800 }}>
@@ -642,6 +850,7 @@ export default function AchatsPage() {
           </table>
         </div>
       </div>
+      )}
 
         {showModal && (
           <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setEditingOrder(null); } }}>
@@ -729,11 +938,11 @@ export default function AchatsPage() {
                               {products.map(p => <option key={p.id} value={p.id}>{nomProduit(p, lang)}</option>)}
                             </select>
                           </td>
-                          <td><input type="number" className="lines-input" style={{ width: 56 }} value={l.qty || ''} min={1} placeholder="Qté" onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 0)} /></td>
-                          <td><input type="number" className="lines-input" style={{ width: 80 }} value={l.unit_cost || ''} step="0.01" placeholder="0.00" onChange={e => updateLine(i, 'unit_cost', parseFloat((e.target.value || '0').replace(',', '.')) || 0)} /></td>
-                          {currency !== 'EUR' && <td className="mono" style={{ padding: '4px 8px', color: exchangeRate ? '#0369A1' : '#EF4444' }}>{exchangeRate ? (l.unit_cost_eur ? l.unit_cost_eur + ' €' : '—') : '⚠️ taux ?'}</td>}
-                          <td className="mono" style={{ padding: '4px 8px' }}>{exchangeRate || currency === 'EUR' ? (l.total || 0).toFixed(2) + ' €' : '—'}</td>
-                          <td><button onClick={() => setForm(f => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer' }}>✕</button></td>
+                          <td data-label={tc('qty')}><input type="number" inputMode="numeric" className="lines-input" style={{ width: 56 }} value={l.qty || ''} min={1} placeholder="Qté" onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 0)} /></td>
+                          <td data-label={currency !== 'EUR' ? t('unitCost') + ` (${currency})` : t('unitCost')}><input type="number" inputMode="decimal" className="lines-input" style={{ width: 80 }} value={l.unit_cost || ''} step="0.01" placeholder="0.00" onChange={e => updateLine(i, 'unit_cost', parseFloat((e.target.value || '0').replace(',', '.')) || 0)} /></td>
+                          {currency !== 'EUR' && <td data-label={t('unitCostEur')} className="mono" style={{ padding: '4px 8px', color: exchangeRate ? '#0369A1' : '#EF4444' }}>{exchangeRate ? (l.unit_cost_eur ? l.unit_cost_eur + ' €' : '—') : '⚠️ taux ?'}</td>}
+                          <td data-label={`${tc('total')} EUR`} className="mono" style={{ padding: '4px 8px' }}>{exchangeRate || currency === 'EUR' ? (l.total || 0).toFixed(2) + ' €' : '—'}</td>
+                          <td className="ac-retirer"><button aria-label={t2('retirer')} title={t2('retirer')} onClick={() => setForm(f => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer' }}>✕{mobile ? ` ${t2('retirer')}` : ''}</button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -841,9 +1050,9 @@ export default function AchatsPage() {
                     {recForm.lines.map((l: any, i: number) => (
                       <tr key={i}>
                         <td style={{ padding: '6px 8px' }}><strong>{l.name || l.product_id}</strong></td>
-                        <td style={{ padding: '6px 8px' }} className="mono">{l.qty}</td>
-                        <td style={{ padding: '6px 4px' }}>
-                          <input type="number" className="lines-input" style={{ width: 80 }} value={l.received_qty} min={0} max={l.qty}
+                        <td data-label={t('ordered')} style={{ padding: '6px 8px' }} className="mono">{l.qty}</td>
+                        <td data-label={t('receivedQty')} style={{ padding: '6px 4px' }}>
+                          <input type="number" inputMode="numeric" className="lines-input" style={{ width: 80 }} value={l.received_qty} min={0} max={l.qty}
                             onChange={e => { const nl = [...recForm.lines]; nl[i].received_qty = parseInt(e.target.value) || 0; setRecForm(r => ({ ...r, lines: nl })); }} />
                         </td>
                       </tr>
@@ -862,11 +1071,7 @@ export default function AchatsPage() {
             </div>
           </div>
         )}
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: TH.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 300 }}>{toast}</div>}
     </>
   );
 }

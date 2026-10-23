@@ -69,8 +69,21 @@ export default function ParametresPage() {
     },
   ];
 
+  /* Téléphone : résumés sur deux lignes au lieu d'être coupés, textes à
+     12 px minimum. */
+  const css = `
+    .ap-sum { font-size: 11px; color: ${T.muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 899px) {
+      .ap-block { min-height: 64px; }
+      .ap-title { font-size: 15px !important; }
+      .ap-sum { font-size: 12.5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+      .ap-small { font-size: 12.5px !important; }
+    }
+  `;
+
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
@@ -84,7 +97,7 @@ export default function ParametresPage() {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 10, marginBottom: 14 }}>
             {BLOCKS.map(b => (
-              <Link key={b.title} href={b.href} className="sc-card"
+              <Link key={b.title} href={b.href} className="sc-card ap-block"
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 15px', textDecoration: 'none' }}>
                 <div style={{
                   width: 36, height: 36, borderRadius: 9, flexShrink: 0,
@@ -94,8 +107,8 @@ export default function ParametresPage() {
                   <span className="ms" style={{ fontSize: 19 }}>{b.icon}</span>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{b.title}</div>
-                  <div style={{ fontSize: 11, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div className="ap-title" style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{b.title}</div>
+                  <div className="ap-sum">
                     {b.summary}
                   </div>
                 </div>
@@ -105,9 +118,9 @@ export default function ParametresPage() {
           </div>
 
           <div className="sc-card">
-            <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px 12px' }}>
               <span className="sc-card-title">{t('acces')}</span>
-              <span style={{ fontSize: 11.5, color: T.muted }}>{t('multiUtilisateurs')}</span>
+              <span className="ap-small" style={{ fontSize: 11.5, color: T.muted }}>{t('multiUtilisateurs')}</span>
             </div>
             <div style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{
@@ -117,11 +130,11 @@ export default function ParametresPage() {
               }}>{initials(email || 'AD')}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{email.split('@')[0] || 'Administrateur'}</div>
-                <div style={{ fontSize: 11, color: T.muted, wordBreak: 'break-all' }}>{email || '—'}</div>
+                <div className="ap-small" style={{ fontSize: 11, color: T.muted, wordBreak: 'break-all' }}>{email || '—'}</div>
               </div>
               <span className="sc-badge" style={{ background: BADGE.plum.bg, color: BADGE.plum.fg }}>{t('proprietaire')}</span>
             </div>
-            <div style={{ padding: '11px 15px', borderTop: `1px solid ${T.borderFaint}`, background: T.surfaceAlt, fontSize: 11.5, color: T.muted }}>
+            <div className="ap-small" style={{ padding: '11px 15px', borderTop: `1px solid ${T.borderFaint}`, background: T.surfaceAlt, fontSize: 11.5, color: T.muted }}>
               Le back-office fonctionne avec un compte unique. Inviter d’autres utilisateurs demanderait
               une table de comptes et une gestion de rôles — à ouvrir si le besoin se présente.
             </div>

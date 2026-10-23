@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import ProductForm, { ProductTab } from '@/components/ProductForm';
+import ProductForm, { ProductTab, FP_CSS } from '@/components/ProductForm';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
@@ -91,28 +91,25 @@ export default function NouveauProduitPage() {
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: FP_CSS }} />
       {/* ── En-tête collant ─────────────────────────────── */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 20, background: '#fff',
-        margin: '-16px -18px 0', padding: '10px 18px 0',
-        borderBottom: `1px solid ${T.border}`,
-      }}>
+      <div className="sc-page-head sc-page-head-tabs">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Link href="/admin/produits" className="sc-iconbtn"
-                style={{ width: 30, height: 30, border: `1px solid ${T.borderField}` }} aria-label={t('retourProduits')}>
-            <span className="ms" style={{ fontSize: 18 }}>arrow_back</span>
+          <Link href="/admin/produits" className="sc-iconbtn sc-back" aria-label={t('retourProduits')}>
+            <span className="ms">arrow_back</span>
           </Link>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 10.5, color: T.muted }}>{t('produits')}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.ink }}>{t('titre')}</div>
+            <div className="fp-crumb">{t('produits')}</div>
+            <div className="fp-name">{t('titre')}</div>
           </div>
           {ean && (
             <span className="sc-badge sc-num" style={{ background: '#F3EDF3', color: '#5E3B5E' }}>
               EAN {ean}
             </span>
           )}
-          <span style={{ fontSize: 11, color: T.muted }}>FR / SV / EN</span>
-          <div className="sc-actions">
+          <span className="sc-hide-mobile" style={{ fontSize: 11, color: T.muted }}>FR / SV / EN</span>
+          {/* Téléphone : « Annuler » = la flèche retour, « Créer » est en bas */}
+          <div className="sc-actions sc-hide-mobile">
             <Link href="/admin/produits" className="sc-btn sc-btn-secondary">{tc('cancel')}</Link>
             <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving}>
               <span className="ms">save</span>{saving ? 'Création…' : 'Créer le produit'}
@@ -121,16 +118,10 @@ export default function NouveauProduitPage() {
         </div>
 
         {/* ── Onglets collants ──────────────────────────── */}
-        <div style={{ display: 'flex', gap: 2, marginTop: 8 }}>
+        <div className="sc-tabstrip" role="tablist" style={{ marginTop: 8 }}>
           {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-                    style={{
-                      border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                      padding: '9px 13px', fontSize: 12.5,
-                      color: tab === t.id ? 'var(--accent)' : T.text2,
-                      fontWeight: tab === t.id ? 600 : 400,
-                      boxShadow: tab === t.id ? 'inset 0 -2px 0 var(--accent)' : 'none',
-                    }}>
+            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id}
+                    className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
               {t.label}
             </button>
           ))}
@@ -153,6 +144,18 @@ export default function NouveauProduitPage() {
           />
         )}
       </div>
+
+      {/* Téléphone : création à portée de pouce */}
+      <div className="sc-sticky-actions sc-only-mobile-flex" style={{ flexWrap: 'nowrap' }}>
+        <Link href="/admin/produits" className="sc-btn sc-btn-secondary" style={{ flex: '0 0 auto' }}>{tc('cancel')}</Link>
+        <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving || !ready}>
+          <span className="ms">save</span>{saving ? 'Création…' : 'Créer le produit'}
+        </button>
+      </div>
+
+      {/* Le message du formulaire est dans sa colonne latérale, hors de vue
+          sur téléphone : il remonte ici. */}
+      {toast && <div className="sc-toast sc-only-mobile" role="status">{toast}</div>}
     </>
   );
 }

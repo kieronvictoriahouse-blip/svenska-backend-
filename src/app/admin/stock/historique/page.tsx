@@ -6,7 +6,23 @@ import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE } from '@/lib/admin-theme';
 import { useT, nomProduit, formatDate } from '@/lib/admin-i18n';
 import { SqueletteTable } from '@/components/Squelette';
+import { useIsMobile } from '@/lib/use-mobile';
 import { THI, CAT } from './i18n';
+
+/* Téléphone : filtres en une rangée qui défile, séances sur deux lignes
+   (le badge ne mange plus le libellé), mouvements en liste au lieu d'un
+   tableau de 620 px. Ordinateur inchangé. */
+const CSS = `
+  @media (max-width: 899px) {
+    .sh-filtres { padding: 12px !important; }
+    .sh-filtres .sc-select { max-width: none !important; }
+    .sh-chips { margin-top: 10px; }
+    .sh-compte { font-size: 12.5px; color: ${T.muted}; margin-top: 8px; }
+    .sh-mvt { display: flex; gap: 12px; align-items: flex-start; padding: 11px 15px; border-top: 1px solid ${T.borderFaint}; }
+    .sh-mvt-nom { font-size: 14.5px; color: ${T.ink}; text-decoration: none; font-weight: 500; }
+    .sh-mvt-sub { font-size: 12.5px; color: ${T.muted}; margin-top: 3px; }
+  }
+`;
 
 /* ═══════════════════════════════════════════════════════════════
    HISTORIQUE DES STOCKS
@@ -56,6 +72,7 @@ function Historique() {
   const [ouverte, setOuverte] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
   const [toast, setToast] = useState('');
+  const mobile = useIsMobile();
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
 
@@ -85,8 +102,33 @@ function Historique() {
     return p ? nomProduit(p, lang) : null;
   };
 
+  const selectProduit = (
+    <select className="sc-input sc-select" style={mobile ? undefined : { height: 32, maxWidth: 280, fontSize: 12 }}
+            aria-label={t('tousProduits')}
+            value={produit} onChange={e => setProduit(e.target.value)}>
+      <option value="">{t('tousProduits')}</option>
+      {produits.map(p => (
+        <option key={p.id} value={p.id}>{nomProduit(p, lang)}</option>
+      ))}
+    </select>
+  );
+  const chipStyle = mobile ? undefined : { height: 28, fontSize: 11.5, padding: '0 10px' };
+  const chips = (
+    <>
+      <button className={`sc-chip${categorie === '' ? ' on' : ''}`} style={chipStyle}
+              aria-pressed={categorie === ''} onClick={() => setCategorie('')}>{t('toutes')}</button>
+      {Object.keys(CAT).map(k => (
+        <button key={k} className={`sc-chip${categorie === k ? ' on' : ''}`} style={chipStyle}
+                aria-pressed={categorie === k} onClick={() => setCategorie(k)}>
+          {(CAT as any)[k][lang] || (CAT as any)[k].fr}
+        </button>
+      ))}
+    </>
+  );
+
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
@@ -100,26 +142,17 @@ function Historique() {
       </div>
 
       {/* ── Filtres ─────────────────────────────────────── */}
+      {mobile ? (
+        <div className="sc-card sh-filtres" style={{ marginBottom: 12 }}>
+          {selectProduit}
+          <div className="sc-filters sh-chips">{chips}</div>
+          <div className="sh-compte">{seances.length} {t('seances')} · {totalMvts} {t('mouvements')}</div>
+        </div>
+      ) : (
       <div className="sc-card" style={{ padding: '11px 14px', marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select className="sc-input sc-select" style={{ height: 32, maxWidth: 280, fontSize: 12 }}
-                  value={produit} onChange={e => setProduit(e.target.value)}>
-            <option value="">{t('tousProduits')}</option>
-            {produits.map(p => (
-              <option key={p.id} value={p.id}>{nomProduit(p, lang)}</option>
-            ))}
-          </select>
-
-          <button className={`sc-chip${categorie === '' ? ' on' : ''}`}
-                  style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
-                  onClick={() => setCategorie('')}>{t('toutes')}</button>
-          {Object.keys(CAT).map(k => (
-            <button key={k} className={`sc-chip${categorie === k ? ' on' : ''}`}
-                    style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
-                    onClick={() => setCategorie(k)}>
-              {(CAT as any)[k][lang] || (CAT as any)[k].fr}
-            </button>
-          ))}
+          {selectProduit}
+          {chips}
 
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: 11.5, color: T.muted }}>
@@ -127,6 +160,7 @@ function Historique() {
           </span>
         </div>
       </div>
+      )}
 
       {chargement && <SqueletteTable lignes={7} colonnes={4} />}
       {!chargement && seances.length === 0 && <div className="sc-empty">{t('aucun')}</div>}
@@ -146,9 +180,27 @@ function Historique() {
                       cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
                       borderLeft: `3px solid ${ton.fg}`,
                     }}>
-              <span className="ms" style={{ fontSize: 18, color: T.muted3 }}>
+              <span className="ms" style={{ fontSize: mobile ? 22 : 18, color: T.muted3 }}>
                 {ouvert ? 'expand_more' : 'chevron_right'}
               </span>
+              {mobile ? (
+                /* Téléphone : libellé en entier, badge et date dessous. */
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: T.ink, lineHeight: 1.3 }}>{s.libelle}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                    <span className="sc-badge" style={{ background: ton.bg, color: ton.fg }}>{cat?.[lang] || cat?.fr}</span>
+                    <span style={{ fontSize: 12.5, color: T.muted }}>{formatDate(s.date, lang, true)} · {s.articles} {t('articles')}</span>
+                  </span>
+                  {s.entrees > 0 && s.sorties > 0 && (
+                    <span className="sc-num" style={{ display: 'block', fontSize: 12.5, marginTop: 3 }}>
+                      <span style={{ color: T.green }}>+{s.entrees} {t('entrees')}</span>
+                      <span style={{ color: T.muted }}> · </span>
+                      <span style={{ color: T.red }}>−{s.sorties} {t('sorties')}</span>
+                    </span>
+                  )}
+                </span>
+              ) : (
+              <>
               <span className="sc-badge" style={{ background: ton.bg, color: ton.fg, whiteSpace: 'nowrap' }}>
                 {cat?.[lang] || cat?.fr}
               </span>
@@ -170,15 +222,49 @@ function Historique() {
                   −{s.sorties}
                 </span>
               )}
+              </>
+              )}
               <span className="sc-num" style={{
-                fontSize: 13, fontWeight: 700, minWidth: 46, textAlign: 'right',
+                fontSize: mobile ? 18 : 13, fontWeight: 700, minWidth: 46, textAlign: 'right',
                 color: s.net > 0 ? T.green : s.net < 0 ? T.red : T.muted,
               }}>
                 {s.net > 0 ? '+' : ''}{s.net}
               </span>
             </button>
 
-            {ouvert && (
+            {ouvert && mobile && (
+              <div>
+                {s.mouvements.map(m => {
+                  const connu = m.qty_before !== null && m.qty_after !== null;
+                  return (
+                    <div key={m.id} className="sh-mvt">
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Link href={`/admin/produits/${m.product_id}`} className="sh-mvt-nom">
+                          {nomDe(m.product_id) || m.nom}
+                        </Link>
+                        <div className="sh-mvt-sub sc-num">
+                          {connu
+                            ? <>{t('avant')} {m.qty_before} → {t('apres')} <span style={{ color: T.ink }}>{m.qty_after}</span></>
+                            : t('inconnu')}
+                          {m.reason ? ` · ${m.reason}` : ''}
+                        </div>
+                        {m.note && <div className="sh-mvt-sub">{m.note}</div>}
+                      </div>
+                      <span className="sc-num" style={{ fontSize: 17, fontWeight: 700, color: m.delta > 0 ? T.green : T.red }}>
+                        {m.delta > 0 ? '+' : ''}{m.delta}
+                      </span>
+                    </div>
+                  );
+                })}
+                {s.mouvements.some(m => m.qty_before === null) && (
+                  <div style={{ padding: '10px 15px', background: '#FDF6EA', fontSize: 12.5, color: '#8A5B08' }}>
+                    {t('ancienFormat')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {ouvert && !mobile && (
               <div style={{ overflowX: 'auto' }}>
                 <table className="sc-table" style={{ minWidth: 620 }}>
                   <thead>
@@ -230,12 +316,7 @@ function Historique() {
         );
       })}
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
-        }}>{toast}</div>
-      )}
+      {toast && <div className="sc-toast" role="status">{toast}</div>}
     </>
   );
 }

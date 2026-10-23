@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
+import { useIsMobile } from '@/lib/use-mobile';
 import { DOC_PRINT_CSS, DocLine, Party } from '@/components/documents/doc-kit';
 import Facture, { FactureData } from '@/components/documents/Facture';
 import Avoir, { AvoirData } from '@/components/documents/Avoir';
@@ -11,6 +12,31 @@ import Devis from '@/components/documents/Devis';
 import BonDeRetour from '@/components/documents/BonDeRetour';
 import { traduire, useAdminLang } from '@/lib/admin-i18n';
 import { TDO } from '@/app/admin/factures/[id]/i18n';
+
+/* ── Téléphone ────────────────────────────────────────────────
+   La feuille A4 (794 px) est réduite à la largeur de l'écran par un
+   zoom CSS réservé à l'écran : l'impression garde les millimètres
+   réels. On peut repasser en taille réelle (défilement horizontal) ou
+   pincer pour zoomer. Les actions (partager le PDF, imprimer) sont
+   collées en bas, sous le pouce. */
+const DOC_MOBILE_CSS = `
+  /* Page « nue » : la classe .ms du shell n'est pas chargée ici. */
+  .doc-toolbar .ms, .doc-mbar .ms { font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal; line-height: 1;
+    letter-spacing: normal; text-transform: none; white-space: nowrap; direction: ltr; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga'; }
+  @media screen and (max-width: 899px) {
+    .doc-toolbar { gap: 4px; padding: 4px 6px; padding-top: calc(4px + env(safe-area-inset-top)); min-height: 52px; }
+    .doc-toolbar .doc-tb-icon { width: 44px; height: 44px; padding: 0; justify-content: center; border: none; font-size: 22px; }
+    .doc-toolbar .doc-tb-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; opacity: .85 !important; }
+    .doc-m { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+    .doc-fit .doc-page { zoom: var(--doc-zoom, 1); margin: 10px auto; }
+    .doc-m:not(.doc-fit) .doc-page { flex-shrink: 0; }
+    .doc-mbar { position: sticky; bottom: 0; z-index: 5; margin-top: auto; display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #1F231C; }
+    .doc-mbar button { flex: 1; min-height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; font: inherit; font-size: 15px; cursor: pointer; border: 1px solid rgba(244,238,225,.3); background: none; color: #F4EEE1; }
+    .doc-mbar button.primary { background: #F4EEE1; color: #1F231C; border-color: #F4EEE1; font-weight: 600; }
+    .doc-mbar button:disabled { opacity: .55; }
+  }
+  @media print { .doc-mbar { display: none !important; } }
+`;
 
 /* Route d'impression : /admin/documents/<type>/<id>
    types : facture · avoir · bon-de-commande · bon-de-livraison · devis · bon-de-retour
@@ -70,6 +96,22 @@ export default function DocumentPrintPage() {
   const [cfg, setCfg] = useState<any>({});
   const [catalogue, setCatalogue] = useState<any[]>([]);
   const [error, setError] = useState('');
+
+  const mobile = useIsMobile();
+  const [fit, setFit] = useState(true);
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const calc = () => setZoom(Math.min(1, (window.innerWidth - 16) / (210 * 96 / 25.4)));
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
+  /* Partage du PDF serveur (facture, avoir). Le fichier est gardé : si le
+     navigateur refuse le partage parce que le téléchargement a pris
+     trop de temps après le toucher, le toucher suivant partage aussitôt. */
+  const pdfRef = useRef<File | null>(null);
+  const [sharing, setSharing] = useState<'' | 'busy' | 'ready'>('');
+  const canShareFiles = typeof navigator !== 'undefined' && typeof (navigator as any).canShare === 'function';
 
   useEffect(() => {
     if (!source) { setError(`Type de document inconnu : « ${type} »`); return; }
@@ -170,16 +212,88 @@ export default function DocumentPrintPage() {
   });
   const subtotal = lines.reduce((s, l) => s + (l.amount || 0), 0);
 
-  const toolbar = (
+  const backHref = source === 'purchase' ? '/admin/achats' : source === 'invoice' ? '/admin/gestion' : '/admin/commandes';
+  /* Ouvert depuis l'écran précédent dans le même onglet (téléphone) :
+     « Retour » y revient, avec la commande encore ouverte. Dans un
+     nouvel onglet (ordinateur), le lien garde sa destination. */
+  const goBack = (e: React.MouseEvent) => {
+    if (window.history.length > 1) { e.preventDefault(); window.history.back(); }
+  };
+  const docTitle = `${TITLES[type]} ${doc.number || doc.order_number}`;
+  const pdfDispo = source === 'invoice' && !!doc.id;
+
+  async function partager() {
+    if (!pdfDispo) return;
+    const nav = navigator as any;
+    try {
+      if (!pdfRef.current) {
+        setSharing('busy');
+        const res = await adminFetch(`/api/invoices/${doc.id}/pdf`);
+        if (!res.ok) throw new Error(traduire(TDO.pdfKo, langue));
+        const blob = await res.blob();
+        pdfRef.current = new File([blob], `${type}-${doc.number || id}.pdf`, { type: 'application/pdf' });
+      }
+      const file = pdfRef.current;
+      if (nav.canShare?.({ files: [file] })) {
+        try {
+          await nav.share({ files: [file], title: docTitle });
+          setSharing('');
+        } catch (e: any) {
+          // Délai d'activation dépassé : le prochain toucher partage directement.
+          setSharing(e?.name === 'NotAllowedError' ? 'ready' : '');
+        }
+      } else {
+        const href = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = href; a.download = file.name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+        setSharing('');
+      }
+    } catch (e: any) {
+      setSharing('');
+      alert(e?.message || traduire(TDO.pdfKo, langue));
+    }
+  }
+
+  const toolbar = mobile ? (
+    <div className="doc-toolbar">
+      <a className="doc-tb-icon" href={backHref} onClick={goBack} aria-label={traduire(TDO.retour, langue)}>←</a>
+      <span className="doc-tb-title">{docTitle}</span>
+      <button className="doc-tb-icon" onClick={() => setFit(v => !v)}
+              aria-label={fit ? traduire(TDO.tailleReelle, langue) : traduire(TDO.ajuster, langue)}
+              title={fit ? traduire(TDO.tailleReelle, langue) : traduire(TDO.ajuster, langue)}>
+        <span className="ms" style={{ fontFamily: "'Material Symbols Rounded'", fontSize: 22 }}>{fit ? 'zoom_in' : 'fit_screen'}</span>
+      </button>
+    </div>
+  ) : (
     <div className="doc-toolbar">
       <button onClick={() => window.print()}>{traduire(TDO.imprimer, langue)}</button>
-      <a href={source === 'purchase' ? '/admin/achats' : source === 'invoice' ? '/admin/gestion' : '/admin/commandes'}>← Retour</a>
+      <a href={backHref} onClick={goBack}>← {traduire(TDO.retour, langue)}</a>
       <span style={{ flex: 1 }} />
-      <span style={{ opacity: .6 }}>{TITLES[type]} {doc.number || doc.order_number}</span>
+      <span style={{ opacity: .6 }}>{docTitle}</span>
     </div>
   );
-  const wrap = (node: React.ReactNode) => (
-    <><style dangerouslySetInnerHTML={{ __html: DOC_PRINT_CSS }} />{toolbar}{node}</>
+  const wrap = (node: React.ReactNode) => mobile ? (
+    <div className={`doc-m${fit ? ' doc-fit' : ''}`} style={{ ['--doc-zoom' as any]: zoom }}>
+      <style dangerouslySetInnerHTML={{ __html: DOC_PRINT_CSS + DOC_MOBILE_CSS }} />
+      {toolbar}
+      {node}
+      <div className="doc-mbar">
+        {pdfDispo && canShareFiles && (
+          <button onClick={partager} disabled={sharing === 'busy'}>
+            <span className="ms" style={{ fontFamily: "'Material Symbols Rounded'", fontSize: 20 }}>ios_share</span>
+            {sharing === 'busy' ? traduire(TDO.preparation, langue) : sharing === 'ready' ? traduire(TDO.partagerPret, langue) : traduire(TDO.partager, langue)}
+          </button>
+        )}
+        <button className="primary" onClick={() => window.print()}>
+          <span className="ms" style={{ fontFamily: "'Material Symbols Rounded'", fontSize: 20 }}>print</span>
+          {traduire(TDO.imprimer, langue)}
+        </button>
+      </div>
+    </div>
+  ) : (
+    <><style dangerouslySetInnerHTML={{ __html: DOC_PRINT_CSS + DOC_MOBILE_CSS }} />{toolbar}{node}</>
   );
 
   const client: Party = {

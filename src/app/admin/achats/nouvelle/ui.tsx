@@ -24,7 +24,7 @@ export function NomProduit({ p, taille = 13 }: { p: Enrichi; taille?: number }) 
     <>
       <div style={{ fontSize: taille, fontWeight: 600, color: C.t1, lineHeight: 1.3 }}>{p.name}</div>
       {p.name_sv && (
-        <div style={{ fontSize: 11, color: C.t5, fontStyle: 'italic', marginTop: 1 }}>{p.name_sv}</div>
+        <div className="nc-sv" style={{ fontSize: 11, color: C.t5, fontStyle: 'italic', marginTop: 1 }}>{p.name_sv}</div>
       )}
     </>
   );
@@ -69,7 +69,7 @@ export function CarteFournisseur({ f, actif, onClick }: {
     ? new Date(f.last).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
     : 'jamais';
   return (
-    <button type="button" onClick={onClick} aria-pressed={actif}
+    <button type="button" onClick={onClick} aria-pressed={actif} className="nc-fcard"
             style={{
               flex: '1 1 210px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
               borderRadius: 10, padding: '12px 14px', background: actif ? `${C.accent}0F` : C.surface,
@@ -89,7 +89,7 @@ export function CarteFournisseur({ f, actif, onClick }: {
           <div style={{ fontSize: 11, color: C.t4 }}>{f.city || '—'}</div>
         </div>
       </div>
-      <div style={{ borderTop: `1px solid ${C.ligne}`, marginTop: 10, paddingTop: 8, fontSize: 11, color: C.t4, lineHeight: 1.6 }}>
+      <div className="nc-fcard-pied" style={{ borderTop: `1px solid ${C.ligne}`, marginTop: 10, paddingTop: 8, fontSize: 11, color: C.t4, lineHeight: 1.6 }}>
         {f.delay} j de délai{f.franco > 0 ? ` · franco ${kr(f.franco)}` : ''}<br />
         {f.refs} référence{f.refs > 1 ? 's' : ''} · dernière commande le {derniere}
       </div>
@@ -106,8 +106,11 @@ export function LigneCatalogue({ p, semaines, cartons, onAdd }: {
   const auPanier = cartons > 0;
   const rempli = p.cover / Math.max(1, semaines * 7);
 
+  /* Classes nc-ligne* : mise en page du téléphone, définie dans
+     nouvelle/page.tsx (infos sur toute la largeur, chiffres et bouton
+     dessous). Sans effet sur ordinateur. */
   return (
-    <div style={{
+    <div className="nc-ligne" style={{
       display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
       padding: '11px 14px', borderBottom: `1px solid ${C.ligneFaible}`,
       borderLeft: `3px solid ${auPanier ? C.vert : couleur}`,
@@ -115,7 +118,7 @@ export function LigneCatalogue({ p, semaines, cartons, onAdd }: {
     }}>
       <Vignette p={p} taille={34} />
 
-      <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+      <div className="nc-ligne-info" style={{ flex: '1 1 220px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}><NomProduit p={p} /></div>
           <span style={{
@@ -124,7 +127,7 @@ export function LigneCatalogue({ p, semaines, cartons, onAdd }: {
           }}>{URGENCE_LABEL[p.urgency]}</span>
         </div>
 
-        <div style={{ fontSize: 11, color: C.t5, marginTop: 3 }}>
+        <div className="nc-ligne-sub" style={{ fontSize: 11, color: C.t5, marginTop: 3 }}>
           {p.ref} · carton de {p.packEffectif}
           {p.sek != null ? ` · ${kr(p.sek)} /u.` : p.prix ? ` · ${eur(p.prix)} HT /u.` : ''}
           {p.onOrder > 0 ? ` · ${p.onOrder} en route` : ''}
@@ -140,23 +143,23 @@ export function LigneCatalogue({ p, semaines, cartons, onAdd }: {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
           <Jauge valeur={rempli} couleur={couleur} />
-          <span style={{ fontSize: 11, color: C.t4 }}>{libelleCouverture(p)}</span>
+          <span className="nc-ligne-sub" style={{ fontSize: 11, color: C.t4 }}>{libelleCouverture(p)}</span>
         </div>
       </div>
 
-      <div style={{ textAlign: 'center', minWidth: 54 }}>
+      <div className="nc-ligne-num" style={{ textAlign: 'center', minWidth: 54 }}>
         <div className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: p.stock === 0 ? C.rouge : C.t1 }}>{p.stock}</div>
-        <div style={{ fontSize: 8.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5 }}>en stock</div>
+        <div className="nc-ligne-k" style={{ fontSize: 8.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5 }}>en stock</div>
       </div>
 
-      <div style={{ textAlign: 'center', minWidth: 62 }}>
+      <div className="nc-ligne-num" style={{ textAlign: 'center', minWidth: 62 }}>
         <div className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: C.t1 }}>
           {p.vel > 0 ? `${p.vel.toFixed(1)}` : '—'}
         </div>
-        <div style={{ fontSize: 8.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5 }}>u./sem.</div>
+        <div className="nc-ligne-k" style={{ fontSize: 8.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5 }}>u./sem.</div>
       </div>
 
-      <button type="button" onClick={onAdd}
+      <button type="button" onClick={onAdd} className="nc-ligne-add"
               style={{
                 border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 7,
                 padding: '8px 13px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',

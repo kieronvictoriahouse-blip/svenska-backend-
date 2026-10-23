@@ -3,7 +3,66 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { nomProduit, useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
 import { TTI, lignesLues, commandeCreee, ecartPrix } from './i18n';
+
+/* Téléphone (ticket photographié en magasin) :
+   · contexte (pays, magasin, date, taux, moms) replié en une ligne ;
+   · « Prendre une photo » en grand, pas d'aperçu vide de 500 px ;
+   · lignes lues juste sous la photo, sur deux niveaux ;
+   · total et « Créer la commande » collés en bas.
+   Ordinateur inchangé. */
+const CSS = `
+  .ti-mode { height: 34px; }
+  @media (max-width: 899px) {
+    .ti-modes { flex: 1 1 0; min-width: 0; }
+    .ti-mode { flex: 1 1 0; justify-content: center; height: 44px; font-size: 14px !important; }
+    .ti-ctx { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    .ti-ctx .sc-input, .ti-ctx .sc-select { height: 44px !important; }
+    .ti-ctx-l { font-size: 11px !important; }
+    .ti-ctx-resume { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid ${T.border}; border-radius: 10px; background: #fff; cursor: pointer; text-align: left; font-family: inherit; margin-bottom: 12px; }
+
+    .ti-cols { flex-direction: column; flex-wrap: nowrap !important; align-items: stretch !important; }
+    .ti-gauche > * { width: 100%; }
+    .ti-gauche { display: contents !important; }
+    .ti-cols > * { width: 100%; flex: 0 0 auto !important; }
+    .ti-photo { order: 1; }
+    .ti-droite { order: 2; }
+    .ti-controle { order: 3; }
+    .ti-appr { order: 4; }
+    .ti-apercu { aspect-ratio: 16 / 10 !important; max-height: 240px; }
+    .ti-apercu.vide { display: none !important; }
+    .ti-photo .ti-btn-photo { min-height: 52px; font-size: 15px; }
+
+    .ti-ligne { row-gap: 10px !important; padding: 12px !important; }
+    .ti-ligne-info { flex: 1 1 calc(100% - 156px) !important; }
+    .ti-ligne-info .ti-raw { font-size: 12px !important; }
+    .ti-ligne-info .ti-alt { font-size: 13px !important; min-height: 44px; text-align: left; }
+    .ti-valider { order: 2; width: 104px; justify-content: center; min-height: 44px; font-size: 13.5px !important; padding: 0 10px !important; }
+    .ti-qte { order: 3; }
+    .ti-sek { order: 4; }
+    .ti-eur { order: 5; margin-left: auto; }
+    .ti-step { width: 44px !important; height: 44px !important; border: 1px solid ${T.borderField} !important; background: #fff !important; }
+    .ti-sek div:last-child, .ti-eur div:last-child { font-size: 12px !important; }
+    .ti-tete .sc-btn { flex: 1 1 0; justify-content: center; }
+    .ti-tete > div:first-child { flex: 1 1 100%; }
+    .ti-tete .ti-sous { font-size: 12.5px !important; }
+
+    .ti-rapide-champs > div:first-child { flex: 1 1 100% !important; }
+    .ti-rapide-champs > div { flex: 1 1 0 !important; width: auto !important; }
+    .ti-rapide-champs .sc-input { height: 44px !important; }
+    .ti-rapide-champs > .sc-btn { flex: 1 1 100%; justify-content: center; height: 48px !important; }
+    .ti-sugg button { min-height: 52px; }
+    .ti-sugg span span:last-child { font-size: 12px !important; }
+    .ti-rapide-ligne { padding: 10px 12px !important; }
+    .ti-rapide-ligne .ti-qp { font-size: 12.5px !important; }
+
+    .ti-barre { align-items: center; row-gap: 8px !important; }
+    .ti-barre .ti-total { flex: 1 1 auto; text-align: left !important; line-height: 1.2; }
+    .ti-barre > .sc-btn-green { flex: 1 1 100%; }
+    .ti-note { font-size: 12.5px !important; }
+  }
+`;
 
 /* ═══════════════════════════════════════════════════════════════
    ACHATS › SAISIE TICKET DE CAISSE
@@ -106,6 +165,9 @@ export default function TicketPage() {
   const [qPick, setQPick] = useState<Product | null>(null);
   const [sugOpen, setSugOpen] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  /* Téléphone : contexte du ticket replié par défaut. */
+  const mobile = useIsMobile();
+  const [ctxOuvert, setCtxOuvert] = useState(false);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 4000); };
   const rateNum = parseFloat(rate.replace(',', '.')) || 0;
@@ -290,8 +352,36 @@ export default function TicketPage() {
     color: T.muted, fontWeight: 600, marginBottom: 4,
   };
 
+  /* Pied de la saisie : total + actions. Sur ordinateur dans la carte des
+     lignes (comme avant), sur téléphone collé en bas de l'écran. */
+  const actionsPied = (avecBrouillon: boolean, couleurTotal: string, libelleTotal: string) => (
+    <>
+      <div className="ti-total" style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: mobile ? 12 : 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{libelleTotal}</div>
+        <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: couleurTotal }}>{eur(goodsEur)}</div>
+      </div>
+      {avecBrouillon && (
+        <button className="sc-btn sc-btn-secondary" onClick={() => submit(true)} disabled={busy || !lines.length}
+                style={mobile ? { flex: '0 0 auto' } : undefined}>
+          {t('brouillon')}
+        </button>
+      )}
+      <button className="sc-btn sc-btn-green" onClick={() => submit(false)} disabled={busy || !lines.length}>
+        <span className="ms">inventory</span>{busy ? t('creation') : t('creer')}
+      </button>
+    </>
+  );
+
+  const resumeContexte = [
+    `${cfg.flag} ${store}`,
+    new Date(date).toLocaleDateString('fr-FR'),
+    cfg.fixedRate ? cfg.currency : `${rate} ${cfg.currency}→EUR`,
+    `${country === 'FR' ? 'TVA' : 'moms'} ${vat.replace('.', ',')} %`,
+  ].join(' · ');
+
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
@@ -300,11 +390,17 @@ export default function TicketPage() {
           </div>
         </div>
         <div className="sc-actions">
-          <div style={{ display: 'flex', gap: 4 }}>
-            {([['photo', 'Photo du ticket', 'photo_camera'], ['quick', 'Saisie rapide', 'keyboard']] as const).map(([k, l, ic]) => (
-              <button key={k} onClick={() => setMode(k as any)}
+          {mobile && (
+            <a className="sc-iconbtn" href="/admin/achats" aria-label={t('achats')}
+               style={{ border: `1px solid ${T.borderField}`, background: '#fff', textDecoration: 'none' }}>
+              <span className="ms">arrow_back</span>
+            </a>
+          )}
+          <div className="ti-modes" style={{ display: 'flex', gap: 4 }} role="group">
+            {([['photo', t('photo'), 'photo_camera'], ['quick', t('rapide'), 'keyboard']] as const).map(([k, l, ic]) => (
+              <button key={k} className="ti-mode" onClick={() => setMode(k as any)} aria-pressed={mode === k}
                 style={{
-                  height: 34, padding: '0 13px', borderRadius: 8, cursor: 'pointer',
+                  padding: '0 13px', borderRadius: 8, cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5,
                   border: `1px solid ${mode === k ? T.ink : T.borderField}`,
                   background: mode === k ? T.ink : '#fff',
@@ -315,18 +411,27 @@ export default function TicketPage() {
               </button>
             ))}
           </div>
-          <a className="sc-btn sc-btn-secondary" href="/admin/achats"><span className="ms">arrow_back</span>{t('achats')}</a>
+          {!mobile && <a className="sc-btn sc-btn-secondary" href="/admin/achats"><span className="ms">arrow_back</span>{t('achats')}</a>}
         </div>
       </div>
 
       {/* ── Bandeau de contexte ─────────────────────────── */}
-      <div style={{
+      {mobile && (
+        /* Téléphone : une ligne de résumé ; on déplie pour corriger. */
+        <button className="ti-ctx-resume" onClick={() => setCtxOuvert(v => !v)} aria-expanded={ctxOuvert}>
+          <span className="ms" style={{ fontSize: 20, color: 'var(--accent)' }}>receipt_long</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: T.text2b, lineHeight: 1.4 }}>{resumeContexte}</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)' }}>{ctxOuvert ? t('replier') : t('modifierContexte')}</span>
+        </button>
+      )}
+      {(!mobile || ctxOuvert) && (
+      <div className="ti-ctx" style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 1,
         background: T.border, border: `1px solid ${T.border}`, borderRadius: 10,
         overflow: 'hidden', marginBottom: 12,
       }}>
         <div style={cell}>
-          <div style={cellLabel}>{t('pays')}</div>
+          <div className="ti-ctx-l" style={cellLabel}>{t('pays')}</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={country}
                   onChange={e => switchCountry(e.target.value as Country)}>
             {(Object.keys(COUNTRY) as Country[]).map(c => (
@@ -335,51 +440,53 @@ export default function TicketPage() {
           </select>
         </div>
         <div style={cell}>
-          <div style={cellLabel}>{t('magasin')}</div>
+          <div className="ti-ctx-l" style={cellLabel}>{t('magasin')}</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={store} onChange={e => setStore(e.target.value)}>
             {cfg.stores.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div style={cell}>
-          <div style={cellLabel}>{t('dateAchat')}</div>
+          <div className="ti-ctx-l" style={cellLabel}>{t('dateAchat')}</div>
           <input className="sc-input" type="date" style={{ height: 30 }} value={date} onChange={e => setDate(e.target.value)} />
         </div>
         {cfg.fixedRate ? (
           <div style={cell}>
-            <div style={cellLabel}>{t('devise')}</div>
+            <div className="ti-ctx-l" style={cellLabel}>{t('devise')}</div>
             <div style={{ height: 30, display: 'flex', alignItems: 'center', fontSize: 12.5, color: T.text2b }}>
               {cfg.currency} · {t('sansConversion')}
             </div>
           </div>
         ) : (
           <div style={cell}>
-            <div style={cellLabel}>{t('taux')}</div>
-            <input className="sc-input sc-num" style={{ height: 30 }} value={rate} onChange={e => setRate(e.target.value)} placeholder={cfg.defaultRate} />
+            <div className="ti-ctx-l" style={cellLabel}>{t('taux')}</div>
+            <input className="sc-input sc-num" inputMode="decimal" style={{ height: 30 }} value={rate} onChange={e => setRate(e.target.value)} placeholder={cfg.defaultRate} />
           </div>
         )}
         <div style={cell}>
-          <div style={cellLabel}>{cfg.vatLabel}</div>
+          <div className="ti-ctx-l" style={cellLabel}>{cfg.vatLabel}</div>
           <select className="sc-input sc-select" style={{ height: 30 }} value={vat} onChange={e => setVat(e.target.value)}>
             {cfg.vats.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
           </select>
         </div>
       </div>
+      )}
 
       {/* ══════════ MODE PHOTO ══════════ */}
       {mode === 'photo' && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div className="ti-cols" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
-          {/* Colonne gauche */}
-          <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="sc-card">
+          {/* Colonne gauche — sur téléphone (display: contents), ses cartes
+              s'intercalent avec les lignes : photo, lignes, contrôle. */}
+          <div className="ti-gauche" style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="sc-card ti-photo">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
                 <span className="ms" style={{ fontSize: 18, color: 'var(--accent)' }}>receipt_long</span>
                 <span className="sc-card-title">Ticket {store.split(' · ')[0]}</span>
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 10.5, color: T.muted }}>{new Date(date).toLocaleDateString('fr-FR')}</span>
+                <span className="ti-note" style={{ fontSize: 10.5, color: T.muted }}>{new Date(date).toLocaleDateString('fr-FR')}</span>
               </div>
               <div style={{ padding: 15 }}>
-                <div style={{
+                <div className={`ti-apercu${images.length ? '' : ' vide'}`} style={{
                   position: 'relative', aspectRatio: '3 / 4', borderRadius: 8, overflow: 'hidden',
                   border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   background: images[0] && !isPdf(images[0])
@@ -409,7 +516,8 @@ export default function TicketPage() {
                 </div>
 
                 {/* Appareil photo — prise directe, ouvre la caméra sur mobile. */}
-                <button className="sc-btn sc-btn-secondary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}
+                <button className={`sc-btn ${mobile && !images.length ? 'sc-btn-primary' : 'sc-btn-secondary'} ti-btn-photo`}
+                        style={{ width: '100%', justifyContent: 'center', marginTop: mobile && !images.length ? 0 : 10 }}
                         onClick={() => { setImages([]); setLines([]); cameraRef.current?.click(); }} disabled={ocrBusy}>
                   <span className="ms">photo_camera</span>{ocrBusy ? t('lecture') : images.length ? t('reprendre') : t('prendrePhoto')}
                 </button>
@@ -430,14 +538,14 @@ export default function TicketPage() {
             </div>
 
             {/* Contrôle du ticket */}
-            <div className="sc-card">
+            <div className="sc-card ti-controle">
               <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
                 <span className="sc-card-title">{t('controle')}</span>
               </div>
               <div style={{ padding: '13px 15px' }}>
                 <div style={{ marginBottom: 10 }}>
-                  <label className="sc-label">{t('totalLu')}</label>
-                  <input className="sc-input sc-num" value={totalOcr} onChange={e => setTotalOcr(e.target.value)}
+                  <label className="sc-label" htmlFor="ti-total">{t('totalLu')}</label>
+                  <input id="ti-total" className="sc-input sc-num" inputMode="decimal" value={totalOcr} onChange={e => setTotalOcr(e.target.value)}
                          placeholder="1 526,80" />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: T.text2b, padding: '5px 0' }}>
@@ -463,7 +571,7 @@ export default function TicketPage() {
                   <span style={{ fontSize: 12, color: T.text2b }}>{t('marchandises')}</span>
                   <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.green }}>{eur(goodsEur)}</span>
                 </div>
-                <div style={{ fontSize: 10.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                <div className="ti-note" style={{ fontSize: 10.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
                   Prix relevés TTC · {country === 'FR' ? 'TVA' : 'moms'} {vat.replace('.', ',')} % déduite
                   {country === 'FR' ? '' : ' puis conversion en euros'} pour obtenir le prix d’achat.
                 </div>
@@ -471,11 +579,11 @@ export default function TicketPage() {
             </div>
 
             {/* Apprentissage */}
-            <div style={{ background: '#F3EDF3', border: '1px solid #E3D6E3', borderRadius: 10, padding: '12px 14px' }}>
+            <div className="ti-appr" style={{ background: '#F3EDF3', border: '1px solid #E3D6E3', borderRadius: 10, padding: '12px 14px' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#5E3B5E' }}>
                 {lines.length} ligne(s) · {validated} validée(s)
               </div>
-              <div style={{ fontSize: 11, color: '#6E4470', marginTop: 5, lineHeight: 1.55 }}>
+              <div className="ti-note" style={{ fontSize: 11, color: '#6E4470', marginTop: 5, lineHeight: 1.55 }}>
                 Chaque correction est mémorisée : un libellé validé à la main sera reconnu
                 automatiquement au prochain ticket du même magasin.
               </div>
@@ -483,12 +591,12 @@ export default function TicketPage() {
           </div>
 
           {/* Colonne droite — lignes */}
-          <div style={{ flex: '2 1 500px', minWidth: 0 }}>
+          <div className="ti-droite" style={{ flex: '2 1 500px', minWidth: 0 }}>
             <div className="sc-card" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap' }}>
+              <div className="ti-tete" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap' }}>
                 <div>
                   <span className="sc-card-title">{t('lignesReconnues')}</span>
-                  <div style={{ fontSize: 10.5, color: T.muted }}>
+                  <div className="ti-sous" style={{ fontSize: 10.5, color: T.muted }}>
                     {toReview} à vérifier · {isNew} nouveau produit
                   </div>
                 </div>
@@ -513,7 +621,7 @@ export default function TicketPage() {
                 const prod = products.find(p => p.id === l.product_id);
                 const off = l.ignored || l.status === 'ignored';
                 return (
-                  <div key={l.key} style={{
+                  <div key={l.key} className="ti-ligne" style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
                     borderBottom: `1px solid ${T.borderFaint}`,
                     borderLeft: `3px solid ${meta.border}`,
@@ -524,10 +632,10 @@ export default function TicketPage() {
                       ? <img src={prod.image_url} alt="" style={thumbStyle(l.raw_label, 30)} />
                       : <div style={thumbStyle(l.raw_label, 30)}>{initials(l.product_name || l.raw_label, 1)}</div>}
 
-                    <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-                      <div className="sc-num" style={{ fontSize: 10.5, color: T.muted2 }}>{l.raw_label}</div>
+                    <div className="ti-ligne-info" style={{ flex: '1 1 180px', minWidth: 0 }}>
+                      <div className="sc-num ti-raw" style={{ fontSize: 10.5, color: T.muted2 }}>{l.raw_label}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>
+                        <span style={{ fontSize: mobile ? 14.5 : 13, fontWeight: 600, color: T.ink }}>
                           {l.product_name || '— à créer'}
                         </span>
                         <span className="sc-badge" style={{ background: BADGE[meta.tone].bg, color: BADGE[meta.tone].fg }}>
@@ -535,7 +643,7 @@ export default function TicketPage() {
                         </span>
                       </div>
                       {l.status === 'review' && (l.candidates?.length || 0) > 1 && (
-                        <button onClick={() => {
+                        <button className="ti-alt" onClick={() => {
                           const alt = l.candidates!.find(c => c.id !== l.product_id);
                           if (alt) patch(l.key, { product_id: alt.id, product_name: alt.name, status: 'matched' });
                         }} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: 10.5, color: 'var(--accent)' }}>
@@ -545,24 +653,24 @@ export default function TicketPage() {
                     </div>
 
                     {/* Quantité */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
+                    <div className="ti-qte" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <button className="sc-iconbtn ti-step" style={{ width: 28, height: 28 }}
                               onClick={() => patch(l.key, { qty: Math.max(1, l.qty - 1) })} aria-label={t('moins')}>
                         <span className="ms">remove</span>
                       </button>
-                      <span className="sc-num" style={{ fontSize: 14, fontWeight: 700, minWidth: 20, textAlign: 'center' }}>{l.qty}</span>
-                      <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
+                      <span className="sc-num" style={{ fontSize: mobile ? 17 : 14, fontWeight: 700, minWidth: mobile ? 26 : 20, textAlign: 'center' }}>{l.qty}</span>
+                      <button className="sc-iconbtn ti-step" style={{ width: 28, height: 28 }}
                               onClick={() => patch(l.key, { qty: l.qty + 1 })} aria-label="Plus">
                         <span className="ms">add</span>
                       </button>
                     </div>
 
-                    <div style={{ textAlign: 'right', minWidth: 86 }}>
+                    <div className="ti-sek" style={{ textAlign: 'right', minWidth: 86 }}>
                       <div className="sc-num" style={{ fontSize: 12.5, color: T.ink }}>{cur(lineSek(l))}</div>
                       <div className="sc-num" style={{ fontSize: 10, color: T.muted }}>{cur(l.unit_sek)}/u.</div>
                     </div>
 
-                    <div style={{ textAlign: 'right', minWidth: 92 }}>
+                    <div className="ti-eur" style={{ textAlign: 'right', minWidth: 92 }}>
                       <div className="sc-num" style={{ fontSize: 13, fontWeight: 700, color: off ? T.muted3 : T.green }}>
                         {off ? '—' : eur(lineEur(l))}
                       </div>
@@ -574,7 +682,8 @@ export default function TicketPage() {
                     <button
                       onClick={() => toggleValid(l)}
                       disabled={off}
-                      className="sc-btn"
+                      className="sc-btn ti-valider"
+                      aria-pressed={l.status === 'validated'}
                       style={{
                         background: l.status === 'validated' ? '#F1F6EF' : T.ink,
                         color: l.status === 'validated' ? '#3E5238' : '#fff',
@@ -588,22 +697,15 @@ export default function TicketPage() {
                 );
               })}
 
-              {/* Pied */}
+              {/* Pied — sur téléphone, il passe dans la barre collée en bas */}
+              {!mobile && (
               <div style={{ background: T.surfaceAlt, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 10.5, color: T.muted, flex: '1 1 200px' }}>
                   Entrée valider la ligne · ⌘ Entrée tout valider
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{t('coutTotal')}</div>
-                  <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: T.ink }}>{eur(goodsEur)}</div>
-                </div>
-                <button className="sc-btn sc-btn-secondary" onClick={() => submit(true)} disabled={busy || !lines.length}>
-                  Brouillon
-                </button>
-                <button className="sc-btn sc-btn-green" onClick={() => submit(false)} disabled={busy || !lines.length}>
-                  <span className="ms">inventory</span>{busy ? 'Création…' : 'Créer la commande & entrer en stock'}
-                </button>
+                {actionsPied(true, T.ink, t('coutTotal'))}
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -615,15 +717,15 @@ export default function TicketPage() {
           <div style={{ flex: '2 1 480px', minWidth: 0 }}>
             <div className="sc-card" style={{ overflow: 'visible' }}>
               <div style={{ background: T.surfaceAlt, padding: '13px 15px', borderBottom: `1px solid ${T.border}`, position: 'relative' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="ti-rapide-champs" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <div style={{ flex: 3, minWidth: 180, position: 'relative' }}>
-                    <label className="sc-label">{tc('product')}</label>
-                    <input ref={nameRef} className="sc-input" style={{ height: 36 }}
+                    <label className="sc-label" htmlFor="ti-q-nom">{tc('product')}</label>
+                    <input ref={nameRef} id="ti-q-nom" className="sc-input" style={{ height: 36 }} autoComplete="off" enterKeyHint="next"
                            value={qName} placeholder={t('phRecherche')}
                            onChange={e => { setQName(e.target.value); setQPick(null); setSugOpen(true); }}
                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (suggestions.length && sugOpen && !qPick) pickSuggestion(suggestions[0]); else addQuickLine(); } }} />
                     {sugOpen && suggestions.length > 0 && (
-                      <div style={{
+                      <div className="ti-sugg" style={{
                         position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, marginTop: 4,
                         background: '#fff', borderRadius: 8, boxShadow: '0 8px 22px rgba(0,0,0,.07)',
                         border: `1px solid ${T.border}`, overflow: 'hidden',
@@ -647,14 +749,14 @@ export default function TicketPage() {
                     )}
                   </div>
                   <div style={{ width: 84 }}>
-                    <label className="sc-label">Qté</label>
-                    <input className="sc-input sc-num" style={{ height: 36, textAlign: 'center' }}
+                    <label className="sc-label" htmlFor="ti-q-qte">Qté</label>
+                    <input id="ti-q-qte" className="sc-input sc-num" inputMode="numeric" enterKeyHint="next" style={{ height: 36, textAlign: 'center' }}
                            value={qQty} onChange={e => setQQty(e.target.value)}
                            onKeyDown={e => { if (e.key === 'Enter') addQuickLine(); }} />
                   </div>
                   <div style={{ width: 120 }}>
-                    <label className="sc-label">{t('prixTicket')}</label>
-                    <input className="sc-input sc-num" style={{ height: 36, textAlign: 'right' }}
+                    <label className="sc-label" htmlFor="ti-q-prix">{t('prixTicket')}</label>
+                    <input id="ti-q-prix" className="sc-input sc-num" inputMode="decimal" enterKeyHint="done" style={{ height: 36, textAlign: 'right' }}
                            value={qPrice} onChange={e => setQPrice(e.target.value)}
                            onKeyDown={e => { if (e.key === 'Enter') addQuickLine(); }} />
                   </div>
@@ -667,13 +769,15 @@ export default function TicketPage() {
               {lines.length === 0 && <div className="sc-empty">{t('aucuneLigne')}</div>}
 
               {lines.map(l => (
-                <div key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 15px', borderBottom: `1px solid ${T.borderFaint}` }}>
+                <div key={l.key} className="ti-rapide-ligne" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 15px', borderBottom: `1px solid ${T.borderFaint}` }}>
                   <div style={thumbStyle(l.raw_label, 28)}>{initials(l.product_name || l.raw_label, 1)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, color: T.ink }}>{l.product_name || l.raw_label}</div>
-                    <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{l.qty} × {cur(l.unit_sek)}</div>
+                    <div style={{ fontSize: mobile ? 14 : 12.5, color: T.ink }}>{l.product_name || l.raw_label}</div>
+                    <div className="sc-num ti-qp" style={{ fontSize: 10.5, color: T.muted }}>
+                      {l.qty} × {cur(l.unit_sek)}{mobile ? ` = ${cur(lineSek(l))}` : ''}
+                    </div>
                   </div>
-                  <span className="sc-num" style={{ fontSize: 12.5 }}>{cur(lineSek(l))}</span>
+                  <span className="sc-num sc-hide-mobile" style={{ fontSize: 12.5 }}>{cur(lineSek(l))}</span>
                   <span className="sc-num" style={{ fontSize: 13, fontWeight: 700, color: T.green, minWidth: 80, textAlign: 'right' }}>
                     {eur(lineEur(l))}
                   </span>
@@ -684,22 +788,21 @@ export default function TicketPage() {
               ))}
 
               <div style={{ background: T.surfaceAlt, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11.5, color: T.muted }}>{lines.length} ligne(s)</span>
+                <span className="ti-note" style={{ fontSize: 11.5, color: T.muted }}>{lines.length} ligne(s)</span>
                 <span className="sc-num" style={{ fontSize: 12.5, color: T.text2b }}>Total {cur(totalLines)}</span>
-                <span style={{ flex: 1 }} />
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{t('coutHt')}</div>
-                  <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: T.green }}>{eur(goodsEur)}</div>
-                </div>
-                <button className="sc-btn sc-btn-green" onClick={() => submit(false)} disabled={busy || !lines.length}>
-                  <span className="ms">inventory</span>{busy ? 'Création…' : 'Créer la commande & entrer en stock'}
-                </button>
+                {!mobile && (
+                  <>
+                    <span style={{ flex: 1 }} />
+                    {actionsPied(false, T.green, t('coutHt'))}
+                  </>
+                )}
               </div>
             </div>
           </div>
 
           <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="sc-card" style={{ padding: '13px 15px' }}>
+            {/* Raccourcis clavier : sans objet sur téléphone */}
+            <div className="sc-card sc-hide-mobile" style={{ padding: '13px 15px' }}>
               <div className="sc-card-title" style={{ marginBottom: 9 }}>{t('raccourcis')}</div>
               {[['Entrée', 'valider la ligne et enchaîner'], ['Tab', 'champ suivant'], ['↑ ↓', 'naviguer dans les suggestions']].map(([k, d]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 7 }}>
@@ -710,7 +813,7 @@ export default function TicketPage() {
             </div>
             <div className="sc-card" style={{ padding: '13px 15px' }}>
               <div className="sc-card-title" style={{ marginBottom: 7 }}>{t('derniersAchats')}</div>
-              <div style={{ fontSize: 11.5, color: T.text2b, lineHeight: 1.6 }}>
+              <div className="ti-note" style={{ fontSize: 11.5, color: T.text2b, lineHeight: 1.6 }}>
                 Le prix proposé vient du dernier prix d’achat connu du produit, reconverti dans la devise du ticket ({cfg.currency}).
                 Un écart de plus de 15 % déclenche une confirmation avant d’ajouter la ligne — c’est le
                 garde-fou contre une faute de frappe.
@@ -720,11 +823,14 @@ export default function TicketPage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300, maxWidth: 420 }}>
-          {toast}
+      {/* Téléphone : total et création collés en bas, au pouce */}
+      {mobile && (
+        <div className="sc-sticky-actions ti-barre">
+          {actionsPied(mode === 'photo', mode === 'photo' ? T.ink : T.green, mode === 'photo' ? t('coutTotal') : t('coutHt'))}
         </div>
       )}
+
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 300, maxWidth: mobile ? undefined : 420 }}>{toast}</div>}
     </>
   );
 }

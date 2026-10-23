@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
 import { TIM, ajouteAuCatalogue } from './i18n';
 
 type Category = { id: string; name_fr: string; slug: string };
@@ -27,6 +28,7 @@ export default function ImportPage() {
   const [lang, setLang] = useState<'fr' | 'sv' | 'en'>('fr');
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
+  const mobile = useIsMobile();
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
   function get(key: string): string { return product?.[`${key}_${lang}`] || ''; }
@@ -124,16 +126,37 @@ export default function ImportPage() {
     .im-nutri { width:100%; border-collapse:collapse; font-size:12.5px; }
     .im-nutri td { padding:6px 0; border-bottom:1px solid ${T.borderFaint}; color:${T.text2b}; }
     .im-nutri tr:last-child td { border-bottom:none; }
+
+    /* Téléphone : onglets de langue à 44 px, identité sur deux colonnes,
+       vignettes et cases agrandies, « Ajouter au catalogue » collé en bas. */
+    @media (max-width: 899px) {
+      .im-label { font-size:12.5px; }
+      .im-hint { font-size:12px; }
+      .im-eyebrow { font-size:11px; }
+      .im-head-title { font-size:14px; }
+      .im-lang { flex-wrap:wrap; margin:0 -12px 12px; padding:0 4px; }
+      .im-lang button { min-height:46px; font-size:14.5px; padding:10px 12px; }
+      .im-lang .im-lang-note { flex:1 1 100%; margin:0 !important; padding:0 8px 8px; font-size:12px !important; }
+      .im-identite { grid-template-columns:64px minmax(0,1fr) !important; }
+      .im-identite > div:last-child { grid-column:1 / -1; }
+      .im-coche { min-height:44px; font-size:14px !important; }
+      .im-coche input { width:22px; height:22px; }
+      .im-thumbs { gap:10px !important; }
+      .im-thumb { width:76px; height:76px; }
+      .im-thumb input[type="checkbox"] { width:24px !important; height:24px !important; top:-8px !important; right:-8px !important; }
+      .im-source { font-size:12.5px !important; display:inline-block; padding:12px 0; }
+    }
   `;
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: css }} />
 
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+      {/* .sc-head/.sc-title/.sc-sub : mêmes valeurs que l'ancien style en ligne sur ordinateur */}
+      <div className="sc-head">
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
-          <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">
             Colle un lien produit : la fiche est extraite et traduite, tu valides avant publication.
           </div>
         </div>
@@ -146,6 +169,8 @@ export default function ImportPage() {
             <div style={{ position: 'relative', flex: '1 1 320px', minWidth: 0 }}>
               <span className="ms" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 17, color: T.muted }}>link</span>
               <input className="sc-input" style={{ width: '100%', paddingLeft: 32 }}
+                     type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" enterKeyHint="go"
+                     aria-label="URL"
                      placeholder="https://www.estrella.se/produkter/hot-holiday-dippmix/"
                      value={url} onChange={e => setUrl(e.target.value)}
                      onKeyDown={e => e.key === 'Enter' && analyse()} />
@@ -192,7 +217,7 @@ export default function ImportPage() {
                 {l.label}
               </button>
             ))}
-            <span style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 11, color: T.muted }}>
+            <span className="im-lang-note" style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 11, color: T.muted }}>
               Les trois langues sont enregistrées ensemble
             </span>
           </div>
@@ -204,7 +229,7 @@ export default function ImportPage() {
               <div className="im-card">
                 <div className="im-head"><span className="im-head-title"><span className="ms" style={{ fontSize: 17, color: T.muted }}>badge</span>{t('identite')}</span></div>
                 <div className="im-body">
-                  <div className="im-row" style={{ gridTemplateColumns: '58px minmax(0,1fr) minmax(0,1fr)', alignItems: 'end' }}>
+                  <div className="im-row im-identite" style={{ gridTemplateColumns: '58px minmax(0,1fr) minmax(0,1fr)', alignItems: 'end' }}>
                     <div>
                       <label className="im-label">{t('emoji')}</label>
                       <input className="sc-input" style={{ width: '100%', textAlign: 'center', fontSize: 18, padding: 0 }}
@@ -234,7 +259,7 @@ export default function ImportPage() {
                   <div className="im-row" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
                     <div>
                       <label className="im-label">{t('prixVente')}</label>
-                      <input className="sc-input sc-num" type="number" step="0.01" style={{ width: '100%' }}
+                      <input className="sc-input sc-num" type="number" inputMode="decimal" step="0.01" style={{ width: '100%' }}
                              value={p.price || 0} onChange={e => setProduct({ ...p, price: parseFloat(e.target.value) })} />
                     </div>
                     <div>
@@ -327,12 +352,12 @@ export default function ImportPage() {
 
               <div className="im-card">
                 <div className="im-body" style={{ flexDirection: 'row', gap: 26, flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: T.text2b, cursor: 'pointer' }}>
+                  <label className="im-coche" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: T.text2b, cursor: 'pointer' }}>
                     <input type="checkbox" checked={!!p.is_new} onChange={e => setProduct({ ...p, is_new: e.target.checked })}
                            style={{ accentColor: 'var(--accent)' }} />
                     Marquer comme nouveauté
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: T.text2b, cursor: 'pointer' }}>
+                  <label className="im-coche" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: T.text2b, cursor: 'pointer' }}>
                     <input type="checkbox" checked={!!p.is_bestseller} onChange={e => setProduct({ ...p, is_bestseller: e.target.checked })}
                            style={{ accentColor: 'var(--accent)' }} />
                     Marquer comme best-seller
@@ -370,7 +395,7 @@ export default function ImportPage() {
                   {p.image_urls?.length > 0 && (
                     <div>
                       <div className="im-eyebrow">{t('imagesTrouvees')}</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                      <div className="im-thumbs" style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                         {p.image_urls.slice(0, 12).map((u: string, i: number) => (
                           <div key={i} className={`im-thumb${selectedImg === u ? ' sel' : ''}`}>
                             <img src={u} alt="" onClick={() => setSelectedImg(u)}
@@ -411,32 +436,43 @@ export default function ImportPage() {
               <div className="im-card">
                 <div style={{ padding: '11px 15px' }}>
                   <div className="im-eyebrow" style={{ marginBottom: 4 }}>{t('source')}</div>
-                  <a href={p.source_url} target="_blank" rel="noopener noreferrer"
+                  <a href={p.source_url} target="_blank" rel="noopener noreferrer" className="im-source"
                      style={{ fontSize: 11, color: 'var(--accent)', wordBreak: 'break-all', textDecoration: 'none' }}>
                     {p.source_url}
                   </a>
                 </div>
               </div>
 
-              <button className="sc-btn sc-btn-primary" onClick={addToShop} disabled={saving}
-                      style={{ justifyContent: 'center', padding: '11px 18px' }}>
-                <span className="ms">check_circle</span>{saving ? 'Ajout en cours…' : 'Ajouter au catalogue'}
-              </button>
-              <button className="sc-btn sc-btn-secondary" onClick={() => { setProduct(null); setUrl(''); }}
-                      style={{ justifyContent: 'center' }}>
-                Annuler
-              </button>
+              {!mobile && (
+                <>
+                  <button className="sc-btn sc-btn-primary" onClick={addToShop} disabled={saving}
+                          style={{ justifyContent: 'center', padding: '11px 18px' }}>
+                    <span className="ms">check_circle</span>{saving ? 'Ajout en cours…' : 'Ajouter au catalogue'}
+                  </button>
+                  <button className="sc-btn sc-btn-secondary" onClick={() => { setProduct(null); setUrl(''); }}
+                          style={{ justifyContent: 'center' }}>
+                    Annuler
+                  </button>
+                </>
+              )}
             </div>
           </div>
+
+          {/* Téléphone : validation au pouce, collée en bas */}
+          {mobile && (
+            <div className="sc-sticky-actions">
+              <button className="sc-btn sc-btn-secondary" onClick={() => { setProduct(null); setUrl(''); }} style={{ flex: '0 0 auto' }}>
+                Annuler
+              </button>
+              <button className="sc-btn sc-btn-primary" onClick={addToShop} disabled={saving}>
+                <span className="ms">check_circle</span>{saving ? 'Ajout en cours…' : 'Ajouter au catalogue'}
+              </button>
+            </div>
+          )}
         </>
       )}
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
-        }}>{toast}</div>
-      )}
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 300 }}>{toast}</div>}
     </>
   );
 }

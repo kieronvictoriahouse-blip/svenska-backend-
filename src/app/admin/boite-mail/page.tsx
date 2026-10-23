@@ -4,8 +4,9 @@ import { adminFetch, downloadAuth } from '@/lib/auth-client';
 import Redaction, { Brouillon } from './Redaction';
 import {
   C, COULEUR_ETIQ, couleurDe, initiales, quand, depuis,
-  Msg, ItemNav, GroupeNav, LigneMessage, Vide,
+  Msg, ItemNav, GroupeNav, LigneMessage, Vide, BM_CSS, useRetourMobile,
 } from './ui';
+import EmailApercu from '@/components/EmailApercu';
 import { useT } from '@/lib/admin-i18n';
 import { TBM } from './i18n';
 
@@ -18,6 +19,13 @@ import { TBM } from './i18n';
    900 px, et la hauteur réserve la topbar (48 px) plus la barre
    d'onglets (58 px) quand elle est là. Les deux désaccordés faisaient
    déborder l'écran sur téléphone.
+
+   Sur téléphone, c'est une application mail : la liste, puis le
+   message en plein écran (barre du haut : retour, suivre, non lu,
+   corbeille ; en bas, à portée de pouce : répondre, répondre à tous,
+   transférer), le HTML réduit à la largeur de l'écran, la rédaction
+   en plein écran avec « Envoyer » en haut. Le bouton retour du
+   téléphone ferme la couche ouverte au lieu de quitter la boîte.
 
    La liste est paginée : recharger un dossier entier à chaque
    changement de filtre ne tenait que tant que la boîte était petite.
@@ -72,6 +80,11 @@ export default function BoiteMailPage() {
   const mobile = w < 900;                 // même seuil que le shell
   const etroit = w < 1320;
   const virtuelle = vue === 'drafts' || vue === 'scheduled';
+
+  // Retour du téléphone : ferme le tiroir, le message, la rédaction.
+  useRetourMobile('dossiers', mobile && tiroir, () => setTiroir(false));
+  useRetourMobile('lecture', mobile && !!ouvert, () => setOuvert(null));
+  useRetourMobile('redaction', mobile && !!redac, () => setRedac(null));
 
   useEffect(() => {
     const r = () => setW(window.innerWidth);
@@ -217,20 +230,27 @@ export default function BoiteMailPage() {
 
   const inbox = etat.find(e => e.folder === 'INBOX');
   const compte = compteImap;
-  /* Hauteur disponible : la page vit dans .sc-main, sous une topbar de
-     48 px, avec 16 px de padding haut, et la barre d'onglets en bas
-     sur mobile. La marge négative annule le padding de .sc-screen. */
-  const hauteur = `calc(100vh - ${48 + 16 + (mobile ? 58 : 0)}px)`;
+  /* Hauteur disponible : la page vit dans .sc-main, sous la topbar de
+     48 px, et au-dessus de la barre d'onglets (58 px) sur mobile. La
+     classe .bm-root (BM_CSS) porte la hauteur et les marges négatives
+     qui annulent le padding de .sc-screen — celui-ci n'est pas le même
+     sur téléphone (12 px) et sur ordinateur (16/18 px), d'où une classe
+     plutôt qu'un calcul en ligne, qui débordait de 6 px de chaque côté. */
+
+  const nouveauMessage = () => setRedac({ to: '', cc: '', subject: '', corps: '' });
+  /* L'étoile du message ouvert : sans mettre à jour `ouvert`, l'icône
+     ne changeait pas sous le doigt. */
+  const suivreOuvert = (m: Msg) => { setOuvert({ ...m, flagged: !m.flagged }); agir('etoile', [m.id]); };
 
   /* ── Colonne 1 : dossiers ─────────────────────────────── */
   const colDossiers = (
-    <div style={{ width: 228, flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ width: mobile ? '100%' : 228, flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, borderBottom: `1px solid ${C.ligneFaible}` }}>
         <button className="sc-btn" style={{ width: '100%', height: 38, justifyContent: 'center', background: C.ink, color: '#fff', border: 'none' }}
-                onClick={() => { setRedac({ to: '', cc: '', subject: '', corps: '' }); setTiroir(false); }}>
+                onClick={() => { nouveauMessage(); setTiroir(false); }}>
           <span className="ms">edit</span>{t('nouveauMessage')}
         </button>
-        <button className="sc-btn sc-btn-secondary" onClick={relever} disabled={synchro}
+        <button className="sc-btn sc-btn-secondary bm-sous" onClick={relever} disabled={synchro}
                 style={{ width: '100%', height: 30, marginTop: 8, justifyContent: 'center', fontSize: 11.5 }}>
           <span className="ms" style={{ animation: synchro ? 'sc-spin .9s linear infinite' : 'none' }}>sync</span>
           {synchro ? 'Synchronisation…' : `Envoyer / recevoir · ${depuis(inbox?.last_sync_at)}`}
@@ -266,7 +286,7 @@ export default function BoiteMailPage() {
         </GroupeNav>
       </div>
 
-      <div style={{ padding: '10px 13px', borderTop: `1px solid ${C.ligneFaible}`, fontSize: 10.5, color: C.t4 }}>
+      <div className="bm-pied" style={{ padding: '10px 13px', borderTop: `1px solid ${C.ligneFaible}`, fontSize: 10.5, color: C.t4, overflowWrap: 'anywhere' }}>
         <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: inbox?.last_error ? C.rouge : '#3E7A4E', marginRight: 6 }} />
         {inbox?.last_error ? 'IMAP en erreur' : 'IMAP connecté'}{compte ? ` · ${compte}` : ''}
       </div>
@@ -276,46 +296,56 @@ export default function BoiteMailPage() {
   /* ── Colonne 2 : liste ────────────────────────────────── */
   const colListe = (
     <div style={{ width: mobile ? '100%' : (etroit ? 340 : 392), flexShrink: 0, background: C.sidebar, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ flexShrink: 0, background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '11px 14px' }}>
-        {mobile && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
-            <button className="sc-iconbtn" aria-label={t('dossiers')} onClick={() => setTiroir(true)}>
-              <span className="ms">menu</span>
-            </button>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }}
-                    onClick={relever} disabled={synchro}>
-              <span className="ms" style={{ animation: synchro ? 'sc-spin .9s linear infinite' : 'none' }}>sync</span>
-              {synchro ? '…' : 'Relever'}
-            </button>
-            <span style={{ flex: 1 }} />
-            <button className="sc-btn" style={{ background: C.ink, color: '#fff', border: 'none', padding: '6px 12px', fontSize: 11.5 }}
-                    onClick={() => setRedac({ to: '', cc: '', subject: '', corps: '' })}>
-              <span className="ms">edit</span>{t('ecrire')}
-            </button>
-          </div>
-        )}
-        <div style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>
-          {VUES.find(v => v.id === vue)?.label || dossiers.find(d => d.path === vue)?.nom || vue}
-          {etiquette && <span style={{ fontSize: 11.5, fontWeight: 400, color: couleurDe(etiquette) }}> · {etiquette}</span>}
-        </div>
-        <div style={{ fontSize: 11, color: C.t4 }}>
-          {virtuelle
-            ? `${(vue === 'drafts' ? brouillons : programmes).length} élément(s)`
-            : `${total} message${total > 1 ? 's' : ''}${messages.length < total ? ` · ${messages.length} affichés` : ''}`}
-        </div>
+      <div style={{ flexShrink: 0, background: C.surface, borderBottom: `1px solid ${C.border}`, padding: mobile ? '6px 12px 10px' : '11px 14px' }}>
+        {/* Titre de la vue. Sur téléphone, sur la même ligne que le
+            tiroir des dossiers, « Relever » et « Écrire » : trois rangées
+            de boutons avant le premier message, c'était trop. */}
+        {(() => {
+          const titre = (
+            <>
+              <div className="bm-titre-liste" style={{ fontSize: 15, fontWeight: 600, color: C.t1, overflow: mobile ? 'hidden' : undefined, textOverflow: 'ellipsis', whiteSpace: mobile ? 'nowrap' : undefined }}>
+                {VUES.find(v => v.id === vue)?.label || dossiers.find(d => d.path === vue)?.nom || vue}
+                {etiquette && <span className="bm-sous" style={{ fontSize: 11.5, fontWeight: 400, color: couleurDe(etiquette) }}> · {etiquette}</span>}
+              </div>
+              <div className="bm-sous" style={{ fontSize: 11, color: C.t4 }}>
+                {virtuelle
+                  ? `${(vue === 'drafts' ? brouillons : programmes).length} élément(s)`
+                  : `${total} message${total > 1 ? 's' : ''}${messages.length < total ? ` · ${messages.length} affichés` : ''}`}
+              </div>
+            </>
+          );
+          return mobile ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: virtuelle ? 0 : 8 }}>
+              <button className="sc-iconbtn" aria-label={t('dossiers')} onClick={() => setTiroir(true)} style={{ marginLeft: -8 }}>
+                <span className="ms">menu</span>
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>{titre}</div>
+              <button className="sc-iconbtn" aria-label={t('relever')} title={`${t('relever')} · ${depuis(inbox?.last_sync_at)}`}
+                      onClick={relever} disabled={synchro}>
+                <span className="ms" style={{ animation: synchro ? 'sc-spin .9s linear infinite' : 'none' }}>sync</span>
+              </button>
+              <button className="sc-btn sc-btn-primary" onClick={nouveauMessage} style={{ padding: '10px 14px' }}>
+                <span className="ms">edit</span>{t('ecrire')}
+              </button>
+            </div>
+          ) : titre;
+        })()}
 
         {!virtuelle && (
           <>
-            <div style={{ position: 'relative', marginTop: 9 }}>
-              <span className="ms" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5 }}>search</span>
-              <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
-                     onKeyDown={e => e.key === 'Enter' && setRecherche(q)}
-                     placeholder={t('phRecherche')} style={{ width: '100%', height: 30, paddingLeft: 30, fontSize: 12 }} />
-            </div>
+            {/* Un formulaire : la touche « Rechercher » du clavier du
+                téléphone le soumet, comme Entrée sur ordinateur. */}
+            <form role="search" style={{ position: 'relative', marginTop: mobile ? 0 : 9 }}
+                  onSubmit={e => { e.preventDefault(); setRecherche(q); }}>
+              <span className="ms bm-search-ic" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: C.t5, pointerEvents: 'none' }}>search</span>
+              <input className="sc-input bm-search" type="search" enterKeyHint="search" value={q}
+                     onChange={e => { setQ(e.target.value); if (!e.target.value) setRecherche(''); }}
+                     placeholder={t('phRecherche')} aria-label={t('phRecherche')} />
+            </form>
 
-            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: mobile ? 6 : 4, marginTop: 8 }}>
               {[['tous', 'Tous'], ['non-lus', 'Non lus'], ['pieces-jointes', 'Pièce jointe']].map(([id, lab]) => (
-                <button key={id} onClick={() => setFiltre(id)}
+                <button key={id} onClick={() => setFiltre(id)} className="bm-filtre" aria-pressed={filtre === id}
                         style={{
                           border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderRadius: 6,
                           padding: '4px 9px', fontSize: 11.5,
@@ -329,7 +359,7 @@ export default function BoiteMailPage() {
 
         {sel.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8, background: C.selFond, border: `1px solid ${C.selBord}`, borderRadius: 7, padding: '6px 9px' }}>
-            <span style={{ flex: 1, fontSize: 11.5, color: C.selTexte, fontWeight: 600 }}>{sel.size} sélectionné{sel.size > 1 ? 's' : ''}</span>
+            <span className="bm-sel" style={{ flex: 1, fontSize: 11.5, color: C.selTexte, fontWeight: 600 }}>{sel.size} sélectionné{sel.size > 1 ? 's' : ''}</span>
             <button className="sc-iconbtn" title={t('marquerLu')} onClick={() => agir('lu')}><span className="ms">mark_email_read</span></button>
             <button className="sc-iconbtn" title={t('marquerNonLu')} onClick={() => agir('non-lu')}><span className="ms">mark_email_unread</span></button>
             <button className="sc-iconbtn" title={t('corbeille')} onClick={() => agir('corbeille')}><span className="ms" style={{ color: C.rouge }}>delete</span></button>
@@ -349,11 +379,11 @@ export default function BoiteMailPage() {
                    })}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{b.subject || '(sans objet)'}</div>
-                  <div style={{ fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="bm-sous" style={{ fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {b.to_emails || 'sans destinataire'} · modifié {depuis(b.updated_at)}
                   </div>
                 </div>
-                <button className="sc-iconbtn" onClick={e => { e.stopPropagation(); supprimerBrouillon(b.id); }}>
+                <button className="sc-iconbtn" aria-label={tc('delete')} onClick={e => { e.stopPropagation(); supprimerBrouillon(b.id); }}>
                   <span className="ms" style={{ color: C.rouge }}>delete</span>
                 </button>
               </div>
@@ -364,10 +394,10 @@ export default function BoiteMailPage() {
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{s.subject}</div>
-                  <div style={{ fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="bm-sous" style={{ fontSize: 11.5, color: C.t5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.to_emails} · {new Date(s.send_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </div>
-                  {s.last_error && <div style={{ fontSize: 10.5, color: C.rouge }}>{s.last_error}</div>}
+                  {s.last_error && <div className="bm-sous" style={{ fontSize: 10.5, color: C.rouge }}>{s.last_error}</div>}
                 </div>
                 <span className="sc-badge" style={{
                   background: s.status === 'sent' ? '#E9F0E6' : s.status === 'failed' ? '#FBE7E4' : s.status === 'cancelled' ? '#F1EDE7' : '#FBF0DA',
@@ -411,8 +441,103 @@ export default function BoiteMailPage() {
     </div>
   );
 
-  /* ── Colonne 3 : lecture ──────────────────────────────── */
-  const colLecture = (
+  /* Pièces jointes : même rendu à la lecture sur ordinateur et téléphone. */
+  const piecesJointes = (m: Msg) => !!m.attachments?.length && (
+    <div style={{ padding: mobile ? '12px 16px' : '13px 22px', borderTop: `1px solid ${C.ligne}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {m.attachments.map((a: any, i: number) => (
+        <button key={i} className="sc-chip" style={{ fontSize: mobile ? 13 : 11, cursor: 'pointer', border: 'none', maxWidth: '100%', minHeight: mobile ? 44 : undefined }}
+                onClick={() => downloadAuth(`/api/inbox/attachment?id=${m.id}&i=${i}`, a.filename || 'piece-jointe').catch(e => say(e.message))}>
+          <span className="ms" style={{ fontSize: mobile ? 18 : 14 }}>download</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.filename}</span> · {Math.round((a.size || 0) / 1024)} ko
+        </button>
+      ))}
+    </div>
+  );
+
+  /* ── Colonne 3 : lecture — téléphone ─────────────────────
+     Plein écran. En haut : retour et les gestes de tri ; en bas, collés
+     au-dessus des onglets : répondre, répondre à tous, transférer. Le
+     HTML est réduit à la largeur de l'écran au lieu d'être coupé. */
+  const lectureMobile = (m: Msg) => (
+    <div style={{ flex: 1, minWidth: 0, background: C.surface, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 3, display: 'flex', alignItems: 'center', gap: 2,
+        padding: '4px 6px', background: C.surface, borderBottom: `1px solid ${C.border}`,
+      }}>
+        <button className="sc-iconbtn" aria-label={t('retourListe')} onClick={() => setOuvert(null)}>
+          <span className="ms">arrow_back</span>
+        </button>
+        <span style={{ flex: 1 }} />
+        <button className="sc-iconbtn" aria-label={t('suivre')} aria-pressed={m.flagged} onClick={() => suivreOuvert(m)}>
+          <span className="ms" style={{ color: m.flagged ? C.etoile : C.t4, fontVariationSettings: m.flagged ? "'FILL' 1" : "'FILL' 0" }}>star</span>
+        </button>
+        <button className="sc-iconbtn" aria-label={t('marquerNonLu')} onClick={() => { agir('non-lu', [m.id]); setOuvert(null); }}>
+          <span className="ms">mark_email_unread</span>
+        </button>
+        <button className="sc-iconbtn" aria-label={t('corbeille')} onClick={() => agir('corbeille', [m.id])}>
+          <span className="ms" style={{ color: C.rouge }}>delete</span>
+        </button>
+      </div>
+
+      <div style={{ padding: '16px 16px 12px' }}>
+        <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 24, fontWeight: 600, color: C.t1, lineHeight: 1.2, overflowWrap: 'anywhere' }}>
+          {m.subject || '(sans objet)'}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 20, flexShrink: 0, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontSize: 13, fontWeight: 600,
+            background: `${couleurDe(m.label)}1A`, color: couleurDe(m.label),
+          }}>{initiales(m.from_name || m.from_email)}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.t1, overflowWrap: 'anywhere' }}>{m.from_name || m.from_email}</div>
+            <div style={{ fontSize: 13, color: C.t4, overflowWrap: 'anywhere' }}>{m.from_email}</div>
+          </div>
+          <span className="sc-num" style={{ fontSize: 13, color: C.t4, flexShrink: 0, alignSelf: 'flex-start', paddingTop: 2 }}>{quand(m.sent_at)}</span>
+        </div>
+        <select value={m.label || ''} className="sc-select" aria-label={t('etiquette')}
+                style={{ marginTop: 12, width: 'auto', maxWidth: '100%', color: m.label ? couleurDe(m.label) : C.t3 }}
+                onChange={e => { const l = e.target.value; setOuvert({ ...m, label: l || null }); agir('etiquette', [m.id], l); }}>
+          <option value="">{t('sansEtiquette')}</option>
+          {Object.keys(COULEUR_ETIQ).map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+      </div>
+
+      {/* Le HTML d'un message reçu est du code tiers : iframe sandbox, sans
+          script. allow-same-origin sert seulement à mesurer le contenu
+          pour le réduire à la largeur de l'écran. */}
+      <div style={{ borderTop: `1px solid ${C.ligne}` }}>
+        {m.body_html ? (
+          <EmailApercu html={m.body_html} title={t('message')} ajuster sandbox="allow-same-origin" />
+        ) : (
+          <div style={{ padding: '16px 16px 24px', fontSize: 16, lineHeight: 1.6, color: C.corps, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+            {m.body_text || '(message vide)'}
+          </div>
+        )}
+      </div>
+      {piecesJointes(m)}
+
+      <span style={{ flex: 1 }} />
+      <div style={{
+        position: 'sticky', bottom: 0, zIndex: 3, display: 'flex', gap: 6, padding: '8px 10px',
+        background: C.surface, borderTop: `1px solid ${C.border}`, boxShadow: '0 -6px 18px rgba(21,24,30,.06)',
+      }}>
+        {([
+          ['reply', t('repondre'), () => repondre(m)],
+          ['reply_all', t('repondreTous'), () => repondre(m, true)],
+          ['forward', t('transferer'), () => transferer(m)],
+        ] as Array<[string, string, () => void]>).map(([ic, lab, fn], i) => (
+          <button key={ic} onClick={fn} className={`sc-btn ${i === 0 ? 'sc-btn-primary' : 'sc-btn-secondary'}`}
+                  style={{ flex: '1 1 0', minWidth: 0, flexDirection: 'column', gap: 2, padding: '6px 4px', minHeight: 54, fontSize: 12.5, whiteSpace: 'normal', lineHeight: 1.15, textAlign: 'center' }}>
+            <span className="ms" style={{ fontSize: 21 }}>{ic}</span>{lab}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  /* ── Colonne 3 : lecture — ordinateur ─────────────────── */
+  const colLecture = mobile && ouvert ? lectureMobile(ouvert) : (
     <div style={{ flex: 1, minWidth: 0, background: C.lecture, height: '100%', overflowY: 'auto' }}>
       {!ouvert ? (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: C.t4 }}>
@@ -420,12 +545,7 @@ export default function BoiteMailPage() {
           <div style={{ fontSize: 13, marginTop: 10 }}>{t('selectionne')}</div>
         </div>
       ) : (
-        <div style={{ padding: mobile ? 14 : 26 }}>
-          {mobile && (
-            <button className="sc-btn sc-btn-secondary" style={{ marginBottom: 12 }} onClick={() => setOuvert(null)}>
-              <span className="ms">arrow_back</span>{tc('back')}
-            </button>
-          )}
+        <div style={{ padding: 26 }}>
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
             <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.ligne}` }}>
               <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 26, fontWeight: 600, color: C.t1, lineHeight: 1.2 }}>
@@ -452,7 +572,7 @@ export default function BoiteMailPage() {
                 </button>
                 <button className="sc-iconbtn" title={t('repondreTous')} onClick={() => repondre(ouvert, true)}><span className="ms">reply_all</span></button>
                 <button className="sc-iconbtn" title={t('transferer')} onClick={() => transferer(ouvert)}><span className="ms">forward</span></button>
-                <button className="sc-iconbtn" title={t('suivre')} onClick={() => agir('etoile', [ouvert.id])}>
+                <button className="sc-iconbtn" title={t('suivre')} onClick={() => suivreOuvert(ouvert)}>
                   <span className="ms" style={{ color: ouvert.flagged ? C.etoile : C.t6, fontVariationSettings: ouvert.flagged ? "'FILL' 1" : "'FILL' 0" }}>star</span>
                 </button>
                 <button className="sc-iconbtn" title={tc('delete')} onClick={() => agir('corbeille', [ouvert.id])}>
@@ -463,25 +583,15 @@ export default function BoiteMailPage() {
 
             {/* Le HTML d'un message reçu est du code tiers : iframe sandbox. */}
             {ouvert.body_html ? (
-              <iframe srcDoc={ouvert.body_html} title={t('message')} sandbox=""
-                      style={{ width: '100%', height: mobile ? 420 : 620, border: 'none', background: '#fff' }} />
+              <EmailApercu html={ouvert.body_html} title={t('message')} ajuster={false} sandbox=""
+                           style={{ width: '100%', height: 620, border: 'none', background: '#fff' }} />
             ) : (
-              <div style={{ padding: '20px 22px', fontSize: 14, lineHeight: 1.72, color: C.corps, whiteSpace: 'pre-wrap' }}>
+              <div style={{ padding: '20px 22px', fontSize: 14, lineHeight: 1.72, color: C.corps, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                 {ouvert.body_text || '(message vide)'}
               </div>
             )}
 
-            {!!ouvert.attachments?.length && (
-              <div style={{ padding: '13px 22px', borderTop: `1px solid ${C.ligne}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {ouvert.attachments.map((a: any, i: number) => (
-                  <button key={i} className="sc-chip" style={{ fontSize: 11, cursor: 'pointer', border: 'none' }}
-                          onClick={() => downloadAuth(`/api/inbox/attachment?id=${ouvert.id}&i=${i}`, a.filename || 'piece-jointe').catch(e => say(e.message))}>
-                    <span className="ms" style={{ fontSize: 14 }}>download</span>
-                    {a.filename} · {Math.round((a.size || 0) / 1024)} ko
-                  </button>
-                ))}
-              </div>
-            )}
+            {piecesJointes(ouvert)}
           </div>
         </div>
       )}
@@ -490,11 +600,8 @@ export default function BoiteMailPage() {
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: '@keyframes sc-spin { to { transform: rotate(360deg) } }' }} />
-      <div style={{
-        display: 'flex', height: hauteur, margin: '-16px -18px -90px',
-        overflow: 'hidden', border: `1px solid ${C.border}`,
-      }}>
+      <style dangerouslySetInnerHTML={{ __html: BM_CSS }} />
+      <div className="bm-root">
         {!mobile && colDossiers}
 
         {/* Tiroir des dossiers, sur mobile uniquement */}
@@ -502,8 +609,8 @@ export default function BoiteMailPage() {
           <>
             <div onClick={() => setTiroir(false)}
                  style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.42)', zIndex: 200 }} />
-            <div style={{
-              position: 'fixed', top: 48, bottom: 58, left: 0, width: 250, zIndex: 210,
+            <div role="dialog" aria-label={t('dossiers')} style={{
+              position: 'fixed', top: 48, bottom: 58, left: 0, width: 'min(300px, 86vw)', zIndex: 210,
               boxShadow: '6px 0 28px rgba(21,24,30,.16)',
             }}>
               {colDossiers}
@@ -520,12 +627,7 @@ export default function BoiteMailPage() {
                    onEnvoye={() => { setRedac(null); charger(0); }} />
       )}
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: mobile ? 70 : 24, right: 24, background: C.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300, maxWidth: 'calc(100vw - 48px)',
-        }}>{toast}</div>
-      )}
+      {toast && <div className="bm-toast" role="status">{toast}</div>}
     </>
   );
 }

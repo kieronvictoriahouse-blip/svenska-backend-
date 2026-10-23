@@ -39,4 +39,14 @@ export const TST = {
   reclasser: { fr: 'Reclasser', en: 'Re-sort', sv: 'Sortera om' },
   moins: { fr: 'Moins', en: 'Less', sv: 'Färre' },
   msgControleKo: { fr: 'Contrôle impossible', en: 'Check failed', sv: 'Kontrollen misslyckades' },
+  // Téléphone
+  plusActions: { fr: 'Plus d’actions', en: 'More actions', sv: 'Fler åtgärder' },
+  rechercher: { fr: 'Produit, référence ou EAN', en: 'Product, reference or EAN', sv: 'Produkt, referens eller EAN' },
+  effacer: { fr: 'Effacer la recherche', en: 'Clear search', sv: 'Rensa sökningen' },
+  aucunFiltre: { fr: 'Aucun produit ne correspond.', en: 'No product matches.', sv: 'Ingen produkt matchar.' },
+  enregistrement: { fr: 'Enregistrement…', en: 'Saving…', sv: 'Sparar…' },
+  refsComptees: { fr: 'référence(s) comptée(s)', en: 'item(s) counted', sv: 'artikel/artiklar räknade' },
+  ecart: { fr: 'Écart', en: 'Gap', sv: 'Avvikelse' },
+  comptageRequis: { fr: 'Jamais entré par une réception — comptage requis', en: 'Never received — physical count required', sv: 'Aldrig inlevererad — inventering krävs' },
+  ajusterStock: { fr: 'Ajuster le stock', en: 'Adjust stock', sv: 'Justera lagret' },
 };

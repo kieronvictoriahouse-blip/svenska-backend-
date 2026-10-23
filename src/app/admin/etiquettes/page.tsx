@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { useAdminLang, type AdminLang } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉTIQUETTES PRODUIT À IMPRIMER  ·  /admin/etiquettes
@@ -139,6 +140,8 @@ const UI = {
   emptyPreview:{ fr: 'Ajoute des produits pour voir la planche.', en: 'Add products to see the sheet.', sv: 'Lägg till produkter för att se arket.' },
   loading:     { fr: 'Chargement…', en: 'Loading…', sv: 'Laddar…' },
   tip:         { fr: "Astuce : imprime en taille réelle (échelle 100 %, pas « ajuster à la page ») pour que les étiquettes tombent pile sur la planche.", en: 'Tip: print at 100% scale (not "fit to page") so labels line up with the sheet.', sv: 'Tips: skriv ut i 100 % skala så att etiketterna hamnar rätt.' },
+  settings:    { fr: 'Réglages', en: 'Settings', sv: 'Inställningar' },
+  zoomHint:    { fr: 'Aperçu réduit à la largeur de l’écran — écarte deux doigts pour zoomer.', en: 'Preview shrunk to screen width — pinch to zoom.', sv: 'Förhandsvisningen är förminskad — nyp för att zooma.' },
 };
 
 const tr = (e: { fr: string; en: string; sv: string }, lang: AdminLang) => e[lang] || e.fr;
@@ -194,6 +197,22 @@ export default function EtiquettesPage() {
   const [calTest, setCalTest] = useState(false);
   const [showFine, setShowFine] = useState(false);
   const [cals, setCals] = useState<Record<string, Cal>>({});
+
+  /* Téléphone : réglages et aperçu sur deux onglets, planche réduite à
+     la largeur de l'écran (zoom CSS, annulé à l'impression : ce qui sort
+     reste en millimètres réels). */
+  const mobile = useIsMobile();
+  const [view, setView] = useState<'settings' | 'preview'>('settings');
+  const [sheetZoom, setSheetZoom] = useState(1);
+  useEffect(() => {
+    const fit = () => {
+      const mmPx = 96 / 25.4;
+      setSheetZoom(Math.min(1, (window.innerWidth - 24) / (210 * mmPx)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
 
   /* ── Chargement ─────────────────────────────────────────────── */
   useEffect(() => {
@@ -464,9 +483,12 @@ export default function EtiquettesPage() {
   const num = (label: string, val: number, on: (n: number) => void, step = 0.5) => (
     <label className="mini">
       <span>{label}</span>
-      <input type="number" step={step} value={val} onChange={e => on(parseFloat(e.target.value) || 0)} />
+      <input type="number" inputMode="decimal" step={step} value={val} onChange={e => on(parseFloat(e.target.value) || 0)} />
     </label>
   );
+
+  const countTxt = `${pages.length} ${t(UI.sheets)} · ${totalLabels} ${t(UI.labelsTotal)}`;
+  const canPrint = !!totalLabels || calTest;
 
   return (
     <div className="etq-root">
@@ -474,22 +496,32 @@ export default function EtiquettesPage() {
 
       {/* ── Barre d'action (masquée à l'impression) ── */}
       <div className="etq-bar no-print">
-        <a className="btn ghost" href="/admin/produits">← {t(UI.back)}</a>
+        <a className="btn ghost etq-back" href="/admin/produits" aria-label={t(UI.back)}>← <span className="etq-back-lbl">{t(UI.back)}</span></a>
         <div className="etq-titles">
           <strong>{t(UI.title)}</strong>
-          <span>{t(UI.subtitle)}</span>
+          <span className="etq-sub">{t(UI.subtitle)}</span>
+          <span className="etq-count-m">{countTxt}</span>
         </div>
-        <span className="etq-count">
-          {pages.length} {t(UI.sheets)} · {totalLabels} {t(UI.labelsTotal)}
-        </span>
-        <button className="btn primary" disabled={!totalLabels && !calTest} onClick={() => window.print()}>
+        <span className="etq-count">{countTxt}</span>
+        <button className="btn primary etq-print-top" disabled={!canPrint} onClick={() => window.print()}>
           🖨 {t(UI.print)}
         </button>
+        {/* Téléphone : réglages / aperçu en deux onglets */}
+        {mobile && (
+          <div className="etq-tabs" role="tablist">
+            <button role="tab" aria-selected={view === 'settings'} className={view === 'settings' ? 'on' : ''} onClick={() => setView('settings')}>
+              {t(UI.settings)}
+            </button>
+            <button role="tab" aria-selected={view === 'preview'} className={view === 'preview' ? 'on' : ''} onClick={() => { setView('preview'); window.scrollTo(0, 0); }}>
+              {t(UI.preview)} ({pages.length})
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="etq-body">
         {/* ── Panneau de réglages ── */}
-        <aside className="etq-panel no-print">
+        <aside className={`etq-panel no-print${mobile && view !== 'settings' ? ' m-off' : ''}`}>
           {/* Format */}
           <section>
             <h3>{t(UI.format)}</h3>
@@ -633,11 +665,12 @@ export default function EtiquettesPage() {
         </aside>
 
         {/* ── Aperçu / impression ── */}
-        <main className="etq-preview">
+        <main className={`etq-preview${mobile && view !== 'preview' ? ' m-off' : ''}`}>
+          {mobile && pages.length > 0 && <p className="note no-print" style={{ margin: 0, textAlign: 'center' }}>{t(UI.zoomHint)}</p>}
           {pages.length === 0 ? (
             <div className="empty-preview no-print">{t(UI.emptyPreview)}</div>
           ) : pages.map((page, pi) => (
-            <div key={pi} className="sheet">
+            <div key={pi} className="sheet" style={mobile ? { zoom: sheetZoom } as React.CSSProperties : undefined}>
               <div className="grid" style={gridStyle}>
                 {page.map((p, ci) => renderLabel(p, `${pi}-${ci}`))}
               </div>
@@ -645,6 +678,20 @@ export default function EtiquettesPage() {
           ))}
         </main>
       </div>
+
+      {/* Téléphone : impression sous le pouce */}
+      {mobile && (
+        <div className="etq-mbar no-print">
+          {view === 'settings' && (
+            <button className="btn" onClick={() => { setView('preview'); window.scrollTo(0, 0); }}>
+              {t(UI.preview)} ({pages.length})
+            </button>
+          )}
+          <button className="btn primary" disabled={!canPrint} onClick={() => window.print()}>
+            🖨 {t(UI.print)}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -828,9 +875,69 @@ const CSS = `
 .lbl.s-sm .foot-l b { color: var(--sc-ink); }
 .lbl.s-sm .foot-brand { font-size: 5pt; }
 
+.etq-count-m { display: none; }
+
+/* ── Téléphone (écran seulement : l'impression reste en mm réels) ──
+   Réglages et aperçu en onglets, cibles de 44 px, champs à 16 px (sinon
+   iOS zoome à la saisie), bouton d'impression collé en bas. */
+@media screen and (max-width: 899px) {
+  .etq-bar { flex-wrap: wrap; gap: 6px 10px; padding: 6px 12px 0; padding-top: calc(6px + env(safe-area-inset-top)); }
+  .etq-back { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; font-size: 18px; }
+  .etq-back-lbl, .etq-sub, .etq-count, .etq-print-top { display: none; }
+  .etq-titles { flex: 1; min-width: 0; }
+  .etq-titles strong { font-size: 17px; }
+  .etq-count-m { display: block; font-size: 12.5px; color: #777; }
+  .etq-root { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  .etq-tabs { flex: 0 0 calc(100% + 24px); display: flex; margin: 0 -12px; border-top: 1px solid #eee; }
+  .etq-tabs button { flex: 1; min-height: 46px; border: none; background: none; font: inherit; font-size: 14.5px; color: #666; cursor: pointer; }
+  .etq-tabs button.on { color: #3D5239; font-weight: 600; box-shadow: inset 0 -2px 0 #3D5239; }
+
+  .etq-body { display: block; flex: 1; }
+  .m-off { display: none !important; }
+  .etq-panel { width: auto; height: auto; position: static; overflow: visible; border-right: none; padding: 0 16px 16px; }
+  .etq-panel section { padding: 16px 0; }
+  .etq-panel h3 { font-size: 12px; }
+  .fmt { min-height: 44px; }
+  .fmt b { font-size: 13.5px; }
+  .fmt em { font-size: 11px; }
+  .seg button { min-height: 44px; font-size: 14px; }
+  .checks { gap: 2px 10px; }
+  .chk { min-height: 44px; font-size: 14.5px; gap: 10px; }
+  .chk input { width: 20px; height: 20px; flex-shrink: 0; }
+  .note { font-size: 12.5px; }
+  .num-in { width: 100px; height: 44px; font-size: 16px; }
+  .fine-toggle { min-height: 44px; font-size: 14.5px; }
+  .fine { gap: 10px; }
+  .mini { font-size: 12px; }
+  .mini input { height: 44px; font-size: 16px; padding: 0 10px; }
+  .search { height: 44px; font-size: 16px; }
+  .btn { min-height: 44px; font-size: 14px; padding: 10px 14px; }
+  .btn.sm { padding: 10px 12px; font-size: 13.5px; }
+  .prod-actions { flex-wrap: wrap; }
+  .prod-list { max-height: 55vh; overscroll-behavior: contain; margin: 0; }
+  .prow { min-height: 52px; padding: 8px; gap: 12px; }
+  .pthumb { width: 40px; height: 40px; }
+  .pname { font-size: 14.5px; }
+  .pmark { font-size: 18px; width: 28px; text-align: center; }
+  .sel-list { gap: 8px; }
+  .srow { gap: 6px; }
+  .sname { font-size: 14px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .qty button { width: 40px; height: 44px; font-size: 18px; }
+  .qty input { width: 44px; height: 44px; font-size: 16px; }
+  .srm { width: 44px; height: 44px; font-size: 16px; }
+
+  .etq-preview { padding: 12px 12px 16px; gap: 12px; }
+  .empty-preview { padding: 48px 16px; text-align: center; }
+  .sheet { flex-shrink: 0; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+
+  .etq-mbar { position: sticky; bottom: 0; z-index: 20; display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid #ddd; box-shadow: 0 -6px 18px rgba(0,0,0,.06); }
+  .etq-mbar .btn { flex: 1; justify-content: center; text-align: center; }
+}
+
 /* ── Impression ── */
 @media print {
   @page { size: A4; margin: 0; }
+  .sheet { zoom: 1 !important; }
   html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
   .no-print { display: none !important; }
   .etq-root { background: #fff !important; min-height: 0 !important; }

@@ -19,4 +19,7 @@ export const TBM = {
   msgAction: { fr: 'Action non enregistrée', en: 'Action not saved', sv: 'Åtgärden sparades inte' },
   msgEnvoiAnnule: { fr: 'Envoi annulé', en: 'Sending cancelled', sv: 'Sändningen avbruten' },
   msgBrouillonSuppr: { fr: 'Brouillon supprimé', en: 'Draft deleted', sv: 'Utkastet borttaget' },
+  retourListe: { fr: 'Retour à la liste', en: 'Back to the list', sv: 'Tillbaka till listan' },
+  relever: { fr: 'Relever', en: 'Check mail', sv: 'Hämta' },
+  etiquette: { fr: 'Étiquette', en: 'Label', sv: 'Etikett' },
 };

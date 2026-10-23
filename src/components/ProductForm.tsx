@@ -1,7 +1,8 @@
 'use client';
 import { adminFetch } from '@/lib/auth-client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { T } from '@/lib/admin-theme';
+import { useIsMobile } from '@/lib/use-mobile';
 import BarcodeScanner from './BarcodeScanner';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -115,22 +116,105 @@ type Props = {
 
 type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
 
+/* ── Téléphone ──────────────────────────────────────────────
+   La fiche est longue (40 champs) : sur téléphone chaque bloc se replie
+   en touchant son titre, les blocs secondaires (variantes, box, promo,
+   nutrition, avis) arrivent repliés s'ils sont vides. Sur ordinateur
+   rien ne change : tous les blocs restent ouverts, sans chevron. */
+const PF_CSS = `
+  .pf-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 15px; border-bottom: 1px solid ${T.border}; }
+  .pf-card-toggle { display: flex; align-items: center; gap: 6px; border: none; background: none; padding: 0; cursor: default; text-align: left; color: inherit; min-width: 0; }
+  .pf-card-toggle .pf-chev { display: none; }
+  .pf-card-body { padding: 13px 15px; }
+  .pf-hint { font-size: 10.5px; color: ${T.muted}; line-height: 1.45; }
+  .pf-kicker { font-size: 9.5px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: ${T.muted}; margin-bottom: 10px; }
+  .pf-lang { height: 26px !important; padding: 0 10px !important; font-size: 11px !important; }
+  .pf-lang .pf-short { display: none; }
+  .pf-var { display: grid; grid-template-columns: 1fr 120px 30px; gap: 8px; margin-bottom: 8px; }
+  .pf-lot { display: grid; grid-template-columns: 1fr 70px 30px; gap: 8px; margin-bottom: 8px; }
+  .pf-nut { display: grid; grid-template-columns: 1fr 130px; gap: 10px; align-items: center; margin-bottom: 7px; }
+  .pf-nut-label { font-size: 12px; }
+  .pf-switch-label { font-size: 12.5px; color: ${T.text2}; }
+  .pf-switch-hint { margin: 4px 0 0 44px; }
+  .pf-camera { display: none; }
+  .pf-eanmsg { font-size: 11px; }
+  .pf-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+  @media (min-width: 900px) { .pf-nut .sc-input { height: 30px; } }
+  @media (max-width: 899px) {
+    .pf-card-toggle { cursor: pointer; min-height: 44px; margin: -8px 0; flex: 1; }
+    .pf-card-toggle .pf-chev { display: inline-block; font-size: 22px; color: ${T.muted}; transition: transform .15s; }
+    .pf-card.closed .pf-chev { transform: rotate(-90deg); }
+    .pf-card.closed .pf-card-head { border-bottom-color: transparent; }
+    .pf-card.closed .pf-card-body { display: none; }
+    .pf-card-head { padding: 10px 14px; }
+    .pf-card-body { padding: 14px; }
+    .pf-hint { font-size: 12.5px; }
+    .pf-kicker { font-size: 12px; letter-spacing: .6px; }
+    .pf-lang { height: 36px !important; padding: 0 11px !important; font-size: 13px !important; }
+    .pf-lang .pf-long { display: none; }
+    .pf-lang .pf-short { display: inline; }
+    .pf-var { grid-template-columns: minmax(0, 1fr) 96px 44px; }
+    .pf-lot { grid-template-columns: minmax(0, 1fr) 64px 44px; }
+    .pf-nut { grid-template-columns: minmax(0, 1fr) 120px; }
+    .pf-nut-label { font-size: 13.5px; }
+    .pf-switch-label { font-size: 14.5px; }
+    .pf-switch-hint { margin-left: 54px; }
+    .pf-switches { gap: 16px !important; }
+    .pf-photos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pf-drop { display: none !important; }
+    .pf-camera { display: flex; gap: 8px; margin-top: 10px; }
+    .pf-camera > .sc-btn { flex: 1; justify-content: center; }
+    .pf-in-toast { display: none; }
+    .pf-eanmsg { font-size: 13.5px; }
+    .pf-stock-input { width: 104px !important; min-height: 48px; font-size: 24px !important; }
+    .pf-scan-body { padding: 0 12px 12px; }
+  }
+`;
+
+/** En-tête des pages fiche / création (classes .fp-*) : sur téléphone le
+ *  nom du produit tient sur deux lignes au lieu d'être coupé. */
+export const FP_CSS = `
+  .fp-crumb { font-size: 10.5px; color: ${T.muted}; }
+  .fp-name { font-size: 16px; font-weight: 600; color: ${T.ink}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 899px) {
+    .fp-crumb { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fp-name { line-height: 1.25; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+  }
+`;
+
+/** Signal « tout déplier » : un champ obligatoire invalide dans un bloc
+ *  replié empêcherait la soumission sans rien montrer. */
+const OpenAll = createContext(0);
+
 /* ── Petites briques visuelles du handoff ─────────────────── */
-const Card = ({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) => (
-  <div className="sc-card">
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
-      <span className="sc-card-title">{title}</span>
-      {action}
+const Card = ({ title, action, children, defaultOpen = true }: {
+  title: string; action?: React.ReactNode; children: React.ReactNode;
+  /** Téléphone seulement : bloc replié à l'arrivée. */
+  defaultOpen?: boolean;
+}) => {
+  const [open, setOpen] = useState(defaultOpen);
+  const signal = useContext(OpenAll);
+  useEffect(() => { if (signal) setOpen(true); }, [signal]);
+  return (
+    <div className={`sc-card pf-card${open ? '' : ' closed'}`}>
+      <div className="pf-card-head">
+        <button type="button" className="pf-card-toggle" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+          <span className="sc-card-title">{title}</span>
+          <span className="ms pf-chev" aria-hidden="true">expand_more</span>
+        </button>
+        {/* Une action d'en-tête (Ajouter…) ouvre le bloc qu'elle remplit */}
+        {action && <div onClickCapture={() => setOpen(true)} style={{ flexShrink: 0 }}>{action}</div>}
+      </div>
+      <div className="pf-card-body">{children}</div>
     </div>
-    <div style={{ padding: '13px 15px' }}>{children}</div>
-  </div>
-);
+  );
+};
 
 const Field = ({ label, hint, children }: { label?: string; hint?: string; children: React.ReactNode }) => (
   <div style={{ marginBottom: 12 }}>
     {label && <label className="sc-label">{label}</label>}
     {children}
-    {hint && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>{hint}</div>}
+    {hint && <div className="pf-hint" style={{ marginTop: 4 }}>{hint}</div>}
   </div>
 );
 
@@ -139,9 +223,9 @@ const Switch = ({ on, onChange, label, hint }: { on: boolean; onChange: (v: bool
   <div>
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
       <button type="button" className="sc-switch" role="switch" aria-checked={on} onClick={() => onChange(!on)} />
-      <span style={{ fontSize: 12.5, color: T.text2 }}>{label}</span>
+      <span className="pf-switch-label">{label}</span>
     </label>
-    {hint && <div style={{ fontSize: 10.5, color: T.muted, margin: '4px 0 0 44px', lineHeight: 1.45 }}>{hint}</div>}
+    {hint && <div className="pf-hint pf-switch-hint">{hint}</div>}
   </div>
 );
 
@@ -175,6 +259,11 @@ export default function ProductForm({
   const [eanMsg, setEanMsg] = useState('');
   const [asStatus, setAsStatus] = useState<AutoSaveStatus>('idle');
   const fileRef = useRef<HTMLInputElement>(null);
+  /* Téléphone : « Prendre une photo » ouvre directement l'appareil photo
+     (capture), « Galerie » garde le choix du système. */
+  const camRef = useRef<HTMLInputElement>(null);
+  const mobile = useIsMobile();
+  const [openAll, setOpenAll] = useState(0);
   const asTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialized = useRef(false);
 
@@ -318,9 +407,10 @@ export default function ProductForm({
   const LangPicker = () => (
     <div style={{ display: 'flex', gap: 4 }}>
       {LANGS.map(l => (
-        <button key={l.id} type="button" className={`sc-chip${lang === l.id ? ' on' : ''}`}
-                style={{ height: 26, padding: '0 10px', fontSize: 11 }}
-                onClick={() => setLang(l.id)}>{l.label}</button>
+        <button key={l.id} type="button" className={`sc-chip pf-lang${lang === l.id ? ' on' : ''}`}
+                onClick={() => setLang(l.id)} aria-pressed={lang === l.id} aria-label={l.label}>
+          <span className="pf-long">{l.label}</span><span className="pf-short">{l.id.toUpperCase()}</span>
+        </button>
       ))}
     </div>
   );
@@ -345,8 +435,14 @@ export default function ProductForm({
   const margePct = pa > 0 && pvNet > 0 ? ((pvNet - pa) / pvNet) * 100 : null;
   const margeColor = margePct === null ? T.muted : margePct >= 50 ? T.green : margePct >= 30 ? '#C97A2B' : T.red;
 
+  /* Blocs secondaires repliés à l'arrivée sur téléphone s'ils sont vides. */
+  const aDesVariantes = form.variants.some(v => v.label || v.price);
+  const aUneNutrition = Object.values(form.nutrition || {}).some(v => String(v || '').trim());
+
   return (
-    <form id={formId} onSubmit={handleSubmit}>
+    <OpenAll.Provider value={openAll}>
+    <form id={formId} onSubmit={handleSubmit} onInvalidCapture={() => setOpenAll(n => n + 1)}>
+      <style dangerouslySetInnerHTML={{ __html: PF_CSS }} />
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
         {/* ══════════ COLONNE PRINCIPALE ══════════ */}
@@ -406,7 +502,7 @@ export default function ProductForm({
 
                 {/* Encart marge recalculé à la frappe */}
                 <div style={{ background: '#F2F5F0', border: `1px solid ${T.border}`, borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: T.muted, marginBottom: 10 }}>
+                  <div className="pf-kicker">
                     Coût & marge
                   </div>
                   {pa <= 0 ? (
@@ -422,7 +518,7 @@ export default function ProductForm({
                       ].map(x => (
                         <div key={x.l} style={{ textAlign: 'center' }}>
                           <div className="sc-num" style={{ fontSize: 16, fontWeight: 700, color: x.c }}>{x.v}</div>
-                          <div style={{ fontSize: 10.5, color: T.muted }}>{x.l}</div>
+                          <div className="pf-hint">{x.l}</div>
                         </div>
                       ))}
                     </div>
@@ -430,7 +526,7 @@ export default function ProductForm({
                 </div>
               </Card>
 
-              <Card title="Remise / promo">
+              <Card title="Remise / promo" defaultOpen={!!form.discount_type}>
                 <Field label="Type de remise" hint="La remise porte sur le prix de vente TTC et s'applique aussi aux variantes.">
                   <select className="sc-input sc-select" value={form.discount_type}
                           onChange={e => set('discount_type', e.target.value)}>
@@ -491,13 +587,13 @@ export default function ProductForm({
                 )}
               </Card>
 
-              <Card title="Variantes de conditionnement"
+              <Card title="Variantes de conditionnement" defaultOpen={aDesVariantes}
                     action={<button type="button" className="sc-btn sc-btn-secondary" onClick={addVariant}><span className="ms">add</span>Ajouter</button>}>
-                <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 10 }}>
+                <div className="pf-hint" style={{ marginBottom: 10 }}>
                   Ex : 50 g, 100 g, 250 g — chaque variante peut avoir son prix.
                 </div>
                 {form.variants.map((v, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 30px', gap: 8, marginBottom: 8 }}>
+                  <div key={i} className="pf-var">
                     <input className="sc-input" placeholder="Libellé (ex : 50 g)" value={v.label}
                            onChange={e => setVariant(i, 'label', e.target.value)} />
                     <input className="sc-input sc-num" placeholder="Prix €" type="number" step="0.01" min="0"
@@ -510,15 +606,15 @@ export default function ProductForm({
                 ))}
               </Card>
 
-              <Card title="Composition de la box"
+              <Card title="Composition de la box" defaultOpen={estBox}
                     action={<button type="button" className="sc-btn sc-btn-secondary" onClick={ajouterAuLot}><span className="ms">add</span>Ajouter un produit</button>}>
-                <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+                <div className="pf-hint" style={{ marginBottom: 10, lineHeight: 1.5 }}>
                   Ajouter des produits transforme cette fiche en <b>box</b> : elle n&apos;a plus de stock propre.
                   Elle est en vente tant que chacun de ses produits est disponible, une box payée les réserve,
                   et ce sont eux qui sortent du stock à l&apos;expédition.
                 </div>
                 {form.bundle_items.map((b, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 30px', gap: 8, marginBottom: 8 }}>
+                  <div key={i} className="pf-lot">
                     <select className="sc-input sc-select" value={b.product_id} onChange={e => setLot(i, 'product_id', e.target.value)}>
                       <option value="">— Choisir un produit —</option>
                       {catalogue
@@ -563,7 +659,7 @@ export default function ProductForm({
                           : ligne('Prix identique aux produits à l’unité', '='))}
                       {ligne('Coût d’achat des produits', `${cout.toFixed(2)} €`)}
                       {sansPA.length > 0 && (
-                        <div style={{ fontSize: 10.5, color: '#C97A2B', margin: '2px 0 4px' }}>
+                        <div className="pf-hint" style={{ color: '#C97A2B', margin: '2px 0 4px' }}>
                           Sans prix d&apos;achat (compté 0 €) : {sansPA.map(x => x.p.name_fr).join(', ')}
                         </div>
                       )}
@@ -571,7 +667,7 @@ export default function ProductForm({
                               onClick={() => set('cost_price', cout.toFixed(2))}>
                         Reporter {cout.toFixed(2)} € dans le prix d&apos;achat
                       </button>
-                      <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>
+                      <div className="pf-hint" style={{ marginTop: 4 }}>
                         Ajoute ensuite l&apos;emballage (carton, papier de soie) au prix d&apos;achat pour des marges justes.
                       </div>
                       {typeof dispo === 'number' && ligne('Box vendables maintenant', String(Math.max(0, dispo)), dispo > 0 ? T.ink : T.red)}
@@ -584,7 +680,7 @@ export default function ProductForm({
 
           {show('photos') && (
             <Card title="Photos">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(104px,1fr))', gap: 10 }}>
+              <div className="pf-photos">
                 {form.image_url && (
                   <div style={{ position: 'relative', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', border: `1px solid ${T.border}`, background: '#F7F4EF' }}>
                     <img src={form.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -604,8 +700,9 @@ export default function ProductForm({
                     </button>
                   </div>
                 ))}
-                {/* Case « Déposer » pointillée */}
-                <button type="button"
+                {/* Case « Déposer » pointillée (téléphone : remplacée par les
+                    boutons Appareil photo / Galerie sous la grille) */}
+                <button type="button" className="pf-drop"
                         onClick={() => fileRef.current?.click()}
                         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                         onDragLeave={() => setDragOver(false)}
@@ -618,10 +715,22 @@ export default function ProductForm({
                           color: T.muted, fontSize: 11,
                         }}>
                   <span className="ms" style={{ fontSize: 22 }}>{uploading ? 'hourglass_top' : 'add_photo_alternate'}</span>
-                  {uploading ? 'Envoi…' : 'Déposer'}
+                  {uploading ? 'Envoi…' : <><span className="sc-hide-mobile">Déposer</span><span className="sc-only-mobile">Galerie</span></>}
                 </button>
               </div>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+              {/* Téléphone : photo prise sur le moment, sans passer par la galerie */}
+              <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                     onChange={e => { handleFileChange(e); e.target.value = ''; }} />
+              <div className="pf-camera">
+                <button type="button" className="sc-btn sc-btn-primary" onClick={() => camRef.current?.click()} disabled={uploading}>
+                  <span className="ms">photo_camera</span>{uploading ? 'Envoi…' : 'Prendre une photo'}
+                </button>
+                <button type="button" className="sc-btn sc-btn-secondary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  <span className="ms">photo_library</span>Galerie
+                </button>
+              </div>
+              <div className="pf-hint sc-only-mobile" style={{ marginTop: 6 }}>La photo envoyée devient l’image principale.</div>
 
               <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
                 <Field label="URL de l'image principale">
@@ -667,8 +776,8 @@ export default function ProductForm({
                 </Field>
               </Card>
 
-              <Card title="Valeurs nutritionnelles">
-                <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 10 }}>
+              <Card title="Valeurs nutritionnelles" defaultOpen={aUneNutrition}>
+                <div className="pf-hint" style={{ marginBottom: 10 }}>
                   Pour 100 g — laisser vide si non applicable. Rempli automatiquement par l&apos;import URL.
                 </div>
                 <Field label="Taille de la portion">
@@ -686,16 +795,16 @@ export default function ProductForm({
                   ['proteines', 'Protéines (g)', '8'],
                   ['sel', 'Sel (g)', '1.2'],
                 ] as [keyof Nutrition, string, string][]).map(([key, label, ph]) => (
-                  <div key={key} style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: 10, alignItems: 'center', marginBottom: 7 }}>
-                    <span style={{ fontSize: 12, color: key.startsWith('dont') ? T.muted : T.text2, paddingLeft: key.startsWith('dont') ? 12 : 0 }}>{label}</span>
-                    <input className="sc-input sc-num" style={{ height: 30 }} placeholder={ph}
+                  <div key={key} className="pf-nut">
+                    <span className="pf-nut-label" style={{ color: key.startsWith('dont') ? T.muted : T.text2, paddingLeft: key.startsWith('dont') ? 12 : 0 }}>{label}</span>
+                    <input className="sc-input sc-num" placeholder={ph} aria-label={label}
                            value={(form.nutrition as any)[key] || ''}
                            onChange={e => set('nutrition', { ...form.nutrition, [key]: e.target.value })} />
                   </div>
                 ))}
               </Card>
 
-              <Card title="Avis affichés">
+              <Card title="Avis affichés" defaultOpen={false}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <Field label="Note (sur 5)">
                     <input className="sc-input sc-num" type="number" step="0.1" min="0" max="5"
@@ -716,8 +825,8 @@ export default function ProductForm({
 
           {show('general') && (
             <Card title="Publication">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
-                <Switch on={form.is_active}     onChange={v => set('is_active', v)}     label="Visible sur le site" />
+              <div className="pf-switches" style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
+                <Switch on={form.is_active}    onChange={v => set('is_active', v)}     label="Visible sur le site" />
                 <Switch on={form.is_bestseller} onChange={v => set('is_bestseller', v)} label="Best-seller (affiché en home)" />
                 <Switch on={form.is_new}        onChange={v => set('is_new', v)}        label="Nouveauté" />
                 {!estBox && (
@@ -758,8 +867,8 @@ export default function ProductForm({
                     <button type="button" className="sc-iconbtn"
                             onClick={() => set('stock', String(Math.max(0, (parseInt(form.stock) || 0) - 1)))}
                             aria-label="Retirer une unité"><span className="ms">remove</span></button>
-                    <input className="sc-num" type="number" min="0" value={form.stock}
-                           onChange={e => set('stock', e.target.value)}
+                    <input className="sc-num pf-stock-input" type="number" min="0" inputMode="numeric" value={form.stock}
+                           onChange={e => set('stock', e.target.value)} aria-label="Stock"
                            style={{
                              width: 78, textAlign: 'center', fontSize: 22, fontWeight: 700,
                              border: `1px solid ${T.borderField}`, borderRadius: 7, padding: '4px 6px',
@@ -796,10 +905,23 @@ export default function ProductForm({
                 </div>
               </Field>
 
+              {/* Lecteur : en ligne sur ordinateur, plein écran sur téléphone
+                  (caméra allumée d'office : on vient de toucher « Scanner »). */}
               {scanOpen && (
-                <div style={{ marginBottom: 12 }}>
+                <div className="sc-scan-sheet" style={{ marginBottom: 12 }}>
+                  <div className="sc-scan-sheet-head">
+                    <div className="sc-scan-sheet-title">
+                      Scanner l’EAN
+                      <div className="sc-scan-sheet-sub">Nom, poids et photo manquants sont pré-remplis.</div>
+                    </div>
+                    <button type="button" onClick={() => setScanOpen(false)} aria-label="Fermer le scanner">
+                      <span className="ms" style={{ fontSize: 26 }}>close</span>
+                    </button>
+                  </div>
+                  <div className="pf-scan-body">
                   <BarcodeScanner
                     compact
+                    autoStart={mobile}
                     label="Vise le code-barres de l’article"
                     onScan={async code => {
                       set('ean', code);
@@ -823,10 +945,11 @@ export default function ProductForm({
                       setScanOpen(false);
                     }}
                   />
+                  </div>
                 </div>
               )}
 
-              {eanMsg && <div style={{ fontSize: 11, color: T.text2b, marginBottom: 10 }}>{eanMsg}</div>}
+              {eanMsg && <div className="pf-eanmsg" style={{ color: T.text2b, marginBottom: 10 }}>{eanMsg}</div>}
 
               {/* Aperçu du code-barres : barres de 1 à 4 px dérivées du chiffre */}
               {form.ean && form.ean.length >= 8 && (
@@ -851,10 +974,11 @@ export default function ProductForm({
           )}
 
           {toast && (
-            <div style={{ background: T.ink, color: '#fff', padding: '9px 14px', borderRadius: 7, fontSize: 12 }}>{toast}</div>
+            <div className="pf-in-toast" style={{ background: T.ink, color: '#fff', padding: '9px 14px', borderRadius: 7, fontSize: 12 }}>{toast}</div>
           )}
         </div>
       </div>
     </form>
+    </OpenAll.Provider>
   );
 }

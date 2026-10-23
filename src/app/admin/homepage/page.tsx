@@ -96,21 +96,23 @@ export default function HomepagePage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="topbar-title">{t('titre')}</div>
-        <div className="topbar-actions">
-          <a href={process.env.NEXT_PUBLIC_FRONT_URL || '#'} target="_blank" className="btn btn-secondary btn-sm">🌐 Voir le site</a>
+      <div className="sc-head">
+        <div><div className="sc-title">{t('titre')}</div></div>
+        <div className="sc-actions">
+          <a href={process.env.NEXT_PUBLIC_FRONT_URL || '#'} target="_blank" rel="noopener" className="sc-btn sc-btn-secondary">
+            <span className="ms">open_in_new</span>Voir le site
+          </a>
         </div>
       </div>
 
-      <div className="page-content">
-        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
+      <div>
+        <div className="hp-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
 
-          {/* Sidebar navigation sections */}
+          {/* Sidebar navigation sections (rangée de puces sur téléphone) */}
           <div>
-            <div className="card">
+            <div className="card hp-navcard">
               <div className="card-header"><span className="card-title">{t('sections')}</span></div>
-              <div style={{ padding: '8px 0' }}>
+              <div className="hp-nav" style={{ padding: '8px 0' }}>
                 {['hero', 'featured_band', 'fredagsmys_band'].map(key => (
                   <button key={key} onClick={() => setActiveS(key)}
                     style={{
@@ -122,10 +124,11 @@ export default function HomepagePage() {
                       cursor: 'pointer', transition: 'all 0.18s',
                     }}
                   >
-                    {SECTION_LABELS[key]?.split(' ').slice(0,2).join(' ') || key}
+                    {/* « 🎨 Bande Épices », pas « 🎨 Bande » : deux sections commencent par « Bande » */}
+                    {SECTION_LABELS[key]?.split(' (')[0] || key}
                   </button>
                 ))}
-                <div style={{ height: 1, background: 'var(--linen)', margin: '8px 0' }} />
+                <div className="hp-sep" style={{ height: 1, background: 'var(--linen)', margin: '8px 0' }} />
                 <button onClick={() => setActiveS('bestsellers')}
                   style={{
                     display: 'block', width: '100%', textAlign: 'left',
@@ -164,7 +167,7 @@ export default function HomepagePage() {
                       <span className="toggle-track"></span>
                       <span className="toggle-label" style={{ fontSize: 12 }}>{sec.is_active ? 'Visible' : 'Masquée'}</span>
                     </label>
-                    <button className="btn btn-primary btn-sm" onClick={() => saveSection(activeSection)} disabled={saving}>
+                    <button className="btn btn-primary btn-sm sc-hide-mobile" onClick={() => saveSection(activeSection)} disabled={saving}>
                       {saving ? '⏳' : '💾 Sauvegarder'}
                     </button>
                   </div>
@@ -222,7 +225,7 @@ export default function HomepagePage() {
                   <span style={{ fontSize: 13, color: 'var(--dust)' }}>{allProducts.filter(p => p.is_bestseller).length} / 6 recommandés max</span>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table className="data-table">
+                  <table className="data-table hp-table">
                     <thead><tr><th>{t('image')}</th><th>{tc('product')}</th><th>{t('categorie')}</th><th>Prix</th><th>{t('bestSeller')}</th></tr></thead>
                     <tbody>
                       {allProducts.map(p => (
@@ -253,7 +256,7 @@ export default function HomepagePage() {
                   <span style={{ fontSize: 13, color: 'var(--dust)' }}>{allProducts.filter(p => p.is_new).length} / 4 recommandés max</span>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table className="data-table">
+                  <table className="data-table hp-table">
                     <thead><tr><th>{t('image')}</th><th>{tc('product')}</th><th>{t('categorie')}</th><th>Prix</th><th>{t('nouveaute')}</th></tr></thead>
                     <tbody>
                       {allProducts.map(p => (
@@ -280,11 +283,40 @@ export default function HomepagePage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast-container">
-          <div className={`toast ${toast.type}`}>{toast.msg}</div>
+      {['hero', 'featured_band', 'fredagsmys_band'].includes(activeSection) && (
+        <div className="sc-sticky-actions sc-only-mobile-flex">
+          <button className="sc-btn sc-btn-primary" onClick={() => saveSection(activeSection)} disabled={saving}>
+            {saving ? '⏳' : '💾 Sauvegarder'}
+          </button>
         </div>
       )}
+
+      {/* .sc-toast : sur téléphone, sous la barre du haut (en bas il passait sous les onglets) */}
+      {toast && <div className="sc-toast">{toast.msg}</div>}
+
+      <style dangerouslySetInnerHTML={{ __html: HP_CSS }} />
     </>
   );
 }
+
+/* Téléphone : une colonne, sections en puces qui défilent, champs à 16 px
+   (sinon iOS zoome), produits en lignes compactes avec l'interrupteur à droite. */
+const HP_CSS = `
+@media screen and (max-width: 899px) {
+  .hp-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 12px !important; }
+  .hp-navcard .card-header, .hp-sep { display: none !important; }
+  .hp-nav { display: flex; gap: 6px; overflow-x: auto; padding: 8px !important; scrollbar-width: none; }
+  .hp-nav::-webkit-scrollbar { display: none; }
+  .hp-nav > button { width: auto !important; flex-shrink: 0; white-space: nowrap; min-height: 44px; padding: 10px 14px !important; font-size: 14px !important; border-left: none !important; border-radius: 8px; }
+  .card-header, .card-body { padding: 14px !important; }
+  .form-control { font-size: 16px; min-height: 44px; }
+  .lang-tab { min-height: 44px; font-size: 14px; }
+  .hp-table thead { display: none; }
+  .hp-table tr { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--linen); }
+  .hp-table td { display: block; padding: 0 !important; border: none !important; }
+  .hp-table td:nth-child(2) { flex: 1; min-width: 0; font-size: 14px; }
+  .hp-table td:nth-child(3) { display: none; }
+  .hp-table .td-img { width: 44px; height: 44px; }
+  .hp-table .toggle { min-width: 52px; min-height: 44px; justify-content: flex-end; }
+}
+`;

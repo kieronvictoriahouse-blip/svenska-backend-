@@ -9,6 +9,8 @@
 import { useEffect, useState, useCallback, useRef, type ChangeEvent } from 'react';
 import { adminFetch, downloadAuth } from '@/lib/auth-client';
 import { categoriesForSens, pcgShort } from '@/lib/finance/pcg';
+import { T } from '@/lib/admin-theme';
+import SegTabs, { minTextCss } from '@/components/SegTabs';
 
 // ── Formatage monétaire du handoff (espace fine insécable) ──
 const NBSP = ' ';
@@ -21,6 +23,92 @@ const signed = (n: number) => (n > 0 ? '+ ' : '− ') + eur(Math.abs(n)).replace
 
 const ACC = 'var(--accent)';
 type Tab = 'mois' | 'banque' | 'decl' | 'bilan' | 'livres';
+
+/* Mise en page qui change sur téléphone : en classes (un style en ligne
+   ne connaît pas les media queries). Sur ordinateur, ces classes
+   reprennent exactement les anciennes valeurs en ligne. */
+const CP_CSS = `
+  .cp-head { background: #fff; border-bottom: 1px solid ${T.border}; padding: 12px 18px 0; position: sticky; top: 0; z-index: 20; }
+  .cp-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .cp-ctrl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .cp-year { height: 32px; padding: 0 11px; border: 1px solid ${T.borderField}; border-radius: 7px; font-size: 12.5px; background: #fff; outline: none; color: ${T.ink}; }
+  .cp-tabs { display: flex; gap: 2px; overflow-x: auto; margin-top: 2px; }
+  .cp-body { padding: 16px 18px 90px; max-width: 1320px; }
+  .cp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .cp-kpi-val { font-size: 24px; font-weight: 700; letter-spacing: -.6px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .cp-bk-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .cp-m { display: none; }
+  .cp-recent-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid ${T.borderFaint2}; flex-wrap: wrap; }
+  .cp-recent-txt { flex: 1; min-width: 130px; }
+  .cp-recent-end { display: contents; }
+  .cp-bk-row { display: flex; gap: 12px; padding: 12px 15px; border-bottom: 1px solid ${T.borderFaint}; flex-wrap: wrap; align-items: flex-start; }
+  .cp-bk-main { flex: 1 1 260px; min-width: 0; }
+  .cp-bk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: 0 0 auto; }
+  .cp-bk-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .cp-bk-btn { min-height: 36px; }
+  .cp-auto { display: flex; align-items: center; gap: 11px; padding: 9px 16px; border-top: 1px solid ${T.borderFaint2}; flex-wrap: wrap; }
+  .cp-auto-l1, .cp-auto-l2 { display: contents; }
+  .cp-linkbtn { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; cursor: pointer; font-weight: 500; color: ${T.accentDefault}; }
+  .cp-gauge-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+  .cp-urssaf-amt { font-size: 48px; font-weight: 700; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; color: #fff; }
+  .cp-dl { display: flex; align-items: center; gap: 11px; padding: 11px 15px; border: none; border-bottom: 1px solid ${T.borderFaint}; cursor: pointer; background: none; width: 100%; text-align: left; color: inherit; }
+  .cp-dl:hover { background: ${T.rowHover}; }
+  .cp-blockbtn { min-height: 42px; }
+  .cp-jl { display: none; }
+
+  @media (max-width: 899px) {
+    /* En-tête : pleine largeur, non collant (sur un écran de 740 px utiles,
+       180 px d'en-tête figé mangeaient le quart de la vue). */
+    .cp-head { position: static; margin: -12px -12px 0; padding: 12px 12px 12px; }
+    .cp-head-row { align-items: stretch; gap: 10px; }
+    .cp-head-row > div:first-child { width: 100%; }
+    .cp-ctrl { width: 100%; flex-wrap: nowrap; gap: 8px; }
+    .cp-ctrl > * { flex: 1 1 0; min-width: 0; min-height: 44px; justify-content: center; }
+    .cp-year { height: 44px; font-size: 16px; }
+    .cp-body { padding: 12px 0 8px; }
+    .cp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .cp-kpis > div { padding: 12px !important; }
+    .cp-kpi-val { font-size: 20px; letter-spacing: -.4px; }
+    .cp-bk-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .cp-bk-kpis > div { padding: 12px !important; }
+    .cp-bk-kpis > div:last-child { grid-column: 1 / -1; }
+    .cp-m { display: flex; }
+    .cp-recent-row { flex-wrap: nowrap; padding: 6px 6px 6px 14px; }
+    .cp-recent-txt { min-width: 0; }
+    .cp-recent-end { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+    .cp-undo { min-height: 44px; padding: 0 8px !important; font-size: 13.5px !important; }
+    .cp-bk-row { padding: 12px; gap: 10px; }
+    .cp-bk-row .cp-bk-date { display: none; }
+    .cp-bk-side { flex: 1 1 100%; align-items: stretch; }
+    .cp-bk-side > .cp-bk-amt { display: none; }
+    .cp-bk-actions { flex-wrap: nowrap; }
+    .cp-bk-actions > button { flex: 1 1 0; justify-content: center; }
+    .cp-bk-btn { min-height: 44px; font-size: 14px !important; }
+    .cp-auto { flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 6px 8px 14px; }
+    .cp-auto-l1, .cp-auto-l2 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .cp-auto-l1 > span:last-child { flex: 1 1 auto !important; }
+    .cp-auto-l2 > span:nth-child(2) { flex: 1 1 auto !important; }
+    .cp-auto .cp-undo { min-height: 40px; }
+    .cp-linkbtn { min-height: 44px; padding: 0 6px; font-size: 13.5px !important; }
+    .cp-other-btn { flex: 1 1 100% !important; }
+    .cp-gauge-head > span:first-child { flex: 1 1 auto; }
+    .cp-gauge-head > span:nth-child(2) { order: 3; flex-basis: 100%; }
+    .cp-urssaf-amt { font-size: 40px; letter-spacing: -1.5px; }
+    .cp-dl { min-height: 60px; }
+    .cp-blockbtn { min-height: 44px; }
+    .cp-jt { display: none; }
+    .cp-jl { display: block; }
+  }
+  ${minTextCss('.cp-root')}
+`;
+
+const TAB_DEFS: [Tab, string, string, string][] = [
+  ['mois', 'Ce mois', 'Ce mois', 'inbox'],
+  ['banque', 'Banque', 'Banque', 'account_balance'],
+  ['decl', 'Déclarations', 'URSSAF', 'gavel'],
+  ['bilan', 'Résultat & bilan', 'Bilan', 'query_stats'],
+  ['livres', 'Livres & export', 'Livres', 'menu_book'],
+];
 
 export default function ComptabilitePage() {
   const now = new Date();
@@ -208,15 +296,16 @@ export default function ComptabilitePage() {
 
   // ═══ Rendu ═══
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      {/* En-tête sticky */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E7E1D8', padding: '12px 18px 0', position: 'sticky', top: 0, zIndex: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+    <div className="cp-root" style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      <style dangerouslySetInnerHTML={{ __html: CP_CSS }} />
+      {/* En-tête sticky (statique sur téléphone) */}
+      <div className="cp-head">
+        <div className="cp-head-row">
           <div>
-            <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: -.2 }}>Comptabilité</div>
-            <div style={{ fontSize: 11.5, color: '#8B7E72', marginTop: 1 }}>Micro-entreprise · vente de marchandises · exercice {year}</div>
+            <div className="sc-title">Comptabilité</div>
+            <div className="sc-sub" style={{ marginTop: 1 }}>Micro-entreprise · vente de marchandises · exercice {year}</div>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="cp-ctrl">
             <div onClick={toggleExpert} role="switch" aria-checked={expert} tabIndex={0}
                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpert(); } }}
                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '5px 10px', borderRadius: 7, background: '#F7F4EF', border: '1px solid #E7E1D8' }}>
@@ -225,14 +314,13 @@ export default function ComptabilitePage() {
               </div>
               <span style={{ fontSize: 12, color: '#5A5248', whiteSpace: 'nowrap' }}>Vue comptable</span>
             </div>
-            <select value={year} onChange={e => setYear(Number(e.target.value))}
-                    style={{ height: 32, padding: '0 11px', border: '1px solid #E1DBD2', borderRadius: 7, fontSize: 12.5, background: '#fff', outline: 'none' }}>
+            <select className="cp-year" aria-label="Exercice" value={year} onChange={e => setYear(Number(e.target.value))}>
               {[now.getFullYear(), now.getFullYear() - 1].map(y => <option key={y} value={y}>Exercice {y}</option>)}
             </select>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 2, overflowX: 'auto', marginTop: 2 }}>
-          {([['mois', 'Ce mois', 'inbox'], ['banque', 'Banque', 'account_balance'], ['decl', 'Déclarations', 'gavel'], ['bilan', 'Résultat & bilan', 'query_stats'], ['livres', 'Livres & export', 'menu_book']] as [Tab, string, string][]).map(([k, l, ic]) => {
+        <div className="cp-tabs sc-hide-mobile">
+          {TAB_DEFS.map(([k, l, , ic]) => {
             const on = tab === k;
             return (
               <button key={k} onClick={() => setTab(k)}
@@ -242,6 +330,11 @@ export default function ComptabilitePage() {
               </button>
             );
           })}
+        </div>
+        {/* Téléphone : les cinq onglets visibles d'un coup */}
+        <div className="sc-only-mobile" style={{ marginTop: 12 }}>
+          <SegTabs label="Sections de la comptabilité" value={tab} onChange={setTab}
+                   tabs={TAB_DEFS.map(([k, l, short, ic]) => ({ key: k, label: short, title: l, icon: ic }))} />
         </div>
       </div>
 
@@ -257,7 +350,7 @@ export default function ComptabilitePage() {
       <input ref={importInput} type="file" accept=".ofx,.qfx,.csv,.txt" style={{ display: 'none' }} onChange={onImportFile} />
 
       {toast && (
-        <div role="status" aria-live="polite" style={{ position: 'fixed', bottom: 24, right: 24, background: '#1C2028', color: '#fff', padding: '10px 18px', borderRadius: 8, fontSize: 12.5, zIndex: 300, boxShadow: '0 6px 20px rgba(0,0,0,.18)' }}>{toast}</div>
+        <div role="status" aria-live="polite" className="sc-toast">{toast}</div>
       )}
     </div>
   );
@@ -276,12 +369,12 @@ export default function ComptabilitePage() {
     const prov = d.provision;
     const provPct = prov.yearTarget ? Math.round(prov.provisioned / prov.yearTarget * 100) : 0;
     return (
-      <div style={{ padding: '16px 18px 90px', maxWidth: 1320 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 14 }}>
+      <div className="cp-body">
+        <div className="cp-kpis">
           {cockpit.map((k, i) => (
-            <div key={i} style={{ background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, padding: '13px 15px' }}>
+            <div key={i} style={{ background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, padding: '13px 15px', minWidth: 0 }}>
               <div style={{ fontSize: 9.5, letterSpacing: 1.4, textTransform: 'uppercase', color: '#8B7E72', fontWeight: 600 }}>{k[0]}</div>
-              <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -.6, lineHeight: 1.1, marginTop: 6, fontVariantNumeric: 'tabular-nums', color: k[3] as string }}>{k[1]}</div>
+              <div className="cp-kpi-val" style={{ marginTop: 6, color: k[3] as string }}>{k[1]}</div>
               <div style={{ fontSize: 11, color: '#9C9184', marginTop: 5 }}>{k[2]}</div>
             </div>
           ))}
@@ -347,7 +440,7 @@ export default function ComptabilitePage() {
                       style={{ flex: '1 1 190px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#3E5238', color: '#fff', border: 'none', borderRadius: 9, padding: '12px 16px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', minHeight: 44 }}>
                       <span className="ms" style={{ fontSize: 19, fontVariationSettings: "'wght' 400" }}>check</span>{cur.isSplit ? 'Décomposer le versement' : "Oui, c'est ça"}
                     </button>
-                    <button onClick={() => setCOther(v => !v)}
+                    <button className="cp-other-btn" aria-expanded={cOther} onClick={() => setCOther(v => !v)}
                       style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#fff', color: '#3A3228', border: '1px solid #E1DBD2', borderRadius: 9, padding: '12px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', minHeight: 44 }}>
                       <span className="ms" style={{ fontSize: 18, fontVariationSettings: "'wght' 300" }}>tune</span>Non, c'est autre chose
                     </button>
@@ -389,16 +482,20 @@ export default function ComptabilitePage() {
               <div style={{ borderTop: '1px solid #F1EDE7', background: '#FBFAF7' }}>
                 <div style={{ padding: '9px 16px 5px', fontSize: 9, letterSpacing: 1.6, textTransform: 'uppercase', color: '#A79C8E', fontWeight: 600 }}>Déjà rangé</div>
                 {d.recent.map((r: any) => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderTop: '1px solid #F1EDE7', flexWrap: 'wrap' }}>
+                  <div key={r.id} className="cp-recent-row">
                     <span className="ms" style={{ fontSize: 17, color: '#3E5238', fontVariationSettings: "'wght' 300" }}>{r.icon}</span>
-                    <div style={{ flex: 1, minWidth: 130 }}>
+                    <div className="cp-recent-txt">
                       <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</div>
                       <div style={{ fontSize: 10.5, color: '#9C9184' }}>{r.cat}{expert ? ` · ${pcgShort(r.code)}` : ''}</div>
                     </div>
-                    <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{r.direction === 'in' ? '+ ' : '− '}{eur(r.amount).replace('− ', '')}</span>
-                    <button onClick={() => undo(r.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', fontSize: 11.5, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>
-                      <span className="ms" style={{ fontSize: 15, fontVariationSettings: "'wght' 300" }}>undo</span>Annuler
-                    </button>
+                    {/* Sur ordinateur, display: contents (rangée inchangée) ; sur
+                        téléphone, montant au-dessus d'« Annuler » à droite. */}
+                    <div className="cp-recent-end">
+                      <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{r.direction === 'in' ? '+ ' : '− '}{eur(r.amount).replace('− ', '')}</span>
+                      <button className="cp-undo" onClick={() => undo(r.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', fontSize: 11.5, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>
+                        <span className="ms" style={{ fontSize: 15, fontVariationSettings: "'wght' 300" }}>undo</span>Annuler
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -445,15 +542,15 @@ export default function ComptabilitePage() {
     const d = bankData; if (!d) return null;
     const pct = d.total ? Math.round(d.done / d.total * 100) : 100;
     return (
-      <div style={{ padding: '16px 18px 90px', maxWidth: 1320 }}>
-        {/* 3 KPI soldes */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+      <div className="cp-body">
+        {/* 3 KPI soldes (téléphone : banque | compta, puis l'écart en pleine largeur) */}
+        <div className="cp-bk-kpis">
           <div style={{ flex: '1 1 190px', minWidth: 0, background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, padding: '13px 15px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <span className="ms" style={{ fontSize: 17, color: '#1C4E80', fontVariationSettings: "'wght' 300" }}>account_balance</span>
               <span style={{ fontSize: 9.5, letterSpacing: 1.4, textTransform: 'uppercase', color: '#8B7E72', fontWeight: 600 }}>Ce que dit la banque</span>
             </div>
-            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -.6, lineHeight: 1.1, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{eur(d.statementBalance)}</div>
+            <div className="cp-kpi-val" style={{ marginTop: 6 }}>{eur(d.statementBalance)}</div>
             <div style={{ fontSize: 11, color: '#9C9184', marginTop: 4 }}>solde le plus récent des comptes connectés</div>
           </div>
           <div style={{ flex: '1 1 190px', minWidth: 0, background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, padding: '13px 15px' }}>
@@ -461,7 +558,7 @@ export default function ComptabilitePage() {
               <span className="ms" style={{ fontSize: 17, color: '#7B4F7B', fontVariationSettings: "'wght' 300" }}>menu_book</span>
               <span style={{ fontSize: 9.5, letterSpacing: 1.4, textTransform: 'uppercase', color: '#8B7E72', fontWeight: 600 }}>Ce que dit ta compta</span>
             </div>
-            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -.6, lineHeight: 1.1, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{eur(d.bookBalance)}</div>
+            <div className="cp-kpi-val" style={{ marginTop: 6 }}>{eur(d.bookBalance)}</div>
             <div style={{ fontSize: 11, color: '#9C9184', marginTop: 4 }}>solde du compte 512 · Banque</div>
           </div>
           <div style={{ flex: '1 1 260px', minWidth: 0, background: '#F2F5F0', border: '1px solid #DFE7DA', borderRadius: 10, padding: '13px 15px' }}>
@@ -469,7 +566,7 @@ export default function ComptabilitePage() {
               <span className="ms" style={{ fontSize: 17, color: '#3E5238', fontVariationSettings: "'wght' 400" }}>verified</span>
               <span style={{ fontSize: 9.5, letterSpacing: 1.4, textTransform: 'uppercase', color: '#5B6B54', fontWeight: 600 }}>Écart · {d.gap === 0 ? 'entièrement expliqué' : 'à traiter'}</span>
             </div>
-            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -.6, lineHeight: 1.1, marginTop: 6, fontVariantNumeric: 'tabular-nums', color: '#3E5238' }}>{eur(d.gap)}</div>
+            <div className="cp-kpi-val" style={{ marginTop: 6, color: '#3E5238' }}>{eur(d.gap)}</div>
             <div style={{ fontSize: 11, color: '#5B6B54', marginTop: 4 }}>{d.left} opération(s) pas encore rapprochée(s)</div>
           </div>
         </div>
@@ -489,12 +586,19 @@ export default function ComptabilitePage() {
               {d.rows.map((b: any) => {
                 const inn = b.direction === 'in';
                 const c = b.kind === 'create' ? '#A6501F' : (b.confidence >= 90 ? '#3E5238' : '#8A5B08');
+                const dateTxt = new Date(b.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+                const amtTxt = (inn ? '+ ' : '− ') + eur(b.amount).replace('− ', '');
                 return (
-                  <div key={b.id} style={{ display: 'flex', gap: 12, padding: '12px 15px', borderBottom: '1px solid #F6F3EE', flexWrap: 'wrap', alignItems: 'flex-start', borderLeft: `3px solid ${c}` }}>
-                    <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                  <div key={b.id} className="cp-bk-row" style={{ borderLeft: `3px solid ${c}` }}>
+                    <div className="cp-bk-main">
+                      {/* Téléphone : date et montant en tête de carte */}
+                      <div className="cp-m" style={{ alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
+                        <span style={{ fontSize: 12.5, color: T.muted, fontVariantNumeric: 'tabular-nums' }}>{dateTxt}</span>
+                        <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: inn ? T.green : T.ink }}>{amtTxt}</span>
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11.5, color: '#9C9184', fontVariantNumeric: 'tabular-nums' }}>{new Date(b.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
-                        <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 11.5, fontWeight: 600, color: '#3A3228' }}>{b.label}</span>
+                        <span className="cp-bk-date" style={{ fontSize: 11.5, color: '#9C9184', fontVariantNumeric: 'tabular-nums' }}>{dateTxt}</span>
+                        <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 11.5, fontWeight: 600, color: '#3A3228', overflowWrap: 'anywhere' }}>{b.label}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 7 }}>
                         <span className="ms" style={{ fontSize: 16, color: '#C4BBAE', fontVariationSettings: "'wght' 300" }}>subdirectory_arrow_right</span>
@@ -508,11 +612,11 @@ export default function ComptabilitePage() {
                       </div>
                       <div style={{ fontSize: 11.5, color: '#8B7E72', marginTop: 6, lineHeight: 1.55 }}>{b.why}</div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flex: '0 0 auto' }}>
-                      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: inn ? '#3E5238' : '#1C2028' }}>{inn ? '+ ' : '− '}{eur(b.amount).replace('− ', '')}</span>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button disabled={busy} onClick={() => reconcile(b.id, 'ignore')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#fff', color: '#8B7E72', border: '1px solid #E1DBD2', borderRadius: 7, padding: '8px 11px', fontSize: 12, cursor: 'pointer', minHeight: 36 }}>Plus tard</button>
-                        <button disabled={busy} onClick={() => reconcile(b.id, b.kind === 'split' ? 'split' : (b.kind === 'create' ? 'create' : 'match'), b.category)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#1C2028', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer', minHeight: 36 }}>
+                    <div className="cp-bk-side">
+                      <span className="cp-bk-amt" style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: inn ? '#3E5238' : '#1C2028' }}>{amtTxt}</span>
+                      <div className="cp-bk-actions">
+                        <button className="cp-bk-btn" disabled={busy} onClick={() => reconcile(b.id, 'ignore')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#fff', color: '#8B7E72', border: '1px solid #E1DBD2', borderRadius: 7, padding: '8px 11px', fontSize: 12, cursor: 'pointer' }}>Plus tard</button>
+                        <button className="cp-bk-btn" disabled={busy} onClick={() => reconcile(b.id, b.kind === 'split' ? 'split' : (b.kind === 'create' ? 'create' : 'match'), b.category)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#1C2028', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
                           <span className="ms" style={{ fontSize: 16, fontVariationSettings: "'wght' 300" }}>{b.kind === 'create' ? 'add' : (b.kind === 'split' ? 'call_split' : 'link')}</span>
                           {b.kind === 'create' ? "Créer l'écriture" : (b.kind === 'split' ? 'Décomposer' : 'Rapprocher')}
                         </button>
@@ -540,13 +644,20 @@ export default function ComptabilitePage() {
                 </div>
                 <div style={{ background: '#FBFAF7' }}>
                   {d.autoRows.map((a: any) => (
-                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 16px', borderTop: '1px solid #F1EDE7', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: '#9C9184', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{new Date(a.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
-                      <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 11, color: '#6E6459', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.label}</span>
-                      <span className="ms" style={{ fontSize: 15, color: '#3E5238', fontVariationSettings: "'wght' 300" }}>link</span>
-                      <span style={{ fontSize: 11.5, color: '#3A3228', flex: '1 1 150px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.match}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{a.direction === 'in' ? '+ ' : '− '}{eur(a.amount).replace('− ', '')}</span>
-                      <button onClick={() => undo(a.id)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>Annuler</button>
+                    // Ordinateur : une seule rangée (les deux groupes sont en
+                    // display: contents). Téléphone : date + libellé banque,
+                    // puis rapprochement + montant + Annuler.
+                    <div key={a.id} className="cp-auto">
+                      <div className="cp-auto-l1">
+                        <span style={{ fontSize: 11, color: '#9C9184', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{new Date(a.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
+                        <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 11, color: '#6E6459', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.label}</span>
+                      </div>
+                      <div className="cp-auto-l2">
+                        <span className="ms" style={{ fontSize: 15, color: '#3E5238', fontVariationSettings: "'wght' 300" }}>link</span>
+                        <span style={{ fontSize: 11.5, color: '#3A3228', flex: '1 1 150px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.match}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{a.direction === 'in' ? '+ ' : '− '}{eur(a.amount).replace('− ', '')}</span>
+                        <button className="cp-undo" onClick={() => undo(a.id)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>Annuler</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -580,7 +691,7 @@ export default function ComptabilitePage() {
             <div style={{ background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, padding: '14px 15px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>Comptes connectés</div>
-                <button disabled={busy} onClick={() => syncBank()} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', fontSize: 11.5, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>
+                <button className="cp-linkbtn" disabled={busy} onClick={() => syncBank()} style={{ fontSize: 11.5 }}>
                   <span className="ms" style={{ fontSize: 15 }}>sync</span>Actualiser
                 </button>
               </div>
@@ -622,7 +733,7 @@ export default function ComptabilitePage() {
       ['Payer les cotisations', steps.s4 || false, 'prélèvement automatique à l\'échéance'],
     ];
     return (
-      <div style={{ padding: '16px 18px 90px', maxWidth: 1320 }}>
+      <div className="cp-body">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: '2 1 440px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {/* Carte sombre URSSAF */}
@@ -633,7 +744,7 @@ export default function ComptabilitePage() {
               </div>
               <div style={{ fontSize: 13, color: 'rgba(255,255,255,.72)', marginTop: 12, lineHeight: 1.6 }}>Une seule chose à faire : recopier ce montant sur <span style={{ color: '#fff', fontWeight: 600 }}>urssaf.fr</span>, dans la case <span style={{ color: '#fff', fontWeight: 600 }}>« Ventes de marchandises »</span>.</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap', marginTop: 14 }}>
-                <div style={{ fontSize: 48, fontWeight: 700, letterSpacing: -2, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: '#fff' }}>{eur(d.amount)}</div>
+                <div className="cp-urssaf-amt">{eur(d.amount)}</div>
                 <button onClick={() => copyUrssaf(d.amount)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,.12)', color: '#fff', border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', minHeight: 42 }}>
                   <span className="ms" style={{ fontSize: 17, fontVariationSettings: "'wght' 300" }}>{copied ? 'check' : 'content_copy'}</span>{copied ? 'Copié' : 'Copier le montant'}
                 </button>
@@ -675,7 +786,7 @@ export default function ComptabilitePage() {
                   const col = g.pct >= 90 ? '#B03A2E' : g.pct >= 70 ? '#8A5B08' : (i === 1 ? '#1C4E80' : '#3E5238');
                   return (
                     <div key={i}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <div className="cp-gauge-head">
                         <span style={{ fontSize: 12.5, fontWeight: 600 }}>{g.label}</span>
                         <span style={{ fontSize: 11.5, color: '#8B7E72', fontVariantNumeric: 'tabular-nums' }}>{eur0(g.value)} sur {eur0(g.max)}</span>
                         <span style={{ fontSize: 11.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: col }}>{g.pct} %</span>
@@ -721,7 +832,7 @@ export default function ComptabilitePage() {
   function renderBilan() {
     const d = bilanData; if (!d) return null;
     return (
-      <div style={{ padding: '16px 18px 90px', maxWidth: 1320 }}>
+      <div className="cp-body">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
           {/* Compte de résultat */}
           <div style={{ flex: '1 1 400px', minWidth: 0, background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, padding: '15px 16px' }}>
@@ -785,14 +896,33 @@ export default function ComptabilitePage() {
   // ══════════════ ONGLET 5 — LIVRES & EXPORT ══════════════
   function renderLivres() {
     return (
-      <div style={{ padding: '16px 18px 90px', maxWidth: 1320 }}>
+      <div className="cp-body">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: '2 1 500px', minWidth: 0, background: '#fff', border: '1px solid #E7E1D8', borderRadius: 10, overflow: 'hidden' }}>
             <div style={{ padding: '11px 15px', borderBottom: '1px solid #F1EDE7', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 600 }}>Journal des écritures</span>
               <span style={{ fontSize: 11, color: '#9C9184' }}>généré à partir de tes opérations rangées</span>
             </div>
-            <div style={{ overflowX: 'auto' }}>
+            {/* Téléphone : une écriture = deux lignes, le montant toujours visible
+                (dans le tableau, il fallait faire défiler 660 px pour l'atteindre). */}
+            <div className="cp-jl">
+              {journal.map((j, i) => (
+                <div key={i} style={{ padding: '10px 14px', borderBottom: `1px solid ${T.borderFaint}` }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontSize: 12.5, color: T.text2b, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{j.date}</span>
+                    <JrnBadge jrn={j.jrn} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: T.ink, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{j.label}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{eur(j.amount)}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 3, fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 12, color: T.muted }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.piece}</span>
+                    <span style={{ whiteSpace: 'nowrap', color: T.text2 }} aria-label={`débit ${j.deb}, crédit ${j.cred}`}>{j.deb} → {j.cred}</span>
+                  </div>
+                </div>
+              ))}
+              {journal.length === 0 && <div style={{ padding: 36, textAlign: 'center', color: T.muted, fontSize: 14 }}>Aucune écriture pour l'instant.</div>}
+            </div>
+            <div className="cp-jt" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 660 }}>
                 <thead><tr>{['Date', 'Journal', 'Pièce', 'Libellé', 'Débit', 'Crédit', 'Montant'].map((h, i) => (
                   <th key={i} style={{ padding: '8px 15px', textAlign: i >= 4 && i <= 5 ? 'center' : (i === 6 ? 'right' : 'left'), fontSize: 9, letterSpacing: 1.3, textTransform: 'uppercase', color: '#9C9184', fontWeight: 600, background: '#FBF9F6', borderBottom: '1px solid #E7E1D8' }}>{h}</th>
@@ -802,7 +932,7 @@ export default function ComptabilitePage() {
                     <tr key={i}>
                       <td style={{ padding: '8px 15px', borderBottom: '1px solid #F6F3EE', fontSize: 12, color: '#6E6459', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{j.date}</td>
                       <td style={{ padding: '8px 12px', borderBottom: '1px solid #F6F3EE' }}>
-                        <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 10.5, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: j.jrn === 'VE' ? '#E9F0E6' : j.jrn === 'AC' ? '#FCF1E4' : '#E6EDF6', color: j.jrn === 'VE' ? '#3E5238' : j.jrn === 'AC' ? '#A6501F' : '#1C4E80' }}>{j.jrn}</span>
+                        <JrnBadge jrn={j.jrn} />
                       </td>
                       <td style={{ padding: '8px 12px', borderBottom: '1px solid #F6F3EE', fontSize: 11.5, color: '#9C9184', fontFamily: 'ui-monospace,Menlo,monospace', whiteSpace: 'nowrap' }}>{j.piece}</td>
                       <td style={{ padding: '8px 12px', borderBottom: '1px solid #F6F3EE', fontSize: 12.5 }}>{j.label}</td>
@@ -826,7 +956,7 @@ export default function ComptabilitePage() {
                 ['Comptabilité complète (Excel)', 'table_view', 'toutes les écritures de l\'exercice', () => dl(`/api/accounting/export-excel?year=${year}`, `Comptabilite_${year}.csv`)],
                 ['Livre des recettes', 'menu_book', 'le registre légal de la micro-entreprise', () => dl(`/api/accounting/livre-recettes?year=${year}`, `livre-recettes-${year}.csv`)],
               ].map((e, i) => (
-                <div key={i} onClick={e[3] as any} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 15px', borderBottom: '1px solid #F6F3EE', cursor: 'pointer' }}>
+                <button key={i} type="button" className="cp-dl" onClick={e[3] as any}>
                   <div style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in srgb, var(--accent) 12%, transparent)' }}>
                     <span className="ms" style={{ fontSize: 19, color: ACC, fontVariationSettings: "'wght' 300" }}>{e[1] as string}</span>
                   </div>
@@ -835,7 +965,7 @@ export default function ComptabilitePage() {
                     <div style={{ fontSize: 11, color: '#9C9184', marginTop: 1, lineHeight: 1.45 }}>{e[2] as string}</div>
                   </div>
                   <span className="ms" style={{ fontSize: 18, color: '#C4BBAE', fontVariationSettings: "'wght' 300" }}>download</span>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -849,13 +979,13 @@ export default function ComptabilitePage() {
                   <span style={{ fontSize: 11.5, color: '#3E5238', flex: 1 }}>Mois clôturé le {closeData.closedAt ? new Date(closeData.closedAt).toLocaleDateString('fr-FR') : ''}.</span>
                 </div>
               ) : closeData?.canClose ? (
-                <button disabled={busy} onClick={closeMonth} style={{ width: '100%', background: '#1C2028', color: '#fff', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginTop: 11, minHeight: 42 }}>Clôturer {period}</button>
+                <button className="cp-blockbtn" disabled={busy} onClick={closeMonth} style={{ width: '100%', background: '#1C2028', color: '#fff', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginTop: 11 }}>Clôturer {period}</button>
               ) : <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FDF9F1', border: '1px solid #E8CFA8', borderRadius: 8, padding: '9px 12px', marginTop: 11 }}>
                   <span className="ms" style={{ fontSize: 17, color: '#A6501F', fontVariationSettings: "'wght' 400" }}>warning</span>
                   <span style={{ fontSize: 11.5, color: '#8A5B08', flex: 1 }}>Il reste {closeData?.left ?? '…'} opération(s) à ranger : la clôture attendra.</span>
                 </div>
-                <button disabled style={{ width: '100%', background: '#F1EDE7', color: '#A79C8E', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed', marginTop: 11, minHeight: 42 }}>Clôturer {period}</button>
+                <button className="cp-blockbtn" disabled style={{ width: '100%', background: '#F1EDE7', color: '#A79C8E', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed', marginTop: 11 }}>Clôturer {period}</button>
               </>}
             </div>
           </div>
@@ -867,13 +997,14 @@ export default function ComptabilitePage() {
   // ── Modale de connexion bancaire ──
   function renderConnectModal() {
     return (
-      <div onClick={() => setConnectOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 'min(460px,100%)', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '15px 18px', borderBottom: '1px solid #F1EDE7', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      // Fenêtre partagée du shell : centrée sur ordinateur, plein écran sur téléphone.
+      <div className="sc-modal-back" onClick={() => setConnectOpen(false)}>
+        <div className="sc-modal" role="dialog" aria-modal="true" aria-label="Connecter ma banque" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+          <div className="sc-modal-head">
             <div style={{ fontSize: 14.5, fontWeight: 600 }}>Connecter ma banque</div>
-            <button onClick={() => setConnectOpen(false)} className="ms" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9C9184' }}>close</button>
+            <button className="sc-iconbtn" onClick={() => setConnectOpen(false)} aria-label="Fermer"><span className="ms" style={{ fontSize: 20 }}>close</span></button>
           </div>
-          <div style={{ padding: 18, overflowY: 'auto' }}>
+          <div className="sc-modal-body" style={{ padding: 18 }}>
             {institutions === null && <div style={{ textAlign: 'center', color: '#9C9184', fontSize: 12.5, padding: 20 }}>Chargement…</div>}
             {pickerExternal && (
               <div style={{ fontSize: 12.5, color: '#6E6459', lineHeight: 1.7 }}>
@@ -913,6 +1044,11 @@ export default function ComptabilitePage() {
 }
 
 // ── Composants partagés ──
+function JrnBadge({ jrn }: { jrn: string }) {
+  return (
+    <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 10.5, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: jrn === 'VE' ? '#E9F0E6' : jrn === 'AC' ? '#FCF1E4' : '#E6EDF6', color: jrn === 'VE' ? '#3E5238' : jrn === 'AC' ? '#A6501F' : '#1C4E80' }}>{jrn}</span>
+  );
+}
 function Ring({ pct }: { pct: number }) {
   return (
     <div style={{ width: 54, height: 54, borderRadius: '50%', flexShrink: 0, background: `conic-gradient(#3E5238 ${pct}%,#EFEBE4 0)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

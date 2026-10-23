@@ -72,6 +72,14 @@ export const TP = {
   reliquatCree: { fr: 'reliquat créé, articles restant dus', en: 'backorder created, items still owed', sv: 'restorder skapad, artiklar kvar att leverera' },
   moins: { fr: 'Moins', en: 'Less', sv: 'Färre' },
   plus: { fr: 'Plus', en: 'More', sv: 'Fler' },
+  // ── Téléphone ──
+  scanner: { fr: 'Scanner', en: 'Scan', sv: 'Skanna' },
+  fermerScan: { fr: 'Fermer le scanner', en: 'Close scanner', sv: 'Stäng skannern' },
+  cocher: { fr: 'Tout prélevé', en: 'All picked', sv: 'Allt plockat' },
+  decocher: { fr: 'Remettre à zéro', en: 'Reset to zero', sv: 'Nollställ' },
+  reste: { fr: 'reste', en: 'left', sv: 'kvar' },
+  termine: { fr: 'Tout est prélevé', en: 'Everything is picked', sv: 'Allt är plockat' },
+  voirArticles: { fr: 'Voir les articles', en: 'See items', sv: 'Visa artiklar' },
 };
 
 /**

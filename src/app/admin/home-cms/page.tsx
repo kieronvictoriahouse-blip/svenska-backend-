@@ -106,7 +106,7 @@ export default function HomeCmsPage() {
           <div className="sc-sub">{items.length} sections éditables · les modifications ne sont visibles qu’après publication</div>
         </div>
         <div className="sc-actions">
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div className="hc-langs" style={{ display: 'flex', gap: 4 }}>
             {(['fr', 'sv', 'en'] as Lang[]).map(l => (
               <button key={l} className={`sc-chip${lang === l ? ' on' : ''}`} style={{ height: 32, padding: '0 11px' }}
                       onClick={() => setLang(l)}>{l.toUpperCase()}</button>
@@ -115,7 +115,8 @@ export default function HomeCmsPage() {
           <a className="sc-btn sc-btn-secondary" href={frontUrl} target="_blank" rel="noopener">
             <span className="ms">visibility</span>{t('apercu')}
           </a>
-          <button className="sc-btn sc-btn-green" onClick={saveAll} disabled={saving || !dirty}>
+          {/* Sur téléphone, Publier est dans la barre collée en bas */}
+          <button className="sc-btn sc-btn-green sc-hide-mobile" onClick={saveAll} disabled={saving || !dirty}>
             <span className="ms">publish</span>{saving ? 'Publication…' : dirty ? 'Publier' : 'À jour'}
           </button>
         </div>
@@ -152,7 +153,7 @@ export default function HomeCmsPage() {
                         }}>{i.type === 'image' ? 'image' : 'texte'}</span>
                         {changed && <span className="sc-badge" style={{ background: BADGE.amber.bg, color: BADGE.amber.fg }}>modifié</span>}
                       </div>
-                      <div style={{ fontSize: 11, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div className="hc-prev" style={{ fontSize: 11, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {preview(i)}
                       </div>
                     </div>
@@ -185,7 +186,7 @@ export default function HomeCmsPage() {
                           <textarea className="sc-input sc-textarea" rows={3}
                                     value={editing[i.key]?.[`value_${lang}`] || ''}
                                     onChange={e => setVal(i.key, lang, e.target.value)} />
-                          <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>
+                          <div className="hc-prev" style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>
                             Le HTML simple est accepté (&lt;em&gt; pour l’accent typographique).
                           </div>
                         </div>
@@ -199,8 +200,8 @@ export default function HomeCmsPage() {
                    onChange={e => { const f = e.target.files?.[0]; if (f && pendingKey.current) uploadFor(pendingKey.current, f); }} />
           </div>
 
-          {/* Aperçu mobile schématique */}
-          <div style={{ flex: '1 1 260px', minWidth: 0, position: 'sticky', top: 8 }}>
+          {/* Aperçu mobile schématique (inutile sur un téléphone : « Aperçu » ouvre la vraie boutique) */}
+          <div className="sc-hide-mobile" style={{ flex: '1 1 260px', minWidth: 0, position: 'sticky', top: 8 }}>
             <div className="sc-card" style={{ padding: 14 }}>
               <div className="sc-card-title" style={{ marginBottom: 10 }}>{t('apercu')}</div>
               <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
@@ -232,11 +233,26 @@ export default function HomeCmsPage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 200 }}>
-          {toast}
+      {!loading && (
+        <div className="sc-sticky-actions sc-only-mobile-flex">
+          <button className="sc-btn sc-btn-green" onClick={saveAll} disabled={saving || !dirty}>
+            <span className="ms">publish</span>{saving ? 'Publication…' : dirty ? 'Publier' : 'À jour'}
+          </button>
         </div>
       )}
+
+      {toast && <div className="sc-toast">{toast}</div>}
+
+      <style dangerouslySetInnerHTML={{ __html: HC_CSS }} />
     </>
   );
 }
+
+/* Téléphone : boutons de langue à 44 px, textes d'aide lisibles. */
+const HC_CSS = `
+@media screen and (max-width: 899px) {
+  .hc-langs { flex: 1 1 100%; }
+  .hc-langs > .sc-chip { height: 44px !important; flex: 1; justify-content: center; font-size: 14px; }
+  .hc-prev { font-size: 13px !important; }
+}
+`;

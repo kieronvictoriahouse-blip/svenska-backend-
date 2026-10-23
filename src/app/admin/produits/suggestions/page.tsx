@@ -96,6 +96,22 @@ export default function SuggestionsPage() {
     .sg-desc { font-size:11.5px; color:${T.text3}; margin-top:2px; line-height:1.45; max-width:520px; }
     .sg-url { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--accent); text-decoration:none; margin-top:4px; word-break:break-all; }
     .sg-url:hover { text-decoration:underline; }
+    .sg-act { padding: 5px 10px !important; font-size: 11.5px !important; }
+    .sg-search { width: 210px; }
+    /* Téléphone : une carte par suggestion, boutons pleine taille. */
+    @media (max-width: 899px) {
+      .sg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .sg-stat-label { font-size: 12px; letter-spacing: .6px; }
+      .sg-name { font-size: 15.5px; font-weight: 600; }
+      .sg-desc { font-size: 13.5px; max-width: none; }
+      .sg-url { font-size: 13px; min-height: 32px; }
+      .sg-act { padding: 10px 14px !important; font-size: 14px !important; flex: 1 1 auto; justify-content: center; }
+      .sg-head-actions { width: 100%; }
+      .sg-search-wrap { flex: 1 1 100%; }
+      .sg-search { width: 100%; }
+      .sg-head-actions > .sc-btn { flex: 1 1 auto; justify-content: center; }
+      .sg-mail { font-size: 14px !important; overflow-wrap: anywhere; }
+    }
   `;
 
   return (
@@ -109,11 +125,11 @@ export default function SuggestionsPage() {
             Ce que les clients aimeraient trouver en boutique
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative' }}>
+        <div className="sg-head-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="sg-search-wrap" style={{ position: 'relative' }}>
             <span className="ms" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 17, color: T.muted }}>search</span>
-            <input className="sc-input" value={q} onChange={e => setQ(e.target.value)}
-                   placeholder={t('chercher')} style={{ paddingLeft: 32, width: 210 }} />
+            <input className="sc-input sg-search" type="search" value={q} onChange={e => setQ(e.target.value)}
+                   placeholder={t('chercher')} style={{ paddingLeft: 32 }} />
           </div>
           <button className="sc-btn sc-btn-secondary" onClick={load}>
             <span className="ms">refresh</span>{t('actualiser')}
@@ -147,7 +163,7 @@ export default function SuggestionsPage() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="sc-table">
+            <table className="sc-table sc-stack">
               <thead>
                 <tr>
                   <th>{t('produitSuggere')}</th>
@@ -163,7 +179,7 @@ export default function SuggestionsPage() {
                   const st = STATUS[s.status] || STATUS.new;
                   return (
                     <tr key={s.id}>
-                      <td>
+                      <td className="sc-stack-main">
                         <div className="sg-name">{s.product_name}</div>
                         {s.description && <div className="sg-desc">{s.description}</div>}
                         {s.source_url && (
@@ -173,32 +189,33 @@ export default function SuggestionsPage() {
                           </a>
                         )}
                       </td>
-                      <td>
+                      <td data-label={t('contact')} style={{ minWidth: 0 }}>
                         {s.customer_email
-                          ? <a href={`mailto:${s.customer_email}`} style={{ fontSize: 12, color: T.blue, textDecoration: 'none' }}>{s.customer_email}</a>
-                          : <span style={{ fontSize: 12, color: T.muted }}>{t('anonyme')}</span>}
+                          ? <a className="sg-mail" href={`mailto:${s.customer_email}`} style={{ fontSize: 12, color: T.blue, textDecoration: 'none' }}>{s.customer_email}</a>
+                          : <span className="sg-mail" style={{ fontSize: 12, color: T.muted }}>{t('anonyme')}</span>}
                       </td>
-                      <td style={{ fontSize: 12, color: T.text2b }}>{LANG[s.lang] || s.lang?.toUpperCase()}</td>
-                      <td>
+                      <td data-label={t('langue')} style={{ fontSize: 12, color: T.text2b }}>{LANG[s.lang] || s.lang?.toUpperCase()}</td>
+                      <td data-label={tc('status')}>
                         <span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>
                           {st.label}
                         </span>
                       </td>
-                      <td className="sc-num" style={{ fontSize: 11.5, color: T.text3, whiteSpace: 'nowrap' }}>
+                      <td data-label={t('recueLe')} className="sc-num" style={{ fontSize: 11.5, color: T.text3, whiteSpace: 'nowrap' }}>
                         {fmtDate(s.created_at)}
-                        <div style={{ fontSize: 10.5, color: T.muted }}>{fmtTime(s.created_at)}</div>
+                        <div style={{ fontSize: 10.5, color: T.muted }} className="sc-hide-mobile">{fmtTime(s.created_at)}</div>
+                        <span className="sc-only-mobile">&nbsp;· {fmtTime(s.created_at)}</span>
                       </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <td className="sc-stack-actions">
+                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap', width: '100%' }}>
                           {s.status === 'new' && (
-                            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }}
+                            <button className="sc-btn sc-btn-secondary sg-act"
                                     onClick={() => setStatus(s.id, 'viewed')}>Vue</button>
                           )}
                           {s.status !== 'done' ? (
-                            <button className="sc-btn sc-btn-green" style={{ padding: '5px 10px', fontSize: 11.5 }}
+                            <button className="sc-btn sc-btn-green sg-act"
                                     onClick={() => setStatus(s.id, 'done')}>{t('traitee')}</button>
                           ) : (
-                            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11.5 }}
+                            <button className="sc-btn sc-btn-secondary sg-act"
                                     onClick={() => setStatus(s.id, 'new')}>{t('rouvrir')}</button>
                           )}
                           <button className="sc-iconbtn" onClick={() => deleteSuggestion(s.id)}
@@ -216,12 +233,7 @@ export default function SuggestionsPage() {
         )}
       </div>
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
-        }}>{toast}</div>
-      )}
+      {toast && <div className="sc-toast" role="status" style={{ zIndex: 300 }}>{toast}</div>}
     </>
   );
 }

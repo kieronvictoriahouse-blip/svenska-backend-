@@ -28,6 +28,16 @@ export const TAC = {
   msgPdfKo: { fr: '❌ Erreur téléchargement PDF', en: '❌ PDF download failed', sv: '❌ PDF-nedladdningen misslyckades' },
   msgMailOk: { fr: '✅ PDF envoyé par email', en: '✅ PDF sent by email', sv: '✅ PDF skickad via e-post' },
   msgMailKo: { fr: '❌ Erreur envoi email', en: '❌ Email sending failed', sv: '❌ E-postutskicket misslyckades' },
+  // Téléphone
+  plusActions: { fr: 'Plus d’actions', en: 'More actions', sv: 'Fler åtgärder' },
+  saisieTicket: { fr: 'Saisie ticket de caisse', en: 'Enter a till receipt', sv: 'Registrera kassakvitto' },
+  langueEcran: { fr: 'Langue', en: 'Language', sv: 'Språk' },
+  stock: { fr: 'Stock', en: 'Stock', sv: 'Lager' },
+  enCommande: { fr: 'en commande', en: 'on order', sv: 'i beställning' },
+  attendue: { fr: 'attendue le', en: 'expected', sv: 'väntas' },
+  modifier: { fr: 'Modifier', en: 'Edit', sv: 'Redigera' },
+  retirer: { fr: 'Retirer la ligne', en: 'Remove line', sv: 'Ta bort raden' },
+  quantite: { fr: 'Qté', en: 'Qty', sv: 'Antal' },
 };
 
 export const tauxDuJour = (devise: string, taux: number, date: string, lang: string) =>

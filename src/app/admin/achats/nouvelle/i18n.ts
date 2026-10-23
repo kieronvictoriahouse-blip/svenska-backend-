@@ -34,6 +34,13 @@ export const TNC = {
     en: 'Nothing to add: everything urgent is already in the cart',
     sv: 'Inget att lägga till: allt brådskande finns redan i varukorgen',
   },
+  // Téléphone
+  panier: { fr: 'Panier', en: 'Cart', sv: 'Varukorg' },
+  voirPanier: { fr: 'Voir le panier', en: 'View cart', sv: 'Visa varukorgen' },
+  fermer: { fr: 'Fermer', en: 'Close', sv: 'Stäng' },
+  lignes: { fr: 'ligne(s)', en: 'line(s)', sv: 'rad(er)' },
+  unites: { fr: 'u.', en: 'u.', sv: 'st' },
+  aCompleter: { fr: 'à compléter', en: 'incomplete', sv: 'ofullständig' },
 };
 
 export const referencesAjoutees = (n: number, lang: string) =>

@@ -55,10 +55,26 @@ const fmtDelay = (h: number) => {
 };
 
 const Pill = ({ children }: { children: React.ReactNode }) => (
-  <span style={{ background: '#F7F4EF', borderRadius: 6, padding: '4px 9px', fontSize: 11, color: T.text2b, whiteSpace: 'nowrap' }}>
+  <span className="au-pill" style={{ background: '#F7F4EF', borderRadius: 6, padding: '4px 9px', fontSize: 11, color: T.text2b, whiteSpace: 'nowrap' }}>
     {children}
   </span>
 );
+
+/* Téléphone (< 900 px) : textes ≥ 12 px, rangée d'actions de la carte
+   (statut, interrupteur, modifier, supprimer) sur sa propre ligne,
+   alignée à droite, et toast au-dessus de la barre d'onglets. */
+const AU_CSS = `
+  .au-toast { position: fixed; bottom: 24px; right: 24px; background: ${T.ink}; color: #fff; padding: 10px 18px; border-radius: 7px; font-size: 12.5px; z-index: 200; }
+  @media (max-width: 899px) {
+    .au-pill { font-size: 12.5px !important; padding: 5px 10px !important; }
+    .au-petit { font-size: 12.5px !important; }
+    .au-flux { flex-basis: 100%; }
+    .au-espace { display: none; }
+    .au-actions { display: flex !important; align-items: center; gap: 8px; flex-basis: 100%; justify-content: flex-end; margin-top: -4px; }
+    .au-actions .sc-badge { margin-right: auto; }
+    .au-toast { left: 12px; right: 12px; bottom: calc(58px + 16px + env(safe-area-inset-bottom)); font-size: 14px; padding: 12px 16px; text-align: center; }
+  }
+`;
 
 export default function AutomationsPage() {
   const { t, tc, lang } = useT(TAU);
@@ -138,6 +154,7 @@ export default function AutomationsPage() {
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: AU_CSS }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
@@ -174,13 +191,13 @@ export default function AutomationsPage() {
 
                   <div style={{ minWidth: 150, flex: '1 1 160px' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{a.name}</div>
-                    <div style={{ fontSize: 11, color: T.muted }}>
+                    <div className="au-petit" style={{ fontSize: 11, color: T.muted }}>
                       {a.sent_count || 0} envoi{(a.sent_count || 0) > 1 ? 's' : ''} · {p?.desc || ''}
                     </div>
                   </div>
 
                   {/* Mini-flux déclencheur → délai → action */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <div className="au-flux" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <Pill>{p?.trigger || 'Déclencheur'}</Pill>
                     <span className="ms" style={{ fontSize: 15, color: T.muted3 }}>arrow_forward</span>
                     <Pill>{fmtDelay(a.delay_hours)}</Pill>
@@ -188,28 +205,30 @@ export default function AutomationsPage() {
                     <Pill>{p?.action || 'Email'}</Pill>
                   </div>
 
-                  <span style={{ flex: 1 }} />
+                  <span className="au-espace" style={{ flex: 1 }} />
 
-                  <span className="sc-badge" style={{
-                    background: on ? BADGE.green.bg : BADGE.gray.bg,
-                    color: on ? BADGE.green.fg : BADGE.gray.fg,
-                  }}>{on ? 'Active' : 'En pause'}</span>
+                  <div className="au-actions" style={{ display: 'contents' }}>
+                    <span className="sc-badge" style={{
+                      background: on ? BADGE.green.bg : BADGE.gray.bg,
+                      color: on ? BADGE.green.fg : BADGE.gray.fg,
+                    }}>{on ? 'Active' : 'En pause'}</span>
 
-                  <button className="sc-switch" role="switch" aria-checked={on}
-                          onClick={() => toggle(a)} aria-label={`Activer ${a.name}`} />
+                    <button className="sc-switch" role="switch" aria-checked={on}
+                            onClick={() => toggle(a)} aria-label={`Activer ${a.name}`} />
 
-                  <button className="sc-iconbtn" onClick={() => { setEditId(isEditing ? null : a.id); setEditData({ delay_hours: a.delay_hours, subject: a.subject }); }}
-                          aria-label={tc('edit')}><span className="ms">{isEditing ? 'expand_less' : 'edit'}</span></button>
-                  <button className="sc-iconbtn" onClick={() => remove(a.id)} aria-label={tc('delete')}>
-                    <span className="ms">delete</span>
-                  </button>
+                    <button className="sc-iconbtn" onClick={() => { setEditId(isEditing ? null : a.id); setEditData({ delay_hours: a.delay_hours, subject: a.subject }); }}
+                            aria-label={tc('edit')} aria-expanded={isEditing}><span className="ms">{isEditing ? 'expand_less' : 'edit'}</span></button>
+                    <button className="sc-iconbtn" onClick={() => remove(a.id)} aria-label={tc('delete')}>
+                      <span className="ms">delete</span>
+                    </button>
+                  </div>
                 </div>
 
                 {isEditing && (
                   <div style={{ padding: '13px 15px', borderTop: `1px solid ${T.borderFaint}`, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
                     <div>
                       <label className="sc-label">{p?.delayLabel || 'Délai (heures)'}</label>
-                      <input className="sc-input sc-num" type="number" min="0" value={editData.delay_hours ?? ''}
+                      <input className="sc-input sc-num" type="number" inputMode="numeric" min="0" value={editData.delay_hours ?? ''}
                              onChange={e => setEditData(d => ({ ...d, delay_hours: parseInt(e.target.value) || 0 }))} />
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
@@ -241,7 +260,7 @@ export default function AutomationsPage() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: T.muted }}>{p.desc}</div>
+                    <div className="au-petit" style={{ fontSize: 11, color: T.muted }}>{p.desc}</div>
                   </div>
                   <button className="sc-btn sc-btn-secondary" onClick={() => activate(p)}>
                     <span className="ms">add</span>{t('activer')}
@@ -253,11 +272,7 @@ export default function AutomationsPage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 200 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="au-toast" role="status">{toast}</div>}
     </>
   );
 }

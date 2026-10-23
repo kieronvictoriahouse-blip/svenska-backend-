@@ -25,6 +25,33 @@ const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
   done:             { label: 'Traité',                tone: 'gray' },
 };
 
+/* Téléphone : une seule colonne, le suivi des réponses (ce qu'on vient
+   traiter) avant le formulaire ; réponses en cartes ; cases à cocher et
+   boutons à 44 px. Ordinateur inchangé. */
+const CSS = `
+  .ru-grid { display: grid; grid-template-columns: minmax(0,340px) minmax(0,1fr); gap: 12px; align-items: start; }
+  .ru-opts { max-height: 190px; }
+  .ru-opt { padding: 6px 10px; font-size: 12px; }
+  .ru-hint { font-size: 10.5px; }
+  .ru-act { padding: 4px 9px; font-size: 11px; }
+  .ru-act .ms { font-size: 15px; }
+  @media (max-width: 899px) {
+    .ru-grid { grid-template-columns: minmax(0, 1fr); }
+    .ru-suivi { order: -1; }
+    .ru-opts { max-height: 300px; }
+    .ru-opt { min-height: 48px; padding: 8px 12px; font-size: 14px; gap: 12px !important; }
+    .ru-opt input { width: 20px; height: 20px; }
+    .ru-hint { font-size: 12px; line-height: 1.5; }
+    .ru-act { padding: 10px 14px; font-size: 14px; }
+    .ru-act .ms { font-size: 19px; }
+    .ru-table tr { display: flex !important; flex-direction: column; }
+    .ru-table td.sc-stack-main { order: -1; }
+    .ru-table td.sc-stack-actions > div { justify-content: flex-start !important; flex-wrap: wrap; gap: 8px !important; }
+    .ru-note { font-size: 12.5px !important; }
+    .ru-table td.sc-stack-actions .sc-iconbtn { border: 1px solid ${T.borderField}; background: #fff; }
+  }
+`;
+
 const eur = (n: any) =>
   (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 const dt = (d?: string) => (d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) : '—');
@@ -147,27 +174,29 @@ ${dest}`)) return;
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      {/* .sc-head/.sc-title/.sc-sub : mêmes valeurs que l'ancien style en ligne sur ordinateur */}
+      <div className="sc-head">
         <div>
-          <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-.2px', color: T.ink }}>{t('titre')}</div>
-          <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>
+          <div className="sc-title">{t('titre')}</div>
+          <div className="sc-sub">
             {enAttente} en attente de réponse · {aTraiter} réponse(s) à traiter
           </div>
         </div>
         <button className="sc-btn sc-btn-secondary" onClick={load}><span className="ms">refresh</span>{t('actualiser')}</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,340px) minmax(0,1fr)', gap: 12, alignItems: 'start' }}>
+      <div className="ru-grid">
 
         {/* ── Signaler une rupture ─────────────────────────── */}
         <div className="sc-card" style={{ overflow: 'hidden' }}>
-          <div style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}`, fontSize: 12.5, fontWeight: 600, color: T.ink }}>
+          <div className="sc-card-title" style={{ padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
             Signaler une rupture
           </div>
           <div style={{ padding: 15, display: 'flex', flexDirection: 'column', gap: 11 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('commande')}</label>
-              <select className="sc-input" style={{ width: '100%' }} value={orderId}
+              <label className="sc-label" htmlFor="ru-commande">{t('commande')}</label>
+              <select id="ru-commande" className="sc-input" style={{ width: '100%' }} value={orderId}
                       onChange={e => { setOrderId(e.target.value); setLineIdx(''); }}>
                 <option value="">— Choisir —</option>
                 {orders.map(o => (
@@ -177,8 +206,8 @@ ${dest}`)) return;
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('enRupture')}</label>
-              <select className="sc-input" style={{ width: '100%' }} value={lineIdx}
+              <label className="sc-label" htmlFor="ru-ligne">{t('enRupture')}</label>
+              <select id="ru-ligne" className="sc-input" style={{ width: '100%' }} value={lineIdx}
                       onChange={e => setLineIdx(e.target.value)} disabled={!lines.length}>
                 <option value="">{lines.length ? '— Choisir —' : 'Choisis d’abord une commande'}</option>
                 {lines.map((l: any, i: number) => (
@@ -188,14 +217,14 @@ ${dest}`)) return;
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>
+              <div className="sc-label">
                 Remplacements proposés {options.size > 0 && `(${options.size})`}
-              </label>
-              <div style={{ border: `1px solid ${T.borderField}`, borderRadius: 7, maxHeight: 190, overflowY: 'auto' }}>
+              </div>
+              <div className="ru-opts" style={{ border: `1px solid ${T.borderField}`, borderRadius: 7, overflowY: 'auto' }}>
                 {products.filter(p => p.is_active && dispo(p) > 0).map(p => (
-                  <label key={p.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
-                    borderBottom: `1px solid ${T.borderFaint}`, fontSize: 12, cursor: 'pointer',
+                  <label key={p.id} className="ru-opt" style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    borderBottom: `1px solid ${T.borderFaint}`, cursor: 'pointer',
                   }}>
                     <input type="checkbox" checked={options.has(p.id)} style={{ accentColor: 'var(--accent)' }}
                            onChange={() => setOptions(prev => {
@@ -207,13 +236,13 @@ ${dest}`)) return;
                     {/* Le disponible, pas le rayon : une partie de ce qui est
                         là est déjà due — parfois à ce client-là. */}
                     <span className="sc-num" style={{
-                      color: dispo(p) < qteLigne ? '#B03A2E' : T.muted, fontSize: 11,
+                      color: dispo(p) < qteLigne ? '#B03A2E' : T.muted, fontSize: '0.92em',
                     }}>{dispo(p)}</span>
                     <span className="sc-num" style={{ color: T.muted }}>{eur(p.price)}</span>
                   </label>
                 ))}
               </div>
-              <div style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>
+              <div className="ru-hint" style={{ color: T.muted, marginTop: 4 }}>
                 Le nombre affiché est le <strong>disponible</strong> — stock en rayon moins ce qui
                 est déjà dû à d’autres commandes. En rouge : moins que les {qteLigne || '?'} unités
                 à remplacer. Le client ne pourra pas en prendre plus.
@@ -221,13 +250,13 @@ ${dest}`)) return;
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('titreMsg')}</label>
-              <input className="sc-input" style={{ width: '100%' }} value={titre} onChange={e => setTitre(e.target.value)} />
+              <label className="sc-label" htmlFor="ru-titre">{t('titreMsg')}</label>
+              <input id="ru-titre" className="sc-input" style={{ width: '100%' }} value={titre} onChange={e => setTitre(e.target.value)} />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.text2b, marginBottom: 5 }}>{t('message')}</label>
-              <textarea className="sc-input" rows={4}
+              <label className="sc-label" htmlFor="ru-corps">{t('message')}</label>
+              <textarea id="ru-corps" className="sc-input" rows={4}
                         style={{ width: '100%', height: 'auto', padding: '8px 10px', lineHeight: 1.5, resize: 'vertical' }}
                         placeholder={t('videParDefaut')}
                         value={corps} onChange={e => setCorps(e.target.value)} />
@@ -240,7 +269,7 @@ ${dest}`)) return;
         </div>
 
         {/* ── Suivi des réponses ───────────────────────────── */}
-        <div className="sc-card" style={{ overflow: 'hidden' }}>
+        <div className="sc-card ru-suivi" style={{ overflow: 'hidden' }}>
           {loading ? (
             <div className="sc-empty">{tc('loading')}</div>
           ) : rows.length === 0 ? (
@@ -250,7 +279,7 @@ ${dest}`)) return;
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table className="sc-table">
+              <table className="sc-table sc-stack ru-table">
                 <thead>
                   <tr>
                     <th style={{ width: 88 }}>{t('commande')}</th>
@@ -267,51 +296,63 @@ ${dest}`)) return;
                     const du = Number(r.price_delta) || 0;
                     return (
                       <tr key={r.id}>
-                        <td className="sc-num" style={{ fontSize: 12 }}>
-                          {r.order?.order_number || '—'}
-                          <div style={{ fontSize: 10.5, color: T.muted }}>{dt(r.created_at)}</div>
+                        <td className="sc-num" data-label={t('commande')} style={{ fontSize: 12 }}>
+                          <span>
+                            {r.order?.order_number || '—'}
+                            <div className="ru-note" style={{ fontSize: 10.5, color: T.muted }}>{dt(r.created_at)}</div>
+                          </span>
                         </td>
-                        <td>
-                          <div style={{ fontSize: 12.5, color: T.ink }}>{r.line_name}</div>
-                          <div style={{ fontSize: 10.5, color: T.muted }}>{r.line_qty} × {eur(r.line_price)}</div>
+                        <td className="sc-stack-main">
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '1em', color: T.ink }}>{r.line_name}</div>
+                              <div className="ru-note" style={{ fontSize: 10.5, color: T.muted, fontWeight: 400 }}>{r.line_qty} × {eur(r.line_price)}</div>
+                            </div>
+                            {/* Statut en tête de carte sur téléphone */}
+                            <span className="sc-badge sc-only-mobile" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>
+                              {st.label}
+                            </span>
+                          </div>
                         </td>
-                        <td style={{ fontSize: 12, color: T.text2b }}>
-                          {r.chosen_label || <span style={{ color: T.muted }}>—</span>}
-                          {r.decided_at && <div style={{ fontSize: 10.5, color: T.muted }}>{dt(r.decided_at)}</div>}
+                        <td data-label={t('reponse')} style={{ fontSize: 12, color: T.text2b }}>
+                          <span>
+                            {r.chosen_label || <span style={{ color: T.muted }}>—</span>}
+                            {r.decided_at && <div className="ru-note" style={{ fontSize: 10.5, color: T.muted }}>{dt(r.decided_at)}</div>}
+                          </span>
                         </td>
-                        <td>
+                        <td className="sc-hide-mobile">
                           <span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>
                             {st.label}
                           </span>
                         </td>
-                        <td className="sc-num" style={{ textAlign: 'right', fontSize: 12.5, fontWeight: du < 0 ? 700 : 400, color: du < 0 ? T.red : T.text2b }}>
+                        <td className="sc-num" data-label={t('montant')} style={{ textAlign: 'right', fontSize: 12.5, fontWeight: du < 0 ? 700 : 400, color: du < 0 ? T.red : T.text2b }}>
                           {du < 0 ? `${eur(Math.abs(du))} à rendre` : du > 0 ? eur(du) : '—'}
                         </td>
-                        <td>
+                        <td className="sc-stack-actions">
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                             {/* Le remplacement s'applique ici ; un remboursement
                                 se fait depuis la fiche commande, avec son ecran. */}
                             {r.status === 'replaced' && (
-                              <button className="sc-btn sc-btn-green" style={{ padding: '4px 9px', fontSize: 11 }}
+                              <button className="sc-btn sc-btn-green ru-act"
                                       onClick={() => agir(r.id, 'appliquer')}>
                                 Appliquer
                               </button>
                             )}
                             {r.status === 'refund_requested' && r.order && (
-                              <a className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
+                              <a className="sc-btn sc-btn-secondary ru-act"
                                  href={`/admin/commandes?q=${encodeURIComponent(r.order.order_number)}`}>
                                 Rembourser
                               </a>
                             )}
                             {r.status === 'pending' && (
-                              <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
+                              <button className="sc-btn sc-btn-secondary ru-act"
                                       onClick={() => relancer(r)} disabled={relance === r.id}>
-                                <span className="ms" style={{ fontSize: 15 }}>outgoing_mail</span>
+                                <span className="ms">outgoing_mail</span>
                                 {relance === r.id ? t('relanceEnCours') : t('relancer')}
                               </button>
                             )}
                             {r.status !== 'pending' && r.status !== 'done' && (
-                              <button className="sc-iconbtn" title={t('marquerTraite')} onClick={() => agir(r.id, 'clore')}>
+                              <button className="sc-iconbtn" title={t('marquerTraite')} aria-label={t('marquerTraite')} onClick={() => agir(r.id, 'clore')}>
                                 <span className="ms" style={{ color: T.green }}>check_circle</span>
                               </button>
                             )}
@@ -325,19 +366,14 @@ ${dest}`)) return;
             </div>
           )}
 
-          <div style={{ padding: '11px 15px', background: T.surfaceAlt, fontSize: 11.5, color: T.muted, borderTop: `1px solid ${T.border}` }}>
+          <div className="ru-note" style={{ padding: '11px 15px', background: T.surfaceAlt, fontSize: 11.5, color: T.muted, borderTop: `1px solid ${T.border}` }}>
             Un remboursement demandé par le client n&rsquo;est jamais exécuté automatiquement :
             il se déclenche depuis la fiche commande, après ton contrôle.
           </div>
         </div>
       </div>
 
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff',
-          padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 300,
-        }}>{toast}</div>
-      )}
+      {toast && <div className="sc-toast" role="status">{toast}</div>}
     </>
   );
 }

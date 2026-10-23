@@ -1,9 +1,11 @@
 'use client';
 import { adminFetch } from '@/lib/auth-client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { useT } from '@/lib/admin-i18n';
-import { TFA } from './i18n';
+import { useT, traduire } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
+import { MenuActions, MenuItem } from '@/components/MenuActions';
+import { TFA, TDO, TFM } from './i18n';
 
 type InvoiceLine = { desc: string; qty: number; price: number; tva: number; image_url?: string };
 
@@ -81,6 +83,36 @@ export default function FacturePage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const mobile = useIsMobile();
+  const [menu, setMenu] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const pdfRef = useRef<File | null>(null);
+  const [shareReady, setShareReady] = useState(false);
+
+  /* Téléphone : le PDF part par la feuille de partage (Mail, WhatsApp,
+     Fichiers…) quand le navigateur sait partager un fichier ; sinon on
+     retombe sur le téléchargement. Le fichier est gardé : si le partage
+     est refusé parce que la génération a pris trop de temps après le
+     toucher, le toucher suivant partage aussitôt. */
+  async function sharePdf() {
+    if (!invoice) return;
+    const nav = navigator as any;
+    if (!nav.canShare) { downloadPdf(); return; }
+    setDownloading(true);
+    try {
+      if (!pdfRef.current) {
+        const res = await adminFetch(`/api/invoices/${id}/pdf`);
+        if (!res.ok) { alert(t('msgPdfGenKo')); return; }
+        const blob = await res.blob();
+        pdfRef.current = new File([blob], `facture-${invoice.number || id}.pdf`, { type: 'application/pdf' });
+      }
+      const file = pdfRef.current;
+      if (!nav.canShare({ files: [file] })) { setDownloading(false); downloadPdf(); return; }
+      try { await nav.share({ files: [file], title: `Facture ${invoice.number}` }); setShareReady(false); }
+      catch (e: any) { setShareReady(e?.name === 'NotAllowedError'); }
+    } catch { alert(t('msgPdfKo')); }
+    finally { setDownloading(false); }
+  }
 
   async function downloadPdf() {
     if (!invoice) return;
@@ -141,10 +173,43 @@ export default function FacturePage() {
   const subtotal = lines.reduce((s, l) => s + (l.qty * l.price), 0);
   const isMicro = !invoice.total_tva || invoice.total_tva === 0;
 
+  const statusLabel = STATUS_LABELS[invoice.status] || invoice.status.toUpperCase();
+
   return (
     <>
+      {/* Téléphone : en-tête compact (retour · numéro · statut · ⋯) ;
+          partager / imprimer collés en bas, sous le pouce. */}
+      {mobile && (
+        <div className="no-print inv-mbar-top">
+          <button className="sc-iconbtn" style={{ color: '#0f172a' }} onClick={() => { if (window.history.length > 1) window.history.back(); else window.location.href = '/admin/gestion'; }} aria-label={traduire(TDO.retour, lang)}>
+            <span className="ms">arrow_back</span>
+          </button>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className="sc-num" style={{ fontSize: 16, fontWeight: 700 }}>{invoice.number}</span>
+            <span className="sc-badge" style={{
+              background: invoice.status === 'paid' ? '#dcfce7' : invoice.status === 'sent' ? '#dbeafe' : '#f1f5f9',
+              color: invoice.status === 'paid' ? '#166534' : invoice.status === 'sent' ? '#1d4ed8' : '#64748b',
+            }}>{statusLabel}</span>
+          </div>
+          {(invoice.status !== 'paid' || avoirId) && (
+            <>
+              <button ref={menuRef} className="sc-iconbtn" aria-label={traduire(TFM.plus, lang)} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(v => !v)}>
+                <span className="ms">more_vert</span>
+              </button>
+              <MenuActions open={menu} anchor={menuRef.current} onClose={() => setMenu(false)} title={`Facture ${invoice.number}`}>
+                {invoice.status !== 'paid' && (
+                  <MenuItem icon="task_alt" label={traduire(TFM.marquerPayee, lang)} disabled={saving} onClick={markPaid} />
+                )}
+                {avoirId && <MenuItem icon="undo" label={traduire(TFM.voirAvoir, lang)} href={`/admin/factures/${avoirId}`} />}
+                <MenuItem icon="download" label={traduire(TFM.telecharger, lang)} onClick={downloadPdf} />
+              </MenuActions>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Barre d'actions — masquée à l'impression */}
-      <div className="no-print" style={{
+      {!mobile && <div className="no-print" style={{
         position: 'sticky', top: 0, zIndex: 100,
         background: '#1e293b', color: '#fff',
         display: 'flex', alignItems: 'center', gap: 12, padding: '12px 24px',
@@ -208,25 +273,57 @@ export default function FacturePage() {
         >
           🖨️ Imprimer
         </button>
-      </div>
+      </div>}
 
       <style dangerouslySetInnerHTML={{ __html: `
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         * { box-sizing: border-box; }
         body { margin: 0; background: #f1f5f9; font-family: 'Inter', system-ui, sans-serif; }
         .invoice-wrap { background: #fff; max-width: 794px; margin: 32px auto; padding: 56px 60px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
+        .inv-sub { display: none; }
         @media print {
           .no-print { display: none !important; }
           body { background: #fff; }
           .invoice-wrap { margin: 0; padding: 32px 40px; box-shadow: none; max-width: 100%; }
+          /* La facture est rendue DANS le shell : sans ceci, l'impression
+             sortait la barre du haut, la navigation, et coupait la
+             facture à la hauteur de l'écran (.sc-app fait 100vh). */
+          .sc-top, .sc-side, .sc-tabs, .sc-overlay, .sc-sticky-actions { display: none !important; }
+          .sc-app { height: auto !important; overflow: visible !important; display: block !important; }
+          .sc-app > div { display: block !important; }
+          .sc-main { overflow: visible !important; }
+          .sc-screen { padding: 0 !important; max-width: none !important; }
         }
         @page { size: A4; margin: 10mm; }
+
+        /* Téléphone (écran seulement) : la facture se relit sans zoomer. */
+        @media screen and (max-width: 899px) {
+          .inv-mbar-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 6px; margin: -12px -12px 0; padding: 4px 4px; background: #fff; border-bottom: 1px solid #e2e8f0; min-height: 52px; }
+          .invoice-wrap { margin: 12px -12px 0; padding: 22px 16px 26px; box-shadow: none; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
+          .inv-head { flex-direction: column; gap: 18px; margin-bottom: 24px !important; }
+          .inv-head-r { text-align: left !important; }
+          .inv-doc-title { font-size: 24px !important; }
+          .inv-sep { margin-bottom: 22px !important; }
+          .inv-client { margin-bottom: 22px !important; }
+          .inv-table th, .inv-table td { padding: 10px 6px !important; }
+          .inv-table th:first-child, .inv-table td:first-child { padding-left: 10px !important; }
+          .inv-table th:last-child, .inv-table td:last-child { padding-right: 10px !important; }
+          .inv-table .inv-pu { display: none; }
+          .inv-table .inv-qty { width: 40px !important; }
+          .inv-table .inv-tot { width: auto !important; white-space: nowrap; }
+          .inv-table img { width: 40px !important; height: 40px !important; }
+          .inv-table td { font-size: 14px !important; }
+          .inv-sub { display: block; font-size: 12.5px; color: #64748b; font-weight: 400; margin-top: 2px; }
+          .inv-totals-wrap { justify-content: stretch !important; margin-bottom: 24px !important; }
+          .inv-totals { min-width: 0 !important; width: 100%; }
+          .inv-legal { font-size: 11.5px !important; line-height: 1.8 !important; }
+        }
       `}} />
 
       <div className="invoice-wrap">
 
         {/* ── En-tête ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
+        <div className="inv-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
           {/* Vendeur */}
           <div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
@@ -251,8 +348,8 @@ export default function FacturePage() {
           </div>
 
           {/* Bloc facture */}
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>
+          <div className="inv-head-r" style={{ textAlign: 'right' }}>
+            <div className="inv-doc-title" style={{ fontSize: 32, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>
               FACTURE
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#3b82f6', marginTop: 4 }}>
@@ -276,10 +373,10 @@ export default function FacturePage() {
         </div>
 
         {/* ── Séparateur ── */}
-        <div style={{ height: 2, background: 'linear-gradient(to right, #3b82f6, #e2e8f0)', marginBottom: 36, borderRadius: 2 }} />
+        <div className="inv-sep" style={{ height: 2, background: 'linear-gradient(to right, #3b82f6, #e2e8f0)', marginBottom: 36, borderRadius: 2 }} />
 
         {/* ── Client ── */}
-        <div style={{ marginBottom: 36 }}>
+        <div className="inv-client" style={{ marginBottom: 36 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
             Facturé à
           </div>
@@ -295,19 +392,19 @@ export default function FacturePage() {
         </div>
 
         {/* ── Tableau des lignes ── */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 32 }}>
+        <table className="inv-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 32 }}>
           <thead>
             <tr style={{ background: '#0f172a' }}>
               <th style={{ padding: '12px 16px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', borderRadius: '6px 0 0 6px' }}>
                 Description
               </th>
-              <th style={{ padding: '12px 16px', textAlign: 'center', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 70 }}>
+              <th className="inv-qty" style={{ padding: '12px 16px', textAlign: 'center', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 70 }}>
                 Qté
               </th>
-              <th style={{ padding: '12px 16px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 110 }}>
+              <th className="inv-pu" style={{ padding: '12px 16px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 110 }}>
                 P.U.
               </th>
-              <th style={{ padding: '12px 16px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 110, borderRadius: '0 6px 6px 0' }}>
+              <th className="inv-tot" style={{ padding: '12px 16px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 110, borderRadius: '0 6px 6px 0' }}>
                 Total
               </th>
             </tr>
@@ -331,16 +428,19 @@ export default function FacturePage() {
                           style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #e2e8f0', flexShrink: 0 }}
                         />
                       )}
-                      <span>{line.desc}</span>
+                      <span>
+                        {line.desc}
+                        <span className="inv-sub">{line.qty} × {fmt(line.price)}</span>
+                      </span>
                     </div>
                   </td>
-                  <td style={{ padding: '10px 16px', textAlign: 'center', fontSize: 14, color: '#475569' }}>
+                  <td className="inv-qty" style={{ padding: '10px 16px', textAlign: 'center', fontSize: 14, color: '#475569' }}>
                     {line.qty}
                   </td>
-                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 14, color: '#475569' }}>
+                  <td className="inv-pu" style={{ padding: '10px 16px', textAlign: 'right', fontSize: 14, color: '#475569' }}>
                     {fmt(line.price)}
                   </td>
-                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                  <td className="inv-tot" style={{ padding: '10px 16px', textAlign: 'right', fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
                     {fmt(line.qty * line.price)}
                   </td>
                 </tr>
@@ -350,8 +450,8 @@ export default function FacturePage() {
         </table>
 
         {/* ── Totaux ── */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 40 }}>
-          <div style={{ minWidth: 280 }}>
+        <div className="inv-totals-wrap" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 40 }}>
+          <div className="inv-totals" style={{ minWidth: 280 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: 14, color: '#64748b' }}>
               <span>{tc('subtotal')}</span>
               <span>{fmt(subtotal)}</span>
@@ -413,7 +513,7 @@ export default function FacturePage() {
               TVA non applicable, art. 293 B du CGI
             </div>
           )}
-          <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 2 }}>
+          <div className="inv-legal" style={{ fontSize: 10, color: '#94a3b8', lineHeight: 2 }}>
             <strong style={{ color: '#64748b' }}>
               {[invoice.seller_name, identite.legal_name].filter(Boolean).join(' — ')}
             </strong><br />
@@ -424,6 +524,18 @@ export default function FacturePage() {
         </div>
 
       </div>
+
+      {mobile && (
+        <div className="sc-sticky-actions no-print">
+          <button className="sc-btn sc-btn-secondary" onClick={sharePdf} disabled={downloading}>
+            <span className="ms">ios_share</span>
+            {downloading ? '…' : shareReady ? traduire(TDO.partagerPret, lang) : traduire(TDO.partager, lang)}
+          </button>
+          <button className="sc-btn sc-btn-primary" onClick={() => window.print()}>
+            <span className="ms">print</span>{traduire(TFM.imprimer, lang)}
+          </button>
+        </div>
+      )}
     </>
   );
 }

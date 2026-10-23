@@ -5,8 +5,81 @@ import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials, eur, num, stockColor } from '@/lib/admin-theme';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import { SqueletteTable } from '@/components/Squelette';
+import { MenuActions, MenuItem } from '@/components/MenuActions';
+import { useIsMobile } from '@/lib/use-mobile';
 import { useT, nomProduit } from '@/lib/admin-i18n';
 import { TST } from './i18n';
+
+/* Téléphone (réserve, comptage) : la liste devient des cartes avec un
+   pas-à-pas de 48 px, la recherche reste collée en haut, les cartes de
+   synthèse filtrent la liste, et l'inventaire par scan s'ouvre en plein
+   écran. Ordinateur : rendu inchangé. */
+const CSS = `
+  .st-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .st-mini { padding: 5px 10px; font-size: 11px; }
+  .st-inv-scan { width: 220px; flex-shrink: 0; }
+  .sc-actions > .st-plus { flex: 0 0 48px; width: 48px; padding: 0; justify-content: center; }
+  .st-search { display: none; }
+  @media (max-width: 899px) {
+    .st-mini { padding: 10px 14px; font-size: 14px; }
+    .st-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .st-kpi { display: block; width: 100%; text-align: left; font-family: inherit; cursor: pointer; border-radius: 10px; padding: 10px 12px; min-height: 64px; }
+    .st-kpi[aria-pressed="true"] { box-shadow: inset 0 0 0 2px currentColor; }
+    .st-kpi-l { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+    .st-kpi-v { font-size: 21px; font-weight: 700; margin-top: 3px; }
+
+    .st-search { display: flex; position: sticky; top: 0; z-index: 6; gap: 8px; align-items: center; margin: 0 -12px 10px; padding: 8px 12px; background: ${T.appBg}; }
+    .st-search-f { position: relative; flex: 1; min-width: 0; }
+    .st-search-f > .ms { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 20px; color: ${T.muted}; pointer-events: none; }
+    .st-search-f input { padding-left: 40px; padding-right: 44px; }
+    .st-search-f button { position: absolute; right: 0; top: 0; }
+
+    .st-item { padding: 12px; border-bottom: 1px solid ${T.border}; }
+    .st-item:last-child { border-bottom: none; }
+    .st-item-top { display: flex; align-items: center; gap: 4px; }
+    .st-item-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px; text-decoration: none; }
+    .st-item-name { display: block; font-size: 15px; font-weight: 600; color: ${T.ink}; line-height: 1.3; }
+    .st-item-ref { display: block; font-size: 12.5px; color: ${T.muted}; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .st-item-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+    .st-stepper { display: flex; align-items: center; gap: 6px; }
+    .st-step { width: 48px; height: 48px; border-radius: 10px; border: 1px solid ${T.borderField}; background: #fff; color: ${T.ink}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; touch-action: manipulation; }
+    .st-step .ms { font-size: 24px; }
+    .st-step:active { background: ${T.borderFaint2}; }
+    .st-step:disabled { opacity: .4; cursor: not-allowed; }
+    .st-qty { width: 72px !important; height: 48px !important; padding: 0 4px !important; text-align: center; font-size: 20px !important; font-weight: 700; border-radius: 10px; }
+    .st-dispo { text-align: right; }
+    .st-dispo-k { display: block; font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: ${T.muted}; }
+    .st-dispo-v { display: block; font-size: 22px; font-weight: 700; line-height: 1.15; }
+    .st-gauge { height: 4px; border-radius: 2px; background: ${T.borderFaint2}; margin-top: 10px; overflow: hidden; }
+    .st-gauge > div { height: 100%; border-radius: 2px; }
+    .st-meta { font-size: 12.5px; color: ${T.text3}; margin-top: 6px; }
+
+    .st-search-f input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+
+    .st-ctrl-head > div { flex: 1 1 calc(100% - 40px) !important; }
+    .st-ctrl-head > .sc-btn { flex: 1 1 0; justify-content: center; }
+
+    .st-inv-scan { width: 100%; }
+    /* Viseur plus bas que celui du scan simple : ici la liste compte autant que la caméra. */
+    .sc-scan-sheet.st-inv .sc-scan-view { aspect-ratio: 16 / 10 !important; max-height: 34vh; max-height: 34dvh; min-height: 170px; }
+    .st-inv-body { padding: 0 12px 12px !important; gap: 10px !important; }
+    .st-inv-list { background: #fff; border-radius: 12px; padding: 4px 12px; }
+    .st-inv-row { padding: 10px 0 !important; flex-wrap: wrap; row-gap: 8px !important; }
+    .st-inv-txt { flex: 1 1 calc(100% - 56px) !important; }
+    .st-inv-row > .st-inv-steps { margin-left: 46px; }
+    .st-inv-row > .st-inv-gap { margin-left: auto; }
+    .st-inv-row.last { background: ${BADGE.green.bg}; margin: 0 -12px; padding: 10px 12px !important; }
+    .st-inv-foot { position: sticky; bottom: 0; margin-top: auto; background: #fff !important; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)) !important; }
+    .st-inv-foot > .sc-btn { flex: 1 1 100%; justify-content: center; }
+    .st-inv-foot > span { font-size: 12px !important; }
+
+    .st-ctrl-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 15px; border-bottom: 1px solid ${T.borderFaint}; cursor: pointer; }
+    .st-ctrl-item input { width: 22px; height: 22px; margin-top: 1px; flex-shrink: 0; }
+    .st-ctrl-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+    .st-ctrl-nums span { display: block; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: ${T.muted}; font-weight: 600; }
+    .st-ctrl-nums b { display: block; font-size: 15px; color: ${T.ink}; font-weight: 600; }
+  }
+`;
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 5 — STOCKS
@@ -74,6 +147,17 @@ export default function StockPage() {
   const [ctrlSel, setCtrlSel] = useState<Set<string>>(new Set());
   const [ctrlBusy, setCtrlBusy] = useState(false);
 
+  /* Téléphone : recherche, filtre par carte de synthèse, menu « ⋯ ».
+     Le filtre lit le stock figé au premier geste : sans ça, passer un
+     article en rupture de 0 à 1 le ferait disparaître sous le doigt. */
+  const mobile = useIsMobile();
+  const [q, setQ] = useState('');
+  const [filtre, setFiltre] = useState<'' | 'out' | 'low' | 'ok'>('');
+  const [stockGele, setStockGele] = useState<Record<string, number> | null>(null);
+  const [plus, setPlus] = useState(false);
+  const plusRef = useRef<HTMLButtonElement>(null);
+  const [dernierScan, setDernierScan] = useState<string | null>(null);
+
   useEffect(() => { load(); return () => Object.values(timers.current).forEach(clearTimeout); }, []);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2500); };
@@ -131,8 +215,11 @@ export default function StockPage() {
 
   /* On fige l'ordre au premier geste, pas au chargement : tant qu'on
      lit, la liste doit rester triee par urgence. */
-  const geler = () => setOrdreGele(o => o || sorted.map(x => x.id));
-  const reclasser = () => { setOrdreGele(null); setBrouillon({}); };
+  const geler = () => {
+    setOrdreGele(o => o || sorted.map(x => x.id));
+    setStockGele(s => s || Object.fromEntries(products.map(x => [x.id, x.stock ?? 0])));
+  };
+  const reclasser = () => { setOrdreGele(null); setStockGele(null); setBrouillon({}); };
 
   /** Valide ce qui a ete tape dans une ligne. */
   function validerSaisie(p: Product) {
@@ -186,6 +273,7 @@ export default function StockPage() {
     if (!p) { say(`Code ${code} inconnu - renseigne l'EAN sur la fiche produit`); return; }
     const id = p.id;
     setInv(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+    setDernierScan(id);
   }
 
   async function applyInventory() {
@@ -240,11 +328,56 @@ export default function StockPage() {
   }, [sorted, ordreGele]);
 
   const CARDS = [
-    { label: 'Ruptures',        value: num(out.length),     tone: BADGE.red,    icon: 'error' },
-    { label: 'Stock bas',       value: num(low.length),     tone: BADGE.orange, icon: 'warning' },
-    { label: 'Stock sain',      value: num(healthy.length), tone: BADGE.green,  icon: 'check_circle' },
-    { label: 'Valeur du stock', value: eur(stockValue),     tone: null,         icon: 'euro' },
+    { label: 'Ruptures',        value: num(out.length),     tone: BADGE.red,    icon: 'error',        f: 'out' as const },
+    { label: 'Stock bas',       value: num(low.length),     tone: BADGE.orange, icon: 'warning',      f: 'low' as const },
+    { label: 'Stock sain',      value: num(healthy.length), tone: BADGE.green,  icon: 'check_circle', f: 'ok' as const },
+    { label: 'Valeur du stock', value: eur(stockValue),     tone: null,         icon: 'euro',         f: null },
   ];
+
+  /* Recherche et filtre du téléphone. Sur ordinateur, q et filtre
+     restent vides : la liste est celle d'avant. */
+  const visibles = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle && !filtre) return affichees;
+    return affichees.filter(p => {
+      const s = stockGele?.[p.id] ?? (p.stock ?? 0);
+      const thr = p.stock_alert ?? LOW;
+      if (filtre === 'out' && s > 0) return false;
+      if (filtre === 'low' && !(s > 0 && s <= thr)) return false;
+      if (filtre === 'ok' && !(s > thr)) return false;
+      if (needle && !`${p.name_fr} ${nomProduit(p, lang)} ${refOf(p)} ${(p as any).ean || ''}`.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [affichees, q, filtre, stockGele, lang]);
+
+  /** Champ de quantité, partagé par la table et les cartes. */
+  const champQuantite = (p: Product, qty: number, color: string, mobileField: boolean) => (
+    <input
+      className={`sc-input sc-num${mobileField ? ' st-qty' : ''}`}
+      inputMode="numeric"
+      pattern="[0-9]*"
+      enterKeyHint="done"
+      aria-label={`${t('quantite')} — ${nomProduit(p, lang)}`}
+      value={brouillon[p.id] ?? String(qty)}
+      onChange={e => setBrouillon(b => ({ ...b, [p.id]: e.target.value.replace(/[^\d]/g, '') }))}
+      onFocus={e => { geler(); e.currentTarget.select(); }}
+      onBlur={() => validerSaisie(p)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.currentTarget.blur(); }
+        else if (e.key === 'Escape') {
+          setBrouillon(b => { const n = { ...b }; delete n[p.id]; return n; });
+          e.currentTarget.blur();
+        }
+      }}
+      style={mobileField ? { color } : {
+        width: 52, height: 28, padding: '0 4px', textAlign: 'center',
+        fontSize: 12.5, fontWeight: 700, color,
+      }} />
+  );
+
+  const inventaire = Object.entries(inv);
+  /* Téléphone : le dernier scanné en tête, au plus près du viseur. */
+  const inventaireAffiche = mobile ? [...inventaire].reverse() : inventaire;
 
   function exportCsv() {
     const rows = [['Référence', 'Produit', 'Catégorie', 'Stock', 'Seuil', 'Coût unitaire', 'Valeur']];
@@ -262,33 +395,55 @@ export default function StockPage() {
     URL.revokeObjectURL(url);
   }
 
+  const basculerControle = () => { const n = !ctrlOpen; setCtrlOpen(n); if (n && !ctrl) loadCtrl(); };
+
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="sc-head">
         <div>
           <div className="sc-title">{t('titre')}</div>
           <div className="sc-sub">{t('sous')}</div>
         </div>
-        <div className="sc-actions">
-          <Link href="/admin/achats" className="sc-btn sc-btn-secondary"><span className="ms">shopping_basket</span>{t('cmdAchat')}</Link>
-          <button className="sc-btn" onClick={() => setInvOpen(v => !v)}
-                  style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
-            <span className="ms">barcode_scanner</span>{t('invScan')}
-          </button>
-          <button className="sc-btn sc-btn-secondary"
-                  onClick={() => { const n = !ctrlOpen; setCtrlOpen(n); if (n && !ctrl) loadCtrl(); }}>
-            <span className="ms">fact_check</span>{t('controle')}
-          </button>
-          <Link className="sc-btn sc-btn-secondary" href="/admin/stock/historique">
-            <span className="ms">history</span>{t('historique')}
-          </Link>
-          <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>{t('exporter')}</button>
-        </div>
+        {mobile ? (
+          /* Téléphone : l'inventaire par scan d'abord, le reste dans « ⋯ ». */
+          <div className="sc-actions">
+            <button className="sc-btn" onClick={() => setInvOpen(v => !v)}
+                    style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
+              <span className="ms">barcode_scanner</span>{t('invScan')}
+            </button>
+            <button ref={plusRef} className="sc-btn sc-btn-secondary st-plus" aria-label={t('plusActions')}
+                    aria-haspopup="menu" aria-expanded={plus} onClick={() => setPlus(v => !v)}>
+              <span className="ms">more_horiz</span>
+            </button>
+            <MenuActions open={plus} anchor={plusRef.current} onClose={() => setPlus(false)}>
+              <MenuItem icon="fact_check" label={t('controle')} onClick={basculerControle} />
+              <MenuItem icon="history" label={t('historique')} href="/admin/stock/historique" />
+              <MenuItem icon="shopping_basket" label={t('cmdAchat')} href="/admin/achats" />
+              <MenuItem icon="download" label={t('exporter')} onClick={exportCsv} />
+            </MenuActions>
+          </div>
+        ) : (
+          <div className="sc-actions">
+            <Link href="/admin/achats" className="sc-btn sc-btn-secondary"><span className="ms">shopping_basket</span>{t('cmdAchat')}</Link>
+            <button className="sc-btn" onClick={() => setInvOpen(v => !v)}
+                    style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
+              <span className="ms">barcode_scanner</span>{t('invScan')}
+            </button>
+            <button className="sc-btn sc-btn-secondary" onClick={basculerControle}>
+              <span className="ms">fact_check</span>{t('controle')}
+            </button>
+            <Link className="sc-btn sc-btn-secondary" href="/admin/stock/historique">
+              <span className="ms">history</span>{t('historique')}
+            </Link>
+            <button className="sc-btn sc-btn-secondary" onClick={exportCsv}><span className="ms">download</span>{t('exporter')}</button>
+          </div>
+        )}
       </div>
       {/* Controle du stock : recu - vendu confronte a la base */}
       {ctrlOpen && (
         <div className="sc-card" style={{ marginBottom: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
+          <div className="st-ctrl-head" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
             <span className="ms" style={{ fontSize: 19, color: T.muted }}>fact_check</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{t('controleTitre')}</div>
@@ -296,8 +451,8 @@ export default function StockPage() {
                 Th&eacute;orique = total re&ccedil;u &minus; total vendu, recalcul&eacute; depuis les r&eacute;ceptions et les commandes.
               </div>
             </div>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={loadCtrl} disabled={ctrlBusy}>{t('recalculer')}</button>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setCtrlOpen(false)}>{tc('close')}</button>
+            <button className="sc-btn sc-btn-secondary st-mini" onClick={loadCtrl} disabled={ctrlBusy}>{t('recalculer')}</button>
+            <button className="sc-btn sc-btn-secondary st-mini" onClick={() => setCtrlOpen(false)}>{tc('close')}</button>
           </div>
 
           {!ctrl ? (
@@ -319,6 +474,48 @@ export default function StockPage() {
                 </div>
               </div>
 
+              {mobile ? (
+                /* Téléphone : une carte par produit, toute la carte coche. */
+                <div>
+                  {ctrl.rows.filter((r: any) => r.ecart !== 0 || !r.reconciliable).map((r: any) => {
+                    const cochable = r.reconciliable && r.ecart !== 0;
+                    const contenu = (
+                      <>
+                        {cochable ? (
+                          <input type="checkbox" checked={ctrlSel.has(r.product_id)} style={{ accentColor: 'var(--accent)' }}
+                                 onChange={() => setCtrlSel(prev => {
+                                   const n = new Set(prev);
+                                   if (n.has(r.product_id)) n.delete(r.product_id); else n.add(r.product_id);
+                                   return n;
+                                 })} />
+                        ) : (
+                          <span className="ms" style={{ fontSize: 22, color: T.muted, flexShrink: 0 }}>help</span>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                            <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: T.ink }}>{r.name}</span>
+                            <span className="sc-num" style={{ fontSize: 17, fontWeight: 700, color: r.ecart === 0 ? T.muted : r.ecart > 0 ? T.red : T.blue }}>
+                              {r.reconciliable ? (r.ecart > 0 ? `+${r.ecart}` : r.ecart) : '—'}
+                            </span>
+                          </div>
+                          {!r.reconciliable && (
+                            <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2 }}>{t('comptageRequis')}</div>
+                          )}
+                          <div className="st-ctrl-nums sc-num">
+                            <div><span>{t('recu')}</span><b>{r.received}</b></div>
+                            <div><span>{t('vendu')}</span><b>{r.sold}</b></div>
+                            <div><span>{t('theorique')}</span><b>{r.reconciliable ? r.theorique : '—'}</b></div>
+                            <div><span>{t('enBase')}</span><b>{r.base}</b></div>
+                          </div>
+                        </div>
+                      </>
+                    );
+                    return cochable
+                      ? <label key={r.product_id} className="st-ctrl-item">{contenu}</label>
+                      : <div key={r.product_id} className="st-ctrl-item" style={{ opacity: 0.7, cursor: 'default' }}>{contenu}</div>;
+                  })}
+                </div>
+              ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table className="sc-table">
                   <thead>
@@ -367,12 +564,14 @@ export default function StockPage() {
                   </tbody>
                 </table>
               </div>
+              )}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11.5, color: T.muted, flex: 1 }}>
+                <span style={{ fontSize: mobile ? 12.5 : 11.5, color: T.muted, flex: mobile ? '1 1 100%' : 1 }}>
                   L&rsquo;alignement cr&eacute;e un mouvement dat&eacute; et motiv&eacute; par produit. Les lignes gris&eacute;es ne sont pas calculables.
                 </span>
-                <button className="sc-btn sc-btn-green" onClick={applyCtrl} disabled={ctrlBusy || !ctrlSel.size}>
+                <button className="sc-btn sc-btn-green" onClick={applyCtrl} disabled={ctrlBusy || !ctrlSel.size}
+                        style={mobile ? { flex: '1 1 100%', justifyContent: 'center' } : undefined}>
                   <span className="ms">check_circle</span>{ctrlBusy ? 'Alignement\u2026' : `Aligner ${ctrlSel.size} produit(s)`}
                 </button>
               </div>
@@ -382,9 +581,23 @@ export default function StockPage() {
       )}
 
       {/* Session d'inventaire par scan */}
+      {/* Sur téléphone, .sc-scan-sheet passe la session en plein écran :
+          viseur en haut, articles comptés dessous (le dernier en tête),
+          « Ajuster le stock » collé en bas. Sur ordinateur, la classe
+          n'a aucun effet. */}
       {invOpen && (
-        <div className="sc-card" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
+        <div className="sc-card sc-scan-sheet st-inv" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
+          <div className="sc-scan-sheet-head">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="sc-scan-sheet-title">{t('session')}</div>
+              <div className="sc-scan-sheet-sub">{inventaire.length} {t('refsComptees')}</div>
+            </div>
+            <button onClick={() => setInvOpen(false)} aria-label={tc('close')}>
+              <span className="ms" style={{ fontSize: 26 }}>close</span>
+            </button>
+          </div>
+
+          <div className="sc-hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
             <span className="ms" style={{ fontSize: 19, color: '#6E4470' }}>inventory</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>{t('session')}</div>
@@ -392,51 +605,59 @@ export default function StockPage() {
                 {Object.keys(inv).length} r&eacute;f&eacute;rence(s) compt&eacute;e(s) &middot; scanne chaque produit puis corrige la quantit&eacute;
               </div>
             </div>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInv({})}>{t('vider')}</button>
-            <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setInvOpen(false)}>{tc('close')}</button>
+            <button className="sc-btn sc-btn-secondary st-mini" onClick={() => setInv({})}>{t('vider')}</button>
+            <button className="sc-btn sc-btn-secondary st-mini" onClick={() => setInvOpen(false)}>{tc('close')}</button>
           </div>
 
-          <div style={{ display: 'flex', gap: 12, padding: 15, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div style={{ width: 220, flexShrink: 0 }}>
-              <BarcodeScanner compact onScan={onInvScan} label="Scanne un produit" />
+          <div className="st-inv-body" style={{ display: 'flex', gap: 12, padding: 15, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div className="st-inv-scan">
+              <BarcodeScanner compact onScan={onInvScan} label="Scanne un produit" autoStart={mobile} />
             </div>
 
-            <div style={{ flex: '1 1 300px', minWidth: 0 }}>
-              {Object.keys(inv).length === 0 ? (
+            <div className="st-inv-list" style={{ flex: '1 1 300px', minWidth: 0 }}>
+              {mobile && inventaire.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${T.borderFaint}` }}>
+                  <span style={{ flex: 1, fontSize: 13, color: T.text2b }}>{inventaire.length} {t('refsComptees')}</span>
+                  <button className="sc-btn sc-btn-secondary st-mini" onClick={() => setInv({})}>{t('vider')}</button>
+                </div>
+              )}
+              {inventaire.length === 0 ? (
                 <div style={{
                   border: `1px dashed ${T.borderField}`, borderRadius: 9, padding: '28px 18px',
-                  textAlign: 'center', fontSize: 12, color: T.muted,
+                  textAlign: 'center', fontSize: mobile ? 13.5 : 12, color: T.muted, margin: mobile ? '8px 0' : 0,
                 }}>
                   Aucun article compt&eacute; pour l&rsquo;instant. Scanne un premier produit pour d&eacute;marrer la session.
                 </div>
               ) : (
-                Object.entries(inv).map(([id, counted]) => {
+                inventaireAffiche.map(([id, counted]) => {
                   const p = products.find(x => x.id === id);
                   if (!p) return null;
                   const theo = p.stock ?? 0;
                   const gap = counted - theo;
+                  const dernier = mobile && id === dernierScan;
                   return (
-                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: `1px solid ${T.borderFaint}` }}>
+                    <div key={id} className={`st-inv-row${dernier ? ' last' : ''}`}
+                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: `1px solid ${T.borderFaint}` }}>
                       {p.image_url
-                        ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 28)} />
-                        : <div style={thumbStyle(p.name_fr, 28)}>{initials(p.name_fr, 1)}</div>}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, color: T.ink }}>{nomProduit(p, lang)}</div>
-                        <div className="sc-num" style={{ fontSize: 10.5, color: T.muted }}>{refOf(p)} &middot; th&eacute;orique {theo}</div>
+                        ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, mobile ? 36 : 28)} />
+                        : <div style={thumbStyle(p.name_fr, mobile ? 36 : 28)}>{initials(p.name_fr, 1)}</div>}
+                      <div className="st-inv-txt" style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: mobile ? 14.5 : 12.5, fontWeight: mobile ? 600 : 400, color: T.ink }}>{nomProduit(p, lang)}</div>
+                        <div className="sc-num" style={{ fontSize: mobile ? 12.5 : 10.5, color: T.muted }}>{refOf(p)} &middot; th&eacute;orique {theo}</div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
+                      <div className="st-inv-steps" style={{ display: 'flex', alignItems: 'center', gap: mobile ? 6 : 5 }}>
+                        <button className={mobile ? 'st-step' : 'sc-iconbtn'} style={mobile ? undefined : { width: 28, height: 28 }}
                                 onClick={() => setInv(s => ({ ...s, [id]: Math.max(0, (s[id] || 0) - 1) }))} aria-label={t('moins')}>
                           <span className="ms">remove</span>
                         </button>
-                        <span className="sc-num" style={{ fontSize: 13, fontWeight: 700, minWidth: 26, textAlign: 'center' }}>{counted}</span>
-                        <button className="sc-iconbtn" style={{ width: 28, height: 28 }}
+                        <span className="sc-num" style={{ fontSize: mobile ? 19 : 13, fontWeight: 700, minWidth: mobile ? 34 : 26, textAlign: 'center' }}>{counted}</span>
+                        <button className={mobile ? 'st-step' : 'sc-iconbtn'} style={mobile ? undefined : { width: 28, height: 28 }}
                                 onClick={() => setInv(s => ({ ...s, [id]: (s[id] || 0) + 1 }))} aria-label="Plus">
                           <span className="ms">add</span>
                         </button>
                       </div>
-                      <span className="sc-num" style={{
-                        minWidth: 44, textAlign: 'right', fontSize: 12.5, fontWeight: 600,
+                      <span className="sc-num st-inv-gap" title={t('ecart')} style={{
+                        minWidth: 44, textAlign: 'right', fontSize: mobile ? 15 : 12.5, fontWeight: 600,
                         color: gap === 0 ? T.muted : gap > 0 ? T.blue : T.red,
                       }}>{gap > 0 ? `+${gap}` : gap}</span>
                     </div>
@@ -446,20 +667,37 @@ export default function StockPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
+          <div className="st-inv-foot" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 15px', background: T.surfaceAlt, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11.5, color: T.muted, flex: 1 }}>
               Les &eacute;carts cr&eacute;ent un mouvement de stock dat&eacute; et sign&eacute;.
             </span>
             <button className="sc-btn sc-btn-green" onClick={applyInventory} disabled={invBusy || !Object.keys(inv).length}>
-              <span className="ms">check_circle</span>{invBusy ? 'Ajustement...' : 'Ajuster le stock'}
+              <span className="ms">check_circle</span>{invBusy ? 'Ajustement...' : t('ajusterStock')}
             </button>
           </div>
         </div>
       )}
 
-      {/* 4 cartes de synthese */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(178px,1fr))', gap: 10, marginBottom: 12 }}>
-        {CARDS.map(c => (
+      {/* 4 cartes de synthese — sur téléphone, les trois premières filtrent la liste */}
+      <div className="st-kpis">
+        {mobile ? CARDS.map(c => {
+          const fg = c.tone ? c.tone.fg : T.ink;
+          const corps = (
+            <>
+              <span className="st-kpi-l" style={{ color: c.tone ? c.tone.fg : T.muted }}>
+                <span className="ms" style={{ fontSize: 17 }}>{c.icon}</span>{c.label}
+              </span>
+              <span className="sc-num st-kpi-v" style={{ display: 'block', color: fg }}>{c.value}</span>
+            </>
+          );
+          const fond = { background: c.tone ? c.tone.bg : '#fff', border: `1px solid ${c.tone ? c.tone.fg + '22' : T.border}`, color: fg };
+          return c.f ? (
+            <button key={c.label} type="button" className="st-kpi" style={fond} aria-pressed={filtre === c.f}
+                    onClick={() => setFiltre(f => f === c.f ? '' : c.f!)}>{corps}</button>
+          ) : (
+            <div key={c.label} className="st-kpi" style={{ ...fond, cursor: 'default' }}>{corps}</div>
+          );
+        }) : CARDS.map(c => (
           <div key={c.label} style={{
             background: c.tone ? c.tone.bg : '#fff',
             border: `1px solid ${c.tone ? c.tone.fg + '22' : T.border}`,
@@ -476,6 +714,23 @@ export default function StockPage() {
         ))}
       </div>
 
+      {/* Recherche collée en haut de la zone qui défile (téléphone) */}
+      {mobile && !loading && sorted.length > 0 && (
+        <div className="st-search">
+          <div className="st-search-f">
+            <span className="ms">search</span>
+            <input className="sc-input" type="search" inputMode="search" enterKeyHint="search"
+                   placeholder={t('rechercher')} aria-label={t('rechercher')}
+                   value={q} onChange={e => setQ(e.target.value)} />
+            {q && (
+              <button className="sc-iconbtn" onClick={() => setQ('')} aria-label={t('effacer')}>
+                <span className="ms">close</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading && <SqueletteTable lignes={8} colonnes={5} vignette />}
       {!loading && sorted.length === 0 && (
         <div className="sc-empty">{t('aucun')}</div>
@@ -489,15 +744,75 @@ export default function StockPage() {
           background: '#FBF9F6', border: `1px solid ${T.border}`, borderRadius: 9, padding: '9px 13px',
         }}>
           <span className="ms" style={{ fontSize: 17, color: T.muted }}>lock</span>
-          <span style={{ fontSize: 12, color: T.text2b, flex: 1 }}>{t('ordreGele')}</span>
-          <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 11px', fontSize: 11.5 }}
+          <span style={{ fontSize: mobile ? 13 : 12, color: T.text2b, flex: 1 }}>{t('ordreGele')}</span>
+          <button className="sc-btn sc-btn-secondary" style={mobile ? undefined : { padding: '4px 11px', fontSize: 11.5 }}
                   onClick={reclasser}>
-            <span className="ms" style={{ fontSize: 15 }}>sort</span>{t('reclasser')}
+            <span className="ms" style={mobile ? undefined : { fontSize: 15 }}>sort</span>{t('reclasser')}
           </button>
         </div>
       )}
 
-      {!loading && sorted.length > 0 && (
+      {/* ── Téléphone : une carte par article, pas-à-pas au pouce ── */}
+      {mobile && !loading && sorted.length > 0 && (
+        visibles.length === 0 ? (
+          <div className="sc-card sc-empty">{t('aucunFiltre')}</div>
+        ) : (
+          <div className="sc-card" style={{ overflow: 'hidden' }}>
+            {visibles.map(p => {
+              const qty = p.stock ?? 0;
+              const dus = reserve[p.id] || 0;
+              const dispo = qty - dus;
+              const thr = p.stock_alert ?? LOW;
+              const gaugeMax = Math.max(qty, thr * 4, 1);
+              const color = stockColor(qty, thr);
+              const nom = nomProduit(p, lang);
+              return (
+                <div key={p.id} className="st-item">
+                  <div className="st-item-top">
+                    <Link href={`/admin/produits/${p.id}`} className="st-item-link">
+                      {p.image_url
+                        ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 40)} />
+                        : <div style={thumbStyle(p.name_fr, 40)}>{initials(p.name_fr, 1)}</div>}
+                      <span style={{ minWidth: 0 }}>
+                        <span className="st-item-name">{nom}</span>
+                        <span className="st-item-ref">{refOf(p)} · {catName(p.category_id)}</span>
+                      </span>
+                    </Link>
+                    <Link className="sc-iconbtn" aria-label={`${t('historiqueDe')} — ${nom}`} style={{ textDecoration: 'none' }}
+                          href={`/admin/stock/historique?produit=${p.id}`}>
+                      <span className="ms">history</span>
+                    </Link>
+                  </div>
+                  <div className="st-item-row">
+                    <div className="st-stepper">
+                      <button className="st-step" onClick={() => adjust(p, -1)} aria-label={`− ${nom}`} disabled={qty <= 0}>
+                        <span className="ms">remove</span>
+                      </button>
+                      {champQuantite(p, qty, color, true)}
+                      <button className="st-step" onClick={() => adjust(p, +1)} aria-label={`+ ${nom}`}>
+                        <span className="ms">add</span>
+                      </button>
+                    </div>
+                    <div className="st-dispo">
+                      <span className="st-dispo-k">{t('disponible')}</span>
+                      <span className="sc-num st-dispo-v" style={{ color: dispo <= 0 ? T.red : dispo <= thr ? '#8A5B08' : T.ink }}>{dispo}</span>
+                    </div>
+                  </div>
+                  <div className="st-gauge"><div style={{ width: `${Math.min(100, (qty / gaugeMax) * 100)}%`, background: color }} /></div>
+                  <div className="st-meta sc-num">
+                    <span style={{ color: dus > 0 ? '#8A5B08' : undefined }}>{t('reserve')} {dus > 0 ? dus : '—'}</span>
+                    {' · '}{t('seuil')} {thr}
+                    {' · '}{t('valeur')} {p.cost_price ? eur((Number(p.cost_price) || 0) * qty) : '—'}
+                    {saving.has(p.id) && <span style={{ color: T.muted }}> · {t('enregistrement')}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {!mobile && !loading && sorted.length > 0 && (
         <div className="sc-card" style={{ overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="sc-table" style={{ minWidth: 720 }}>
@@ -538,25 +853,7 @@ export default function StockPage() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          <input
-                            className="sc-input sc-num"
-                            inputMode="numeric"
-                            aria-label={`${t('quantite')} — ${nomProduit(p, lang)}`}
-                            value={brouillon[p.id] ?? String(qty)}
-                            onChange={e => setBrouillon(b => ({ ...b, [p.id]: e.target.value.replace(/[^\d]/g, '') }))}
-                            onFocus={e => { geler(); e.currentTarget.select(); }}
-                            onBlur={() => validerSaisie(p)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') { e.currentTarget.blur(); }
-                              else if (e.key === 'Escape') {
-                                setBrouillon(b => { const n = { ...b }; delete n[p.id]; return n; });
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            style={{
-                              width: 52, height: 28, padding: '0 4px', textAlign: 'center',
-                              fontSize: 12.5, fontWeight: 700, color,
-                            }} />
+                          {champQuantite(p, qty, color, false)}
                           <div style={{ width: 90, height: 5, borderRadius: 2.5, background: T.borderFaint2 }}>
                             <div style={{ height: '100%', width: `${Math.min(100, (qty / gaugeMax) * 100)}%`, borderRadius: 2.5, background: color }} />
                           </div>
@@ -597,11 +894,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 120 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="sc-toast" role="status">{toast}</div>}
     </>
   );
 }

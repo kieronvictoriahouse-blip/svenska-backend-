@@ -1,12 +1,15 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import { MenuActions, MenuItem, MenuSep } from '@/components/MenuActions';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone, thumbStyle, initials, eur, stockColor } from '@/lib/admin-theme';
-import { SqueletteTable, SqueletteCartes } from '@/components/Squelette';
+import { SqueletteTable, SqueletteListe } from '@/components/Squelette';
 import { useT, nomProduit } from '@/lib/admin-i18n';
+import { useIsMobile } from '@/lib/use-mobile';
+import { ADMIN_SEARCH_EVENT } from '@/lib/admin-nav';
 import { TPR } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -64,21 +67,29 @@ export default function ProduitsPage() {
      vers la fiche si l'EAN est deja au catalogue. */
   const [scanOpen, setScanOpen] = useState(false);
   const [toast, setToast] = useState('');
-  const [mobile, setMobile] = useState(false);
+  /* Structure seulement (cartes au lieu du tableau, caméra auto) : le
+     squelette de chargement, lui, est basculé en CSS. */
+  const mobile = useIsMobile();
   const [showCosts, setShowCosts] = useState(true);
   const [priceModal, setPriceModal] = useState(false);
   const [pricePct, setPricePct] = useState('');
 
-  useEffect(() => {
-    const r = () => setMobile(window.innerWidth < 900);
-    r(); window.addEventListener('resize', r);
-    return () => window.removeEventListener('resize', r);
-  }, []);
+  /* Téléphone : actions secondaires dans « ⋯ », sélection groupée par un
+     mode « Sélectionner » (pas de cases à cocher permanentes), actions
+     d'un produit dans une feuille du bas. */
+  const headMenuBtn = useRef<HTMLButtonElement>(null);
+  const [headMenu, setHeadMenu] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [menuFor, setMenuFor] = useState<Product | null>(null);
 
   useEffect(() => {
     const initial = new URLSearchParams(window.location.search).get('q');
     if (initial) setQ(initial);
     load();
+    // Recherche lancée depuis la topbar alors que la liste est déjà ouverte.
+    const onSearch = (e: Event) => setQ(String((e as CustomEvent).detail || ''));
+    window.addEventListener(ADMIN_SEARCH_EVENT, onSearch);
+    return () => window.removeEventListener(ADMIN_SEARCH_EVENT, onSearch);
   }, []);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
@@ -205,18 +216,61 @@ export default function ProduitsPage() {
 
   const lowCount = products.filter(p => p.track_stock && (p.stock ?? 0) <= seuilDe(p)).length;
 
-  const stickyHead: React.CSSProperties = {
-    position: 'sticky', top: 0, zIndex: 20, background: '#fff',
-    margin: '-16px -18px 14px', padding: '14px 18px 12px',
-    borderBottom: `1px solid ${T.border}`,
-  };
+  /** Publier / dépublier un produit (ligne du tableau et menu mobile). */
+  async function togglePublish(p: Product) {
+    await adminFetch(`/api/products/${p.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !p.is_active }),
+    });
+    setProducts(ps => ps.map(x => x.id === p.id ? { ...x, is_active: !p.is_active } : x));
+    say(p.is_active ? 'Produit masqué' : 'Produit publié');
+  }
+
+  const quitSelect = () => { setSelectMode(false); setSel(new Set()); };
+
+  /* Téléphone (< 900 px) : le titre et ses actions défilent, la barre de
+     recherche + filtres reste collée en haut. L'en-tête d'ordinateur est
+     un seul bloc collant ; sur téléphone il passe en display: contents
+     pour que seule la barre de filtres colle. */
+  const css = `
+    .pr-search { flex: 1 1 220px; max-width: 320px; background: #F7F4EF; }
+    .pr-status { display: contents; }
+    .pr-scan-body { padding: 15px; max-width: 300px; }
+    .pr-card { display: flex; align-items: stretch; padding: 0; overflow: hidden; }
+    .pr-card-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px 0 12px 12px; text-decoration: none; background: none; border: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+    .pr-card-name { font-size: 14.5px; font-weight: 500; color: ${T.ink}; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+    .pr-card-meta { font-size: 12px; color: ${T.muted}; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pr-card-more { width: 48px; flex-shrink: 0; border: none; background: none; color: ${T.muted}; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .pr-check { width: 26px; height: 26px; border-radius: 7px; border: 2px solid ${T.borderField}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #fff; color: #fff; }
+    .pr-card.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+    .pr-card.on .pr-check { background: var(--accent); border-color: var(--accent); }
+    @media (min-width: 900px) { .pr-search { height: 32px; } }
+    @media (max-width: 899px) {
+      .pr-head.sc-page-head { display: contents; }
+      .pr-top { margin-bottom: 10px !important; }
+      .pr-top .sc-actions { flex-wrap: nowrap; }
+      .pr-top .sc-actions > .sc-btn { flex: 0 0 auto; }
+      .pr-top .sc-actions > .sc-btn-primary { flex: 1 1 auto; }
+      .pr-filters { position: sticky; top: 0; z-index: 20; background: #fff; margin: 0 -12px 12px; padding: 8px 12px; border-bottom: 1px solid ${T.border}; border-top: 1px solid ${T.border}; gap: 8px !important; }
+      .pr-search { flex: 1 1 0; min-width: 0; max-width: none; }
+      .pr-cat { flex: 0 0 38%; min-width: 0; }
+      .pr-status { display: flex; gap: 6px; flex: 1 1 100%; overflow-x: auto; margin: 0 -12px; padding: 0 12px; scrollbar-width: none; }
+      .pr-status::-webkit-scrollbar { display: none; }
+      .pr-status > .sc-chip { flex-shrink: 0; }
+      .pr-scan-body { max-width: none; padding: 0 12px 12px; }
+    }
+  `;
+
+  const scanLabel = 'Scanne l’article';
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+
       {/* ── En-tête collant ─────────────────────────────── */}
-      <div style={stickyHead}>
-        <div className="sc-head" style={{ marginBottom: 12 }}>
-          <div>
+      <div className="sc-page-head pr-head">
+        <div className="sc-head pr-top" style={{ marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
             <div className="sc-title">{t('titre')}</div>
             <div className="sc-sub">
               {filtered.length} produit{filtered.length > 1 ? 's' : ''}
@@ -225,22 +279,34 @@ export default function ProduitsPage() {
             </div>
           </div>
           <div className="sc-actions">
-            <button className="sc-btn sc-btn-secondary" onClick={rehost} disabled={busy} title={t('imagesTitre')}>
+            <button className="sc-btn sc-btn-secondary sc-hide-mobile" onClick={rehost} disabled={busy} title={t('imagesTitre')}>
               <span className="ms">cloud_upload</span>{t('images')}
             </button>
-            <button className="sc-btn" onClick={() => setScanOpen(v => !v)}
+            <button className="sc-btn" onClick={() => setScanOpen(v => !v)} aria-label={t('creerScan')}
                     style={{ background: '#F3EDF3', color: '#6E4470', border: '1px solid #E3D6E3' }}>
-              <span className="ms">barcode_scanner</span>{t('creerScan')}
+              <span className="ms">barcode_scanner</span><span className="sc-hide-mobile">{t('creerScan')}</span>
             </button>
-            <Link href="/admin/import" className="sc-btn sc-btn-secondary"><span className="ms">upload</span>{t('importer')}</Link>
+            <Link href="/admin/import" className="sc-btn sc-btn-secondary sc-hide-mobile"><span className="ms">upload</span>{t('importer')}</Link>
+            {/* Téléphone : Images, Importer, coûts et sélection passent ici */}
+            <button ref={headMenuBtn} className="sc-btn sc-btn-secondary sc-only-mobile-flex" onClick={() => setHeadMenu(true)}
+                    aria-label="Plus d’actions" aria-haspopup="menu" aria-expanded={headMenu}>
+              <span className="ms">more_horiz</span>
+            </button>
             <Link href="/admin/produits/nouveau" className="sc-btn sc-btn-primary"><span className="ms">add</span>{t('nouveau')}</Link>
           </div>
         </div>
 
-        {/* Creation par scan */}
+        {/* Creation par scan : carte sur ordinateur, plein écran sur téléphone */}
         {scanOpen && (
-          <div className="sc-card" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
+          <div className="sc-card sc-scan-sheet" style={{ border: '1px solid #E3D6E3', marginBottom: 12, overflow: 'hidden' }}>
+            <div className="sc-scan-sheet-head">
+              <div className="sc-scan-sheet-title">
+                {t('creerScanTitre')}
+                <div className="sc-scan-sheet-sub">Si le code est déjà au catalogue, sa fiche s’ouvre au lieu de créer un doublon.</div>
+              </div>
+              <button type="button" onClick={() => setScanOpen(false)} aria-label={tc('close')}><span className="ms" style={{ fontSize: 26 }}>close</span></button>
+            </div>
+            <div className="sc-hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: '#F9F5F9', flexWrap: 'wrap' }}>
               <span className="ms" style={{ fontSize: 19, color: '#6E4470' }}>barcode_scanner</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#5E3B5E' }}>{t('creerScanTitre')}</div>
@@ -250,41 +316,47 @@ export default function ProduitsPage() {
               </div>
               <button className="sc-btn sc-btn-secondary" style={{ padding: '5px 10px', fontSize: 11 }} onClick={() => setScanOpen(false)}>{tc('close')}</button>
             </div>
-            <div style={{ padding: 15, maxWidth: 300 }}>
-              <BarcodeScanner compact label="Scanne l&rsquo;article"
+            <div className="pr-scan-body">
+              <BarcodeScanner compact label={scanLabel} autoStart={mobile}
                               onScan={code => router.push(`/admin/produits/nouveau?ean=${encodeURIComponent(code)}`)} />
             </div>
           </div>
         )}
 
         {/* Filtres */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="pr-filters" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
-            className="sc-input"
-            style={{ height: 32, flex: '1 1 220px', maxWidth: 320, background: '#F7F4EF' }}
+            className="sc-input pr-search"
+            type="search"
+            enterKeyHint="search"
             placeholder={t('chercher')}
             value={q}
             onChange={e => setQ(e.target.value)}
           />
-          <button className={`sc-chip${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>{t('toutes')}</button>
+          {/* Téléphone : une liste déroulante plutôt que 20 puces sur 8 lignes */}
+          <select className="sc-select pr-cat sc-only-mobile" value={cat} onChange={e => setCat(e.target.value)} aria-label={t('categorie')}>
+            <option value="">{t('toutes')}</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name_fr}</option>)}
+          </select>
+          <button className={`sc-chip sc-hide-mobile${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>{t('toutes')}</button>
           {categories.map(c => (
-            <button key={c.id} className={`sc-chip${cat === c.id ? ' on' : ''}`} onClick={() => setCat(c.id)}>{c.name_fr}</button>
+            <button key={c.id} className={`sc-chip sc-hide-mobile${cat === c.id ? ' on' : ''}`} onClick={() => setCat(c.id)}>{c.name_fr}</button>
           ))}
-          <span style={{ flex: 1 }} />
-          {[['', 'Tous'], ['active', 'Actifs'], ['low', 'Stock bas'], ['draft', 'Brouillons']].map(([v, l]) => (
-            <button key={v} className={`sc-chip${stat === v ? ' on' : ''}`} onClick={() => setStat(v)}>{l}</button>
-          ))}
-          {!mobile && (
-            <button className="sc-chip" onClick={() => setShowCosts(v => !v)} title={t('voirMarge')}>
-              <span className="ms" style={{ fontSize: 16 }}>{showCosts ? 'visibility_off' : 'visibility'}</span>
-              {showCosts ? 'Masquer coûts' : 'Afficher coûts'}
-            </button>
-          )}
+          <span className="sc-hide-mobile" style={{ flex: 1 }} />
+          <div className="pr-status">
+            {[['', 'Tous'], ['active', 'Actifs'], ['low', 'Stock bas'], ['draft', 'Brouillons']].map(([v, l]) => (
+              <button key={v} className={`sc-chip${stat === v ? ' on' : ''}`} onClick={() => setStat(v)}>{l}</button>
+            ))}
+          </div>
+          <button className="sc-chip sc-hide-mobile" onClick={() => setShowCosts(v => !v)} title={t('voirMarge')}>
+            <span className="ms" style={{ fontSize: 16 }}>{showCosts ? 'visibility_off' : 'visibility'}</span>
+            {showCosts ? 'Masquer coûts' : 'Afficher coûts'}
+          </button>
         </div>
 
-        {/* Barre de sélection groupée */}
+        {/* Barre de sélection groupée (ordinateur ; téléphone : en bas) */}
         {sel.size > 0 && (
-          <div style={{
+          <div className="sc-hide-mobile" style={{
             display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
             background: '#F3EDF3', border: '1px solid #E3D6E3', borderRadius: 8,
             padding: '8px 12px', marginTop: 10,
@@ -308,7 +380,12 @@ export default function ProduitsPage() {
       </div>
 
       {/* ── Contenu ─────────────────────────────────────── */}
-      {loading && (mobile ? <SqueletteCartes n={6} /> : <SqueletteTable lignes={8} colonnes={5} vignette />)}
+      {loading && (
+        <>
+          <div className="sc-hide-mobile"><SqueletteTable lignes={8} colonnes={5} vignette /></div>
+          <div className="sc-only-mobile"><SqueletteListe n={7} /></div>
+        </>
+      )}
       {!loading && filtered.length === 0 && <div className="sc-empty">{t('aucun')}</div>}
 
       {/* Desktop : table */}
@@ -374,14 +451,7 @@ export default function ProduitsPage() {
                           <button
                             className="sc-iconbtn"
                             title={p.is_active ? t('depublier') : t('publier')}
-                            onClick={async () => {
-                              await adminFetch(`/api/products/${p.id}`, {
-                                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ is_active: !p.is_active }),
-                              });
-                              setProducts(ps => ps.map(x => x.id === p.id ? { ...x, is_active: !p.is_active } : x));
-                              say(p.is_active ? 'Produit masqué' : 'Produit publié');
-                            }}
+                            onClick={() => togglePublish(p)}
                           >
                             <span className="ms">{p.is_active ? 'visibility_off' : 'visibility'}</span>
                           </button>
@@ -396,49 +466,124 @@ export default function ProduitsPage() {
         </div>
       )}
 
-      {/* Mobile : cartes */}
+      {/* Mobile : cartes. Nom sur deux lignes, statut, prix, stock, coût et
+          marge si affichés ; « ⋮ » ouvre les actions du produit. En mode
+          sélection, toucher une carte la coche. */}
       {!loading && mobile && filtered.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {filtered.map(p => {
             const st = statusOf(p);
-            return (
-              <Link key={p.id} href={`/admin/produits/${p.id}`} className="sc-card"
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, textDecoration: 'none' }}>
+            const on = sel.has(p.id);
+            const m = marginPct(p.price, p.cost_price);
+            const body = (
+              <>
+                {selectMode && (
+                  <span className="pr-check" aria-hidden="true">{on && <span className="ms" style={{ fontSize: 18 }}>check</span>}</span>
+                )}
                 {p.image_url
-                  ? <img src={p.image_url} alt="" style={thumbStyle(p.name_fr, 46)} />
-                  : <div style={thumbStyle(p.name_fr, 46)}>{initials(p.name_fr, 1)}</div>}
+                  ? <img src={p.image_url} alt="" loading="lazy" style={thumbStyle(p.name_fr, 52)} />
+                  : <div style={thumbStyle(p.name_fr, 52)}>{initials(p.name_fr, 1)}</div>}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nomProduit(p, lang)}</span>
-                    <span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg, flexShrink: 0 }}>{st.label}</span>
+                  <div className="pr-card-name">{nomProduit(p, lang)}</div>
+                  <div className="pr-card-meta">{refOf(p)} · {catName(p.category_id)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
+                    <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>{eur(p.price)}</span>
+                    <span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>{st.label}</span>
+                    {p.track_stock && <span className="sc-num" style={{ fontSize: 12.5, color: stockColor(p.stock ?? 0, seuilDe(p)), fontWeight: 600 }}>{p.stock ?? 0} en stock</span>}
                   </div>
-                  <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>{refOf(p)} · {catName(p.category_id)}</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                    <span className="sc-num" style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{eur(p.price)}</span>
-                    {p.track_stock && <span style={{ fontSize: 11, color: stockColor(p.stock ?? 0, p.stock_alert ?? LOW_STOCK) }}>{p.stock ?? 0} en stock</span>}
-                  </div>
+                  {showCosts && (p.cost_price || m != null) && (
+                    <div className="sc-num" style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>
+                      Coût {p.cost_price ? eur(p.cost_price) : '—'}{m != null ? <> · marge <b style={{ color: T.green }}>{m} %</b></> : ''}
+                    </div>
+                  )}
                 </div>
-                <span className="ms" style={{ fontSize: 18, color: T.muted3 }}>chevron_right</span>
-              </Link>
+              </>
+            );
+            return (
+              <div key={p.id} className={`sc-card pr-card${selectMode && on ? ' on' : ''}`}>
+                {selectMode ? (
+                  <button type="button" className="pr-card-main" onClick={() => toggle(p.id)} aria-pressed={on}>{body}</button>
+                ) : (
+                  <Link href={`/admin/produits/${p.id}`} className="pr-card-main">{body}</Link>
+                )}
+                {!selectMode && (
+                  <button type="button" className="pr-card-more" onClick={() => setMenuFor(p)} aria-label={`Actions — ${nomProduit(p, lang)}`}>
+                    <span className="ms" style={{ fontSize: 22 }}>more_vert</span>
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
       )}
 
+      {/* Téléphone : barre de sélection collée en bas, au-dessus des onglets */}
+      {mobile && selectMode && (
+        <div className="sc-sticky-actions" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.ink }}>
+              {sel.size} sélectionné{sel.size > 1 ? 's' : ''}
+            </span>
+            <button type="button" className="sc-chip" onClick={toggleAll}>{allChecked ? 'Aucun' : 'Tout'}</button>
+            <button type="button" className="sc-chip" onClick={quitSelect}>Terminer</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="sc-btn sc-btn-secondary" style={{ flex: 1, justifyContent: 'center', padding: '10px 6px' }} onClick={() => setPriceModal(true)} disabled={busy || !sel.size}>
+              <span className="ms">sell</span>Prix
+            </button>
+            <button className="sc-btn sc-btn-secondary" style={{ flex: 1, justifyContent: 'center', padding: '10px 6px' }} onClick={bulkUnpublish} disabled={busy || !sel.size}>
+              <span className="ms">visibility_off</span>{t('depublier')}
+            </button>
+            <button className="sc-btn sc-btn-danger" style={{ flex: 1, justifyContent: 'center', padding: '10px 6px' }} onClick={bulkDelete} disabled={busy || !sel.size}>
+              <span className="ms">delete</span>{tc('delete')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Menus (téléphone) ─────────────────────────────── */}
+      <MenuActions open={headMenu} anchor={headMenuBtn.current} onClose={() => setHeadMenu(false)}>
+        <MenuItem icon="checklist" label={selectMode ? 'Quitter la sélection' : 'Sélectionner des produits'}
+                  hint="Modifier les prix, dépublier ou supprimer en groupe"
+                  onClick={() => (selectMode ? quitSelect() : setSelectMode(true))} />
+        <MenuItem icon={showCosts ? 'visibility_off' : 'visibility'} label={showCosts ? 'Masquer coûts et marges' : 'Afficher coûts et marges'}
+                  onClick={() => setShowCosts(v => !v)} />
+        <MenuSep />
+        <MenuItem icon="upload" label={t('importer')} href="/admin/import" />
+        <MenuItem icon="cloud_upload" label={t('images')} hint={t('imagesTitre')} onClick={rehost} disabled={busy} />
+      </MenuActions>
+
+      <MenuActions open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor ? nomProduit(menuFor, lang) : ''}>
+        {menuFor && (
+          <>
+            <MenuItem icon="edit" label={tc('edit')} href={`/admin/produits/${menuFor.id}`} />
+            <MenuItem icon="content_copy" label={t('dupliquer')} onClick={() => duplicate(menuFor)} disabled={busy} />
+            <MenuItem icon={menuFor.is_active ? 'visibility_off' : 'visibility'}
+                      label={menuFor.is_active ? t('depublier') : t('publier')}
+                      onClick={() => togglePublish(menuFor)} />
+            <MenuItem icon="checklist" label="Sélectionner" onClick={() => { setSelectMode(true); setSel(new Set([menuFor.id])); }} />
+          </>
+        )}
+      </MenuActions>
+
       {/* ── Modale « Modifier les prix » ─────────────────── */}
       {priceModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(21,24,30,.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-             onClick={e => { if (e.target === e.currentTarget) setPriceModal(false); }}>
-          <div className="sc-card" style={{ width: '100%', maxWidth: 380, padding: 18 }}>
-            <div className="sc-card-title" style={{ marginBottom: 4 }}>{t('modifierPrix')}</div>
-            <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>
-              Appliqué aux {sel.size} produit(s) sélectionné(s). Un nombre négatif baisse les prix.
+        <div className="sc-modal-back" onClick={e => { if (e.target === e.currentTarget) setPriceModal(false); }}>
+          <div className="sc-modal" role="dialog" aria-modal="true" aria-label={t('modifierPrix')} style={{ maxWidth: 380 }}>
+            <div className="sc-modal-head">
+              <span className="sc-card-title">{t('modifierPrix')}</span>
+              <button type="button" className="sc-iconbtn" onClick={() => setPriceModal(false)} aria-label={tc('close')}><span className="ms">close</span></button>
             </div>
-            <label className="sc-label">{t('variation')}</label>
-            <input className="sc-input" autoFocus value={pricePct} placeholder="ex. 5 ou -3"
-                   onChange={e => setPricePct(e.target.value)}
-                   onKeyDown={e => { if (e.key === 'Enter') bulkPrice(); }} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+            <div className="sc-modal-body">
+              <div style={{ fontSize: 12.5, color: T.text3, marginBottom: 14 }}>
+                Appliqué aux {sel.size} produit(s) sélectionné(s). Un nombre négatif baisse les prix.
+              </div>
+              <label className="sc-label">{t('variation')}</label>
+              <input className="sc-input" autoFocus value={pricePct} placeholder="ex. 5 ou -3"
+                     onChange={e => setPricePct(e.target.value)}
+                     onKeyDown={e => { if (e.key === 'Enter') bulkPrice(); }} />
+            </div>
+            <div className="sc-modal-foot">
               <button className="sc-btn sc-btn-secondary" onClick={() => setPriceModal(false)}>{tc('cancel')}</button>
               <button className="sc-btn sc-btn-primary" onClick={bulkPrice} disabled={busy}>{t('appliquer')}</button>
             </div>
@@ -446,11 +591,7 @@ export default function ProduitsPage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: T.ink, color: '#fff', padding: '10px 18px', borderRadius: 7, fontSize: 12.5, zIndex: 120 }}>
-          {toast}
-        </div>
-      )}
+      {toast && <div className="sc-toast" role="status">{toast}</div>}
     </>
   );
 }
