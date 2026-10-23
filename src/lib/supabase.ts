@@ -52,6 +52,7 @@ export type Product = {
   usage_sv?: string; usage_fr?: string; usage_en?: string;
   ingredients_sv?: string; ingredients_fr?: string; ingredients_en?: string;
   storage_sv?: string; storage_fr?: string; storage_en?: string;
+  manufacturer?: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

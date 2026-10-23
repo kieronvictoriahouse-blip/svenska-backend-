@@ -96,6 +96,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     'storage_sv', 'storage_fr', 'storage_en',
     'allergens_sv', 'allergens_fr', 'allergens_en',
     'nutrition', 'extra_images', 'ean', 'sku',
+    // Fabricant, mention obligatoire de la fiche (migration 060)
+    'manufacturer',
     /* Ces quatre-la manquaient : le formulaire produit les envoyait, la
        route les jetait, et repondait 200. Cocher « suivi de stock » ou
        changer un seuil n'avait aucun effet, sans le moindre message. */

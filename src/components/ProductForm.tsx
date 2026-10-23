@@ -54,6 +54,7 @@ type ProductFormData = {
   ingredients_sv: string; ingredients_fr: string; ingredients_en: string;
   allergens_sv: string; allergens_fr: string; allergens_en: string;
   storage_sv: string; storage_fr: string; storage_en: string;
+  manufacturer: string;
   nutrition: Nutrition;
   extra_images: string[];
   variants: Variant[];
@@ -77,6 +78,7 @@ const EMPTY: ProductFormData = {
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
   allergens_sv: '', allergens_fr: '', allergens_en: '',
   storage_sv: '', storage_fr: '', storage_en: '',
+  manufacturer: '',
   nutrition: { energie: '', graisses: '', dont_satures: '', glucides: '', dont_sucres: '', fibres: '', proteines: '', sel: '', portion: '' },
   extra_images: [],
   variants: [{ label: '', price: '' }],
@@ -213,6 +215,11 @@ export default function ProductForm({
       payload.bundle_items = lot.length ? lot : null;
     }
     if (lot.length) { payload.track_stock = false; payload.stock = null; }
+    /* Fabricant (migration 060) : envoyé seulement s'il est saisi (ou l'était),
+       pour qu'un produit s'enregistre même avant l'ajout de la colonne. */
+    const fab = String(f.manufacturer || '').trim();
+    if (fab || (initialData as any)?.manufacturer) payload.manufacturer = fab || null;
+    else delete payload.manufacturer;
     if (hasDisc || hadDisc) {
       payload.discount_type  = hasDisc ? _dt : null;
       payload.discount_value = hasDisc ? parseFloat(_dv) : null;
@@ -653,6 +660,10 @@ export default function ProductForm({
                 <Field label="Conservation">
                   <input className="sc-input" value={form[`storage_${lang}`]}
                          onChange={e => set(`storage_${lang}`, e.target.value)} placeholder="Frais et sec. 24 mois." />
+                </Field>
+                <Field label="Fabricant" hint="Nom et adresse tels qu’imprimés sur l’emballage (mention obligatoire, la même dans les trois langues).">
+                  <input className="sc-input" value={form.manufacturer || ''}
+                         onChange={e => set('manufacturer', e.target.value)} placeholder="Cloetta Sverige AB, Box 12, 172 21 Sundbyberg, Suède" />
                 </Field>
               </Card>
 
