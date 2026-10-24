@@ -1,7 +1,7 @@
 'use client';
 import { adminFetch, downloadAuth } from '@/lib/auth-client';
-import { T as TH } from '@/lib/admin-theme';
-import { useEffect, useState, useCallback } from 'react';
+import { T as TH, BADGE, INVOICE_STATUS, type BadgeTone } from '@/lib/admin-theme';
+import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useT } from '@/lib/admin-i18n';
 import { useIsMobile } from '@/lib/use-mobile';
@@ -44,17 +44,39 @@ const today = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (d?: string) => d ? new Date(d + 'T12:00').toLocaleDateString('fr-FR') : '—';
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-const STATUS_BADGE: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700',
-  paid: 'bg-green-100 text-green-700', late: 'bg-red-100 text-red-700',
-  received: 'bg-blue-100 text-blue-700', pending: 'bg-yellow-100 text-yellow-700',
-  avoir: 'bg-purple-100 text-purple-700', refunded: 'bg-gray-100 text-gray-500',
+/* Pastilles de statut : les classes Tailwind d'origine (bg-green-100…)
+   n'existent pas dans ce projet — les pastilles sortaient sans fond ni
+   couleur. Tons et libellés viennent désormais du thème du back-office
+   (INVOICE_STATUS / BADGE), comme sur les autres écrans. */
+const PURCHASE_STATUS: Record<string, { label: string; tone: BadgeTone }> = {
+  received: { label: 'Reçue', tone: 'blue' },
+  pending:  { label: 'En attente', tone: 'amber' },
+  paid:     { label: 'Payée', tone: 'green' },
 };
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Brouillon', sent: 'Envoyée', paid: 'Payée', late: 'En retard',
-  received: 'Reçue', pending: 'En attente',
-  avoir: 'Avoir', refunded: 'Remboursée',
-};
+function StatusBadge({ status, table = INVOICE_STATUS }: { status: string; table?: Record<string, { label: string; tone: BadgeTone }> }) {
+  const d = table[status];
+  const c = BADGE[d?.tone || 'gray'];
+  return <span className="sc-badge" style={{ background: c.bg, color: c.fg }}>{d?.label || status}</span>;
+}
+
+/* Barre de marge : échelle 0 → 100 % du prix de vente, repère au niveau
+   de l'objectif. Une marge négative remplit la barre en rouge depuis la
+   droite (sa longueur = la perte en % du prix). */
+function MarginBar({ pct, target, color }: { pct: number; target: number; color: string }) {
+  const neg = pct < 0;
+  const w = Number.isFinite(pct) ? Math.min(Math.abs(pct), 100) : 0;
+  return (
+    <div className={`margin-bar${neg ? ' neg' : ''}`} role="img" aria-label={`Marge ${fmtPct(pct)} (objectif ${target} %)`}>
+      <div className="margin-fill" style={{ width: `${w}%`, background: color }} />
+      <span className="margin-target" style={{ left: `${Math.min(Math.max(target, 0), 100)}%` }} />
+    </div>
+  );
+}
+
+/* Statuts qu'une facture émise peut prendre à la main. « avoir » et
+   « remboursée » sont posés par le remboursement d'une commande : une
+   pièce dans l'un de ces états ne change plus de statut. */
+const STATUTS_MANUELS = ['draft', 'sent', 'paid', 'late'];
 
 export default function GestionPage() {
   const { t, tc, lang } = useT(TGE);
@@ -67,7 +89,8 @@ export default function GestionPage() {
   const [params, setParams] = useState<Params>({
     company: '', legal: 'Auto-entrepreneur',
     siret: '', tva: '', address: '', email: '',
-    phone: '', website: '', tva_rate: 20,
+    // Franchise en base (art. 293 B) : aucune TVA facturée.
+    phone: '', website: '', tva_rate: 0,
     payment_days: 30, legal_mention: 'TVA non applicable - article 293B du CGI',
     iban: '', inv_prefix: 'SD-', inv_next: 1,
   });
@@ -77,7 +100,8 @@ export default function GestionPage() {
   // Invoice modal state
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
-  const [invoiceLines, setInvoiceLines] = useState<InvoiceLine[]>([{ desc: '', qty: 1, price: 0, tva: 20 }]);
+  const [invoiceLines, setInvoiceLines] = useState<InvoiceLine[]>([{ desc: '', qty: 1, price: 0, tva: 0 }]);
+  const [savingInvoice, setSavingInvoice] = useState(false);
   const [invForm, setInvForm] = useState({ number: '', date: today(), status: 'draft', client_name: '', client_address: '', client_email: '', note: '' });
 
   // Purchase modal state
@@ -96,6 +120,8 @@ export default function GestionPage() {
   const [trCost, setTrCost] = useState('');
   const [trMethod, setTrMethod] = useState('weight');
   const [trResult, setTrResult] = useState<any[]>([]);
+  // Coût effectivement réparti (le champ peut changer après le calcul).
+  const [trCostUsed, setTrCostUsed] = useState(0);
 
   // Preview state
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
@@ -126,7 +152,8 @@ export default function GestionPage() {
       prm.forEach((r: any) => { p[r.key] = isNaN(r.value) ? r.value : Number(r.value) || r.value; });
       setParams(prev => ({ ...prev, ...p }));
     }
-    const realData = await realRes.json();
+    // Réponse illisible = liste vide, pas un écran bloqué sur « Chargement… ».
+    const realData = realRes.ok ? await realRes.json().catch(() => ({})) : {};
     const mapped: MarginProduct[] = (realData.products || [])
       .filter((p: any) => p.cost_price > 0 && parseFloat(p.price) > 0)
       .map((p: any) => ({
@@ -147,8 +174,11 @@ export default function GestionPage() {
   // ── INVOICES ───────────────────────────────────────────
   function openNewInvoice() {
     setEditingInvoice(null);
-    setInvoiceLines([{ desc: '', qty: 1, price: 0, tva: params.tva_rate || 20 }]);
-    setInvForm({ number: params.inv_prefix + String(params.inv_next).padStart(4, '0'), date: today(), status: 'draft', client_name: '', client_address: '', client_email: '', note: '' });
+    /* TVA à 0 : micro-entreprise en franchise (art. 293 B). Le numéro est
+       attribué par le serveur (FAC-AAAA-NNNN) à l'enregistrement — celui
+       des Paramètres (préfixe « SD- ») n'a jamais été utilisé. */
+    setInvoiceLines([{ desc: '', qty: 1, price: 0, tva: 0 }]);
+    setInvForm({ number: '', date: today(), status: 'draft', client_name: '', client_address: '', client_email: '', note: '' });
     setShowInvoiceModal(true);
   }
 
@@ -166,40 +196,45 @@ export default function GestionPage() {
   }
 
   async function saveInvoice() {
-    if (!invForm.client_name.trim()) { showToast(t('msgClientRequis')); return; }
+    if (savingInvoice) return;
+    if (!editingInvoice && !invForm.client_name.trim()) { showToast(t('msgClientRequis')); return; }
     const { ht, tva, ttc } = calcInvoiceTotals(invoiceLines);
-    const token = typeof window !== 'undefined' ? localStorage.getItem('sd_admin_token') || '' : '';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const payload = {
-      number: invForm.number, date: invForm.date, status: invForm.status,
+      date: invForm.date, status: invForm.status,
       client_name: invForm.client_name, client_address: invForm.client_address,
       client_email: invForm.client_email, note: invForm.note,
       lines: JSON.stringify(invoiceLines), total_ht: ht, total_tva: tva, total_ttc: ttc,
     };
 
-    let res: Response;
-    if (editingInvoice) {
-      res = await adminFetch(`/api/invoices/${editingInvoice.id}`, { method: 'PUT', headers, body: JSON.stringify({ status: invForm.status, note: invForm.note, date: invForm.date }) });
-    } else {
-      res = await adminFetch('/api/invoices', { method: 'POST', headers, body: JSON.stringify(payload) });
-    }
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      showToast(t('msgErreur') + (e?.error || res.status)); return;
-    }
-    setShowInvoiceModal(false);
-    showToast(t('msgFactureOk'));
-    loadAll();
+    setSavingInvoice(true);
+    try {
+      let res: Response;
+      if (editingInvoice) {
+        /* Une facture émise ne change que de statut et de note : la route
+           refuse (422) toute requête qui porte `date`. L'envoyer faisait
+           échouer CHAQUE modification, même un simple « Payée ». */
+        const maj: Record<string, string> = { note: invForm.note };
+        if (invForm.status !== editingInvoice.status) maj.status = invForm.status;
+        res = await adminFetch(`/api/invoices/${editingInvoice.id}`, { method: 'PUT', headers, body: JSON.stringify(maj) });
+      } else {
+        res = await adminFetch('/api/invoices', { method: 'POST', headers, body: JSON.stringify(payload) });
+      }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        showToast(t('msgErreur') + (e?.error || res.status)); return;
+      }
+      setShowInvoiceModal(false);
+      showToast(t('msgFactureOk'));
+      loadAll();
+    } finally { setSavingInvoice(false); }
   }
 
-  async function deleteInvoice(id: string) {
-    if (!confirm(t('msgFactureDel'))) return;
-    await supabase.from('invoices').delete().eq('id', id);
-    showToast(t('msgFactureDelOk'));
-    loadAll();
-  }
+  /* Pas de suppression de facture : une pièce numérotée et scellée se
+     corrige par avoir (art. 242 nonies A CGI). L'ancien bouton passait
+     par le client Supabase du navigateur, que la RLS bloque sans erreur :
+     il affichait « Facture supprimée » sans rien supprimer. */
 
   // ── PURCHASES ──────────────────────────────────────────
   function calcPurchaseTotal(amount: string, transport: string) {
@@ -224,7 +259,9 @@ export default function GestionPage() {
 
   async function deletePurchase(id: string) {
     if (!confirm(t('msgAchatDel'))) return;
-    await supabase.from('purchases').delete().eq('id', id);
+    // La RLS refuse sans erreur : 0 ligne supprimée = échec, pas un succès.
+    const { data, error } = await supabase.from('purchases').delete().eq('id', id).select('id');
+    if (error || !data?.length) { showToast(t('msgErreur') + (error?.message || t('msgRienSupprime'))); return; }
     showToast(t('msgAchatDelOk'));
     loadAll();
   }
@@ -278,7 +315,8 @@ export default function GestionPage() {
 
   async function deleteProduct(id: string) {
     if (!confirm(t('msgProduitDel'))) return;
-    await supabase.from('margin_products').delete().eq('id', id);
+    const { data, error } = await supabase.from('margin_products').delete().eq('id', id).select('id');
+    if (error || !data?.length) { showToast(t('msgErreur') + (error?.message || t('msgRienSupprime'))); return; }
     showToast(t('msgProduitDelOk'));
     loadAll();
   }
@@ -307,6 +345,7 @@ export default function GestionPage() {
       return { ...l, qty, base, ratio, totalTr, perUnit };
     });
     setTrResult(rows);
+    setTrCostUsed(totalCost);
   }
 
   // ── PARAMS ─────────────────────────────────────────────
@@ -319,9 +358,9 @@ export default function GestionPage() {
 
   // ── MARGIN COLOR ───────────────────────────────────────
   function marginColor(pct: number) {
-    if (pct >= marginTarget) return '#16A34A';
-    if (pct >= marginTarget * 0.6) return '#D97706';
-    return '#DC2626';
+    if (pct >= marginTarget) return TH.green;
+    if (pct >= marginTarget * 0.6) return TH.amberText;
+    return TH.red;
   }
 
   // ── DASHBOARD STATS ────────────────────────────────────
@@ -370,8 +409,6 @@ export default function GestionPage() {
     .g-table tr:last-child td { border-bottom:none; }
     .g-table tbody tr:hover td { background:${TH.rowHover}; }
 
-    .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:10px; font-weight:600; letter-spacing:.3px; white-space:nowrap; }
-
     .btn { display:inline-flex; align-items:center; gap:6px; border-radius:7px; padding:8px 14px; font-size:12.5px; font-weight:500; cursor:pointer; border:1px solid ${TH.borderField}; background:#fff; color:#3A3228; text-decoration:none; transition:background .12s,border-color .12s; }
     .btn:hover { background:#F7F4EF; }
     .btn-primary { background:${TH.ink}; color:#fff; border-color:${TH.ink}; }
@@ -392,8 +429,14 @@ export default function GestionPage() {
     .price { font-variant-numeric:tabular-nums; font-weight:600; }
     .empty { padding:44px 20px; text-align:center; color:${TH.muted}; font-size:12.5px; }
 
-    .margin-bar { height:6px; border-radius:3px; background:${TH.borderFaint2}; overflow:hidden; }
+    /* Largeur fixe : dans une rangée flex ou une cellule sans contenu, la
+       barre n'avait aucune largeur et ne s'affichait jamais. */
+    .margin-bar { position:relative; width:96px; flex:0 0 96px; height:6px; border-radius:3px; background:${TH.borderFaint2}; overflow:hidden; }
+    .margin-bar.neg { background:${BADGE.red.bg}; }
     .margin-fill { height:100%; border-radius:3px; background:var(--accent); }
+    .margin-bar.neg .margin-fill { margin-left:auto; }
+    .margin-target { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:${TH.muted3}; }
+    .g-table td.g-bar { width:120px; }
 
     .result-box { background:#F2F5F0; border:1px solid ${TH.border}; border-radius:8px; padding:12px 14px; }
     .result-row { display:flex; justify-content:space-between; font-size:12.5px; color:${TH.text2b}; padding:5px 0; }
@@ -438,7 +481,7 @@ export default function GestionPage() {
       .form-label { font-size:12.5px; }
       .form-control, .form-control.fs12 { height:44px; font-size:16px; }
       textarea.form-control { height:auto; }
-      .badge { font-size:11px; }
+      .margin-bar { width:64px; flex-basis:64px; }
       .empty { font-size:14px; padding:32px 16px; }
       .result-row { font-size:14px; }
       .g-totals { min-width:0; width:100%; }
@@ -595,7 +638,7 @@ export default function GestionPage() {
                         <div><div style={{ fontSize: 13, fontWeight: 600 }}>{i.client_name || '—'}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>{i.number} · {fmtDate(i.date)}</div></div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <span className="mono" style={{ fontSize: 13 }}>{fmt(i.total_ttc)}</span>
-                          <span className={`badge ${STATUS_BADGE[i.status] || ''}`}>{STATUS_LABEL[i.status] || i.status}</span>
+                          <StatusBadge status={i.status} />
                         </div>
                       </div>
                     ))}
@@ -608,7 +651,7 @@ export default function GestionPage() {
                       return (
                         <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--linen)' }}>
                           <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--dust)' }}>PMP {fmt(p.revient)}</div></div>
-                          <div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div>
+                          <MarginBar pct={pct} target={marginTarget} color={marginColor(pct)} />
                           <span style={{ fontSize: 12, fontWeight: 700, color: marginColor(pct), width: 48, textAlign: 'right' }}>{fmtPct(pct)}</span>
                         </div>
                       );
@@ -628,7 +671,8 @@ export default function GestionPage() {
                   <thead><tr><th>N°</th><th>{tc('client')}</th><th>Date</th><th>{t('echeance')}</th><th style={{ textAlign: 'right' }}>HT</th><th style={{ textAlign: 'right' }}>TVA</th><th style={{ textAlign: 'right' }}>TTC</th><th>{tc('status')}</th><th>{tc('actions')}</th></tr></thead>
                   <tbody>
                     {invoices.map(i => {
-                      const echeance = i.date ? new Date(new Date(i.date + 'T12:00').getTime() + (params.payment_days || 30) * 86400000).toISOString().slice(0, 10) : undefined;
+                      // Un avoir n'a pas d'échéance (il ne se règle pas, il se rembourse).
+                      const echeance = i.date && i.status !== 'avoir' ? new Date(new Date(i.date + 'T12:00').getTime() + (params.payment_days || 30) * 86400000).toISOString().slice(0, 10) : undefined;
                       return (
                         <tr key={i.id}>
                           <td className="mono sc-hide-mobile" style={{ fontSize: 12 }}>{i.number}</td>
@@ -638,7 +682,7 @@ export default function GestionPage() {
                           <td data-label="HT" className="price">{fmt(i.total_ht)}</td>
                           <td data-label="TVA" className="price">{fmt(i.total_tva)}</td>
                           <td data-label="TTC" className="price" style={{ fontWeight: 700 }}>{fmt(i.total_ttc)}</td>
-                          <td data-label={tc('status')}><span className={`badge ${STATUS_BADGE[i.status] || ''}`}>{STATUS_LABEL[i.status] || i.status}</span></td>
+                          <td data-label={tc('status')}><StatusBadge status={i.status} /></td>
                           <td className="sc-stack-actions">
                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                               <button className="btn btn-secondary btn-sm" title={tc('edit')} onClick={() => openEditInvoice(i)}>
@@ -656,9 +700,6 @@ export default function GestionPage() {
                               <button className="btn btn-secondary btn-sm" title={t('telechargerPdf')}
                                       onClick={() => downloadAuth(`/api/invoices/${i.id}/pdf`, `${i.status === 'avoir' ? 'avoir' : 'facture'}-${i.number}.pdf`).catch(e => showToast(e.message))}>
                                 <span className="ms" style={{ fontSize: 16 }}>picture_as_pdf</span>
-                              </button>
-                              <button className="btn btn-danger btn-sm" title={tc('delete')} onClick={() => deleteInvoice(i.id)}>
-                                <span className="ms" style={{ fontSize: 16 }}>delete</span>
                               </button>
                             </div>
                           </td>
@@ -702,7 +743,7 @@ export default function GestionPage() {
                             <td className="price">{fmt(p.amount)}</td>
                             <td className="price">{p.transport > 0 ? fmt(p.transport) : '—'}</td>
                             <td className="price" style={{ fontWeight: 700 }}>{fmt(p.total)}</td>
-                            <td><span className={`badge ${STATUS_BADGE[p.status] || ''}`}>{STATUS_LABEL[p.status] || p.status}</span></td>
+                            <td><StatusBadge status={p.status} table={PURCHASE_STATUS} /></td>
                             <td><button className="btn btn-danger btn-sm" onClick={() => deletePurchase(p.id)}>🗑</button></td>
                           </tr>
                         ))}
@@ -750,6 +791,7 @@ export default function GestionPage() {
                               </div>
                               {p.cat && <div style={{ fontSize: 12, color: TH.muted, marginTop: 1 }}>{p.cat}</div>}
                             </div>
+                            <MarginBar pct={pct} target={marginTarget} color={marginColor(pct)} />
                             <span className="ms" style={{ fontSize: 20, color: TH.muted3 }}>chevron_right</span>
                           </a>
                         );
@@ -780,14 +822,14 @@ export default function GestionPage() {
                               <td className="price">{fmt(p.sell)}</td>
                               <td style={{ textAlign: 'right', fontSize: 12 }}>
                                 {(p as any).stock != null ? (
-                                  <span style={{ color: (p as any).stock === 0 ? '#EF4444' : (p as any).stock <= 3 ? '#D97706' : '#10B981', fontWeight: 600 }}>
+                                  <span style={{ color: (p as any).stock === 0 ? TH.red : (p as any).stock <= 3 ? TH.amberText : TH.green, fontWeight: 600 }}>
                                     {(p as any).stock}
                                   </span>
                                 ) : '—'}
                               </td>
                               <td className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
                               <td style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
-                              <td><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
+                              <td className="g-bar"><MarginBar pct={pct} target={marginTarget} color={marginColor(pct)} /></td>
                               <td>
                                 <a href={`/admin/produits/${p.id}`} className="btn btn-secondary btn-sm" title={t('editerProduit')}>✏️</a>
                               </td>
@@ -832,7 +874,7 @@ export default function GestionPage() {
                               <td data-label={t('vente')} className="price">{fmt(p.sell)}</td>
                               <td data-label={t('margeEur')} className="price" style={{ color: marginColor(pct) }}>{fmt(p.sell - p.revient)}</td>
                               <td data-label={t('margePct')} style={{ textAlign: 'right', fontWeight: 700, color: marginColor(pct) }}>{fmtPct(pct)}</td>
-                              <td className="sc-hide-mobile"><div className="margin-bar"><div className="margin-fill" style={{ width: `${Math.min(pct, 100)}%`, background: marginColor(pct) }}></div></div></td>
+                              <td className="sc-hide-mobile g-bar"><MarginBar pct={pct} target={marginTarget} color={marginColor(pct)} /></td>
                               <td className="sc-stack-actions">
                                 <div style={{ display: 'flex', gap: 4 }}>
                                   <button className="btn btn-secondary btn-sm" aria-label={tc('edit')} title={tc('edit')} onClick={() => openEditProduct(p)}>✏️</button>
@@ -902,7 +944,7 @@ export default function GestionPage() {
                       </table>
                       </div>
                       <div style={{ marginTop: 12, padding: '8px 14px', background: 'var(--moss-pale)', borderRadius: 'var(--r)', fontSize: 12, color: 'var(--moss)', fontWeight: 600 }}>
-                        Total réparti : {fmt(parseFloat(trCost) || 0)}
+                        Total réparti : {fmt(trCostUsed)}
                       </div>
                       <p style={{ fontSize: 11, color: 'var(--dust)', marginTop: 10 }}>✅ Utilisez les montants "/ unité" dans le calculateur de marges.</p>
                     </div>
@@ -927,7 +969,7 @@ export default function GestionPage() {
                     <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} value={params.email} onChange={e => setParams(p => ({ ...p, email: e.target.value }))} /></div>
                     <div className="form-group"><label className="form-label">{tc('phone')}</label><input className="form-control" inputMode="tel" autoComplete="tel" value={params.phone} onChange={e => setParams(p => ({ ...p, phone: e.target.value }))} /></div>
                     <div className="form-group"><label className="form-label">IBAN</label><input className="form-control mono" autoCapitalize="characters" autoComplete="off" spellCheck={false} value={params.iban} onChange={e => setParams(p => ({ ...p, iban: e.target.value }))} /></div>
-                    <div className="form-group"><label className="form-label">{t('tauxTva')}</label><input type="number" inputMode="decimal" className="form-control mono" value={params.tva_rate} onChange={e => setParams(p => ({ ...p, tva_rate: parseFloat(e.target.value) || 20 }))} /></div>
+                    <div className="form-group"><label className="form-label">{t('tauxTva')}</label><input type="number" inputMode="decimal" className="form-control mono" value={params.tva_rate} onChange={e => setParams(p => ({ ...p, tva_rate: parseFloat(e.target.value) || 0 }))} /></div>
                     <div className="form-group"><label className="form-label">{t('delaiPaiement')}</label><input type="number" inputMode="numeric" className="form-control mono" value={params.payment_days} onChange={e => setParams(p => ({ ...p, payment_days: parseInt(e.target.value) || 30 }))} /></div>
                     <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{t('mentions')}</label><textarea className="form-control" value={params.legal_mention} onChange={e => setParams(p => ({ ...p, legal_mention: e.target.value }))} /></div>
                   </div>
@@ -962,15 +1004,24 @@ export default function GestionPage() {
               <button className="btn btn-secondary btn-sm" aria-label={tc('cancel')} onClick={() => setShowInvoiceModal(false)}>✕</button>
             </div>
             <div className="g-modal-body">
+              {/* Facture existante : le contenu est scellé (numéro, date, client,
+                  lignes) — seuls le statut et la note se modifient. */}
+              {editingInvoice && (
+                <div style={{ fontSize: 12, color: TH.text3, background: TH.surfaceAlt, border: `1px solid ${TH.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
+                  {t('contenuScelle')}
+                </div>
+              )}
               <div className="g-grid-3" style={{ marginBottom: 14 }}>
-                <div className="form-group"><label className="form-label">N° facture</label><input className="form-control mono" autoCapitalize="characters" value={invForm.number} onChange={e => setInvForm(f => ({ ...f, number: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Date</label><input type="date" className="form-control" value={invForm.date} onChange={e => setInvForm(f => ({ ...f, date: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">N° facture</label><input className="form-control mono" disabled value={editingInvoice ? invForm.number : ''} placeholder={t('numeroAuto')} /></div>
+                <div className="form-group"><label className="form-label">Date</label><input type="date" className="form-control" disabled={!!editingInvoice} value={invForm.date} onChange={e => setInvForm(f => ({ ...f, date: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">{tc('status')}</label>
-                  <select className="form-control" value={invForm.status} onChange={e => setInvForm(f => ({ ...f, status: e.target.value }))}>
+                  <select className="form-control" value={invForm.status} disabled={!!editingInvoice && !STATUTS_MANUELS.includes(editingInvoice.status)} onChange={e => setInvForm(f => ({ ...f, status: e.target.value }))}>
+                    {editingInvoice && !STATUTS_MANUELS.includes(editingInvoice.status) && <option value={editingInvoice.status}>{INVOICE_STATUS[editingInvoice.status]?.label || editingInvoice.status}</option>}
                     <option value="draft">{t('brouillon')}</option><option value="sent">{t('envoyee')}</option><option value="paid">{t('payee')}</option><option value="late">{t('enRetard')}</option>
                   </select>
                 </div>
               </div>
+              <fieldset disabled={!!editingInvoice} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
               <div className="g-grid-3" style={{ marginBottom: 14 }}>
                 <div className="form-group"><label className="form-label">{t('clientReq')}</label><input className="form-control" value={invForm.client_name} onChange={e => setInvForm(f => ({ ...f, client_name: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">{tc('email')}</label><input className="form-control" inputMode="email" autoCapitalize="none" spellCheck={false} value={invForm.client_email} onChange={e => setInvForm(f => ({ ...f, client_email: e.target.value }))} /></div>
@@ -989,7 +1040,8 @@ export default function GestionPage() {
                           <td className="g-ln-desc"><input className="form-control fs12" aria-label="Description" value={l.desc} onChange={e => update('desc', e.target.value)} placeholder={t('phDescription')} /></td>
                           <td className="g-ln-qty" data-label="Qté"><input type="number" inputMode="decimal" aria-label="Quantité" className="form-control mono fs12" value={l.qty} min={1} onChange={e => update('qty', parseFloat(e.target.value) || 1)} /></td>
                           <td className="g-ln-pu" data-label="P.U. HT"><input type="number" inputMode="decimal" aria-label="Prix unitaire HT" className="form-control mono fs12" value={l.price} step="0.01" onChange={e => update('price', parseFloat(e.target.value) || 0)} /></td>
-                          <td className="g-ln-tva" data-label="TVA %"><input type="number" inputMode="decimal" aria-label="TVA %" className="form-control mono fs12" value={l.tva} min={0} max={100} onChange={e => update('tva', parseFloat(e.target.value) || 0)} /></td>
+                          {/* Franchise en base : la TVA reste à 0 (le serveur refuse toute autre valeur). */}
+                          <td className="g-ln-tva" data-label="TVA %"><input type="number" aria-label="TVA %" className="form-control mono fs12" value={l.tva} readOnly title="TVA non applicable, art. 293 B du CGI" /></td>
                           <td className="g-ln-total" data-label="Total">{fmt(l.qty * l.price)}</td>
                           <td className="g-ln-x"><button className="g-x" aria-label={tc('delete')} onClick={() => setInvoiceLines(invoiceLines.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}>✕</button></td>
                         </tr>
@@ -997,8 +1049,9 @@ export default function GestionPage() {
                     })}
                   </tbody>
                 </table>
-                <button className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => setInvoiceLines([...invoiceLines, { desc: '', qty: 1, price: 0, tva: params.tva_rate || 20 }])}>+ Ligne</button>
+                <button className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => setInvoiceLines([...invoiceLines, { desc: '', qty: 1, price: 0, tva: 0 }])}>+ Ligne</button>
               </div>
+              </fieldset>
               {(() => { const { ht, tva, ttc } = calcInvoiceTotals(invoiceLines); return (
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <div className="result-box g-totals">
@@ -1015,7 +1068,7 @@ export default function GestionPage() {
             </div>
             <div className="g-modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowInvoiceModal(false)}>{tc('cancel')}</button>
-              <button className="btn btn-primary" onClick={saveInvoice}>{t('sauvegarder')}</button>
+              <button className="btn btn-primary" disabled={savingInvoice} onClick={saveInvoice}>{t('sauvegarder')}</button>
             </div>
           </div>
         </div>

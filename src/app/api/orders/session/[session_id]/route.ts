@@ -15,9 +15,13 @@ export async function GET(_: NextRequest, { params }: { params: { session_id: st
   const { session_id } = params;
   if (!session_id) return NextResponse.json({ error: 'missing_session_id' }, { status: 400, headers: CORS });
 
+  /* Route publique, sans session : elle renvoyait nom, email et adresse
+     du client à quiconque tenait l'identifiant de session Stripe — or il
+     figure en clair dans les liens de paiement envoyés par email et
+     affichés au back-office. Même projection que /api/orders/[id]/public. */
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('id,order_number,status,customer_name,customer_email,lines,subtotal,shipping,total,shipping_address,created_at,tracking_number')
+    .select('id,order_number,status,delivery_mode,lines,subtotal,shipping,discount,total,created_at')
     .eq('stripe_session_id', session_id)
     .maybeSingle();
 

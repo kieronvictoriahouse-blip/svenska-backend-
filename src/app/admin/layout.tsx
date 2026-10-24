@@ -72,17 +72,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         if (!alive) return;
         const products = pRes.products || [];
         const orders = oRes.orders || [];
+        /* Seuil = `stock_alert` du produit, comme l'écran Stock (la colonne
+           `low_stock_threshold` lue ici avant n'existe pas : tout tombait à 12). */
+        /* Stock NULL d'un produit suivi = rupture, comme l'écran Stock et le
+           tableau de bord. */
         const lowStock = products.filter((p: any) =>
-          p.track_stock === true && typeof p.stock === 'number' &&
-          p.stock <= (Number(p.low_stock_threshold) || 12)).length;
+          p.track_stock === true && (Number(p.stock) || 0) <= (p.stock_alert ?? 12)).length;
+        /* « À traiter » = tout ce qui reste à expédier, la même liste que la
+           file de la préparation (avant : payées + confirmées seulement, donc
+           un badge à 15 pour une file de 16 et un filtre « À traiter » à 12). */
         const toProcess = orders.filter((o: any) =>
-          !o.is_test && ['paid', 'confirmed'].includes(o.status)).length;
+          !o.is_test && ['paid', 'confirmed', 'preparing', 'partial'].includes(o.status)).length;
         setCounts(c => ({ ...c, stock: lowStock, orders: toProcess }));
       } catch { /* compteurs non bloquants */ }
       try {
-        const rRes = await adminFetch('/api/receptions').then(r => r.json());
+        /* Ce qui attend sa marchandise : les commandes d'achat envoyées ou
+           confirmées. Avant, le badge comptait les réceptions qui ne sont ni
+           « done » ni « received » — une réception naît « done », il ne
+           restait donc que les réceptions ANNULÉES. */
+        const pRes = await adminFetch('/api/purchase-orders').then(r => r.json());
         if (!alive) return;
-        const pending = (rRes.receptions || []).filter((r: any) => r.status !== 'done' && r.status !== 'received').length;
+        const pending = (pRes.orders || []).filter((po: any) =>
+          ['sent', 'confirmed', 'partial'].includes(po.status)).length;
         setCounts(c => ({ ...c, receptions: pending }));
       } catch { /* route absente selon l'environnement */ }
     })();
@@ -109,12 +120,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       counts={counts}
       fullBleed={isFullBleed(pathname)}
       onSearch={q => {
-        router.push(`/admin/produits?q=${encodeURIComponent(q)}`);
+        /* La recherche annonce « produit, commande » : un n° de commande
+           (SD-0240, #240, 240) ou un e-mail ouvre les commandes, le reste
+           les produits. Avant, tout partait vers les produits. */
+        const commande = q.includes('@') || /^#?\s*(sd\s*-?\s*)?\d{1,6}$/i.test(q);
+        router.push(`/admin/${commande ? 'commandes' : 'produits'}?q=${encodeURIComponent(q)}`);
         // Liste déjà ouverte : elle ne relit pas l'URL, on lui passe la recherche.
         window.dispatchEvent(new CustomEvent(ADMIN_SEARCH_EVENT, { detail: q }));
       }}
-      /* Appelé après confirmation dans le menu de l'avatar (plus au simple tap). */
-      onLogout={() => { localStorage.clear(); router.replace('/login'); }}
+      /* Appelé après confirmation dans le menu de l'avatar (plus au simple tap).
+         La route efface aussi le cookie httpOnly, que le navigateur ne peut pas vider. */
+      onLogout={async () => {
+        const token = localStorage.getItem('sd_admin_token');
+        try {
+          await fetch('/api/auth/logout', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        } catch { /* hors ligne : on vide au moins le navigateur */ }
+        localStorage.clear();
+        router.replace('/login');
+      }}
     >
       {children}
     </AdminShell>

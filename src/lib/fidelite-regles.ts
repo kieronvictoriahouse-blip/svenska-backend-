@@ -29,8 +29,11 @@ export const FIDELITE = {
 } as const;
 
 /** Statuts d'une commande réellement payée — ceux du tableau de bord,
- *  plus « partial » (expédiée en partie). */
-export const STATUTS_PAYES = ['paid', 'confirmed', 'shipped', 'delivered', 'partial'];
+ *  plus « partial » (expédiée en partie) et « preparing » (en cours de
+ *  préparation). Sans « preparing », une commande d'ami encore en
+ *  préparation au 14e jour faisait ANNULER le parrainage (« commande
+ *  annulée ») et ne comptait pas pour le code fidélité. */
+export const STATUTS_PAYES = ['paid', 'confirmed', 'preparing', 'shipped', 'delivered', 'partial'];
 
 export type SorteCode = 'fidelite' | 'parrainage';
 

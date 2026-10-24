@@ -85,7 +85,11 @@ export default function RupturesPage() {
         adminFetch('/api/stock/reserve').then(x => x.json()).catch(() => ({})),
       ]);
       setRows(r.ruptures || []);
-      setOrders((o.orders || []).filter((x: any) => ['paid', 'confirmed'].includes(x.status)));
+      /* Toute commande dont la marchandise est due (STATUTS_DUS de
+         lib/reserve) : une rupture se découvre surtout en préparant le
+         colis, quand la commande est déjà « en préparation » — elle
+         n'apparaissait pas dans la liste. */
+      setOrders((o.orders || []).filter((x: any) => ['paid', 'confirmed', 'preparing', 'partial'].includes(x.status)));
       setProducts(p.products || []);
       setReserve(rv.reserve || {});
     } catch { say(t('msgChargement')); }
@@ -111,6 +115,8 @@ export default function RupturesPage() {
   async function envoyer() {
     if (!order || !line) { say(t('msgChoisir')); return; }
     if (!options.size) { say(t('msgProposer')); return; }
+    // Email client : même confirmation que la relance.
+    if (!window.confirm(`${t('confirmEnvoi')}\n\n${order.customer_email || ''}`)) return;
     setBusy(true);
     try {
       const res = await adminFetch(`/api/orders/${order.id}/rupture`, {
@@ -294,6 +300,20 @@ ${dest}`)) return;
                   {rows.map(r => {
                     const st = STATUS[r.status] || STATUS.pending;
                     const du = Number(r.price_delta) || 0;
+                    /* price_delta n'a pas le même signe selon la réponse
+                       (route publique /api/remplacement) :
+                       · remplacement : ancien − nouveau, > 0 = la boutique
+                         doit la différence (l'email l'a promise) ;
+                       · remboursement : −montant, < 0 = la boutique doit.
+                       L'écran lisait tout comme un remboursement : un
+                       remplaçant plus cher (différence offerte) s'affichait
+                       « à rendre » en rouge, un moins cher (vraiment dû)
+                       en gris. */
+                    const remplacement = !!r.chosen_product_id
+                      || (Array.isArray(r.chosen_mix) && r.chosen_mix.length > 0)
+                      || r.status === 'replaced';
+                    const aRendre = remplacement ? Math.max(0, du) : Math.max(0, -du);
+                    const offert = remplacement && du < 0 ? -du : 0;
                     return (
                       <tr key={r.id}>
                         <td className="sc-num" data-label={t('commande')} style={{ fontSize: 12 }}>
@@ -325,8 +345,8 @@ ${dest}`)) return;
                             {st.label}
                           </span>
                         </td>
-                        <td className="sc-num" data-label={t('montant')} style={{ textAlign: 'right', fontSize: 12.5, fontWeight: du < 0 ? 700 : 400, color: du < 0 ? T.red : T.text2b }}>
-                          {du < 0 ? `${eur(Math.abs(du))} à rendre` : du > 0 ? eur(du) : '—'}
+                        <td className="sc-num" data-label={t('montant')} style={{ textAlign: 'right', fontSize: 12.5, fontWeight: aRendre > 0 && r.status !== 'done' ? 700 : 400, color: aRendre > 0 && r.status !== 'done' ? T.red : T.text2b }}>
+                          {aRendre > 0 ? `${eur(aRendre)} ${t('aRendre')}` : offert > 0 ? `${eur(offert)} ${t('offert')}` : '—'}
                         </td>
                         <td className="sc-stack-actions">
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>

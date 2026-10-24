@@ -31,9 +31,18 @@ export async function POST(req: NextRequest) {
   const { data: reception } = await supabaseAdmin
     .from('receptions').select('*').eq('id', reception_id).single();
   if (!reception) return NextResponse.json({ error: 'Réception introuvable' }, { status: 404 });
+  /* Une réception annulée a rendu sa marchandise : lui imputer du port
+     gonflerait le PMP d'articles qui ne sont jamais entrés. */
+  if (reception.status === 'cancelled') {
+    return NextResponse.json({ error: 'Réception annulée : aucun coût à imputer' }, { status: 409 });
+  }
 
-  const lines: any[] = typeof reception.lines === 'string'
-    ? JSON.parse(reception.lines) : reception.lines || [];
+  const { lignesDe, recuDe } = await import('@/lib/reception-utils');
+  /* `received_qty` normalisé : les réceptions créées par un ticket de
+     caisse portaient `qty_received`, et n'avaient donc « aucune ligne
+     valide » — impossible d'y reverser le port. */
+  const lines: any[] = lignesDe(reception.lines)
+    .map((l: any) => ({ ...l, received_qty: recuDe(l) }));
 
   const validLines = lines.filter(l => l.product_id && l.received_qty > 0);
   if (!validLines.length) return NextResponse.json({ error: 'Aucune ligne valide' }, { status: 400 });

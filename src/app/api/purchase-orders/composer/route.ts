@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
   let existante: any = null;
   if (existanteId) {
     const { data } = await supabaseAdmin.from('purchase_orders')
-      .select('id, number, status, expected_date').eq('id', existanteId).maybeSingle();
+      .select('id, number, status, expected_date, lines').eq('id', existanteId).maybeSingle();
     if (!data) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
     if (data.status === 'received') {
       return NextResponse.json(
@@ -137,6 +137,19 @@ export async function POST(req: NextRequest) {
       );
     }
     existante = data;
+
+    /* Commande partiellement reçue : ce qui est déjà arrivé le reste. Les
+       lignes réécrites repartaient à received_qty 0, et le réappro
+       recomptait « en route » des cartons déjà rangés. */
+    const dejaRecu: Record<string, number> = {};
+    for (const l of (typeof data.lines === 'string' ? JSON.parse(data.lines) : (data.lines || []))) {
+      if (l?.product_id) dejaRecu[l.product_id] = (dejaRecu[l.product_id] || 0) + (Number(l.received_qty) || 0);
+    }
+    for (const l of lignes as any[]) {
+      const pris = Math.min(l.qty, dejaRecu[l.product_id] || 0);
+      l.received_qty = pris;
+      dejaRecu[l.product_id] = (dejaRecu[l.product_id] || 0) - pris;
+    }
   }
 
   /* Numérotation par le maximum existant, pas par le nombre de lignes :

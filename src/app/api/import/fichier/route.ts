@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { eanValide } from '@/lib/fiche-produit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -81,6 +82,10 @@ export async function POST(req: NextRequest) {
         categoryId = cat!.id;
       }
 
+      /* EAN : même contrôle que la fiche (longueur + clé). Un code faux
+         n'empêche pas la création, il n'est simplement pas repris. */
+      const eanBrut = String(l.ean || '').replace(/\s/g, '');
+      const ean = eanBrut && eanValide(eanBrut) ? eanBrut : null;
       const image = l.image && /^https?:\/\//i.test(l.image) ? ((await rehostImage(l.image)) || null) : null;
       const suivi = l.stock !== null && l.stock !== undefined && !Number.isNaN(Number(l.stock));
 
@@ -92,7 +97,7 @@ export async function POST(req: NextRequest) {
         price: Number(l.prix),
         cost_price: Number(l.prix_achat) > 0 ? Number(l.prix_achat) : null,
         weight: (l.poids || '').trim() || null,
-        ean: (l.ean || '').trim() || null,
+        ean,
         sku: (l.reference || '').trim() || null,
         category_id: categoryId,
         image_url: image,
@@ -106,9 +111,10 @@ export async function POST(req: NextRequest) {
         await poserStock(p.id, Number(l.stock), { reason: 'inventory', note: 'Stock initial — import de catalogue' });
       }
       parNom.set(norm(nom), p.id);
-      if (l.ean) parEan.set(norm(l.ean), p.id);
+      if (ean) parEan.set(norm(ean), p.id);
       if (l.reference) parRef.set(norm(l.reference), p.id);
-      resultats.push({ ...r, statut: 'cree', id: p.id, raison: l.image && !image ? 'image introuvable' : undefined });
+      const remarques = [l.image && !image ? 'image introuvable' : '', eanBrut && !ean ? 'EAN invalide, non repris' : ''].filter(Boolean);
+      resultats.push({ ...r, statut: 'cree', id: p.id, raison: remarques.join(' · ') || undefined });
     } catch (e: any) {
       resultats.push({ ...r, raison: e?.message || 'erreur inconnue' });
     }

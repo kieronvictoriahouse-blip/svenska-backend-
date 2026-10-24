@@ -129,9 +129,9 @@ export const NAV: NavGroup[] = [
       { href: '/admin/boite-mail', icon: 'inbox',
         label: { fr: 'Boîte mail', en: 'Mailbox', sv: 'Inkorg' },
         desc: { fr: 'La boîte email de la boutique', en: 'The shop mailbox', sv: 'Butikens e-postlåda' } },
-      { href: '/admin/marketing?tab=cart', icon: 'shopping_cart', extra: true,
-        label: { fr: 'Abandon panier', en: 'Abandoned carts', sv: 'Övergivna kundvagnar' },
-        desc: { fr: 'Relances automatiques', en: 'Automatic reminders', sv: 'Automatiska påminnelser' } },
+      /* Plus d'entrée « Abandon panier » (/admin/marketing?tab=cart) : elle
+         doublonnait « Paniers abandonnés » ci-dessus, et ses boutons « Relance
+         envoyée » écrivaient dans la table des campagnes sans rien envoyer. */
     ],
   },
   {

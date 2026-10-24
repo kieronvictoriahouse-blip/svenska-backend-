@@ -64,6 +64,9 @@ export const ORDER_STATUS: Record<string, { label: string; tone: BadgeTone }> = 
   pending:   { label: 'En attente', tone: 'amber'  },
   paid:      { label: 'Payée',      tone: 'blue'   },
   confirmed: { label: 'Confirmée',  tone: 'blue'   },
+  // Sans ces deux-là, la pastille affichait le mot brut « partial » / « preparing ».
+  preparing: { label: 'En préparation', tone: 'blue' },
+  partial:   { label: 'Partiellement expédiée', tone: 'plum' },
   shipped:   { label: 'Expédiée',   tone: 'plum'   },
   delivered: { label: 'Livrée',     tone: 'green'  },
   cancelled: { label: 'Annulée',    tone: 'gray'   },

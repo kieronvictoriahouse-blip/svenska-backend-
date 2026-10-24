@@ -14,4 +14,5 @@ export const TSU = {
   msgStatut: { fr: 'Statut mis à jour', en: 'Status updated', sv: 'Status uppdaterad' },
   msgConfirmDel: { fr: 'Supprimer cette suggestion ?', en: 'Delete this suggestion?', sv: 'Ta bort förslaget?' },
   msgSupprimee: { fr: 'Suggestion supprimée', en: 'Suggestion deleted', sv: 'Förslaget borttaget' },
+  msgEchec: { fr: 'Modification non enregistrée — réessaie', en: 'Change not saved — try again', sv: 'Ändringen sparades inte — försök igen' },
 };

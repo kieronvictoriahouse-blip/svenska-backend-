@@ -20,6 +20,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (order.delivery_mode !== 'mondial_relay') {
     return NextResponse.json({ error: 'Commande sans point relais' }, { status: 400 });
   }
+  // Une étiquette UGO se paie : jamais pour une commande annulée ou remboursée.
+  if (['cancelled', 'refunded', 'pending', 'abandoned'].includes(order.status)) {
+    return NextResponse.json({ error: `Commande au statut « ${order.status} » : pas d’étiquette` }, { status: 409 });
+  }
   // Évite une double étiquette (donc une double facturation UGO).
   if (order.logspher_label_url) {
     return NextResponse.json({ error: 'Une étiquette existe déjà pour cette commande' }, { status: 409 });

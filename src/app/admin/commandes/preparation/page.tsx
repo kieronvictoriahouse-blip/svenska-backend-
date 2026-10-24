@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, thumbStyle, initials, eur } from '@/lib/admin-theme';
 import BarcodeScanner from '@/components/BarcodeScanner';
@@ -95,7 +95,13 @@ export default function PreparationPage() {
   const [toast, setToast] = useState('');
   const [scanOpen, setScanOpen] = useState(false);
 
-  const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
+  /* Un seul minuteur : sinon celui du message précédent efface le suivant. */
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const say = (m: string) => {
+    setToast(m);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 3500);
+  };
 
   useEffect(() => {
     (async () => {
@@ -141,7 +147,20 @@ export default function PreparationPage() {
     let raw: any[] = [];
     try { raw = typeof active.lines === 'string' ? JSON.parse(active.lines) : (active.lines || []); } catch { raw = []; }
     const deja = active.shipped_qty || {};
-    return raw.filter(l => l.product_id).map(l => {
+    /* Une ligne par PRODUIT. Un remplacement de rupture ajoute une seconde
+       ligne sur la même référence : affichées séparément, elles
+       partageaient le même compteur (`picked` est indexé par produit) —
+       deux prélevés en valaient trois et le colis envoyé comptait des
+       articles jamais scannés — et chacune déduisait le total déjà
+       expédié, si bien que le reliquat de la seconde disparaissait. */
+    const parProduit: any[] = [];
+    for (const l of raw) {
+      if (!l?.product_id) continue;
+      const deja1 = parProduit.find(x => x.product_id === l.product_id);
+      if (deja1) deja1.qty = (Number(deja1.qty) || 1) + (Number(l.qty) || 1);
+      else parProduit.push({ ...l, qty: Number(l.qty) || 1 });
+    }
+    return parProduit.map(l => {
       const p = products.find(x => x.id === l.product_id);
       const commande = Number(l.qty) || 1;
       const dejaExpedie = Math.min(commande, Number(deja[l.product_id]) || 0);
@@ -259,27 +278,53 @@ export default function PreparationPage() {
       const data = await res.json().catch(() => ({} as any));
       if (!res.ok) throw new Error(data?.error || '');
 
+      /* Rejeu : rien n'est parti cette fois (déjà expédié, ou un autre
+         poste vient de le faire). La réponse ne porte ni statut ni
+         shipped_qty : les lire comme un envoi partiel affichait
+         « reliquat créé » et remettait à zéro ce qui était déjà parti —
+         la commande entière réapparaissait à prélever. On relit la
+         commande en base. */
+      if (data.rejeu) {
+        say(t('dejaExpedie'));
+        const frais = await adminFetch(`/api/orders/${active.id}`).then(r => r.json()).catch(() => null);
+        const o = frais?.order;
+        if (o && PAID.includes(o.status)) {
+          setOrders(os => os.map(x => x.id === active.id ? { ...x, ...o } : x));
+          setPicked({}); setFeedback(null);
+        } else {
+          setOrders(os => os.filter(x => x.id !== active.id));
+          const rest = orders.filter(x => x.id !== active.id);
+          if (rest.length) selectOrder(rest[0]); else { setActiveId(null); setPicked({}); }
+        }
+        return;
+      }
+
       const cumul = data.shipped_qty || {};
       /* Le serveur tranche le statut sur l'état réel : il sait ce qui
          reste dû, l'écran ne fait que l'afficher. */
       tout = data.statut === 'shipped';
-      if (data.rejeu) say(t('dejaExpedie'));
+      /* Sortie de stock incomplète : le colis est parti (la commande le
+         dit), mais il faut le savoir pour corriger le stock à la main. */
+      const stockKo = Array.isArray(data.echecs) && data.echecs.length > 0;
 
       if (tout) {
-        if (!data.rejeu) say(`${active.order_number} ${t('expediee')}`);
+        say(stockKo ? `${active.order_number} — ${t('stockKo')}` : `${active.order_number} ${t('expediee')}`);
         setOrders(os => os.filter(o => o.id !== active.id));
         const rest = orders.filter(o => o.id !== active.id);
         if (rest.length) selectOrder(rest[0]); else { setActiveId(null); setPicked({}); }
       } else {
         /* La commande RESTE dans la file : le reliquat s'y prepare quand
            le reassort arrive. Rien n'est envoye automatiquement. */
-        say(`${active.order_number} — ${t('reliquatCree')} (${resteApres})`);
+        say(stockKo ? `${active.order_number} — ${t('stockKo')}` : `${active.order_number} — ${t('reliquatCree')} (${resteApres})`);
         const maj = { ...active, status: 'partial', shipped_qty: cumul };
         setOrders(os => os.map(o => o.id === active.id ? maj : o));
         setPicked({});
         setFeedback(null);
       }
-    } catch { say(t('echecValid')); }
+    } catch (e: any) {
+      // Le serveur dit pourquoi (commande annulée ou remboursée entre-temps…).
+      say(e?.message ? `${t('echecValid')} — ${e.message}` : t('echecValid'));
+    }
     finally { setBusy(false); }
   }
 

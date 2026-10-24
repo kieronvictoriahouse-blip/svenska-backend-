@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { requireAuth } from '@/lib/auth';
+import { toutLire } from '@/lib/finance/tout-lire';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,12 +35,16 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Sync orders → recettes + factures manquantes ────────────────────────
-  const { data: orders } = await supabaseAdmin
+  // Toutes les commandes payées : au-delà de 1000, le filet de sécurité
+  // ne voyait plus les plus récentes (pas de facture, pas de recette).
+  const orders = await toutLire(() => supabaseAdmin
     .from('orders')
     .select('*')
     .in('status', ['paid', 'confirmed', 'shipped', 'delivered'])
     .or('is_test.is.null,is_test.eq.false')
-    .or('exclude_from_stats.is.null,exclude_from_stats.eq.false');
+    .or('exclude_from_stats.is.null,exclude_from_stats.eq.false')
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true }));
 
   for (const order of orders || []) {
     // Créer la facture si manquante
@@ -66,7 +71,9 @@ export async function POST(req: NextRequest) {
       .limit(1);
     const existing = existingRows && existingRows.length > 0;
 
-    const orderDate = (order.created_at || new Date().toISOString()).split('T')[0];
+    /* Jour à Paris, pas en UTC : une commande de 0 h 30 le 1er du mois
+       tombait la veille — dans le mois (voire le trimestre URSSAF) d'avant. */
+    const orderDate = new Date(order.created_at || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
 
     if (existing) {
       skipped.push(order.order_number);

@@ -34,6 +34,11 @@ export const THI = {
     sv: 'Rörelser före den enhetliga journalen saknar nivå före/efter.',
   },
   voirHistorique: { fr: 'Voir l’historique', en: 'View history', sv: 'Visa historik' },
+  tronque: {
+    fr: 'Seuls les {n} mouvements les plus récents sont lus : les plus anciens n’apparaissent pas. Choisis un produit pour remonter plus loin.',
+    en: 'Only the {n} most recent movements are read: older ones are not shown. Pick a product to go further back.',
+    sv: 'Endast de {n} senaste rörelserna läses: äldre visas inte. Välj en produkt för att gå längre bak.',
+  },
   msgChargement: { fr: 'Chargement impossible', en: 'Loading failed', sv: 'Kunde inte läsa in' },
 };
 

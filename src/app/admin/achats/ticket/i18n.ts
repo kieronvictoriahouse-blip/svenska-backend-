@@ -36,6 +36,11 @@ export const TTI = {
   msgNomPrix: { fr: 'Nom et prix requis', en: 'Name and price required', sv: 'Namn och pris krävs' },
   msgAucuneLigne: { fr: 'Aucune ligne', en: 'No line', sv: 'Ingen rad' },
   msgTaux: { fr: 'Renseigne le taux de change', en: 'Enter the exchange rate', sv: 'Ange växelkursen' },
+  confirmAVerifier: {
+    fr: '{n} ligne(s) « À vérifier » n’ont pas été validées : leur stock et leur prix d’achat iront sur le produit proposé, et la correspondance sera mémorisée pour les prochains tickets. Continuer ?',
+    en: '{n} line(s) “To check” were not validated: their stock and purchase price will go to the suggested product, and the match will be remembered for future receipts. Continue?',
+    sv: '{n} rad(er) ”Att kontrollera” är inte validerade: lager och inköpspris hamnar på den föreslagna produkten och matchningen sparas till nästa kvitto. Fortsätta?',
+  },
   msgBrouillon: { fr: 'Brouillon enregistré', en: 'Draft saved', sv: 'Utkast sparat' },
   // Téléphone
   photo: { fr: 'Photo du ticket', en: 'Receipt photo', sv: 'Foto av kvittot' },

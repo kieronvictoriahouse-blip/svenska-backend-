@@ -127,10 +127,19 @@ export async function verifierChaine(): Promise<{
   alterees: Array<{ number: string; attendu: string; trouve: string }>;
   rompues: Array<{ number: string; prev: string }>;
 }> {
-  const { data: toutes } = await supabaseAdmin
-    .from('invoices').select('*')
-    .not('chain_hash', 'is', null)
-    .order('finalized_at', { ascending: true });
+  /* Par pages : au-delà de 1000 pièces, Supabase tronquait la lecture et
+     la vérification s'arrêtait en silence à la millième. */
+  const toutes: any[] = [];
+  for (let debut = 0; ; debut += 1000) {
+    const { data, error } = await supabaseAdmin
+      .from('invoices').select('*')
+      .not('chain_hash', 'is', null)
+      .order('finalized_at', { ascending: true }).order('id', { ascending: true })
+      .range(debut, debut + 999);
+    if (error) throw new Error(error.message);
+    toutes.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
 
   const alterees: Array<{ number: string; attendu: string; trouve: string }> = [];
   const rompues: Array<{ number: string; prev: string }> = [];

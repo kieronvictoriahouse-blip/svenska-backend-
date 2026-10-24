@@ -37,9 +37,10 @@ export async function GET() {
     .limit(4);
 
   // Snacks & Confiseries pour le fredagsmys band
+  // « !inner » : sans lui, le filtre sur categories.slug ne filtrait pas les produits.
   const { data: snacks } = await supabaseAdmin
     .from('products')
-    .select('*, categories(*)')
+    .select('*, categories!inner(*)')
     .eq('is_active', true)
     .in('categories.slug', ['snacks-chips', 'confiseries'])
     .order('sort_order', { ascending: true })

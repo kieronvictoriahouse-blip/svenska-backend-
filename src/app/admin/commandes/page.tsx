@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { getAdminLang, setAdminLang, subscribeAdminLang, T_COMMON, T_ORDER_STATUS, AdminLang, LOCALES, nomProduit } from '@/lib/admin-i18n';
 import { resolveShipping } from '@/lib/shipping';
+import { evaluatePromo, dansLaPeriode } from '@/lib/promo';
+import { ADMIN_SEARCH_EVENT } from '@/lib/admin-nav';
 // Thème importé sous alias :  est déjà pris par le dictionnaire de traductions.
 import { T as TH, BADGE, ORDER_STATUS, thumbStyle, initials } from '@/lib/admin-theme';
 import { SqueletteTable } from '@/components/Squelette';
@@ -166,6 +168,15 @@ const fmtDateL = (d: string, lang: AdminLang) =>
 // shipping_address peut être string ou objet JSONB selon la source
 const toAddrStr = (v: any): string => !v ? '' : typeof v === 'string' ? v : [v.line1, v.line2, v.postal_code && v.city ? `${v.postal_code} ${v.city}` : (v.postal_code || v.city), v.country].filter(Boolean).join(', ');
 
+/* « À traiter » = tout ce qui reste à expédier : la file de préparation,
+   le badge du menu et la réservation de stock (STATUTS_DUS) comptent ces
+   quatre statuts. La puce ne comptait que « paid » : 12 à traiter ici,
+   15 au menu, 16 dans la file. */
+const A_TRAITER = ['paid', 'confirmed', 'preparing', 'partial'];
+/** Une commande correspond-elle à la puce de filtre `k` ? */
+const correspond = (o: { status: string }, k: string) =>
+  !k || (k === 'todo' ? A_TRAITER.includes(o.status) : o.status === k);
+
 const STATUS_COLORS: Record<string, string> = {
   pending: '#F59E0B', paid: '#10B981', confirmed: '#3B82F6',
   preparing: '#0EA5E9', partial: '#D97706',
@@ -209,7 +220,7 @@ export default function CommandesPage() {
   const [showAbandoned, setShowAbandoned] = useState(false);
   const [avoirId, setAvoirId] = useState<string | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
-  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [restocking, setRestocking] = useState(false);
   const [mrLivRel, setMrLivRel] = useState('');
   const [mrColRel, setMrColRel] = useState('');
   const [mrWeight, setMrWeight] = useState('500');
@@ -316,8 +327,27 @@ export default function CommandesPage() {
     if (o) openOrder(o);
   }, [orders, mobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(); loadCosts(); }, [filter, search]);
+  /* Le filtre de statut se fait ici, pas en base : les compteurs des
+     puces se calculent sur la liste entière. Filtrée côté serveur, la
+     liste ne contenait que le statut choisi et toutes les autres puces
+     tombaient à 0. La recherche, elle, reste côté serveur. */
+  useEffect(() => { load(); }, [search]);
   useEffect(() => { loadCosts(); }, []);
+  /* Recherche de la barre du haut (« SD-0240 », « #240 », un email) :
+     au chargement par ?q=, puis par l'évènement quand l'écran est déjà
+     ouvert — Next ne remonte pas la page quand seule la query change. */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearch(q);
+    const onSearch = (e: Event) => {
+      setSearch(String((e as CustomEvent).detail || ''));
+      setFilter('');
+      // Téléphone : sortir du détail, sinon les résultats restent cachés.
+      setMobDetail(false); setSheetOpen(false);
+    };
+    window.addEventListener(ADMIN_SEARCH_EVENT, onSearch);
+    return () => window.removeEventListener(ADMIN_SEARCH_EVENT, onSearch);
+  }, []);
   useEffect(() => {
     adminFetch('/api/white-label')
       .then(r => r.json())
@@ -362,11 +392,18 @@ export default function CommandesPage() {
       .catch(() => {});
   }, [selected?.id]);
 
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
+  /* Un seul minuteur : celui d'un message précédent effaçait le suivant
+     avant qu'on l'ait lu (statut puis remise en stock, par exemple). */
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 2800);
+  };
 
   async function loadCosts() {
     const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await adminFetch('/api/products?limit=500', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await adminFetch('/api/products?limit=1000', { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     const costs: Record<string, number> = {};
     const images: Record<string, string> = {};
@@ -379,18 +416,29 @@ export default function CommandesPage() {
     setProductList(data.products || []);
   }
 
+  /* Une frappe = une requête : sans numéro d'ordre, la réponse à « a »
+     pouvait arriver après celle à « anna » et remplacer la liste. */
+  const loadSeq = useRef(0);
   async function load() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     const token = localStorage.getItem('sd_admin_token') || '';
     const params = new URLSearchParams();
-    if (filter) params.set('status', filter);
     if (search) params.set('search', search);
-    const res = await adminFetch('/api/orders?' + params.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    setOrders(data.orders || []);
-    setLoading(false);
+    try {
+      const res = await adminFetch('/api/orders?' + params.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (seq !== loadSeq.current) return;
+      // Une erreur affichait « Aucune commande » : on garde la liste et on le dit.
+      if (!res.ok) { showToast('❌ ' + (data.error || 'Liste des commandes indisponible')); return; }
+      setOrders(data.orders || []);
+    } catch (e: any) {
+      if (seq === loadSeq.current) showToast('❌ ' + (e?.message || 'Liste des commandes indisponible'));
+    } finally {
+      if (seq === loadSeq.current) setLoading(false);
+    }
   }
 
   /* Poser NULL rend la commande a la deduction automatique : c'est ce
@@ -411,12 +459,16 @@ export default function CommandesPage() {
        affichait quand meme « ✅ » et la liste se rechargeait inchangee.
        Les statuts « Confirmee » et « En preparation » etaient dans ce cas
        jusqu'a la migration 040. */
+    const d = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
       showToast('❌ ' + (d.error || tc('status')));
       return;
     }
-    showToast('✅ ' + tc('status'));
+    /* Passage en expédiée/livrée : le serveur sort ce qui restait dû du
+       stock. S'il n'a pas pu tout sortir, il faut le savoir. */
+    showToast(d.echecs_stock?.length
+      ? '⚠️ ' + tc('status') + ' — stock non décrémenté pour ' + d.echecs_stock.length + ' article(s), à corriger dans Stock'
+      : '✅ ' + tc('status'));
     load();
     if (selected?.id === id) setSelected(o => o ? { ...o, status } : null);
     if (status === 'cancelled' || status === 'refunded') {
@@ -426,44 +478,68 @@ export default function CommandesPage() {
   }
 
   async function doRestock(orderId: string) {
+    if (restocking) return;   // double toucher : un seul appel
+    setRestocking(true);
     const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await adminFetch(`/api/orders/${orderId}/restock`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-    const data = await res.json();
-    showToast(data.restocked > 0 ? `✅ Stock réincrémenté (${data.restocked} produit${data.restocked > 1 ? 's' : ''})` : '⚠️ Aucun produit suivi à réincrémenter');
-    setShowRestockModal(false);
-    setRestockOrderId(null);
+    try {
+      const res = await adminFetch(`/api/orders/${orderId}/restock`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      // Une erreur s'affichait « Aucun produit suivi » : on dit l'erreur.
+      if (!res.ok) { showToast('❌ ' + (data.error || 'Remise en stock impossible')); return; }
+      showToast(data.restocked > 0 ? `✅ Stock réincrémenté (${data.restocked} produit${data.restocked > 1 ? 's' : ''})` : '⚠️ Rien à réincrémenter (jamais sorti du stock, ou déjà rentré)');
+      setShowRestockModal(false);
+      setRestockOrderId(null);
+    } catch (e: any) {
+      showToast('❌ ' + (e?.message || 'Remise en stock impossible'));
+    } finally {
+      setRestocking(false);
+    }
   }
 
+  /* Coûts et suivi : la réponse n'était pas lue, « ✅ enregistré »
+     s'affichait même quand le serveur refusait. */
   async function saveCosts() {
     if (!selected) return;
     const token = localStorage.getItem('sd_admin_token') || '';
     setSavingCosts(true);
     const transport_cost_real = parseFloat(transportInput) || 0;
     const packaging_cost = parseFloat(packagingInput) || 0;
-    await adminFetch(`/api/orders/${selected.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ transport_cost_real, packaging_cost }),
-    });
-    setSelected(o => o ? { ...o, transport_cost_real, packaging_cost } : null);
-    load();
-    setSavingCosts(false);
-    showToast(t('msgCostsSaved'));
+    try {
+      const res = await adminFetch(`/api/orders/${selected.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ transport_cost_real, packaging_cost }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast('❌ ' + (d.error || t('realCosts'))); return; }
+      setSelected(o => o ? { ...o, transport_cost_real, packaging_cost } : null);
+      load();
+      showToast(t('msgCostsSaved'));
+    } catch (e: any) {
+      showToast('❌ ' + (e?.message || t('realCosts')));
+    } finally {
+      setSavingCosts(false);
+    }
   }
 
   async function saveTracking() {
     if (!selected) return;
     const token = localStorage.getItem('sd_admin_token') || '';
     setSavingTracking(true);
-    await adminFetch(`/api/orders/${selected.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ tracking_number: trackingInput || null }),
-    });
-    setSelected(o => o ? { ...o, tracking_number: trackingInput || undefined } : null);
-    load();
-    setSavingTracking(false);
-    showToast('✅ ' + t('tracking'));
+    try {
+      const res = await adminFetch(`/api/orders/${selected.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tracking_number: trackingInput || null }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast('❌ ' + (d.error || t('tracking'))); return; }
+      setSelected(o => o ? { ...o, tracking_number: trackingInput || undefined } : null);
+      load();
+      showToast('✅ ' + t('tracking'));
+    } catch (e: any) {
+      showToast('❌ ' + (e?.message || t('tracking')));
+    } finally {
+      setSavingTracking(false);
+    }
   }
 
   function resetNewOrderModal() {
@@ -487,15 +563,37 @@ export default function CommandesPage() {
       const { codes } = await res.json();
       const found = (codes || []).find((c: any) => c.code === code);
       if (!found || !found.is_active) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code invalide ou inactif'); return; }
-      const now = new Date();
-      if (found.valid_from && now < new Date(found.valid_from)) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code pas encore valide'); return; }
-      if (found.valid_until && now > new Date(String(found.valid_until).slice(0, 10) + 'T23:59:59')) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code expiré'); return; }
+      /* Offre cadeau : pas une remise (elle s'affichait « Livraison
+         offerte » sans rien offrir). Code fidélité / ami : son taux et ses
+         règles (articles hors promo, email du propriétaire) ne se calculent
+         qu'au checkout du site. */
+      if (found.type === 'gift' || found.kind) {
+        setNewOrderPromoData(null);
+        setNewOrderPromoMsg(found.kind ? '❌ Code personnel (fidélité / ami) : utilisable sur le site seulement' : '❌ Offre cadeau, pas un code de remise');
+        return;
+      }
+      // Dates au jour de Paris, la même règle qu'au checkout (@/lib/promo).
+      const periode = dansLaPeriode(found);
+      if (periode === 'not_yet') { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code pas encore valide'); return; }
+      if (periode === 'expired') { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code expiré'); return; }
       if (found.max_uses && (found.used_count || 0) >= found.max_uses) { setNewOrderPromoData(null); setNewOrderPromoMsg('❌ Code plus disponible'); return; }
       setNewOrderPromoData(found);
       setNewOrderPromoMsg(found.type === 'percent' ? `✅ −${found.value}%` : found.type === 'fixed' ? `✅ −${found.value} €` : '✅ Livraison offerte');
     } finally {
       setApplyingPromo(false);
     }
+  }
+
+  /* Remise d'une commande manuelle : même règle que le checkout
+     (@/lib/promo — minimum de commande, dates, plafond, arrondi au
+     centime). Le calcul local ignorait le minimum : un code « dès 30 € »
+     s'appliquait à une commande de 12 €. */
+  function remiseManuelle(subtotal: number) {
+    if (!newOrderPromoData) return { ok: true, discount: 0, freeShipping: false, minOrder: 0 };
+    const v = evaluatePromo(newOrderPromoData, { subtotal });
+    return v.ok
+      ? { ok: true, discount: v.discount, freeShipping: v.freeShipping, minOrder: 0 }
+      : { ok: false, discount: 0, freeShipping: false, minOrder: v.minOrder };
   }
 
   async function createOrder() {
@@ -507,15 +605,18 @@ export default function CommandesPage() {
       return { desc: (p?.name_fr || pid) + (s.variantLabel ? ` — ${s.variantLabel}` : ''), qty: s.qty, price, product_id: pid, image_url: p?.image_url || null };
     });
     if (lines.length === 0) { showToast(t('msgAddLine')); return; }
-    const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
+    const subtotal = Math.round(lines.reduce((s, l) => s + l.qty * l.price, 0) * 100) / 100;
     const shipRules = resolveShipping(wlConfig, { isInternational: false });
     const baseShipping = subtotal >= shipRules.threshold ? 0 : shipRules.cost;
-    const isFreeShip = newOrderPromoData?.type === 'free_shipping';
+    const remise = remiseManuelle(subtotal);
+    if (!remise.ok) {
+      showToast(`❌ ${newOrderPromoData?.code} : ${remise.minOrder > 0 && subtotal < remise.minOrder ? `minimum ${fmt(remise.minOrder)} non atteint` : 'code plus valable'}`);
+      return;
+    }
+    const isFreeShip = remise.freeShipping;
     const effectiveShipping = (newOrderDelivery === 'pickup' || isFreeShip) ? 0 : baseShipping;
-    let discount = 0;
-    if (newOrderPromoData?.type === 'percent') discount = Math.min(subtotal, (subtotal * newOrderPromoData.value) / 100);
-    else if (newOrderPromoData?.type === 'fixed') discount = Math.min(subtotal, newOrderPromoData.value);
-    const total = Math.max(0, subtotal - discount) + effectiveShipping;
+    const discount = remise.discount;
+    const total = Math.round((Math.max(0, subtotal - discount) + effectiveShipping) * 100) / 100;
     const token = localStorage.getItem('sd_admin_token') || '';
     try {
       const res = await adminFetch('/api/orders', {
@@ -725,25 +826,10 @@ export default function CommandesPage() {
     }
   }
 
-  async function createCustomerAccount() {
-    if (!selected?.customer_email) return;
-    setCreatingAccount(true);
-    const token = localStorage.getItem('sd_admin_token') || '';
-    try {
-      const res = await adminFetch('/api/customer/create-account', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ email: selected.customer_email, name: selected.customer_name, send_email: true }),
-      });
-      const data = await res.json();
-      if (!res.ok) { showToast(`❌ ${data.error || 'Erreur'}`); return; }
-      showToast(`✅ Compte créé — email envoyé à ${selected.customer_email}`);
-    } catch (e: any) {
-      showToast(`❌ ${e.message}`);
-    } finally {
-      setCreatingAccount(false);
-    }
-  }
+  /* « Créer compte client » a été retiré : les comptes clients n'existent
+     plus sur le site (le client est reconnu par son email de paiement) et
+     /api/customer/create-account répond 410 — le bouton ne pouvait
+     qu'afficher une erreur. */
 
   async function createMrLabel() {
     if (!selected) return;
@@ -975,20 +1061,34 @@ export default function CommandesPage() {
     return { margin, pct, stripeFee, urssaf, transportReal, packagingCost, shippingCollected };
   }
 
-  const realOrders = orders.filter(o => !o.is_test);
+  /* Le statut se filtre ici (la base renvoie toutes les commandes de la
+     recherche) : `scoped` est ce que la puce active laisse voir, et c'est
+     sur lui que portent l'en-tête et les totaux, comme avant. */
+  const scoped = orders.filter(o => correspond(o, filter));
+  const realOrders = scoped.filter(o => !o.is_test);
   const abandonedCount = realOrders.filter(o => o.status === 'abandoned').length;
-  const _base = showTestOrders ? orders : realOrders;
+  const _base = showTestOrders ? scoped : realOrders;
   // Masque les paniers abandonnés par défaut (sauf si on filtre dessus ou toggle activé)
   const visibleOrders = (showAbandoned || filter === 'abandoned')
     ? _base
     : _base.filter(o => o.status !== 'abandoned');
+  /* Base des compteurs des puces : la liste SANS filtre de statut. */
+  const pourPuces = (showTestOrders ? orders : orders.filter(o => !o.is_test))
+    .filter(o => showAbandoned || o.status !== 'abandoned');
+  /* Historique du client : toutes ses commandes, pas seulement celles
+     de la puce active. */
+  const toutesReelles = orders.filter(o => !o.is_test);
+  /* Commandes réellement payées (mêmes statuts que STATUTS_PAYES de
+     @/lib/fidelite-regles). « Encaissés » additionnait tout ce qui n'était
+     pas annulé : paniers non payés et abandonnés compris, et les commandes
+     « Hors stats » aussi. */
+  const paidStatuses = ['paid', 'confirmed', 'preparing', 'partial', 'shipped', 'delivered'];
   const totalRevenue = realOrders
-    .filter(o => o.status !== 'cancelled')
+    .filter(o => paidStatuses.includes(o.status) && !o.exclude_from_stats)
     .reduce((s, o) => s + (o.total || 0) - pendingRefundAdj(o).amount, 0);
   const pendingCount = realOrders.filter(o => o.status === 'pending').length;
-  const testCount = orders.filter(o => o.is_test).length;
+  const testCount = scoped.filter(o => o.is_test).length;
 
-  const paidStatuses = ['paid', 'confirmed', 'shipped', 'delivered'];
   const activeOrders = realOrders.filter(o => paidStatuses.includes(o.status) && !o.exclude_from_stats);
   const marginsWithData = activeOrders.map(o => calcMargin(o)).filter(m => m.margin !== null);
   const totalMargin = marginsWithData.reduce((s, m) => s + m.margin!, 0);
@@ -1085,10 +1185,10 @@ export default function CommandesPage() {
 
   /* Chips-compteurs de l'en-tête */
   const COUNTS: Array<[string, string]> = [
-    ['', 'Toutes'], ['paid', 'À traiter'], ['confirmed', 'Confirmées'],
+    ['', 'Toutes'], ['todo', 'À traiter'], ['confirmed', 'Confirmées'],
     ['shipped', 'Expédiées'], ['delivered', 'Livrées'],
   ];
-  const countFor = (k: string) => k ? visibleOrders.filter(o => o.status === k).length : visibleOrders.length;
+  const countFor = (k: string) => pourPuces.filter(o => correspond(o, k)).length;
 
   /* Jalons de la timeline de suivi */
   const TRACK_STEPS: Array<{ key: string; label: string }> = [
@@ -1382,7 +1482,11 @@ export default function CommandesPage() {
                           })()}
                         </div>
                         <div style={{ padding: '10px 15px', background: TH.surfaceAlt }}>
-                          <div className="o-row"><span>{tc('subtotal')}</span><span className="sc-num">{fmt(o.subtotal)}</span></div>
+                          {/* Sous-total = somme des lignes, AVANT remise. La colonne
+                              `subtotal` vaut « total − port » après paiement (le
+                              webhook l'écrit ainsi pour la page de remerciement) :
+                              l'afficher puis soustraire la remise la comptait deux fois. */}
+                          <div className="o-row"><span>{tc('subtotal')}</span><span className="sc-num">{fmt(lines.length ? r2(lines.reduce((s: number, l: any) => s + (Number(l.qty) || 1) * (Number(l.price) || 0), 0)) : o.subtotal)}</span></div>
                           {o.promo_code && (
                             <div className="o-row" style={{ color: TH.green }}>
                               <span>{o.promo_code}</span><span className="sc-num">−{fmt(o.discount || 0)}</span>
@@ -1461,7 +1565,7 @@ export default function CommandesPage() {
                       </div>
 
                       {/* Remboursement partiel — panneau complet conservé */}
-                      {['paid', 'confirmed', 'shipped', 'delivered'].includes(o.status) && !o.is_test && (() => {
+                      {['paid', 'confirmed', 'preparing', 'partial', 'shipped', 'delivered'].includes(o.status) && !o.is_test && (() => {
                         const { credit, shipping, net, amount, remaining } = partialTotals(o);
                         const overMax = amount > remaining + 0.005;
                         return (
@@ -1568,7 +1672,8 @@ export default function CommandesPage() {
                       })()}
 
                       {/* Lien de paiement */}
-                      {!['paid', 'confirmed', 'shipped', 'delivered', 'refunded', 'cancelled'].includes(o.status) && (
+                      {/* Seulement une commande pas encore payée : « preparing » et « partial » sont payées, et le serveur refuse le lien. */}
+                      {['pending', 'abandoned'].includes(o.status) && (
                         <div className="sc-card o-s-pay">
                           <div style={{ padding: '12px 15px', borderBottom: `1px solid ${TH.border}` }}>
                             <span className="sc-card-title">{t('stripeLink')}</span>
@@ -1732,7 +1837,8 @@ export default function CommandesPage() {
                             </div>
                           )}
                           {(() => {
-                            const his = realOrders.filter(x => x.customer_email && x.customer_email === o.customer_email);
+                            const em = (o.customer_email || '').toLowerCase();
+                            const his = em ? toutesReelles.filter(x => (x.customer_email || '').toLowerCase() === em) : [];
                             const sum = his.reduce((s, x) => s + netOf(x), 0);
                             return his.length > 1 ? (
                               <div style={{ fontSize: mobile ? 12.5 : 11, color: TH.muted, marginTop: 10, paddingTop: 8, borderTop: `1px solid ${TH.borderFaint}` }}>
@@ -1740,12 +1846,6 @@ export default function CommandesPage() {
                               </div>
                             ) : null;
                           })()}
-                          {o.customer_email && !mobile && (
-                            <button className="sc-btn sc-btn-secondary" style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
-                                    onClick={createCustomerAccount} disabled={creatingAccount}>
-                              <span className="ms">person_add</span>{creatingAccount ? '…' : 'Créer compte client'}
-                            </button>
-                          )}
                         </div>
                       </div>
 
@@ -1851,7 +1951,7 @@ export default function CommandesPage() {
                               </button>
                             </>
                           )}
-                          {['paid', 'confirmed', 'shipped'].includes(o.status) && !o.is_test && (
+                          {['paid', 'confirmed', 'preparing', 'partial', 'shipped'].includes(o.status) && !o.is_test && (
                             <button className="sc-btn sc-btn-danger" style={{ justifyContent: 'flex-start' }}
                                     onClick={handleRefund} disabled={refunding}>
                               <span className="ms">undo</span>
@@ -1940,10 +2040,6 @@ export default function CommandesPage() {
                             <MenuItem icon="qr_code_2" label={t('shipment')}
                                       onClick={() => document.getElementById('o-ship')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
                           )}
-                          {o.customer_email && (
-                            <MenuItem icon="person_add" label={creatingAccount ? '…' : 'Créer compte client'} disabled={creatingAccount}
-                                      onClick={createCustomerAccount} />
-                          )}
                           {!o.is_test && (
                             <>
                               <MenuSep />
@@ -1955,7 +2051,7 @@ export default function CommandesPage() {
                                         onClick={toggleExcludeStats} />
                             </>
                           )}
-                          {['paid', 'confirmed', 'shipped'].includes(o.status) && !o.is_test && (
+                          {['paid', 'confirmed', 'preparing', 'partial', 'shipped'].includes(o.status) && !o.is_test && (
                             <MenuItem icon="undo" danger keepOpen={!refundConfirm} disabled={refunding}
                                       label={refunding ? 'Remboursement…' : refundConfirm ? t('refundConfirm') : t('refund')}
                                       onClick={handleRefund} />
@@ -1978,14 +2074,13 @@ export default function CommandesPage() {
             const price = variantObj ? variantObj.price : (p?.price || s.price);
             return { pid, name: (p?.name_fr || pid) + (s.variantLabel ? ` — ${s.variantLabel}` : ''), qty: s.qty, price };
           });
-          const subtotal = pickerLines.reduce((s, l) => s + l.qty * l.price, 0);
+          const subtotal = Math.round(pickerLines.reduce((s, l) => s + l.qty * l.price, 0) * 100) / 100;
           const shipRules = resolveShipping(wlConfig, { isInternational: false });
-    const baseShipping = subtotal >= shipRules.threshold ? 0 : shipRules.cost;
-          const isFreeShip = newOrderPromoData?.type === 'free_shipping';
+          const baseShipping = subtotal >= shipRules.threshold ? 0 : shipRules.cost;
+          const remise = remiseManuelle(subtotal);
+          const isFreeShip = remise.freeShipping;
           const effectiveShipping = (newOrderDelivery === 'pickup' || isFreeShip) ? 0 : baseShipping;
-          let discount = 0;
-          if (newOrderPromoData?.type === 'percent') discount = Math.min(subtotal, (subtotal * newOrderPromoData.value) / 100);
-          else if (newOrderPromoData?.type === 'fixed') discount = Math.min(subtotal, newOrderPromoData.value);
+          const discount = remise.discount;
           const total = Math.max(0, subtotal - discount) + effectiveShipping;
           /* Fenêtres sur les primitives partagées .sc-modal : centrées sur
              ordinateur, plein écran sur téléphone avec le pied (Annuler /
@@ -2081,6 +2176,11 @@ export default function CommandesPage() {
                       {discount > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: TH.green }}>
                           <span>🎟 {newOrderPromoData.code}</span><span className="sc-num">−{fmt(discount)}</span>
+                        </div>
+                      )}
+                      {!remise.ok && (
+                        <div style={{ marginBottom: 4, color: TH.red }}>
+                          🎟 {newOrderPromoData?.code} : {remise.minOrder > subtotal ? `minimum ${fmt(remise.minOrder)} non atteint` : 'code plus valable'}
                         </div>
                       )}
                       {isFreeShip && (

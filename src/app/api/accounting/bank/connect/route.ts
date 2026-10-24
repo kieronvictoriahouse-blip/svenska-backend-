@@ -20,13 +20,18 @@ export async function POST(req: NextRequest) {
   try {
     if (provider === 'bridge') {
       const userUuid = await ensureBridgeUser(instanceUserId());
+      /* Jeton à usage unique, vérifié au retour : la route de retour est
+         publique (la banque y redirige), et sans lui n'importe qui pouvait
+         y déclencher une synchronisation bancaire complète. */
+      const state = randomUUID();
+      const meta = { user_uuid: userUuid, state, state_at: new Date().toISOString() };
       // Conserve/actualise la connexion Bridge de l'instance.
       const { data: existing } = await supabaseAdmin.from('bank_connections')
         .select('id').eq('provider', 'bridge').maybeSingle();
-      if (existing) await supabaseAdmin.from('bank_connections').update({ status: 'linked', meta: { user_uuid: userUuid } }).eq('id', existing.id);
-      else await supabaseAdmin.from('bank_connections').insert({ provider: 'bridge', status: 'linked', institution_name: 'Bridge', meta: { user_uuid: userUuid } });
+      if (existing) await supabaseAdmin.from('bank_connections').update({ status: 'linked', meta }).eq('id', existing.id);
+      else await supabaseAdmin.from('bank_connections').insert({ provider: 'bridge', status: 'linked', institution_name: 'Bridge', meta });
 
-      const callback = `${appBaseUrl()}/api/accounting/bank/callback?provider=bridge`;
+      const callback = `${appBaseUrl()}/api/accounting/bank/callback?provider=bridge&state=${state}`;
       const session = await createBridgeConnectSession(userUuid, callback);
       return NextResponse.json({ link: session.url, sessionId: session.id });
     }

@@ -63,6 +63,17 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  /* Lignes mises de côté (« Plus tard ») : elles sortaient de la pile ET
+     de la liste des lignes traitées — plus aucun écran ne les montrait,
+     on ne pouvait jamais y revenir. */
+  const laterRows = txs.filter(t => t.ignored && !t.reconciled).map(t => ({
+    id: t.id,
+    date: t.booking_date,
+    label: t.label,
+    amount: Number(t.amount),
+    direction: t.direction,
+  }));
+
   const pendingIn = round(toDo.filter(t => t.direction === 'in').reduce((s, t) => s + Number(t.amount), 0));
   const pendingOut = round(toDo.filter(t => t.direction === 'out').reduce((s, t) => s + Number(t.amount), 0));
   const pending = [
@@ -80,6 +91,7 @@ export async function GET(req: NextRequest) {
     gap,
     rows,
     autoRows,
+    laterRows,
     pending,
     signed: recon?.status === 'signed',
     signedAt: recon?.signed_at || null,

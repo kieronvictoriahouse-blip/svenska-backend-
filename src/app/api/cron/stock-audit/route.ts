@@ -53,14 +53,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET non configuré — définir la variable dans Vercel' }, { status: 500 });
   }
 
-  const [{ data: products }, { data: orders }, { data: receptions }, { data: moves }] = await Promise.all([
-    supabaseAdmin.from('products').select('id, name_fr, stock, track_stock'),
-    supabaseAdmin.from('orders').select('id, order_number, status, lines, shipped_qty, created_at, is_test, exclude_from_stats'),
-    supabaseAdmin.from('receptions').select('id, status, lines'),
+  /* PostgREST plafonne une lecture à 1000 lignes (max-rows de Supabase),
+     sans erreur. Le journal de stock les dépasse vite : les sorties
+     au-delà n'étaient pas vues, et l'alerte annonçait des commandes
+     « expédiées sans sortie de stock » qui en avaient une. Lecture par
+     pages, dans un ordre stable. */
+  const toutLire = async (table: string, colonnes: string): Promise<any[]> => {
+    const PAGE = 1000;
+    const out: any[] = [];
+    for (let de = 0; ; de += PAGE) {
+      const { data, error } = await supabaseAdmin.from(table).select(colonnes)
+        .order('id', { ascending: true }).range(de, de + PAGE - 1);
+      if (error) throw new Error(error.message);
+      out.push(...(data || []));
+      if (!data || data.length < PAGE) return out;
+    }
+  };
+
+  const [products, orders, receptions, moves] = await Promise.all([
+    toutLire('products', 'id, name_fr, stock, track_stock'),
+    toutLire('orders', 'id, order_number, status, lines, shipped_qty, created_at, is_test, exclude_from_stats'),
+    toutLire('receptions', 'id, status, lines'),
     /* Le filtre order_id a sauté : une sortie d'expédition n'en porte
        pas, elle s'identifie par sa référence. Le garder revenait à ne
        jamais voir les mouvements qu'on cherche. */
-    supabaseAdmin.from('stock_movements').select('product_id, order_id, reference'),
+    toutLire('stock_movements', 'product_id, order_id, reference'),
   ]);
 
   const byId = Object.fromEntries((products || []).map(p => [p.id, p]));

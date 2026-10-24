@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useRef, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone, initials, eur, thumbStyle } from '@/lib/admin-theme';
@@ -56,14 +56,20 @@ const CT_CSS = `
 const COUNTRIES = ['France','Belgique','Suisse','Luxembourg','Allemagne','Espagne','Italie','Pays-Bas','Portugal','Royaume-Uni','Suède','Norvège','Danemark','Finlande','Autriche','Pologne','République tchèque','États-Unis','Canada','Australie','Autre'];
 const EMPTY: Partial<Contact> = { type: 'client', country: 'France', tags: [] };
 
+/* « Inscrit newsletter » est le marqueur posé par l'inscription à la
+   newsletter dans `company` : ce n'est pas une société. Pris pour un nom,
+   chaque abonné s'affichait « Inscrit newsletter », segment « Pro ». */
+const MARQUEUR_NEWSLETTER = 'Inscrit newsletter';
+const societe = (c: Contact) => (c.company && c.company !== MARQUEUR_NEWSLETTER ? c.company : '');
+
 const fullName = (c: Contact) =>
-  c.company || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || '—';
+  societe(c) || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || '—';
 
 /** Segment commercial, dérivé du volume réel (pas de champ dédié en base). */
 function segmentOf(c: Contact): { label: string; tone: BadgeTone } {
   const n = c.total_orders || 0;
   const spent = c.total_purchases || 0;
-  if (c.company || c.siret) return { label: 'Pro', tone: 'amber' };
+  if (societe(c) || c.siret) return { label: 'Pro', tone: 'amber' };
   if (spent >= 300 || n >= 8) return { label: 'VIP', tone: 'plum' };
   if (n >= 5) return { label: 'Fidèle', tone: 'green' };
   if (n >= 2) return { label: 'Récurrent', tone: 'blue' };
@@ -84,6 +90,7 @@ function ContactsInner() {
   const [toast, setToast] = useState('');
   const [detail, setDetail] = useState<{ contact: Contact; orders: any[]; purchases: any[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  const dernierChargement = useRef(0);
 
   const isSupplier = filter === 'supplier';
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3000); };
@@ -92,14 +99,25 @@ function ContactsInner() {
   useEffect(() => { load(); }, [filter, search]);
 
   async function load() {
+    // Une frappe = un chargement : seul le dernier lancé a le droit d'écrire.
+    const n = ++dernierChargement.current;
     setLoading(true);
     try {
-      const p = new URLSearchParams();
-      if (filter) p.set('type', filter);
-      if (search) p.set('search', search);
-      const d = await adminFetch('/api/contacts?' + p.toString()).then(r => r.json());
-      setContacts(d.contacts || []);
-    } finally { setLoading(false); }
+      /* L'API rend 50 fiches par page : sans les suivantes, la liste — et
+         l'export CSV — s'arrêtaient à 50 contacts sans le dire. */
+      const tous: Contact[] = [];
+      for (let page = 1; page <= 40; page++) {
+        const p = new URLSearchParams({ page: String(page) });
+        if (filter) p.set('type', filter);
+        if (search) p.set('search', search);
+        const d = await adminFetch('/api/contacts?' + p.toString()).then(r => r.json());
+        if (n !== dernierChargement.current) return;
+        const lot: Contact[] = d.contacts || [];
+        tous.push(...lot);
+        if (lot.length < 50 || (d.total != null && tous.length >= d.total)) break;
+      }
+      setContacts(tous);
+    } finally { if (n === dernierChargement.current) setLoading(false); }
   }
 
   async function openDetail(c: Contact) {
@@ -129,8 +147,12 @@ function ContactsInner() {
 
   async function remove(c: Contact) {
     if (!window.confirm(confirmerSuppressionContact(fullName(c), lang))) return;
-    await adminFetch(`/api/contacts/${c.id}`, { method: 'DELETE' });
-    setContacts(cs => cs.filter(x => x.id !== c.id));
+    const res = await adminFetch(`/api/contacts/${c.id}`, { method: 'DELETE' });
+    if (!res.ok) { say(t('msgEnregKo')); return; }
+    /* L'API désactive la fiche (is_active = false) sans l'effacer : elle
+       revenait à l'écran au rechargement comme si de rien n'était. On la
+       garde visible, marquée « Inactif » — c'est ce qui est en base. */
+    setContacts(cs => cs.map(x => (x.id === c.id ? { ...x, is_active: false } : x)));
     setDetail(null);
     say(t('msgSupprime'));
   }
@@ -247,7 +269,11 @@ function ContactsInner() {
                       <td data-label={t('inscritLe')} className="ct-petit" style={{ fontSize: 11.5, color: T.muted }}>
                         {c.created_at ? new Date(c.created_at).toLocaleDateString('fr-FR') : '—'}
                       </td>
-                      <td data-label={t('segment')}><span className="sc-badge" style={{ background: BADGE[seg.tone].bg, color: BADGE[seg.tone].fg }}>{seg.label}</span></td>
+                      <td data-label={t('segment')}>
+                        {c.is_active === false
+                          ? <span className="sc-badge" style={{ background: BADGE.gray.bg, color: BADGE.gray.fg }}>{t('inactif')}</span>
+                          : <span className="sc-badge" style={{ background: BADGE[seg.tone].bg, color: BADGE[seg.tone].fg }}>{seg.label}</span>}
+                      </td>
                       <td className="sc-stack-actions" onClick={e => e.stopPropagation()}>
                         <button className="sc-iconbtn" onClick={() => { setForm(c); setShowModal(true); }} aria-label={tc('edit')}>
                           <span className="ms">edit</span>

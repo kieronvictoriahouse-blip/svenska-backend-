@@ -60,11 +60,22 @@ type Product = {
   description?: string; description_fr?: string;
 };
 
+/* Une campagne ne part qu'aux abonnés newsletter, désinscrits exclus
+   (cf. /api/email). « Tous les clients (commandes) » écrivait à toute la
+   table des commandes, sans consentement ni lien de désinscription. */
 const SEGMENTS: Record<string, string> = {
-  all: '👥 Tous les clients (commandes)',
-  new_customers: '🆕 Nouveaux clients (30j)',
-  abandoned_cart: '🛒 Paniers abandonnés',
+  all: '📰 Abonnés newsletter',
+  new_customers: '🆕 Abonnés ayant commandé (30 j)',
 };
+
+/** Résultat d'un envoi, en clair : combien sont partis, combien restent. */
+function bilanEnvoi(r: any): string {
+  const base = `✅ Envoyé à ${r.sent} abonné(s)${r.deja ? ` (+${r.deja} déjà servis)` : ''} sur ${r.total}`;
+  if (r.restants > 0) {
+    return `⚠️ ${r.sent} envoyé(s), ${r.restants} restant(s)${r.echecs?.length ? ` — ${r.echecs.length} échec(s)` : ''}. Clique à nouveau sur « Envoyer » pour continuer : ceux qui l’ont reçue ne la recevront pas deux fois.`;
+  }
+  return base;
+}
 
 export default function EmailEditorPage() {
   const { t, tc, lang } = useT(TED);
@@ -111,6 +122,11 @@ export default function EmailEditorPage() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
+  // Le test ne part qu'à l'admin (contrôlé côté serveur) : son adresse est proposée d'office.
+  useEffect(() => {
+    try { const m = localStorage.getItem('sd_admin_email'); if (m) setTestEmail(e => e || m); } catch { /* stockage indisponible */ }
+  }, []);
+
   useLayoutEffect(() => {
     const calc = () => {
       const bars = barsRef.current?.offsetHeight || 0;
@@ -141,6 +157,7 @@ export default function EmailEditorPage() {
   const loadCampaignIntoEditor = useCallback((campaign: Campaign) => {
     setSubject(campaign.subject || '');
     setSegment(campaign.target_segment || 'all');
+    setSendResult('');
     const raw = campaign.content || '';
     try {
       const parsed = JSON.parse(raw);
@@ -155,8 +172,20 @@ export default function EmailEditorPage() {
         return;
       }
     } catch { /* not JSON */ }
-    if (raw) { setHtmlContent(raw); setPromoMode('html'); }
+    if (raw) { setHtmlContent(raw); setPromoMode('html'); return; }
+    /* Campagne sans contenu : on vide. Sans ça, le contenu de la campagne
+       précédente restait affiché — et « Sauvegarder » l'écrivait dans
+       celle-ci. */
+    setHtmlContent('');
+    const ed = editorRef.current?.editor;
+    try { if (ed?.loadBlank) ed.loadBlank(); } catch { /* éditeur pas prêt */ }
   }, [editorReady]);
+
+  /* Après une sauvegarde, la liste locale reprend ce qui a été écrit :
+     sinon revenir sur la campagne rechargeait l'ancien contenu, et une
+     2e sauvegarde l'écrasait en base. */
+  const majLocale = (id: string, patch: Partial<Campaign>) =>
+    setCampaigns(cs => cs.map(c => (c.id === id ? { ...c, ...patch } : c)));
 
   useEffect(() => {
     if (!selectedId || !editorReady) return;
@@ -175,15 +204,19 @@ export default function EmailEditorPage() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, type: 'email', status: 'draft', subject, target_segment: segment, content }),
         });
-        const d = await res.json();
-        setSelectedId(d.campaign?.id); setMode('select');
+        const d = await res.json().catch(() => ({}));
+        // « Sauvegardé » s'affichait même quand la création échouait.
+        if (!res.ok || !d.campaign?.id) { showToast(`❌ ${d.error || 'Sauvegarde impossible'}`); return; }
+        setSelectedId(d.campaign.id); setMode('select');
         const d2 = await (await adminFetch('/api/marketing')).json();
         setCampaigns((d2.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
       } else {
-        await adminFetch(`/api/marketing?id=${selectedId}`, {
+        const res = await adminFetch(`/api/marketing?id=${selectedId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subject, target_segment: segment, content }),
         });
+        if (!res.ok) { showToast(`❌ ${(await res.json().catch(() => ({}))).error || 'Sauvegarde impossible'}`); return; }
+        majLocale(selectedId, { subject, target_segment: segment, content });
       }
       showToast(t('msgSauve'));
     } finally { setSaving(false); }
@@ -213,8 +246,8 @@ export default function EmailEditorPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'campaign', campaign_id: selectedId, custom_html: htmlContent }),
       });
-      const result = await res.json();
-      if (res.ok) { setSendResult(`✅ Envoyé à ${result.sent} / ${result.total} destinataires`); showToast(emailsEnvoyes(result.sent, lang)); }
+      const result = await res.json().catch(() => ({ error: `Envoi interrompu (${res.status})` }));
+      if (res.ok) { setSendResult(bilanEnvoi(result)); showToast(emailsEnvoyes(result.sent, lang)); }
       else { setSendResult(`❌ ${result.error}`); showToast(`❌ ${result.error}`); }
     } finally { setSending(false); }
   }
@@ -241,14 +274,18 @@ export default function EmailEditorPage() {
             const d = await res2.json();
             setCampaigns((d.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
             showToast(t('msgCampagneCreee'));
+          } else {
+            showToast(`❌ ${(await res.json().catch(() => ({}))).error || 'Sauvegarde impossible'}`);
           }
         } else {
           if (!selectedId) { showToast(t('msgSelectCampagne')); return; }
-          await adminFetch(`/api/marketing?id=${selectedId}`, {
+          const res = await adminFetch(`/api/marketing?id=${selectedId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ subject, target_segment: segment, content }),
           });
+          if (!res.ok) { showToast(`❌ ${(await res.json().catch(() => ({}))).error || 'Sauvegarde impossible'}`); return; }
+          majLocale(selectedId, { subject, target_segment: segment, content });
           showToast(t('msgCampagneSauve'));
         }
       } finally {
@@ -271,9 +308,9 @@ export default function EmailEditorPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'campaign', campaign_id: campId, custom_html: html }),
         });
-        const result = await res.json();
+        const result = await res.json().catch(() => ({ error: `Envoi interrompu (${res.status})` }));
         if (res.ok) {
-          setSendResult(`✅ Envoyé à ${result.sent} / ${result.total} destinataires`);
+          setSendResult(bilanEnvoi(result));
           showToast(emailsEnvoyes(result.sent, lang));
         } else {
           setSendResult(`❌ ${result.error}`);
@@ -294,7 +331,8 @@ export default function EmailEditorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ products: prods, subject: promoSubject, intro: promoIntro }),
       });
-      const { html } = await res.json();
+      const { html, error } = await res.json().catch(() => ({ error: 'Génération impossible' }));
+      if (!res.ok || !html) { showToast(`❌ ${error || 'Génération impossible'}`); return; }
 
       const campSubject = promoSubject || `Nos sélections du moment`;
       const content = JSON.stringify({ html, design: null });
@@ -307,8 +345,9 @@ export default function EmailEditorPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, type: 'email', status: 'draft', subject: campSubject, target_segment: segment, content }),
         });
-        const d = await r2.json();
-        campId = d.campaign?.id;
+        const d = await r2.json().catch(() => ({}));
+        if (!r2.ok || !d.campaign?.id) { showToast(`❌ ${d.error || 'Sauvegarde impossible'}`); return; }
+        campId = d.campaign.id;
         setSelectedId(campId);
         setCampName(name);
         setMode('select');
@@ -316,11 +355,13 @@ export default function EmailEditorPage() {
         const d2 = await res2.json();
         setCampaigns((d2.campaigns || []).filter((c: Campaign) => c.type === 'email' || !c.type));
       } else {
-        await adminFetch(`/api/marketing?id=${campId}`, {
+        const r3 = await adminFetch(`/api/marketing?id=${campId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subject: campSubject, target_segment: segment, content }),
         });
+        if (!r3.ok) { showToast(`❌ ${(await r3.json().catch(() => ({}))).error || 'Sauvegarde impossible'}`); return; }
+        majLocale(campId, { subject: campSubject, target_segment: segment, content });
       }
       showToast(t('msgPromoGenere'));
       setSelectedProducts([]);

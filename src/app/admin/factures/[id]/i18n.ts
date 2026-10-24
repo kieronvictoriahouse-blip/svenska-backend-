@@ -6,6 +6,7 @@ export const TFA = {
   note: { fr: 'Note :', en: 'Note:', sv: 'Notering:' },
   msgPdfGenKo: { fr: 'Erreur génération PDF', en: 'PDF generation failed', sv: 'PDF-genereringen misslyckades' },
   msgPdfKo: { fr: 'Erreur téléchargement PDF', en: 'PDF download failed', sv: 'PDF-nedladdningen misslyckades' },
+  msgMajKo: { fr: 'Mise à jour impossible', en: 'Update failed', sv: 'Uppdateringen misslyckades' },
 };
 
 export const TDO = {

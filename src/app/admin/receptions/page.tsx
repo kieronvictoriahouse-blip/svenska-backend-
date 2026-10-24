@@ -138,8 +138,14 @@ export default function ReceptionsPage() {
   }
 
   const linesOf = (r: Reception) => {
-    try { return typeof r.lines === 'string' ? JSON.parse(r.lines) : (r.lines || []); }
+    let ls: any[];
+    try { ls = typeof r.lines === 'string' ? JSON.parse(r.lines) : (r.lines || []); }
     catch { return []; }
+    /* Les réceptions créées par un ticket ne portaient que qty_received :
+       sans ce repli, elles n'avaient aucun article « porteur » et le port
+       ne pouvait pas y être imputé. */
+    return (Array.isArray(ls) ? ls : []).map((l: any) =>
+      l.received_qty == null && l.qty_received != null ? { ...l, received_qty: l.qty_received } : l);
   };
 
   const montrerDetail = !mobile || vueDetail;
@@ -206,8 +212,16 @@ export default function ReceptionsPage() {
 
                   <div>
                     {linesOf(selected).map((l: any, i: number) => {
-                      const expected = Number(l.qty_expected ?? l.qty_ordered ?? l.qty) || 0;
-                      const got = Number(l.qty_received ?? l.qty) || 0;
+                      /* Attendu = le reliquat au moment de la réception
+                         (deja_recu : ce qu'une réception précédente avait
+                         déjà fait entrer). Reçu = `received_qty`, le champ
+                         des réceptions de commande — l'écran ne lisait que
+                         `qty_received` (tickets) et retombait sur la quantité
+                         commandée : une livraison partielle s'affichait
+                         « Conforme ». */
+                      const expected = Number(l.qty_expected ?? l.qty_ordered
+                        ?? Math.max(0, (Number(l.qty) || 0) - (Number(l.deja_recu) || 0))) || 0;
+                      const got = Number(l.received_qty ?? l.qty_received ?? l.qty) || 0;
                       const ok = got >= expected;
                       if (mobile) return (
                         /* Téléphone : le nom sur toute la largeur, les quantités dessous */
@@ -368,7 +382,9 @@ export default function ReceptionsPage() {
                         {lcResult.map((l: any, i: number) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
                             <span>{l.name || l.product_name}</span>
-                            <span className="sc-num" style={{ fontWeight: 600 }}>{eur(l.new_cost ?? l.cost_price)}</span>
+                            {/* L'API renvoie pmp_after : l'écran lisait new_cost
+                                (inexistant) et affichait 0,00 €. */}
+                            <span className="sc-num" style={{ fontWeight: 600 }}>{eur(l.pmp_after ?? l.new_cost ?? l.cost_price)}</span>
                           </div>
                         ))}
                       </div>

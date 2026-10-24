@@ -72,6 +72,9 @@ function Historique() {
   const [ouverte, setOuverte] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
   const [toast, setToast] = useState('');
+  /* Lecture coupée côté serveur (les N mouvements les plus récents) :
+     on le dit plutôt que de laisser croire que l'historique s'arrête là. */
+  const [tronque, setTronque] = useState<number | null>(null);
   const mobile = useIsMobile();
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3500); };
@@ -84,8 +87,17 @@ function Historique() {
     adminFetch(`/api/stock/historique?${p}`).then(r => r.json())
       .then(d => {
         setSeances(d.seances || []);
-        // La liste déroulante garde tous les produits, pas seulement ceux du filtre.
-        if (!produit && !categorie) setProduits(d.produits || []);
+        setTronque(d.tronque ? Number(d.limite) || null : null);
+        /* La liste déroulante garde tous les produits vus, pas seulement
+           ceux du filtre. Elle les cumule : ouverte depuis la liste des
+           stocks (?produit=…), elle restait vide et affichait « Tous les
+           produits » alors que l'écran était filtré sur un seul. */
+        setProduits(prev => {
+          const vus = new Map(prev.map(p => [p.id, p] as [string, any]));
+          for (const p of d.produits || []) if (!vus.has(p.id)) vus.set(p.id, p);
+          return Array.from(vus.values())
+            .sort((a, b) => String(a.name_fr || '').localeCompare(String(b.name_fr || ''), 'fr'));
+        });
         /* Une seule séance : on l'ouvre, il n'y a rien à choisir. */
         setOuverte((d.seances || []).length === 1 ? d.seances[0].cle : null);
       })
@@ -160,6 +172,17 @@ function Historique() {
           </span>
         </div>
       </div>
+      )}
+
+      {!chargement && tronque && (
+        <div role="note" style={{
+          display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, padding: '9px 13px',
+          background: '#FDF6EA', border: '1px solid #E8CFA8', borderRadius: 9,
+          fontSize: mobile ? 12.5 : 11.5, color: '#8A5B08', lineHeight: 1.5,
+        }}>
+          <span className="ms" style={{ fontSize: 17 }}>info</span>
+          <span>{t('tronque').replace('{n}', String(tronque))}</span>
+        </div>
       )}
 
       {chargement && <SqueletteTable lignes={7} colonnes={4} />}

@@ -7,6 +7,28 @@ import { requireAuth } from '@/lib/auth';
 // La validation d'un code côté boutique passe par /api/promo/validate.
 const DENY = () => NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
+/* Un code promo saisi dans l'admin : mêmes règles que celles qu'applique
+   @/lib/promo au panier. Un code « NOEL10 » enregistré avec une espace
+   ou en minuscules n'était jamais trouvé (le panier cherche en
+   majuscules, sans espaces) ; un pourcentage > 100 rendait la commande
+   gratuite côté panier et faisait échouer Stripe. Les codes personnels
+   (fidélité, code ami) ne se créent ni ne se modifient ici : ils
+   portent la remise d'un client précis (cf. @/lib/fidelite). */
+function codePromoValide(body: any, creation: boolean): string | null {
+  delete body.kind; delete body.owner_email; delete body.used_count; delete body.id;
+  if (body.code !== undefined) body.code = String(body.code || '').replace(/\s+/g, '').toUpperCase();
+  if (creation && !body.code) return 'Code requis';
+  if (body.type !== undefined && !['percent', 'fixed', 'free_shipping', 'gift'].includes(body.type)) return 'Type de code inconnu';
+  const v = Number(body.value);
+  if (body.type === 'percent' && !(v > 0 && v <= 100)) return 'Un pourcentage doit être entre 1 et 100';
+  if (body.type === 'fixed' && !(v > 0)) return 'Le montant de la remise doit être positif';
+  if (body.min_order !== undefined && Number(body.min_order) < 0) return 'Minimum de commande négatif';
+  if (body.valid_from && body.valid_until && String(body.valid_from) > String(body.valid_until)) {
+    return 'La date de fin précède la date de début';
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return DENY();
   const { searchParams } = new URL(req.url);
@@ -80,8 +102,13 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (tab === 'promo') {
+    const refus = codePromoValide(body, true);
+    if (refus) return NextResponse.json({ error: refus }, { status: 400 });
     const { data, error } = await supabaseAdmin.from('promo_codes').insert(body).select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      const doublon = error.code === '23505';
+      return NextResponse.json({ error: doublon ? `Le code ${body.code} existe déjà` : error.message }, { status: doublon ? 409 : 500 });
+    }
     return NextResponse.json({ code: data });
   }
 
@@ -121,8 +148,16 @@ export async function PUT(req: NextRequest) {
   }
 
   if (tab === 'promo') {
-    const { data, error } = await supabaseAdmin.from('promo_codes').update(body).eq('id', id).select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const refus = codePromoValide(body, false);
+    if (refus) return NextResponse.json({ error: refus }, { status: 400 });
+    // .is('kind', null) : un code fidélité ou code ami n'est pas modifiable d'ici.
+    const { data, error } = await supabaseAdmin.from('promo_codes').update(body)
+      .eq('id', id).is('kind', null).select().maybeSingle();
+    if (error) {
+      const doublon = error.code === '23505';
+      return NextResponse.json({ error: doublon ? `Le code ${body.code} existe déjà` : error.message }, { status: doublon ? 409 : 500 });
+    }
+    if (!data) return NextResponse.json({ error: 'Code introuvable, ou code personnel d’un client (non modifiable ici)' }, { status: 404 });
     return NextResponse.json({ code: data });
   }
 
@@ -141,8 +176,14 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
 
   if (tab === 'promo') {
-    const { error } = await supabaseAdmin.from('promo_codes').delete().eq('id', id);
+    /* Un code fidélité ou code ami supprimé ferait perdre sa remise au
+       client (il est recréé seulement à la commande payée suivante). Les
+       commandes passées gardent le texte du code (orders.promo_code), pas
+       de lien : la suppression ne casse pas leur historique. */
+    const { data, error } = await supabaseAdmin.from('promo_codes').delete()
+      .eq('id', id).is('kind', null).select('id');
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data?.length) return NextResponse.json({ error: 'Code introuvable, ou code personnel d’un client (non supprimable ici)' }, { status: 404 });
     return NextResponse.json({ ok: true });
   }
 

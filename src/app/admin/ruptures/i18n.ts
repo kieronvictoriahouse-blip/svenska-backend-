@@ -22,4 +22,11 @@ export const TRU = {
   msgChargement: { fr: 'Chargement impossible', en: 'Loading failed', sv: 'Kunde inte läsa in' },
   msgChoisir: { fr: 'Choisis une commande et un article', en: 'Choose an order and an item', sv: 'Välj en order och en artikel' },
   msgProposer: { fr: 'Propose au moins un remplacement', en: 'Offer at least one replacement', sv: 'Föreslå minst en ersättning' },
+  aRendre: { fr: 'à rendre', en: 'to refund', sv: 'att återbetala' },
+  offert: { fr: 'offert', en: 'absorbed', sv: 'bjuder vi på' },
+  confirmEnvoi: {
+    fr: 'Envoyer l’email de rupture au client ?',
+    en: 'Send the out-of-stock email to the customer?',
+    sv: 'Skicka mejlet om slutsåld vara till kunden?',
+  },
 };

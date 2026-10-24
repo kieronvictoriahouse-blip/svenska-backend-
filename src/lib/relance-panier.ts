@@ -62,6 +62,21 @@ const SECRET = process.env.RELANCE_SECRET || process.env.CUSTOMER_JWT_SECRET
 export const signatureEmail = (email: string) =>
   crypto.createHmac('sha256', SECRET).update(email.trim().toLowerCase()).digest('base64url').slice(0, 24);
 
+/**
+ * Lien de désinscription signé + en-têtes List-Unsubscribe (RFC 2369 /
+ * RFC 8058, « un clic » depuis Gmail, Apple Mail…). Le même lien sert aux
+ * relances de panier et à la newsletter (`t=n`) : une seule liste
+ * d'opposition, respectée partout.
+ */
+export function desinscription(email: string, sujet: 'relance' | 'newsletter' = 'relance') {
+  const e = String(email || '').trim().toLowerCase();
+  const url = `${urlBackOffice()}/api/relance/desinscription?e=${encodeURIComponent(e)}&s=${signatureEmail(e)}${sujet === 'newsletter' ? '&t=n' : ''}`;
+  return {
+    url,
+    headers: { 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+  };
+}
+
 /** Lundi (heure de Paris) de la semaine d'une date, au format YYYY-MM-DD. */
 export function lundiDe(d: Date = new Date()): string {
   const ymd = d.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
@@ -112,7 +127,11 @@ export async function offreDeLaSemaine(rang: Rang, quand: Date = new Date()): Pr
       .from('promo_codes').select('code, type, value, min_order, is_active, valid_from, valid_until, max_uses, used_count')
       .eq('id', o.promo_code_id).maybeSingle();
     if (!pc || !pc.is_active) return null;
-    if (pc.valid_until && quand > new Date(String(pc.valid_until).slice(0, 10) + 'T23:59:59')) return null;
+    /* Dates du code comparées au JOUR DE PARIS : « T23:59:59 » sans fuseau
+       se lit en UTC sur Vercel, soit 1 h 59 (été) le lendemain à Paris. */
+    const jour = quand.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
+    if (pc.valid_until && jour > String(pc.valid_until).slice(0, 10)) return null;
+    if (pc.valid_from && jour < String(pc.valid_from).slice(0, 10)) return null;
     if (pc.max_uses && (pc.used_count || 0) >= pc.max_uses) return null;
     if (!['percent', 'fixed', 'free_shipping'].includes(pc.type)) return null;
     return {
@@ -227,6 +246,10 @@ export async function envoyerRelance(orderId: string, rang: Rang): Promise<Resul
   };
 
   if (!['pending', 'abandoned'].includes(o.status)) return { ok: false, raison: `statut ${o.status}` };
+  /* Commande de test (mode test Stripe, ou marquée « test ») : le
+     webhook d'expiration de test arrivait jusqu'ici et la boutique se
+     relançait elle-même. */
+  if (o.is_test) return passer('commande de test');
   if (!o.recovery_token) return { ok: false, raison: 'sans jeton (antérieur à la relance)' };
   if (!email) return { ok: false, raison: 'sans email' };
   if (o[col]) return { ok: false, raison: 'déjà envoyée' };
@@ -242,6 +265,21 @@ export async function envoyerRelance(orderId: string, rang: Rang): Promise<Resul
     .ilike('customer_email', email).gt('created_at', o.created_at).neq('id', orderId);
   if ((apres || []).some(x => !['pending', 'abandoned', 'cancelled'].includes(x.status))) return passer('a commandé depuis');
   if ((apres || []).some(x => ['pending', 'abandoned'].includes(x.status))) return passer('panier plus récent');
+
+  /* Payé depuis, mais sur un brouillon PLUS ANCIEN : le client a rouvert
+     un onglet Stripe resté ouvert. Ce brouillon-là a été créé avant, il
+     n'apparaît pas ci-dessus ; son passage en « payé » (updated_at) est
+     postérieur à notre brouillon. Fenêtre de 24 h : une session Stripe
+     ne vit pas plus longtemps — une vieille commande simplement
+     expédiée depuis ne bloque pas la relance. */
+  const { data: payeAvant } = await supabaseAdmin
+    .from('orders').select('id')
+    .ilike('customer_email', email).neq('id', orderId)
+    .lte('created_at', o.created_at).gt('updated_at', o.created_at)
+    .gte('created_at', new Date(Date.parse(o.created_at) - 86400_000).toISOString())
+    .not('status', 'in', '(pending,abandoned,cancelled)')
+    .limit(1);
+  if (payeAvant?.length) return passer('a commandé depuis');
 
   /* Un client revenu par le lien puis reparti crée un NOUVEAU brouillon :
      sans cette garde, il repartirait pour deux relances de plus. La
@@ -269,15 +307,17 @@ export async function envoyerRelance(orderId: string, rang: Rang): Promise<Resul
     const front = await urlVitrine();
     const offre = await offreDeLaSemaine(rang);
     const codeParam = offre?.kind === 'code' && offre.code ? `&code=${encodeURIComponent(offre.code)}` : '';
+    const desinscr = desinscription(email, 'relance');
     const { sujet, html } = await composerRelance({
       lignesBrutes, prenom: o.customer_name, lang, rang, offre, front,
       mode: o.delivery_mode, pays: o.delivery_mode === 'mondial_relay' ? o.relay_point_pays : 'FR',
       lienPanier: `${front}/panier.html?reprise=${o.id}.${o.recovery_token}${codeParam}&r=${rang}`,
-      lienDesinscription: `${urlBackOffice()}/api/relance/desinscription?e=${encodeURIComponent(email)}&s=${signatureEmail(email)}`,
+      lienDesinscription: desinscr.url,
     });
     const cfg = await getWhiteLabelConfig();
     const from = (cfg as any).smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
-    await sendEmail({ from, to: email, subject: sujet, html }, cfg);
+    // List-Unsubscribe : le lien « se désinscrire » de Gmail / Apple Mail.
+    await sendEmail({ from, to: email, subject: sujet, html, headers: desinscr.headers }, cfg);
     return { ok: true, raison: `relance ${rang} envoyée à ${email}` };
   } catch (e: any) {
     /* Échec d'envoi : on libère la prise pour qu'un prochain passage

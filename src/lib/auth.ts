@@ -13,12 +13,28 @@ export function estAdmin(user: User | null | undefined): boolean {
   return (user?.app_metadata as any)?.role === 'admin';
 }
 
+/* Le cookie part tout seul avec chaque requête vers le domaine — y compris
+   celles qu'un AUTRE site ou un email déclenche : lien cliqué depuis une
+   messagerie (navigation de premier niveau, que SameSite=Lax laisse
+   passer), image d'un message piégé. Le jeton Bearer, lui, n'est posé que
+   par notre propre code (adminFetch). Le cookie ne vaut donc preuve que
+   pour une requête née du back-office : le navigateur l'atteste par
+   Sec-Fetch-Site (« same-origin »). En-tête absent = client hors
+   navigateur ou navigateur ancien, accepté pour ne rien casser ; « none »
+   (adresse tapée, lien ouvert depuis une appli de mail) et « cross-site »
+   sont refusés. */
+function cookieRecevable(req: NextRequest): boolean {
+  const site = req.headers.get('sec-fetch-site');
+  return !site || site === 'same-origin';
+}
+
 export async function requireAuth(req: NextRequest) {
   // 1. Bearer token (localStorage via adminFetch)
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
   const token = authHeader?.startsWith('Bearer ')
     ? authHeader.slice(7)
-    : req.cookies.get('sd_admin_token')?.value; // 2. Cookie httpOnly (fallback)
+    // 2. Cookie httpOnly (repli) — seulement pour une requête du back-office lui-même
+    : (cookieRecevable(req) ? req.cookies.get('sd_admin_token')?.value : undefined);
 
   if (!token) return null;
   const { data: { user } } = await supabaseAdmin.auth.getUser(token);

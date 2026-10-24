@@ -133,6 +133,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             ...(reason ? { motif: reason.slice(0, 400) } : {}),
             ...(shippingKept > 0 ? { frais_port_retenus: shippingKept.toFixed(2) } : {}),
           },
+        }, {
+          /* Même commande, même état déjà remboursé, même montant : c'est
+             le même remboursement. Un nouvel essai après une réponse
+             perdue (délai, onglet fermé) récupère celui déjà fait chez
+             Stripe au lieu d'en émettre un second. */
+          idempotencyKey: `refund-${order.id}-${Math.round(alreadyRefunded * 100)}-${Math.round(amount * 100)}`,
         });
         refundId = refund.id;
       }
@@ -152,17 +158,34 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const toutParti = ['shipped', 'delivered'].includes(order.status)
     && !Object.keys(envoye).length;      // expédiée avant l'existence de shipped_qty
 
-  const planRetour = (doRestock
+  /* Déjà rentré lors d'un remboursement précédent : un partiel avec
+     remise en stock puis le solde intégral faisaient rentrer deux fois
+     les articles du partiel (la ligne restait dans la commande quand
+     « retirer de la commande » n'était pas coché). */
+  const dejaRentre: Record<string, number> = {};
+  for (const r of history) {
+    for (const it of (r?.items || [])) {
+      if (it?.restocked && it.product_id) dejaRentre[it.product_id] = (dejaRentre[it.product_id] || 0) + (Number(it.qty) || 0);
+    }
+  }
+
+  /* Cumul par produit AVANT plafonnement : deux lignes d'un même produit
+     (remplacement de rupture) plafonnées chacune par le total expédié
+     faisaient rentrer ce total deux fois. */
+  const demandeRetour: Record<string, number> = {};
+  for (const r of (doRestock
     ? (isPartial
         ? items.map(it => ({ product_id: orderLines[it.index]?.product_id, qty: it.qty }))
         : orderLines.map((l: any) => ({ product_id: l.product_id, qty: Number(l.qty) || 1 })))
-    : []
-  ).map((r: any) => ({
-    product_id: r.product_id as string | null,
-    // Plafond : ce qui est effectivement parti pour ce produit.
+    : [])) {
+    if (r.product_id) demandeRetour[r.product_id] = (demandeRetour[r.product_id] || 0) + (Number(r.qty) || 0);
+  }
+  const planRetour = Object.entries(demandeRetour).map(([product_id, qty]) => ({
+    product_id: product_id as string | null,
+    // Plafond : ce qui est effectivement parti pour ce produit, moins ce qui est déjà rentré.
     qty: Math.min(
-      Number(r.qty) || 0,
-      toutParti ? (Number(r.qty) || 0) : (Number(envoye[r.product_id]) || 0),
+      qty,
+      Math.max(0, (toutParti ? qty : (Number(envoye[product_id]) || 0)) - (dejaRentre[product_id] || 0)),
     ),
   })).filter((r: any) => r.product_id && r.qty > 0);
 
@@ -239,6 +262,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         await adjustStock(r.product_id as string, r.qty, {
           reason: 'order_restock',
           reference: order.order_number,
+          // Rattaché à la commande : /restock voit ce retour et ne le refait pas.
+          order_id: order.id,
           note: `Retour sur remboursement — commande ${order.order_number}`,
         });
       } catch { /* non bloquant : le remboursement prime sur le stock */ }
@@ -248,8 +273,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // ── Avoir + contre-passation comptable ───────────────────────────
   let avoirNumber: string | null = null;
   try {
-    const year  = new Date().getFullYear();
-    const today = new Date().toISOString().split('T')[0];
+    /* Jour et année à PARIS : le serveur tourne en UTC, et un avoir émis
+       le 1er janvier entre minuit et 1 h (2 h l'été) tombait la veille —
+       daté de l'année close et numéroté dans sa série AV. */
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+    const year  = Number(today.slice(0, 4));
 
     // Récupérer la facture originale
     const { data: originalInv } = await supabaseAdmin
@@ -338,7 +366,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .eq('reference_type', 'order').eq('reference_id', params.id).eq('type', 'income')
       .maybeSingle();
     if (incomeEntry) {
-      await supabaseAdmin.from('accounting_entries').insert({
+      const { error: contreErr } = await supabaseAdmin.from('accounting_entries').insert({
         date:             today,
         type:             'income',
         category:         incomeEntry.category,
@@ -348,28 +376,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         reference_id:     params.id,
         reference_number: order.order_number,
       });
+      /* Un 2e remboursement partiel de la même commande heurtait l'index
+         unique uniq_accounting_entry_ref (une seule écriture « refund » par
+         commande) : la recette n'était pas diminuée, et rien ne le disait. */
+      if (contreErr) console.error('[refund] contre-passation NON enregistrée (index uniq_accounting_entry_ref ?)', order.order_number, contreErr.message);
     }
 
-    // Contre-passation des frais Stripe — uniquement sur remboursement intégral.
-    // Sur un remboursement partiel Stripe conserve ses frais : rien à contre-passer.
-    if (!isPartial) {
-      const { data: stripeEntry } = await supabaseAdmin
-        .from('accounting_entries').select('*')
-        .eq('reference_type', 'order').eq('reference_id', params.id).eq('category', 'frais_stripe')
-        .maybeSingle();
-      if (stripeEntry) {
-        await supabaseAdmin.from('accounting_entries').insert({
-          date:             today,
-          type:             'expense',
-          category:         'frais_stripe',
-          description:      `Remboursement frais Stripe — ${order.order_number}`,
-          amount:           -stripeEntry.amount,
-          reference_type:   'refund',
-          reference_id:     params.id,
-          reference_number: order.order_number,
-        });
-      }
-    }
+    /* Pas de contre-passation des frais Stripe : Stripe ne rend pas ses
+       frais sur un remboursement, même intégral. L'ancienne écriture
+       « Remboursement frais Stripe » inventait un produit qui n'existait pas. */
   } catch (e) {
     console.error('[refund] avoir/accounting error:', e);
   }

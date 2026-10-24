@@ -183,6 +183,11 @@ export async function syncFolder(folder = 'INBOX', limite = 200): Promise<SyncRe
       }, { uid: lastUid > 0 })) {
         const uid = Number(msg.uid);
         if (!uid) continue;
+        /* IMAP : « N:* » renvoie toujours AU MOINS le dernier message, même
+           si N dépasse le plus grand UID. Sans ce filtre, chaque relève
+           réécrivait ce message (son étiquette remise à zéro) et annonçait
+           « 1 nouveau message » alors qu'il n'y avait rien. */
+        if (lastUid > 0 && uid <= lastUid) continue;
         maxUid = Math.max(maxUid, uid);
 
         const parsed = await simpleParser(msg.source as Buffer);

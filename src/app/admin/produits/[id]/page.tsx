@@ -91,6 +91,8 @@ export default function EditProduitPage() {
       say(t('msgEnregistre'));
     } catch (e: any) {
       say(e.message || 'Enregistrement impossible');
+      // Remonté au formulaire : l'autosave affiche « non enregistré » au lieu d'« Enregistré ».
+      throw e;
     } finally { setSaving(false); }
   }
 
@@ -114,7 +116,9 @@ export default function EditProduitPage() {
   const statusText = status === 'pending' ? 'Modifications en attente…'
     : status === 'saving' ? 'Enregistrement…'
     : status === 'saved' ? 'Enregistré'
+    : status === 'error' ? 'Non enregistré — corrige puis réessaie'
     : product.updated_at ? `Modifié ${since(product.updated_at)}` : '';
+  const statusColor = status === 'error' ? T.red : status && status !== 'idle' ? T.green : T.muted;
   const apercuUrl = `${frontUrl}/produit.html?id=${id}`;
 
   return (
@@ -134,7 +138,7 @@ export default function EditProduitPage() {
               {product.name_fr || 'Sans nom'}
             </div>
           </div>
-          <span className="sc-hide-mobile" style={{ fontSize: 11, color: status ? T.green : T.muted }}>
+          <span className="sc-hide-mobile" style={{ fontSize: 11, color: statusColor }}>
             {statusText}
           </span>
           <div className="sc-actions sc-hide-mobile">
@@ -185,7 +189,7 @@ export default function EditProduitPage() {
       {/* Téléphone : enregistrement à portée de pouce, avec l'état de
           l'enregistrement automatique. */}
       <div className="sc-sticky-actions sc-only-mobile-flex" style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: status ? T.green : T.muted, lineHeight: 1.3 }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: statusColor, lineHeight: 1.3 }}>
           {statusText}
         </span>
         <button className="sc-btn sc-btn-green" form="product-form" type="submit" disabled={saving}

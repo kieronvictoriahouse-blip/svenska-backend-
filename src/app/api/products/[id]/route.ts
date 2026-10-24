@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
 import { pourVitrine } from '@/lib/produit-public';
+import { champsFiche, controlerFiche, messageDoublon } from '@/lib/fiche-produit';
 
 export const maxDuration = 60;
 
@@ -27,6 +28,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .single();
 
   if (error) return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
+  /* Fiche dépubliée (brouillon) : introuvable pour le public, comme dans
+     la liste. Elle se lisait en entier avec son identifiant. */
+  if (!isAdmin && (data as any).is_active === false) {
+    return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
+  }
 
   /* Même règle que sur la liste : la fiche publique annonce le
      disponible. Sans ça, la vitrine et le tunnel se contredisent —
@@ -70,43 +76,37 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const user = await requireAuth(req);
   if (!user) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Requête invalide' }, { status: 400 });
+
+  /* Mise à jour produit : liste blanche commune avec la création
+     (lib/fiche-produit). track_stock / stock_alert / pack_size y sont :
+     ils manquaient ici, la route les jetait en répondant 200. Remise par
+     article (migration 049) : seuls ses paramètres sont stockés. */
+  const updateData: Record<string, any> = champsFiche(body);
+  if (typeof updateData.name_fr === 'string') updateData.name_fr = updateData.name_fr.trim();
+
+  /* Contrôles : nom FR non vide, prix > 0, remise cohérente, EAN valide.
+     L'autosave de la fiche envoie tout le formulaire : un prix effacé le
+     temps de le retaper partait en ligne à 0 €. Un EAN déjà en base n'est
+     pas recontrôlé. */
+  let eanActuel: string | null = null;
+  if (updateData.ean) {
+    const { data: avant } = await supabaseAdmin.from('products').select('ean').eq('id', params.id).maybeSingle();
+    eanActuel = (avant as any)?.ean ?? null;
+  }
+  const refus = controlerFiche(updateData, { eanActuel });
+  if (refus) return NextResponse.json({ error: refus }, { status: 400 });
 
   // Rapatrie les nouvelles images externes dans notre Storage (évite les liens morts).
-  if (typeof body.image_url === 'string' && body.image_url) {
-    body.image_url = (await rehostImage(body.image_url)) || body.image_url;
+  if (typeof updateData.image_url === 'string' && updateData.image_url) {
+    updateData.image_url = (await rehostImage(updateData.image_url)) || updateData.image_url;
   }
-  if (Array.isArray(body.extra_images)) {
-    body.extra_images = await Promise.all(
-      body.extra_images.map(async (u: string) => (await rehostImage(u)) || u)
+  if (Array.isArray(updateData.extra_images)) {
+    updateData.extra_images = await Promise.all(
+      updateData.extra_images.map(async (u: string) => (await rehostImage(u)) || u)
     );
   }
-
-  // Mise à jour produit
-  const updateData: Record<string, any> = {};
-  const fields = [
-    'category_id', 'name_sv', 'name_fr', 'name_en',
-    'subtitle_sv', 'subtitle_fr', 'subtitle_en',
-    'desc_sv', 'desc_fr', 'desc_en',
-    'price', 'cost_price', 'weight', 'origin_sv', 'origin_fr', 'origin_en',
-    'image_url', 'badge', 'is_bestseller', 'is_new', 'is_active', 'pickup_only',
-    'rating', 'reviews_count', 'tags', 'sort_order', 'reorder_qty',
-    'usage_sv', 'usage_fr', 'usage_en',
-    'ingredients_sv', 'ingredients_fr', 'ingredients_en',
-    'storage_sv', 'storage_fr', 'storage_en',
-    'allergens_sv', 'allergens_fr', 'allergens_en',
-    'nutrition', 'extra_images', 'ean', 'sku',
-    // Fabricant, mention obligatoire de la fiche (migration 060)
-    'manufacturer',
-    /* Ces quatre-la manquaient : le formulaire produit les envoyait, la
-       route les jetait, et repondait 200. Cocher « suivi de stock » ou
-       changer un seuil n'avait aucun effet, sans le moindre message. */
-    'track_stock', 'stock_alert', 'pack_size',
-    /* Remise par article (migration 049). Le prix effectif est recalcule
-       a la volee, seuls les parametres de la remise sont stockes. */
-    'discount_type', 'discount_value', 'discount_start', 'discount_end',
-  ];
-  fields.forEach(f => { if (body[f] !== undefined) updateData[f] = body[f]; });
 
   /* Composition d'une box (migration 054). Nettoyée ici : une box ne se
      contient pas elle-même, et elle n'a jamais de rayon propre — son
@@ -127,7 +127,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (Object.keys(updateData).length > 0) {
     const { data, error } = await supabaseAdmin
       .from('products').update(updateData).eq('id', params.id).select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      const doublon = messageDoublon(error);
+      return NextResponse.json({ error: doublon || error.message }, { status: doublon ? 409 : 500 });
+    }
     product = data;
   } else {
     const { data, error } = await supabaseAdmin
@@ -141,38 +144,50 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
      Il etait absent de la liste blanche ci-dessus, donc silencieusement
      ignore — le « + » de l'ecran Stocks n'ecrivait rien et n'affichait
      aucune erreur. On le route ici vers le journal. */
-  if (body.stock !== undefined && body.stock !== null) {
+  /* Valeur ABSOLUE (« j'en compte 12 ») : posée par poserStock, qui
+     relit et écrit sous garde. L'ancien calcul « visé − lu juste avant »
+     appliquait un delta à un état déjà périmé si une expédition passait
+     entre la lecture et l'écriture. */
+  if (body.stock !== undefined && body.stock !== null && body.stock !== '') {
     const vise = Math.max(0, Math.round(Number(body.stock) || 0));
-    const actuel = Number(product?.stock) || 0;
-    if (vise !== actuel) {
-      const { adjustStock } = await import('@/lib/stock');
-      const m = await adjustStock(params.id, vise - actuel, {
-        reason: body.stock_reason || 'manual',
-        reference: body.stock_reference || null,
-        note: body.stock_note || 'Saisie depuis le back-office',
-      });
-      if (!m) {
-        /* Le silence est ce qui a coute le plus cher ici : un ajustement
-           refuse doit se voir, pas se deviner au rechargement. */
-        return NextResponse.json(
-          { error: 'Stock non enregistre — le mouvement a echoue.' }, { status: 500 });
-      }
-      (product as any).stock = m.after;
+    const { poserStock } = await import('@/lib/stock');
+    const m = await poserStock(params.id, vise, {
+      reason: body.stock_reason || 'manual',
+      reference: body.stock_reference || undefined,
+      note: body.stock_note || 'Saisie depuis le back-office',
+    }).catch(() => null);
+    if (!m) {
+      /* Le silence est ce qui a coute le plus cher ici : un ajustement
+         refuse doit se voir, pas se deviner au rechargement. */
+      return NextResponse.json(
+        { error: 'Stock non enregistre — le mouvement a echoue.' }, { status: 500 });
     }
+    (product as any).stock = m.after;
   }
 
-  // Mise à jour variantes (remplace tout)
-  if (body.variants !== undefined) {
-    await supabaseAdmin.from('product_variants').delete().eq('product_id', params.id);
-    if (body.variants.length > 0) {
-      const variants = body.variants.map((v: any, i: number) => ({
+  /* Variantes (remplace tout) : les nouvelles d'abord, l'ancien jeu n'est
+     retiré qu'une fois celles-ci écrites. Dans l'ordre inverse, un échec
+     d'insertion laissait le produit sans aucune variante, réponse 200. */
+  if (Array.isArray(body.variants)) {
+    const { data: anciennes } = await supabaseAdmin
+      .from('product_variants').select('id').eq('product_id', params.id);
+    const rows = body.variants
+      .filter((v: any) => v && v.label && Number(v.price) > 0)
+      .map((v: any, i: number) => ({
         product_id: params.id,
         label:      v.label,
         price:      parseFloat(v.price),
         is_default: i === 0,
         sort_order: i,
       }));
-      await supabaseAdmin.from('product_variants').insert(variants);
+    if (rows.length) {
+      const { error: vErr } = await supabaseAdmin.from('product_variants').insert(rows);
+      if (vErr) return NextResponse.json({ error: 'Variantes non enregistrées : ' + vErr.message }, { status: 500 });
+    }
+    const ids = (anciennes || []).map((v: any) => v.id);
+    if (ids.length) {
+      const { error: dErr } = await supabaseAdmin.from('product_variants').delete().in('id', ids);
+      if (dErr) return NextResponse.json({ error: 'Anciennes variantes non retirées : ' + dErr.message }, { status: 500 });
     }
   }
 

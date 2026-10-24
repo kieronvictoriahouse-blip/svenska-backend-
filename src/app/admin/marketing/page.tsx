@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/auth-client';
 import { T as TH, BADGE } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
-import { TMA, confirmerSuppressionCode, codeSupprime, relanceEnvoyee } from './i18n';
+import { TMA, confirmerSuppressionCode, codeSupprime } from './i18n';
 import { FIDELITE } from '@/lib/fidelite-regles';
 
 type Campaign = {
@@ -44,7 +44,11 @@ type AbandonedCart = {
 };
 
 const CAMP_TYPES: Record<string, string> = { email: '📧 Email', sms: '📱 SMS', meta_ads: '📘 Meta Ads', google_ads: '🔍 Google Ads', social_ads: '📣 Social' };
-const SEGMENTS: Record<string, string> = { all: 'Tous les clients', new_customers: 'Nouveaux clients', loyal: 'Clients fidèles', inactive: 'Clients inactifs', abandoned_cart: 'Panier abandonné' };
+/* Une campagne ne part qu'aux abonnés newsletter (cf. /api/email) : seuls
+   ces deux segments s'envoient. Les autres libellés restent pour afficher
+   les anciennes campagnes. */
+const SEGMENTS_ENVOI: Record<string, string> = { all: 'Abonnés newsletter', new_customers: 'Abonnés ayant commandé (30 j)' };
+const SEGMENTS: Record<string, string> = { ...SEGMENTS_ENVOI, loyal: 'Clients fidèles', inactive: 'Clients inactifs', abandoned_cart: 'Panier abandonné' };
 const STATUS_C: Record<string, { label: string; color: string }> = { draft: { label: 'Brouillon', color: '#6A7280' }, active: { label: 'Active', color: '#10B981' }, paused: { label: 'Pausée', color: '#F59E0B' }, completed: { label: 'Terminée', color: '#2563EB' } };
 const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
@@ -235,7 +239,8 @@ function MarketingInner() {
     const autoCode = codeForm.code || (isGift ? ('CADEAU-' + Math.random().toString(36).slice(2, 7).toUpperCase()) : '');
     const payload = {
       ...codeForm,
-      code: autoCode.toUpperCase(),
+      // Sans espaces : le panier cherche le code saisi, en majuscules, sans espaces.
+      code: autoCode.replace(/\s+/g, '').toUpperCase(),
       value: isGift ? 0 : (parseFloat(codeForm.value) || 0),
       min_order: parseFloat(codeForm.min_order) || 0,
       max_uses: codeForm.max_uses ? parseInt(codeForm.max_uses) : null,
@@ -258,8 +263,13 @@ function MarketingInner() {
     }
     const url = editingCode ? `/api/marketing?tab=promo&id=${editingCode.id}` : '/api/marketing?tab=promo';
     const method = editingCode ? 'PUT' : 'POST';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!res.ok) { showToast(t('msgErreur')); return; }
+    /* adminFetch et non fetch : le jeton de session suit (le simple fetch
+       ne reposait que sur le cookie, expiré au bout d'une heure). */
+    const res = await adminFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      showToast(d.error ? `❌ ${d.error}` : t('msgErreur')); return;
+    }
     showToast(editingCode ? '✅ Code mis à jour !' : '✅ Code promo créé !');
     setShowCodeModal(false);
     setEditingCode(null);
@@ -275,15 +285,15 @@ function MarketingInner() {
   }
 
   async function toggleCode(code: PromoCode) {
-    await adminFetch(`/api/marketing?tab=promo&id=${code.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !code.is_active }) });
+    const res = await adminFetch(`/api/marketing?tab=promo&id=${code.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !code.is_active }) });
+    if (!res.ok) showToast(t('msgErreur'));
     loadData();
   }
 
-  async function sendRelance(cartId: string, step: number) {
-    showToast(relanceEnvoyee(step === 1 ? 1 : step === 2 ? 3 : 7, lang));
-    await adminFetch(`/api/marketing?tab=abandoned&id=${cartId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [`email_${step}_sent_at`]: new Date().toISOString() }) });
-    loadData();
-  }
+  /* Les boutons « Relance 1 / 2 » de l'ancien onglet affichaient
+     « relance envoyée » AVANT un appel qui n'envoyait rien (la route
+     mettait à jour… une campagne, et échouait). Les relances réelles
+     vivent dans Marketing → Paniers abandonnés. */
 
   const totalRevCamp = campaigns.filter(c => c.status === 'completed').reduce((s, c) => s + (c.revenue_generated || 0), 0);
   const totalBudget = campaigns.reduce((s, c) => s + (c.spent || 0), 0);
@@ -394,7 +404,7 @@ function MarketingInner() {
   const campaignTone = (s: string) =>
     s === 'active' ? BADGE.green : s === 'paused' ? BADGE.amber : s === 'completed' ? BADGE.blue : BADGE.gray;
   const campaignLabel = (s: string) =>
-    ({ draft: 'Brouillon', active: 'Active', paused: 'Pausée', completed: 'Terminée' } as Record<string, string>)[s] || s;
+    ({ draft: 'Brouillon', active: 'Active', paused: 'Pausée', completed: 'Terminée', sending: 'Envoi en cours' } as Record<string, string>)[s] || s;
 
   const Gauge = ({ value, max, color }: { value: number; max: number; color: string }) => (
     <div style={{ height: 5, borderRadius: 2.5, background: TH.borderFaint2, width: '100%' }}>
@@ -710,6 +720,12 @@ function MarketingInner() {
             ))}
           </div>
 
+          {/* Ancien suivi (table abandoned_carts, plus alimentée) : lecture
+              seule. Les relances réelles et leur suivi sont à côté. */}
+          <a href="/admin/marketing/relances" className="sc-card mk-petit"
+             style={{ display: 'block', padding: '12px 15px', marginBottom: 12, fontSize: 12.5, color: TH.ink, textDecoration: 'none' }}>
+            {t('ancienSysteme')} <strong style={{ color: 'var(--accent)' }}>{t('versRelances')}</strong>
+          </a>
           {loading && <div className="sc-empty">{tc('loading')}</div>}
           {!loading && carts.length === 0 && <div className="sc-empty">{t('aucunPanier')}</div>}
 
@@ -745,20 +761,7 @@ function MarketingInner() {
                             color: c.recovered ? BADGE.green.fg : BADGE.gray.fg,
                           }}>{c.recovered ? 'Récupéré' : 'En attente'}</span>
                         </td>
-                        <td className="sc-stack-actions">
-                          {!c.recovered && (
-                            <div style={{ display: 'flex', gap: 4 }}>
-                              {!c.email_1_sent_at && (
-                                <button className="sc-btn sc-btn-secondary mk-sm" style={{ padding: '5px 9px', fontSize: 11 }}
-                                        onClick={() => sendRelance(c.id, 1)}>{t('relance1')}</button>
-                              )}
-                              {c.email_1_sent_at && !c.email_2_sent_at && (
-                                <button className="sc-btn sc-btn-secondary mk-sm" style={{ padding: '5px 9px', fontSize: 11 }}
-                                        onClick={() => sendRelance(c.id, 2)}>{t('relance2')}</button>
-                              )}
-                            </div>
-                          )}
-                        </td>
+                        <td className="sc-stack-actions" />
                       </tr>
                     ))}
                   </tbody>
@@ -923,7 +926,7 @@ function MarketingInner() {
                   <div className="form-group">
                     <label className="form-label">{t('segment')}</label>
                     <select className="form-control" value={campForm.target_segment} onChange={e => setCampForm(f => ({ ...f, target_segment: e.target.value }))}>
-                      {Object.entries(SEGMENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      {Object.entries(SEGMENTS_ENVOI).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                     </select>
                   </div>
                 </div>

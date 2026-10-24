@@ -45,11 +45,28 @@ const sirenDe = (v: any) => {
 
 export type FacturXResult = { xml: string; filename: string };
 
+/** Identité du vendeur tirée de white_label_config — utilisée seulement
+ *  pour une facture qui n'a pas figé la sienne (le PDF fait de même). */
+export type VendeurRepli = { seller_name?: string; seller_siret?: string; seller_address?: string; seller_email?: string };
+export const vendeurDeConfig = (wl: any): VendeurRepli => ({
+  seller_name: wl?.site_name || '', seller_siret: wl?.siret || '',
+  seller_address: wl?.address || '', seller_email: wl?.email || '',
+});
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 /**
  * Construit le XML CII d'une facture existante.
  * `inv` est la ligne de la table `invoices`, lignes déjà parsées ou non.
  */
-export function construireFacturX(inv: any): FacturXResult {
+export function construireFacturX(inv0: any, repli: VendeurRepli = {}): FacturXResult {
+  const inv = {
+    ...inv0,
+    seller_name: inv0.seller_name || repli.seller_name,
+    seller_siret: inv0.seller_siret || repli.seller_siret,
+    seller_address: inv0.seller_address || repli.seller_address,
+    seller_email: inv0.seller_email || repli.seller_email,
+  };
   const lignes: any[] = (() => {
     try {
       const l = typeof inv.lines === 'string' ? JSON.parse(inv.lines) : (inv.lines || []);
@@ -63,10 +80,19 @@ export function construireFacturX(inv: any): FacturXResult {
   const typeCode = estAvoir ? 381 : 380;
   const abs = (v: any) => Math.abs(Number(v) || 0).toFixed(2);
 
+  /* Montant de ligne SIGNÉ : une remise (facture) ou un port retenu
+     (avoir) est négatif. EN 16931 interdit un prix net négatif (BR-27)
+     mais accepte une quantité négative : la ligne garde un prix positif
+     et porte le signe sur la quantité. L'ancien Math.abs transformait
+     la retenue en montant crédité de plus : lignes ≠ total (BR-CO-10). */
+  const totaux = lignes.map(l => r2((Number(l.qty) || 1) * (Number(l.price) || 0)));
+  const sommeLignes = r2(totaux.reduce((s, x) => s + x, 0));
+
   const lignesXml = lignes.map((l, i) => {
-    const qte = Number(l.qty) || 1;
+    const qte0 = Number(l.qty) || 1;
     const pu = Math.abs(Number(l.price) || 0);
-    const totalLigne = (qte * pu).toFixed(2);
+    const qte = totaux[i] < 0 ? -Math.abs(qte0) : Math.abs(qte0);
+    const totalLigne = totaux[i].toFixed(2);
     return `
     <ram:IncludedSupplyChainTradeLineItem>
       <ram:AssociatedDocumentLineDocument>
@@ -98,6 +124,27 @@ export function construireFacturX(inv: any): FacturXResult {
 
   const totalHt = abs(inv.total_ht);
   const totalTtc = abs(inv.total_ttc);
+
+  /* Lignes ≠ total : facture émise avant la ligne de remise (code promo
+     porté par la commande). L'écart devient une remise de pied (BG-20),
+     un surplus une charge (BG-21) : BT-109 = BT-106 − BT-107 + BT-108. */
+  const ecart = r2(sommeLignes - Number(totalHt));
+  const pied = (montant: number, charge: boolean) => `
+      <ram:SpecifiedTradeAllowanceCharge>
+        <ram:ChargeIndicator><udt:Indicator>${charge ? 'true' : 'false'}</udt:Indicator></ram:ChargeIndicator>
+        <ram:ActualAmount>${montant.toFixed(2)}</ram:ActualAmount>
+        <ram:Reason>${charge ? 'Ajustement' : 'Remise'}</ram:Reason>
+        <ram:CategoryTradeTax>
+          <ram:TypeCode>VAT</ram:TypeCode>
+          <ram:CategoryCode>E</ram:CategoryCode>
+          <ram:RateApplicablePercent>0</ram:RateApplicablePercent>
+        </ram:CategoryTradeTax>
+      </ram:SpecifiedTradeAllowanceCharge>`;
+  const remisePied = ecart >= 0.01 ? ecart : 0;
+  const chargePied = ecart <= -0.01 ? -ecart : 0;
+  /* Payée : le montant dû est 0, donc tout a été prépayé — sinon
+     BR-CO-16 (dû = total − prépayé) échoue sur chaque facture du site. */
+  const payee = inv.status === 'paid';
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice
@@ -153,13 +200,16 @@ export function construireFacturX(inv: any): FacturXResult {
         <ram:CategoryCode>E</ram:CategoryCode>
         <ram:ExemptionReasonCode>VATEX-FR-FRANCHISE</ram:ExemptionReasonCode>
         <ram:RateApplicablePercent>0</ram:RateApplicablePercent>
-      </ram:ApplicableTradeTax>
+      </ram:ApplicableTradeTax>${remisePied ? pied(remisePied, false) : ''}${chargePied ? pied(chargePied, true) : ''}
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-        <ram:LineTotalAmount>${totalHt}</ram:LineTotalAmount>
+        <ram:LineTotalAmount>${sommeLignes.toFixed(2)}</ram:LineTotalAmount>${chargePied ? `
+        <ram:ChargeTotalAmount>${chargePied.toFixed(2)}</ram:ChargeTotalAmount>` : ''}${remisePied ? `
+        <ram:AllowanceTotalAmount>${remisePied.toFixed(2)}</ram:AllowanceTotalAmount>` : ''}
         <ram:TaxBasisTotalAmount>${totalHt}</ram:TaxBasisTotalAmount>
         <ram:TaxTotalAmount currencyID="EUR">0.00</ram:TaxTotalAmount>
-        <ram:GrandTotalAmount>${totalTtc}</ram:GrandTotalAmount>
-        <ram:DuePayableAmount>${inv.status === 'paid' ? '0.00' : totalTtc}</ram:DuePayableAmount>
+        <ram:GrandTotalAmount>${totalTtc}</ram:GrandTotalAmount>${payee ? `
+        <ram:TotalPrepaidAmount>${totalTtc}</ram:TotalPrepaidAmount>` : ''}
+        <ram:DuePayableAmount>${payee ? '0.00' : totalTtc}</ram:DuePayableAmount>
       </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
     </ram:ApplicableHeaderTradeSettlement>
   </rsm:SupplyChainTradeTransaction>
@@ -173,5 +223,7 @@ export async function facturXDe(invoiceId: string): Promise<FacturXResult | null
   const { data: inv } = await supabaseAdmin
     .from('invoices').select('*').eq('id', invoiceId).maybeSingle();
   if (!inv) return null;
-  return construireFacturX(inv);
+  const { data: cfg } = await supabaseAdmin
+    .from('white_label_config').select('*').limit(1).maybeSingle();
+  return construireFacturX(inv, vendeurDeConfig(cfg));
 }

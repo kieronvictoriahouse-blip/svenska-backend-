@@ -139,6 +139,21 @@ export default function StockPage() {
      qu'un : la temporisation n'envoyait que le dernier appel. */
   const cibles = useRef<Record<string, number>>({});
 
+  /* Ce qui reste a ecrire, par produit. Deux gestes, deux ecritures :
+     · « + » / « − » : une VARIATION, qui s'ajoute au stock reel — une
+       expedition passee entre-temps n'est pas ecrasee ;
+     · une valeur tapee : un COMPTAGE, pose tel quel (« j'en ai compte 7 »).
+     L'ancienne version envoyait toujours la valeur affichee : un « + »
+     apres une expedition remettait les unites parties. */
+  const enAttente = useRef<Record<string, { delta: number; absolu: boolean; nom: string }>>({});
+  /* Ecriture en cours, par produit : la suivante attend qu'elle finisse.
+     Deux requetes en vol arrivaient dans n'importe quel ordre, et la plus
+     ancienne pouvait ecraser la plus recente. */
+  const enCours = useRef<Record<string, Promise<void>>>({});
+  /* Derniere valeur confirmee par le serveur : c'est elle qu'on remet
+     si une ecriture echoue (et non la valeur optimiste du clic d'avant). */
+  const confirme = useRef<Record<string, number>>({});
+
   /* Controle du stock : theorique (recu - vendu) confronte a la base.
      Ne vaut que la ou des receptions existent — ailleurs le stock a ete
      saisi a la main et seul un comptage physique fait foi. */
@@ -158,7 +173,17 @@ export default function StockPage() {
   const plusRef = useRef<HTMLButtonElement>(null);
   const [dernierScan, setDernierScan] = useState<string | null>(null);
 
-  useEffect(() => { load(); return () => Object.values(timers.current).forEach(clearTimeout); }, []);
+  useEffect(() => {
+    load();
+    /* En quittant l'ecran (clic sur une fiche dans les 700 ms), ce qui
+       attendait encore part tout de suite au lieu d'etre perdu. */
+    const t = timers.current, attente = enAttente.current;
+    return () => {
+      Object.values(t).forEach(clearTimeout);
+      Object.keys(attente).forEach(id => envoyer(id));
+    };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2500); };
 
@@ -182,35 +207,74 @@ export default function StockPage() {
    *  Borné à 0 minimum, comme spécifié. */
   function adjust(p: Product, delta: number) {
     const base = cibles.current[p.id] ?? (p.stock ?? 0);
-    ecrire(p, Math.max(0, base + delta));
+    const next = Math.max(0, base + delta);
+    if (next !== base) ecrire(p, next, { delta: next - base });
   }
 
-  /** Pose une quantite absolue. Optimiste, puis temporisee. */
-  function ecrire(p: Product, next: number) {
+  /** Optimiste, puis temporisee : une variation (« + »/« − ») ou une
+   *  valeur comptee (saisie). */
+  function ecrire(p: Product, next: number, geste: { delta?: number; absolu?: boolean }) {
     if (next === (cibles.current[p.id] ?? p.stock ?? 0)) return;
+    // Rien en attente : ce qui est affiche est ce que le serveur a confirme.
+    if (cibles.current[p.id] === undefined) confirme.current[p.id] = p.stock ?? 0;
     cibles.current[p.id] = next;
+    const lot = enAttente.current[p.id] || { delta: 0, absolu: false, nom: p.name_fr };
+    if (geste.absolu) lot.absolu = true;
+    else lot.delta += geste.delta || 0;
+    enAttente.current[p.id] = lot;
+
     geler();
     setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: next } : x));
     setSaving(s => new Set(s).add(p.id));
 
     clearTimeout(timers.current[p.id]);
-    timers.current[p.id] = setTimeout(async () => {
+    timers.current[p.id] = setTimeout(() => envoyer(p.id), 700);
+  }
+
+  /** Envoie ce qui attend pour un produit, apres l'ecriture precedente.
+   *  Passe par /api/stock/movement : un mouvement journalise, motif
+   *  « manual », delta ou comptage selon le geste. */
+  function envoyer(id: string) {
+    const precedente = enCours.current[id] || Promise.resolve();
+    enCours.current[id] = precedente.then(async () => {
+      const lot = enAttente.current[id];
+      delete enAttente.current[id];
+      if (!lot) return;
+      const cible = cibles.current[id];
+      if (!lot.absolu && !lot.delta) return;
       try {
-        const res = await adminFetch(`/api/products/${p.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stock: next }),
+        const res = await adminFetch('/api/stock/movement', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'manual',
+            items: [lot.absolu
+              ? { product_id: id, counted: cible, note: 'Comptage saisi sur l’écran Stocks' }
+              : { product_id: id, delta: lot.delta, note: 'Ajustement +/− sur l’écran Stocks' }],
+          }),
         });
-        if (!res.ok) throw new Error();
+        const d = await res.json().catch(() => ({}));
+        // La route répond 200 avec ok:false quand le mouvement a échoué.
+        if (!res.ok || d.ok === false) throw new Error();
+        const apres = d.applied?.[0]?.after;
+        confirme.current[id] = typeof apres === 'number' ? apres
+          : lot.absolu ? cible : (confirme.current[id] ?? 0) + lot.delta;
       } catch {
-        // Échec d'écriture : on remet la valeur d'origine plutôt que de
-        // laisser l'écran mentir sur l'état réel du stock.
-        setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: p.stock } : x));
-        say(`Enregistrement impossible pour ${p.name_fr}`);
-      } finally {
-        delete cibles.current[p.id];
-        setSaving(s => { const n = new Set(s); n.delete(p.id); return n; });
+        /* Échec : ce qui attendait encore pour ce produit est abandonné,
+           et l'écran revient à la dernière valeur CONFIRMÉE plutôt que de
+           mentir sur l'état réel du stock. */
+        clearTimeout(timers.current[id]);
+        delete enAttente.current[id];
+        say(`Enregistrement impossible pour ${lot.nom}`);
       }
-    }, 700);
+      /* Plus rien en attente : on affiche ce que dit le serveur (une
+         expédition passée entre-temps y est comptée). */
+      if (!enAttente.current[id]) {
+        const vrai = confirme.current[id];
+        delete cibles.current[id];
+        if (typeof vrai === 'number') setProducts(ps => ps.map(x => x.id === id ? { ...x, stock: vrai } : x));
+        setSaving(s => { const n = new Set(s); n.delete(id); return n; });
+      }
+    });
   }
 
   /* On fige l'ordre au premier geste, pas au chargement : tant qu'on
@@ -226,7 +290,8 @@ export default function StockPage() {
     const brut = brouillon[p.id];
     setBrouillon(b => { const n = { ...b }; delete n[p.id]; return n; });
     if (brut === undefined || brut === '') return;
-    ecrire(p, Math.max(0, Math.round(Number(brut) || 0)));
+    // Une valeur tapee est un comptage : elle se pose telle quelle.
+    ecrire(p, Math.max(0, Math.round(Number(brut) || 0)), { absolu: true });
   }
 
   async function loadCtrl() {
@@ -271,7 +336,15 @@ export default function StockPage() {
       } catch { /* hors ligne : message ci-dessous */ }
     }
     if (!p) { say(`Code ${code} inconnu - renseigne l'EAN sur la fiche produit`); return; }
+    /* Une box n'a pas de rayon : la compter posait un stock fantôme sur
+       la box. Ce sont ses sachets qui se comptent. */
+    if (Array.isArray(p.bundle_items) && p.bundle_items.length) {
+      say(`${p.name_fr} est une box - compte ses sachets`); return;
+    }
     const id = p.id;
+    /* Trouvé par /api/scan mais absent de la liste chargée : sans cet
+       ajout, la ligne était comptée et envoyée sans jamais s'afficher. */
+    if (!products.some(x => x.id === id)) setProducts(ps => ps.some(x => x.id === id) ? ps : [...ps, p]);
     setInv(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     setDernierScan(id);
   }
@@ -295,8 +368,18 @@ export default function StockPage() {
         const hit = (d.applied || []).find((a: any) => a.product_id === p.id);
         return hit ? { ...p, stock: hit.after } : p;
       }));
-      say(`${(d.applied || []).length} reference(s) ajustee(s)`);
-      setInv({}); setInvOpen(false);
+      /* La route répond 200 même quand une partie des lignes a échoué
+         (`failed`) : la session se fermait sur « N références ajustées »
+         et les comptages refusés disparaissaient. Ils restent à l'écran,
+         seuls, pour être revalidés. */
+      const refuses: string[] = Array.isArray(d.failed) ? d.failed : [];
+      if (refuses.length) {
+        setInv(s => Object.fromEntries(Object.entries(s).filter(([id]) => refuses.includes(id))));
+        say(`${(d.applied || []).length} reference(s) ajustee(s) · ${refuses.length} en echec, a revalider`);
+      } else {
+        say(`${(d.applied || []).length} reference(s) ajustee(s)`);
+        setInv({}); setInvOpen(false);
+      }
     } catch (e: any) { say(e.message); }
     finally { setInvBusy(false); }
   }
@@ -448,7 +531,7 @@ export default function StockPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{t('controleTitre')}</div>
               <div style={{ fontSize: 11, color: T.text3 }}>
-                Th&eacute;orique = total re&ccedil;u &minus; total vendu, recalcul&eacute; depuis les r&eacute;ceptions et les commandes.
+                Th&eacute;orique = total re&ccedil;u &minus; total exp&eacute;di&eacute;, recalcul&eacute; depuis les r&eacute;ceptions et les commandes parties.
               </div>
             </div>
             <button className="sc-btn sc-btn-secondary st-mini" onClick={loadCtrl} disabled={ctrlBusy}>{t('recalculer')}</button>

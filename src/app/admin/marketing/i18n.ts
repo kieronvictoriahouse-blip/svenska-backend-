@@ -20,6 +20,12 @@ export const TMA = {
   panier: { fr: 'Panier', en: 'Cart', sv: 'Kundvagn' },
   abandonneLe: { fr: 'Abandonné le', en: 'Abandoned on', sv: 'Övergiven den' },
   relances: { fr: 'Relances', en: 'Reminders', sv: 'Påminnelser' },
+  ancienSysteme: {
+    fr: 'Historique de l’ancien système, en lecture seule. Les relances automatiques et leur suivi sont dans',
+    en: 'History from the old system, read-only. Automatic reminders and their tracking are in',
+    sv: 'Historik från det gamla systemet, endast läsning. Automatiska påminnelser och uppföljning finns under',
+  },
+  versRelances: { fr: 'Marketing → Paniers abandonnés →', en: 'Marketing → Abandoned baskets →', sv: 'Marknadsföring → Övergivna varukorgar →' },
   relance1: { fr: 'Relance 1', en: 'Reminder 1', sv: 'Påminnelse 1' },
   relance2: { fr: 'Relance 2', en: 'Reminder 2', sv: 'Påminnelse 2' },
   nomReq: { fr: 'Nom *', en: 'Name *', sv: 'Namn *' },

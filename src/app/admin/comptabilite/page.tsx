@@ -113,7 +113,15 @@ const TAB_DEFS: [Tab, string, string, string][] = [
 export default function ComptabilitePage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [period, setPeriod] = useState(now.toISOString().slice(0, 7));
+  /* Mois courant à l'heure de Paris : toISOString() (UTC) donnait le mois
+     précédent le 1er entre minuit et 1 h/2 h. */
+  const [period] = useState(now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }).slice(0, 7));
+  /* La clôture porte sur le mois TERMINÉ (le précédent) : clôturer le mois
+     en cours verrouillait la pile pour les opérations encore à venir. */
+  const closePeriod = (() => {
+    const [y, m] = period.split('-').map(Number);
+    return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+  })();
   const [tab, setTab] = useState<Tab>('mois');
   const [expert, setExpert] = useState(false);
   const [cOther, setCOther] = useState(false);
@@ -178,38 +186,45 @@ export default function ComptabilitePage() {
       } else if (tab === 'livres') {
         const [j, c] = await Promise.all([
           adminFetch(`/api/accounting/journal?year=${year}&limit=60`),
-          adminFetch(`/api/accounting/close?period=${period}`),
+          adminFetch(`/api/accounting/close?period=${closePeriod}`),
         ]);
         if (j.ok) setJournal((await j.json()).rows || []);
         if (c.ok) setCloseData(await c.json());
       }
     } finally { setLoading(false); }
-  }, [tab, period, year]);
+  }, [tab, period, closePeriod, year]);
 
   useEffect(() => { load(); }, [load]);
 
   // ── Actions ──
   async function reconcile(txId: string, action: string, category?: string) {
+    if (busy) return;
     setBusy(true);
     try {
       const r = await adminFetch('/api/accounting/bank/reconcile', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tx_id: txId, action, category }),
       });
-      const d = await r.json();
+      // Une réponse non JSON (erreur 500/504) ne doit pas finir en silence.
+      const d = await r.json().catch(() => ({}));
       if (!r.ok) { showToast(d.error || 'Action impossible'); return; }
       if (action === 'split') showToast(`Versement décomposé · ${d.charges} facture(s) rapprochée(s)`);
       else if (action === 'ignore') showToast('Ligne mise de côté pour le comptable');
-      else showToast('Rangé ✓');
+      else showToast(d.linked ? 'Rapproché de l’écriture existante ✓' : 'Rangé ✓');
       setCOther(false);
       load();
     } finally { setBusy(false); }
   }
 
-  async function undo(txId: string) {
-    const r = await adminFetch(`/api/accounting/bank/reconcile?tx_id=${txId}`, { method: 'DELETE' });
-    if (r.ok) { showToast('Remis dans la pile'); load(); }
-    else showToast('Annulation impossible');
+  async function undo(txId: string, msg = 'Remis dans la pile') {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await adminFetch(`/api/accounting/bank/reconcile?tx_id=${txId}`, { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { showToast(msg); load(); }
+      else showToast(d.error || 'Annulation impossible');
+    } finally { setBusy(false); }
   }
 
   async function syncBank(silent = false) {
@@ -276,9 +291,9 @@ export default function ComptabilitePage() {
     setBusy(true);
     try {
       const r = await adminFetch('/api/accounting/close', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period: closePeriod }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       showToast(r.ok ? `Mois clôturé · stock figé à ${eur(d.stockValue || 0)}` : (d.error || 'Clôture impossible'));
       load();
     } finally { setBusy(false); }
@@ -492,7 +507,7 @@ export default function ComptabilitePage() {
                         téléphone, montant au-dessus d'« Annuler » à droite. */}
                     <div className="cp-recent-end">
                       <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{r.direction === 'in' ? '+ ' : '− '}{eur(r.amount).replace('− ', '')}</span>
-                      <button className="cp-undo" onClick={() => undo(r.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', fontSize: 11.5, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>
+                      <button className="cp-undo" disabled={busy} onClick={() => undo(r.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', fontSize: 11.5, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>
                         <span className="ms" style={{ fontSize: 15, fontVariationSettings: "'wght' 300" }}>undo</span>Annuler
                       </button>
                     </div>
@@ -656,7 +671,32 @@ export default function ComptabilitePage() {
                         <span className="ms" style={{ fontSize: 15, color: '#3E5238', fontVariationSettings: "'wght' 300" }}>link</span>
                         <span style={{ fontSize: 11.5, color: '#3A3228', flex: '1 1 150px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.match}</span>
                         <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{a.direction === 'in' ? '+ ' : '− '}{eur(a.amount).replace('− ', '')}</span>
-                        <button className="cp-undo" onClick={() => undo(a.id)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>Annuler</button>
+                        <button className="cp-undo" disabled={busy} onClick={() => undo(a.id)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>Annuler</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>}
+
+              {/* « Plus tard » : sans cette liste, une ligne mise de côté
+                  disparaissait de tous les écrans, sans retour possible. */}
+              {(d.laterRows || []).length > 0 && <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 16px', borderTop: '1px solid #F1EDE7', background: '#FBFAF7' }}>
+                  <span className="ms" style={{ fontSize: 18, color: '#8A5B08', fontVariationSettings: "'wght' 400" }}>schedule</span>
+                  <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500, color: '#3A3228' }}>{d.laterRows.length} ligne(s) mise(s) de côté · « Plus tard »</span>
+                </div>
+                <div style={{ background: '#FBFAF7' }}>
+                  {d.laterRows.map((a: any) => (
+                    <div key={a.id} className="cp-auto">
+                      <div className="cp-auto-l1">
+                        <span style={{ fontSize: 11, color: '#9C9184', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{new Date(a.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
+                        <span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 11, color: '#6E6459', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.label}</span>
+                      </div>
+                      <div className="cp-auto-l2">
+                        <span className="ms" style={{ fontSize: 15, color: '#8A5B08', fontVariationSettings: "'wght' 300" }}>schedule</span>
+                        <span style={{ fontSize: 11.5, color: '#3A3228', flex: '1 1 150px', minWidth: 0 }}>Pour le comptable</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{a.direction === 'in' ? '+ ' : '− '}{eur(a.amount).replace('− ', '')}</span>
+                        <button className="cp-undo" disabled={busy} onClick={() => undo(a.id, 'Ligne reprise dans la pile')} style={{ background: 'none', border: 'none', fontSize: 11, color: '#7B4F7B', cursor: 'pointer', fontWeight: 500 }}>Reprendre</button>
                       </div>
                     </div>
                   ))}
@@ -979,13 +1019,13 @@ export default function ComptabilitePage() {
                   <span style={{ fontSize: 11.5, color: '#3E5238', flex: 1 }}>Mois clôturé le {closeData.closedAt ? new Date(closeData.closedAt).toLocaleDateString('fr-FR') : ''}.</span>
                 </div>
               ) : closeData?.canClose ? (
-                <button className="cp-blockbtn" disabled={busy} onClick={closeMonth} style={{ width: '100%', background: '#1C2028', color: '#fff', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginTop: 11 }}>Clôturer {period}</button>
+                <button className="cp-blockbtn" disabled={busy} onClick={closeMonth} style={{ width: '100%', background: '#1C2028', color: '#fff', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginTop: 11 }}>Clôturer {closePeriod}</button>
               ) : <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FDF9F1', border: '1px solid #E8CFA8', borderRadius: 8, padding: '9px 12px', marginTop: 11 }}>
                   <span className="ms" style={{ fontSize: 17, color: '#A6501F', fontVariationSettings: "'wght' 400" }}>warning</span>
-                  <span style={{ fontSize: 11.5, color: '#8A5B08', flex: 1 }}>Il reste {closeData?.left ?? '…'} opération(s) à ranger : la clôture attendra.</span>
+                  <span style={{ fontSize: 11.5, color: '#8A5B08', flex: 1 }}>Il reste {closeData?.left ?? '…'} opération(s) de {closePeriod} à ranger : la clôture attendra.</span>
                 </div>
-                <button className="cp-blockbtn" disabled style={{ width: '100%', background: '#F1EDE7', color: '#A79C8E', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed', marginTop: 11 }}>Clôturer {period}</button>
+                <button className="cp-blockbtn" disabled style={{ width: '100%', background: '#F1EDE7', color: '#A79C8E', border: 'none', borderRadius: 8, padding: '11px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed', marginTop: 11 }}>Clôturer {closePeriod}</button>
               </>}
             </div>
           </div>

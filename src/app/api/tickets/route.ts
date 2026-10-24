@@ -14,8 +14,11 @@ import { matchLine, normalize, lineEurHt } from '@/lib/ticket-match';
 
 async function loadCatalog() {
   const { data } = await supabaseAdmin
-    .from('products').select('id, name_fr, name_sv, ean, cost_price, stock').limit(1000);
-  return data || [];
+    .from('products').select('id, name_fr, name_sv, ean, cost_price, stock, bundle_items').limit(1000);
+  /* Les box ne s'achètent pas en magasin : les proposer au rapprochement
+     faisait matcher « Kexchoklad » sur « Box Kexchoklad ». */
+  const { composition } = await import('@/lib/lots');
+  return (data || []).filter((p: any) => !composition(p.bundle_items));
 }
 
 async function loadAliases(store?: string) {
@@ -105,19 +108,31 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Commande d'achat ──────────────────────────────────────────
-  const { count } = await supabaseAdmin
-    .from('purchase_orders').select('id', { count: 'exact', head: true });
-  const number = `PO-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(3, '0')}`;
+  /* Numérotation par le maximum de l'année, pas par le nombre total de
+     commandes : deux tickets validés en même temps recevaient le même
+     numéro. */
+  const annee = new Date().getFullYear();
+  const { data: dernier } = await supabaseAdmin.from('purchase_orders')
+    .select('number').like('number', `PO-${annee}-%`).order('number', { ascending: false }).limit(1);
+  const precedent = Number(String(dernier?.[0]?.number || '').split('-')[2]) || 0;
+  const number = `PO-${annee}-${String(precedent + 1).padStart(3, '0')}`;
 
   const poLines = kept.map((l: any) => {
-    const qty = Number(l.qty) || 1;
+    // Une quantité de stock est entière et positive (garde côté serveur).
+    const qty = Math.max(1, Math.round(Number(l.qty) || 1));
     const unitEur = rate ? (Number(l.unit_sek) || 0) / (1 + Number(vat_rate) / 100) * rate : 0;
     return {
       product_id: l.product_id || null,
       name: l.product_name || l.raw_label,
       qty,
-      unit_cost: Number(l.unit_sek) || 0,
+      /* `unit_cost` en EUROS, comme sur toutes les autres commandes
+         d'achat : le bon PDF, l'annulation de réception (PMP) et la
+         répartition du port le lisent comme tel. Il portait le prix en
+         couronnes TTC, imprimé « 32,90 € » sur le bon. Le prix du ticket
+         reste dans `unit_cost_sek`. */
+      unit_cost: Math.round(unitEur * 10000) / 10000,
       unit_cost_eur: Math.round(unitEur * 10000) / 10000,
+      unit_cost_sek: Number(l.unit_sek) || 0,
       total: Math.round(unitEur * qty * 100) / 100,
     };
   });
@@ -146,7 +161,9 @@ export async function POST(req: NextRequest) {
       supplier_name: store || 'Achat magasin',
       received_at: new Date().toISOString(),
       purchase_order_id: po.id,
-      lines: JSON.stringify(poLines.map(l => ({ ...l, qty_expected: l.qty, qty_received: l.qty }))),
+      /* `received_qty` est le nom que lisent l'annulation, le rejeu et
+         les coûts logistiques ; `qty_received` reste pour l'écran. */
+      lines: JSON.stringify(poLines.map(l => ({ ...l, qty_expected: l.qty, qty_received: l.qty, received_qty: l.qty }))),
       notes: 'Créée depuis un ticket de caisse',
     }).select().single();
     reception = data;
@@ -154,9 +171,17 @@ export async function POST(req: NextRequest) {
 
   // ── Stock et prix d'achat ─────────────────────────────────────
   const stockErrors: string[] = [];
+  const { composition } = await import('@/lib/lots');
   for (const l of poLines) {
     if (!l.product_id) continue;
     try {
+      /* Une box n'a ni rayon ni prix d'achat propre (coût = sachets +
+         emballage) : un ticket ne doit ni lui poser du stock ni écraser
+         son coût. Ce sont ses sachets qu'on achète. */
+      const { data: cible } = await supabaseAdmin.from('products')
+        .select('bundle_items').eq('id', l.product_id).maybeSingle();
+      if (composition((cible as any)?.bundle_items)) { stockErrors.push(`${l.name} (box)`); continue; }
+
       // Le PA HT calculé alimente la fiche produit ; la quantité, elle,
       // passe par adjustStock — un seul point d'écriture pour le stock.
       await supabaseAdmin.from('products').update({

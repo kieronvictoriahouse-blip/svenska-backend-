@@ -5,11 +5,10 @@ import { generateInvoicePdf } from '@/lib/invoice-pdf';
 import { factureEmail } from '@/lib/customer-emails';
 import { sendEmail } from '@/lib/email-send';
 import { getWlConfig } from '@/lib/mailer';
+import { secretServeur } from '@/lib/secret-interne';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
-
-const INTERNAL_SECRET = process.env.INTERNAL_SECRET || 'svenska-internal-2024';
 
 export async function POST(req: NextRequest) {
   const { order_id, secret } = await req.json();
@@ -19,7 +18,10 @@ export async function POST(req: NextRequest) {
        et n'a pas de session admin ;
      — le back-office, qui envoie une facture à la main avec son jeton.
      Exiger le jeton pour les deux aurait coupé l'envoi automatique. */
-  const interne = secret === INTERNAL_SECRET;
+  /* Le dépôt est public : l'ancien repli codé en dur était un secret
+     public. Même dérivation que l'appelant (webhook Stripe), usage
+     'facture-interne' — les deux doivent rester identiques. */
+  const interne = typeof secret === 'string' && secret.length > 0 && secret === secretServeur('INTERNAL_SECRET', 'facture-interne');
   if (!interne && !await requireAuth(req)) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }

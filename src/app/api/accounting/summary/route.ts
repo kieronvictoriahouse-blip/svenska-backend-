@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { toutLire } from '@/lib/finance/tout-lire';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,13 +15,18 @@ export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const year = req.nextUrl.searchParams.get('year') || new Date().getFullYear().toString();
 
-  const { data, error } = await supabaseAdmin
-    .from('accounting_entries')
-    .select('date, type, amount, category, is_personal')
-    .gte('date', `${year}-01-01`)
-    .lte('date', `${year}-12-31`);
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Année entière : une lecture unique s'arrêtait à 1000 écritures.
+  let data: any[];
+  try {
+    data = await toutLire(() => supabaseAdmin
+      .from('accounting_entries')
+      .select('id, date, type, amount, category, is_personal')
+      .gte('date', `${year}-01-01`)
+      .lte('date', `${year}-12-31`)
+      .order('id', { ascending: true }));
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
 
   // Les mouvements personnels (apport de l'exploitant, prélèvement perso) sont
   // hors CA et hors charges : ils n'entrent ni dans les seuils ni dans les cotisations.

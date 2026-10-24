@@ -15,8 +15,13 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
    avant, avec le style fourni.
 
    La mesure lit le document de l'iframe : elle exige le même origine.
-   Pour du HTML tiers, `sandbox="allow-same-origin"` SANS
-   `allow-scripts` — le contenu ne peut toujours exécuter aucun script.
+   ⚠ HTML REÇU (boîte mail) : `allow-same-origin` sans `allow-scripts`
+   bloque bien les scripts, MAIS les images, fonds CSS, @import et <link>
+   du message partent alors depuis l'origine de l'admin, cookie de
+   session compris — un email piégé pouvait appeler /api/* rien qu'en
+   s'affichant. Tout HTML tiers passe donc d'abord par neutraliserHtml
+   (boite-mail/ui.tsx) ; sans ça, garder `sandbox=""` (origine opaque,
+   aucun cookie) et renoncer à l'ajustement.
    Utilisé par : boîte mail, relances, emails, éditeur de campagne.
    ═══════════════════════════════════════════════════════════════ */
 

@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const [contacts, commandes, recus] = await Promise.all([
-    supabaseAdmin.from('contacts').select('name, email, type').not('email', 'is', null).limit(500),
+    // contacts n'a pas de colonne `name` : la requête échouait et le carnet perdait tous les contacts.
+    supabaseAdmin.from('contacts').select('first_name, last_name, company, email, type').not('email', 'is', null).limit(500),
     supabaseAdmin.from('orders').select('customer_name, customer_email')
       .not('customer_email', 'is', null).order('created_at', { ascending: false }).limit(300),
     supabaseAdmin.from('inbox_messages').select('from_name, from_email')
@@ -26,7 +27,10 @@ export async function GET(req: NextRequest) {
     carnet.set(e, { email: e, nom: String(nom || '').trim(), type });
   };
 
-  for (const c of contacts.data || []) ajoute(c.email, c.name, c.type === 'supplier' ? 'fournisseur' : 'client');
+  for (const c of contacts.data || []) {
+    const societe = c.company && c.company !== 'Inscrit newsletter' ? c.company : '';
+    ajoute(c.email, societe || [c.first_name, c.last_name].filter(Boolean).join(' '), c.type === 'supplier' ? 'fournisseur' : 'client');
+  }
   for (const o of commandes.data || []) ajoute(o.customer_email, o.customer_name, 'client');
   for (const m of recus.data || []) ajoute(m.from_email, m.from_name, 'reçu');
 

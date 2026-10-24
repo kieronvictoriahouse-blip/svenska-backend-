@@ -8,7 +8,7 @@
    Formules du handoff, à la lettre :
      daily   = vel / 7
      cover   = stock / daily                 → jours de couverture
-     need    = max(0, semaines × 7 × daily − stock)
+     need    = max(0, semaines × 7 × daily − stock − en route)
      suggest = ceil(need / pack)             → nombre de CARTONS
    ═══════════════════════════════════════════════════════════════ */
 
@@ -60,7 +60,11 @@ export function enrichir(p: Produit, semaines: number, fournisseur?: string | nu
 
   const daily = p.vel / 7;
   const cover = daily > 0 ? Math.round(p.stock / daily) : 999;
-  const need = Math.max(0, Math.round(semaines * 7 * daily) - p.stock);
+  /* Ce qui est déjà commandé et pas encore reçu (`onOrder`, calculé par
+     lib/reappro précisément pour ça) couvre une partie du besoin. Il
+     était affiché (« 12 en route ») mais pas déduit : on recommandait ce
+     qui était déjà sur la route. */
+  const need = Math.max(0, Math.round(semaines * 7 * daily) - p.stock - (p.onOrder || 0));
   /* Sans historique de vente, aucune formule n'a de sens : on propose
      deux cartons, comme le prototype, plutôt qu'un chiffre invente. */
   const suggest = p.isNew && p.vel === 0 ? 2 : Math.ceil(need / packEffectif);
@@ -108,6 +112,9 @@ export const kr = (n: number) =>
 
 export type Totaux = {
   lignes: number; unites: number; sek: number; eur: number;
+  /** Panier entier en couronnes (lignes en euros reconverties) : c'est
+   *  lui qu'on oppose au minimum de commande et au franco. */
+  sekEquivalent: number;
   /** Port saisi, et coût d'achat réel une fois le port reversé. */
   port: number; eurAvecPort: number;
   /** Part du port par ligne, indexée par product_id. */
@@ -136,6 +143,12 @@ export function totaux(
   port: OptionsPort = { montant: 0, methode: 'equal', exclus: {} },
 ): Totaux {
   let unites = 0, sek = 0, euros = 0;
+  /* Équivalent couronnes du panier entier, pour le minimum de commande
+     et le franco (exprimés en SEK). Les lignes connues seulement en
+     euros n'entraient pas dans `sek` : chez un magasin sans prix en
+     couronnes, le minimum n'était jamais atteint et la commande ne
+     pouvait pas partir. Reconversion inverse de sekVersEur. */
+  let sekEquivalent = 0;
   const couvertures: number[] = [];
   const aImputer: LigneAImputer[] = [];
   let lignes = 0;
@@ -147,8 +160,8 @@ export function totaux(
     const u = cartons * p.packEffectif;
     unites += u;
     const puEuro = p.sek != null ? sekVersEur(p.sek, taux) : p.prix;
-    if (p.sek != null) { sek += p.sek * u; euros += sekVersEur(p.sek * u, taux); }
-    else euros += p.prix * u;
+    if (p.sek != null) { sek += p.sek * u; sekEquivalent += p.sek * u; euros += sekVersEur(p.sek * u, taux); }
+    else { euros += p.prix * u; if (taux > 0) sekEquivalent += (p.prix * u / taux) * 1.12; }
     aImputer.push({ key: p.id, qty: u, unit_cost: puEuro, retenue: !port.exclus[p.id] });
     // Couverture une fois la commande reçue.
     couvertures.push(p.daily > 0 ? (p.stock + u) / p.daily : 999);
@@ -167,15 +180,15 @@ export function totaux(
     .filter(p => p.urgency <= 1 && !(panier[p.id] > 0)).length;
 
   return {
-    lignes, unites, sek, eur: euros,
+    lignes, unites, sek, eur: euros, sekEquivalent,
     port: port.montant, eurAvecPort: euros + (port.montant || 0), parts,
     couvertureMoyenne: couvertures.length
       ? Math.round(couvertures.reduce((s, c) => s + c, 0) / couvertures.length) : 0,
-    francoReste: Math.max(0, franco - sek),
-    francoAtteint: franco > 0 ? sek >= franco : true,
-    minAtteint: min > 0 ? sek >= min : true,
+    francoReste: Math.max(0, franco - sekEquivalent),
+    francoAtteint: franco > 0 ? sekEquivalent >= franco : true,
+    minAtteint: min > 0 ? sekEquivalent >= min : true,
     urgencesOubliees,
     // Le franco n'est pas bloquant : c'est une economie, pas une regle.
-    pretAEnvoyer: lignes > 0 && (min > 0 ? sek >= min : true) && urgencesOubliees === 0,
+    pretAEnvoyer: lignes > 0 && (min > 0 ? sekEquivalent >= min : true) && urgencesOubliees === 0,
   };
 }

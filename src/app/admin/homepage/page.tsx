@@ -27,7 +27,7 @@ export default function HomepagePage() {
   async function load() {
     const [hpRes, prRes] = await Promise.all([
       adminFetch('/api/homepage'),
-      adminFetch('/api/products?limit=200'),
+      adminFetch('/api/products?limit=1000'),
     ]);
     const hp = await hpRes.json();
     const pr = await prRes.json();
@@ -58,11 +58,13 @@ export default function HomepagePage() {
 
   async function toggleBestseller(productId: string, current: boolean) {
     const token = localStorage.getItem('sd_admin_token');
-    await adminFetch(`/api/products/${productId}`, {
+    const res = await adminFetch(`/api/products/${productId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ is_bestseller: !current }),
-    });
+    }).catch(() => null);
+    // Refusé : rien ne change à l'écran (il affichait le succès sans regarder la réponse).
+    if (!res || !res.ok) { showToast('❌ Erreur', 'error'); return; }
     setAll(ps => ps.map(p => p.id === productId ? { ...p, is_bestseller: !current } : p));
     setBs(ps => current ? ps.filter(p => p.id !== productId) : [...ps, allProducts.find(p => p.id === productId)]);
     showToast(!current ? '⭐ Ajouté aux best-sellers' : '🗑️ Retiré des best-sellers', 'success');
@@ -70,11 +72,12 @@ export default function HomepagePage() {
 
   async function toggleNew(productId: string, current: boolean) {
     const token = localStorage.getItem('sd_admin_token');
-    await adminFetch(`/api/products/${productId}`, {
+    const res = await adminFetch(`/api/products/${productId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ is_new: !current }),
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) { showToast('❌ Erreur', 'error'); return; }
     setAll(ps => ps.map(p => p.id === productId ? { ...p, is_new: !current } : p));
     showToast(!current ? '🆕 Marqué comme nouveauté' : '🗑️ Retiré des nouveautés', 'success');
   }

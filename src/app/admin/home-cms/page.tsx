@@ -4,6 +4,7 @@ import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
 import { THC } from '../homepage/i18n';
+import { reduirePhoto, erreurEnvoi } from '@/lib/reduire-photo';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 14 — PAGE D'ACCUEIL
@@ -61,14 +62,22 @@ export default function HomeCmsPage() {
   });
 
   async function saveAll() {
+    /* Seules les sections MODIFIÉES partent. Renvoyer toutes les valeurs
+       chargées à l'ouverture réécrivait aussi ce qu'un autre écran avait
+       changé entre-temps — l'image fixe posée sur « Bannière d'accueil »
+       (même clé hero_image) revenait à l'ancienne. */
+    const changees = items
+      .map(i => editing[i.key])
+      .filter((e, n) => e && (e.value_fr !== items[n].value_fr || e.value_sv !== items[n].value_sv || e.value_en !== items[n].value_en));
+    if (!changees.length) return;
     setSaving(true);
     try {
       const res = await adminFetch('/api/cms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cms: Object.values(editing) }),
+        body: JSON.stringify({ cms: changees }),
       });
       if (!res.ok) throw new Error();
-      setItems(Object.values(editing));
+      setItems(its => its.map(i => editing[i.key] ? { ...editing[i.key] } : i));
       say(t('msgPubliee'));
     } catch { say(t('msgPublicationKo')); }
     finally { setSaving(false); }
@@ -78,18 +87,20 @@ export default function HomeCmsPage() {
     setEditing(e => ({ ...e, [key]: { ...e[key], [`value_${l}`]: v } as CmsItem }));
   }
 
-  async function uploadFor(key: string, file: File) {
+  async function uploadFor(key: string, brut: File) {
     setUploadingKey(key);
-    const token = localStorage.getItem('sd_admin_token');
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('folder', 'home');
     try {
-      const res = await adminFetch('/api/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
-      const d = await res.json();
+      // Photo de téléphone réduite avant l'envoi (limite de 4 Mo, cf. lib/reduire-photo).
+      const fd = new FormData();
+      fd.append('file', await reduirePhoto(brut));
+      fd.append('folder', 'home');
+      const res = await adminFetch('/api/upload', { method: 'POST', body: fd });
+      if (!res.ok) { say(`${t('msgUploadKo')} ${await erreurEnvoi(res)}`); return; }
+      const d = await res.json().catch(() => ({}));
       if (d.url) { (['fr', 'sv', 'en'] as Lang[]).forEach(l => setVal(key, l, d.url)); say(t('msgImageRemplacee')); }
       else say(t('msgUploadKo'));
-    } finally { setUploadingKey(null); }
+    } catch { say(t('msgUploadKo')); }
+    finally { setUploadingKey(null); }
   }
 
   const preview = (i: CmsItem) => {

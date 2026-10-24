@@ -124,10 +124,12 @@ export default function AutomationsPage() {
 
   async function saveEdit() {
     if (!editId) return;
-    await adminFetch('/api/marketing/automations', {
+    const res = await adminFetch('/api/marketing/automations', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: editId, ...editData }),
     });
+    // Un échec affichait quand même « mise à jour ».
+    if (!res.ok) { say(t('msgChangement')); return; }
     setEditId(null);
     await load();
     say(t('msgMaj'));
@@ -135,7 +137,8 @@ export default function AutomationsPage() {
 
   async function remove(id: string) {
     if (!window.confirm(t('msgConfirmDel'))) return;
-    await adminFetch(`/api/marketing/automations?id=${id}`, { method: 'DELETE' });
+    const res = await adminFetch(`/api/marketing/automations?id=${id}`, { method: 'DELETE' });
+    if (!res.ok) { say(t('msgChangement')); return; }
     await load();
     say(t('msgSupprimee'));
   }
@@ -143,10 +146,15 @@ export default function AutomationsPage() {
   async function runNow() {
     setRunning(true);
     try {
-      const d = await adminFetch('/api/cron/marketing').then(r => r.json());
+      const res = await adminFetch('/api/cron/marketing');
+      const d = await res.json().catch(() => ({}));
+      // 207 = passage fait, avec des envois en échec : on le dit.
+      if (!res.ok) { say(`❌ ${d.error || t('msgChangement')}`); return; }
       setLastRun(`${d.sent || 0} email(s) · ${new Date().toLocaleTimeString('fr-FR')}`);
-      say(cronExecute(d.sent || 0, lang));
-    } finally { setRunning(false); }
+      say(cronExecute(d.sent || 0, lang) + (d.echecs?.length ? ` · ${d.echecs.length} échec(s)` : ''));
+      load();
+    } catch { say(t('msgChangement')); }
+    finally { setRunning(false); }
   }
 
   const presetOf = (type: string) => PRESETS.find(p => p.type === type);
@@ -161,6 +169,7 @@ export default function AutomationsPage() {
           <div className="sc-sub">
             {automations.filter(a => a.status === 'active').length} séquence(s) active(s)
             {lastRun ? ` · dernier envoi : ${lastRun}` : ''}
+            <br />{t('passage')}
           </div>
         </div>
         <div className="sc-actions">

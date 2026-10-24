@@ -51,7 +51,7 @@ const TXT: Record<string, Trad> = {
   logoutYes:     { fr: 'Oui, me déconnecter', en: 'Yes, sign me out', sv: 'Ja, logga ut' },
   cancel:        { fr: 'Annuler', en: 'Cancel', sv: 'Avbryt' },
   search:        { fr: 'Rechercher', en: 'Search', sv: 'Sök' },
-  searchMobile:  { fr: 'Rechercher un produit…', en: 'Search a product…', sv: 'Sök en produkt…' },
+  searchMobile:  { fr: 'Produit, n° de commande ou e-mail…', en: 'Product, order # or email…', sv: 'Produkt, ordernr eller e-post…' },
   closeSearch:   { fr: 'Fermer la recherche', en: 'Close search', sv: 'Stäng sökningen' },
 };
 
@@ -78,6 +78,25 @@ export default function AdminShell(p: ShellProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (searchOpen) searchRef.current?.focus(); }, [searchOpen]);
+
+  /* ⌘K / Ctrl K : la pastille l'annonçait, aucun raccourci n'était branché.
+     La pastille suit le système (posée après le montage : pas de décalage
+     entre rendu serveur et client). */
+  const deskSearchRef = useRef<HTMLInputElement>(null);
+  const [kbd, setKbd] = useState('⌘K');
+  useEffect(() => {
+    if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) setKbd('Ctrl K');
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (window.matchMedia('screen and (min-width: 900px)').matches) {
+        deskSearchRef.current?.focus();
+        deskSearchRef.current?.select();
+      } else setSearchOpen(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const submitSearch = (q: string) => {
     const v = q.trim();
@@ -133,7 +152,10 @@ export default function AdminShell(p: ShellProps) {
             <div className="sc-search">
               <span className="ms" style={{ fontSize: 17, color: 'rgba(255,255,255,.4)' }}>search</span>
               <input
+                ref={deskSearchRef}
+                type="search"
                 placeholder={s('searchPlaceholder')}
+                aria-label={x('search')}
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     const q = (e.target as HTMLInputElement).value.trim();
@@ -141,7 +163,7 @@ export default function AdminShell(p: ShellProps) {
                   }
                 }}
               />
-              <kbd className="sc-kbd">⌘K</kbd>
+              <kbd className="sc-kbd">{kbd}</kbd>
             </div>
           </div>
 

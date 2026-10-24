@@ -15,6 +15,16 @@ export async function GET(req: NextRequest) {
   const dest = (q: string) => NextResponse.redirect(`${url.origin}/admin/comptabilite?tab=banque&${q}`);
 
   if (url.searchParams.get('provider') === 'bridge') {
+    /* Seul le retour d'une connexion lancée depuis le back-office (dans
+       l'heure) déclenche la synchronisation ; le jeton est consommé. */
+    const state = url.searchParams.get('state') || '';
+    const { data: conn } = await supabaseAdmin
+      .from('bank_connections').select('id, meta').eq('provider', 'bridge').maybeSingle();
+    const meta = (conn?.meta || {}) as { state?: string; state_at?: string; [k: string]: unknown };
+    const frais = !!meta.state_at && Date.now() - new Date(meta.state_at).getTime() < 3600_000;
+    if (!conn || !state || meta.state !== state || !frais) return dest('bank_error=lien_de_connexion_expire');
+    await supabaseAdmin.from('bank_connections')
+      .update({ meta: { ...meta, state: null, state_at: null } }).eq('id', conn.id);
     try { const r = await syncBridge(); return dest(r.error ? `bank_error=${encodeURIComponent(r.error)}` : 'connected=1'); }
     catch (e: any) { return dest(`bank_error=${encodeURIComponent((e.message || 'bridge').slice(0, 120))}`); }
   }

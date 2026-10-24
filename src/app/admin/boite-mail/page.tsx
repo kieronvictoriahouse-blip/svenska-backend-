@@ -1,10 +1,10 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminFetch, downloadAuth } from '@/lib/auth-client';
-import Redaction, { Brouillon } from './Redaction';
+import Redaction, { Brouillon, corpsTexte } from './Redaction';
 import {
   C, COULEUR_ETIQ, couleurDe, initiales, quand, depuis,
-  Msg, ItemNav, GroupeNav, LigneMessage, Vide, BM_CSS, useRetourMobile,
+  Msg, ItemNav, GroupeNav, LigneMessage, Vide, BM_CSS, useRetourMobile, neutraliserHtml,
 } from './ui';
 import EmailApercu from '@/components/EmailApercu';
 import { useT } from '@/lib/admin-i18n';
@@ -188,10 +188,16 @@ export default function BoiteMailPage() {
     }
     setSel(new Set());
     try {
-      await adminFetch('/api/inbox', {
+      const res = await adminFetch('/api/inbox', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: liste, action, label }),
       });
+      /* Un refus du serveur (IMAP injoignable…) laissait l'écran sur
+         l'état optimiste : message « supprimé » encore sur le serveur. */
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        say(d.error || t('msgAction')); charger(0);
+      }
     } catch { say(t('msgAction')); charger(0); }
   }
 
@@ -206,17 +212,45 @@ export default function BoiteMailPage() {
   }
 
   async function supprimerBrouillon(id: string) {
-    await adminFetch(`/api/inbox/drafts?id=${id}`, { method: 'DELETE' });
+    const res = await adminFetch(`/api/inbox/drafts?id=${id}`, { method: 'DELETE' });
+    if (!res.ok) { say(t('msgAction')); return; }
     setBrouillons(b => b.filter(x => x.id !== id));
     say(t('msgBrouillonSuppr'));
   }
 
+  /* Texte du message d'origine, pour la citation et le transfert : un
+     email seulement en HTML n'a pas de body_text — le transfert partait
+     vide. */
+  const texteDe = (m: Msg) => m.body_text
+    || String(m.body_html || '').replace(/<(style|script)[\s\S]*?<\/\1>/gi, '').replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|tr|h\d)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+      .replace(/\n{3,}/g, '\n\n').trim()
+    || m.preview || '';
+
   function repondre(m: Msg, tous = false) {
-    const cc = tous ? (m.to_emails || []).filter(e => e && e !== compte).join(', ') : '';
+    const moi = String(compte || '').toLowerCase();
+    const de = String(m.from_email || '').toLowerCase();
+    // Réponse à un message que l'on a soi-même envoyé : on écrit à ses destinataires.
+    const envoyeParMoi = !!moi && de === moi;
+    const vus = new Set<string>([moi, ...(envoyeParMoi ? [] : [de])]);
+    const unique = (l?: string[]) => (l || []).map(e => String(e || '').trim()).filter(e => {
+      const k = e.toLowerCase();
+      if (!k || vus.has(k)) return false;
+      vus.add(k); return true;
+    });
+    const a = envoyeParMoi ? unique(m.to_emails).join(', ') : (m.from_email || '');
+    /* Répondre à tous : destinataires ET copies d'origine, sans notre
+       propre adresse ni l'expéditeur en double (les Cc étaient oubliés,
+       et la comparaison tenait compte des majuscules). */
+    const cc = tous ? [...(envoyeParMoi ? [] : unique(m.to_emails)), ...unique(m.cc_emails)].join(', ') : '';
     const re = /^re\s*:/i.test(m.subject || '');
+    const date = m.sent_at ? new Date(m.sent_at).toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const citation = texteDe(m).split('\n').map(l => `> ${l}`).join('\n');
     setRedac({
-      to: m.from_email || '', cc, subject: re ? (m.subject || '') : `Re : ${m.subject || ''}`,
-      corps: '', repond: m.message_id || undefined,
+      to: a, cc, subject: re ? (m.subject || '') : `Re : ${m.subject || ''}`,
+      corps: `\n\n${date ? `Le ${date}, ` : ''}${m.from_name || m.from_email} a écrit :\n${citation}`,
+      repond: m.message_id || undefined,
     });
   }
 
@@ -224,12 +258,17 @@ export default function BoiteMailPage() {
     const tr = /^tr\s*:/i.test(m.subject || '');
     setRedac({
       to: '', cc: '', subject: tr ? (m.subject || '') : `Tr : ${m.subject || ''}`,
-      corps: `\n\n---------- Message transféré ----------\nDe : ${m.from_email}\nObjet : ${m.subject}\n\n${m.body_text || ''}`,
+      corps: `\n\n---------- Message transféré ----------\nDe : ${m.from_email}\nObjet : ${m.subject}\n\n${texteDe(m)}`,
     });
   }
 
   const inbox = etat.find(e => e.folder === 'INBOX');
   const compte = compteImap;
+  // HTML du message ouvert, nettoyé une fois (et seulement sur téléphone, où l'iframe est same-origin).
+  const htmlMobile = useMemo(
+    () => (mobile && ouvert?.body_html ? neutraliserHtml(ouvert.body_html) : ''),
+    [mobile, ouvert?.body_html],
+  );
   /* Hauteur disponible : la page vit dans .sc-main, sous la topbar de
      48 px, et au-dessus de la barre d'onglets (58 px) sur mobile. La
      classe .bm-root (BM_CSS) porte la hauteur et les marges négatives
@@ -375,7 +414,12 @@ export default function BoiteMailPage() {
               <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: `1px solid ${C.ligne}`, cursor: 'pointer' }}
                    onClick={() => setRedac({
                      id: b.id, to: b.to_emails || '', cc: b.cc_emails || '', subject: b.subject || '',
-                     corps: (b.body || '').split('<br />').join('\n'), repond: b.in_reply_to || undefined,
+                     corps: corpsTexte(b.body || ''), repond: b.in_reply_to || undefined,
+                     /* Les pièces jointes du brouillon : sans elles, rouvrir
+                        puis envoyer partait sans les fichiers. */
+                     pj: (Array.isArray(b.attachments) ? b.attachments : []).map((a: any) => ({
+                       filename: a.filename, content: a.content, taille: Math.round(String(a.content || '').length * 3 / 4),
+                     })),
                    })}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{b.subject || '(sans objet)'}</div>
@@ -404,7 +448,10 @@ export default function BoiteMailPage() {
                   color: s.status === 'sent' ? '#3E5238' : s.status === 'failed' ? '#B03A2E' : s.status === 'cancelled' ? '#857C71' : '#8A5B08',
                 }}>
                   {s.status === 'sent' ? 'Envoyé' : s.status === 'failed' ? 'Échec'
-                    : s.status === 'cancelled' ? 'Annulé' : s.status === 'sending' ? 'En cours' : 'En attente'}
+                    : s.status === 'cancelled' ? 'Annulé' : s.status === 'sending' ? 'En cours'
+                    /* L'heure est passée mais rien n'a tourné depuis : il partira
+                       à la prochaine relève (ou au passage automatique du matin). */
+                    : +new Date(s.send_at) <= Date.now() ? 'À la prochaine relève' : 'En attente'}
                 </span>
                 {s.status === 'pending' && (
                   <button className="sc-iconbtn" title={tc('cancel')} onClick={() => annulerProgramme(s.id)}>
@@ -505,10 +552,11 @@ export default function BoiteMailPage() {
 
       {/* Le HTML d'un message reçu est du code tiers : iframe sandbox, sans
           script. allow-same-origin sert seulement à mesurer le contenu
-          pour le réduire à la largeur de l'écran. */}
+          pour le réduire à la largeur de l'écran — d'où neutraliserHtml,
+          qui retire toute ressource chargée depuis le back-office. */}
       <div style={{ borderTop: `1px solid ${C.ligne}` }}>
         {m.body_html ? (
-          <EmailApercu html={m.body_html} title={t('message')} ajuster sandbox="allow-same-origin" />
+          <EmailApercu html={htmlMobile} title={t('message')} ajuster sandbox="allow-same-origin" />
         ) : (
           <div style={{ padding: '16px 16px 24px', fontSize: 16, lineHeight: 1.6, color: C.corps, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
             {m.body_text || '(message vide)'}

@@ -91,10 +91,14 @@ export default function Conditionnements() {
     const needle = q.trim().toLowerCase();
     return lignes.filter(l => {
       if (needle && !`${l.name} ${l.name_sv || ''} ${l.ref}`.toLowerCase().includes(needle)) return false;
-      if (seulementVides && (valeurs[l.id] || 1) !== 1) return false;
+      /* « À renseigner » se lit sur la valeur ENREGISTRÉE, pas sur la
+         saisie en cours : taper « 24 » faisait disparaître la ligne dès
+         le « 2 » (le champ perdait le focus au milieu du nombre). La
+         ligne s'en va une fois enregistrée. */
+      if (seulementVides && l.pack !== 1) return false;
       return true;
     });
-  }, [lignes, q, seulementVides, valeurs]);
+  }, [lignes, q, seulementVides]);
 
   /* On n'envoie que ce qui a bougé : réécrire 52 lignes identiques pour
      en corriger une ne sert personne. */
@@ -127,8 +131,12 @@ export default function Conditionnements() {
       const res = await adminFetch('/api/pack-sizes', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          /* Tous les magasins du produit sont envoyés, 0 pour « vide » :
+             la route ne touche qu'aux magasins présents, et un carton
+             effacé restait donc en base. */
           lignes: modifiees.map(l => ({
-            id: l.id, pack: valeurs[l.id] || 1, magasins: parMagasin[l.id] || {},
+            id: l.id, pack: valeurs[l.id] || 1,
+            magasins: Object.fromEntries(l.magasins.map(m => [m.id, (parMagasin[l.id] || {})[m.id] || 0])),
           })),
         }),
       });

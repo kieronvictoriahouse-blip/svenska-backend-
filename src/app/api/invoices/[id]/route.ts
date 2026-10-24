@@ -55,6 +55,27 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       error: 'La date d’émission d’une facture ne se modifie pas — créez un avoir puis une nouvelle facture.',
     }, { status: 422 });
   }
+
+  /* Le statut porte le SENS de la pièce : « avoir » est le seul marqueur
+     d'un avoir (PDF, Factur-X 381, livres). Un « Marquer payée » sur un
+     avoir en faisait une facture payée au montant négatif. Un avoir ou
+     une facture remboursée ne change plus de statut, et personne ne
+     pose ces deux statuts à la main. */
+  if ('status' in payload) {
+    const { data: actuelle } = await supabaseAdmin
+      .from('invoices').select('status, paid_at').eq('id', params.id).maybeSingle();
+    if (!actuelle) return NextResponse.json({ error: 'Facture introuvable' }, { status: 404 });
+    if (payload.status !== actuelle.status) {
+      if (['avoir', 'refunded'].includes(actuelle.status)) {
+        return NextResponse.json({ error: 'Un avoir ou une facture remboursée ne change pas de statut.' }, { status: 422 });
+      }
+      if (!['draft', 'sent', 'paid', 'late'].includes(String(payload.status))) {
+        return NextResponse.json({ error: `Statut « ${payload.status} » non autorisé` }, { status: 400 });
+      }
+      // Date d'encaissement : la facture affiche « acquittée le … ».
+      if (payload.status === 'paid' && !actuelle.paid_at && !('paid_at' in payload)) payload.paid_at = new Date().toISOString();
+    }
+  }
   const { data, error } = await supabaseAdmin
     .from('invoices').update(payload).eq('id', params.id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

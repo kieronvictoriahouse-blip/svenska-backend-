@@ -54,10 +54,11 @@ export default function NouveauProduitPage() {
         // Déjà au catalogue : on ouvre la fiche au lieu de créer un doublon.
         if (d.found && d.product?.id) { router.replace(`/admin/produits/${d.product.id}`); return; }
         const s = d.suggestion || {};
+        /* Pas de « brand » : ce n'est pas une colonne, et la création
+           échouait dès qu'Open Food Facts avait répondu. */
         setInitial({
           ean: code,
           name_fr: s.name || '',
-          brand: s.brand || '',
           weight: s.weight || '',
           image_url: s.image_url || '',
           ingredients_fr: s.ingredients || '',
@@ -71,21 +72,26 @@ export default function NouveauProduitPage() {
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
   async function handleSave(data: any) {
+    if (saving) return;
     setSaving(true);
+    let cree = false;
     try {
       const res = await adminFetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) { showToast(t('msgErreur') + (json.error || 'inconnue')); return; }
-      showToast(t('msgCree'));
-      setTimeout(() => router.push('/admin/produits'), 1000);
+      cree = true;
+      showToast(json.warning || t('msgCree'));
+      setTimeout(() => router.push('/admin/produits'), json.warning ? 3000 : 1000);
     } catch {
       showToast(t('msgReseau'));
     } finally {
-      setSaving(false);
+      /* Créé : le bouton reste bloqué jusqu'à la redirection — un second
+         appui pendant la seconde d'attente créait un doublon. */
+      if (!cree) setSaving(false);
     }
   }
 

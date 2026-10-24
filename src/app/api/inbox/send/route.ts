@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
-import { envoyer } from '@/lib/mail-send';
+import { envoyer, oublierBrouillon } from '@/lib/mail-send';
 import { resolveFolders, syncFolder } from '@/lib/imap';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
         .update({ answered: true }).eq('message_id', body.inReplyTo);
     }
     // Le brouillon d'origine n'a plus lieu d'etre une fois le message parti.
-    if (body.draftId) await supabaseAdmin.from('email_drafts').delete().eq('id', body.draftId);
+    if (body.draftId) await oublierBrouillon(body.draftId);
     /* On rapatrie tout de suite le dossier Envoyes : sans ca le message
        n'apparait qu'a la relève suivante, et on croit qu'il s'est perdu. */
     try {

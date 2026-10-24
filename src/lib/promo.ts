@@ -24,6 +24,20 @@ export type PromoVerdict =
   | { ok: true;  discount: number; freeShipping: boolean }
   | { ok: false; reason: PromoRefusal; minOrder: number };
 
+/** Jour calendaire à Paris (AAAA-MM-JJ). */
+export const jourParis = (d: Date = new Date()) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+
+/** Validité d'un code par ses dates (colonnes `date`, bornes incluses),
+ *  jugée au jour de PARIS. Le serveur tourne en UTC : comparé à minuit UTC,
+ *  un code « à partir du 24 » était refusé le 24 jusqu'à 2 h, et un code
+ *  « jusqu'au 24 » accepté le 25 jusqu'à 2 h. */
+export function dansLaPeriode(promo: any, now: Date = new Date()): 'ok' | 'not_yet' | 'expired' {
+  const jour = jourParis(now);
+  if (promo?.valid_from && jour < String(promo.valid_from).slice(0, 10)) return 'not_yet';
+  if (promo?.valid_until && jour > String(promo.valid_until).slice(0, 10)) return 'expired';
+  return 'ok';
+}
+
 export function evaluatePromo(
   promo: any,
   ctx: { subtotal: number; alreadyUsedByCustomer?: boolean; now?: Date },
@@ -33,13 +47,9 @@ export function evaluatePromo(
 
   if (!promo || promo.is_active !== true) return refuse('invalid');
 
-  const now = ctx.now || new Date();
-  if (promo.valid_from && now < new Date(promo.valid_from)) return refuse('not_yet');
-  // valid_until inclusif jusqu'à la fin de journée, sinon un code « jusqu'au 14 »
-  // expirerait dès le 14 à 00:00.
-  if (promo.valid_until && now > new Date(String(promo.valid_until).slice(0, 10) + 'T23:59:59')) {
-    return refuse('expired');
-  }
+  // Bornes incluses, au jour de Paris : « jusqu'au 14 » vaut tout le 14.
+  const periode = dansLaPeriode(promo, ctx.now || new Date());
+  if (periode !== 'ok') return refuse(periode);
   if (promo.max_uses && (promo.used_count || 0) >= promo.max_uses) return refuse('exhausted');
 
   const subtotal = Number(ctx.subtotal) || 0;

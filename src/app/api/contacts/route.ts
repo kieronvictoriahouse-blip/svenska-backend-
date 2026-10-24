@@ -14,7 +14,12 @@ export async function GET(req: NextRequest) {
 
   let query = supabaseAdmin.from('contacts').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(from, from + limit - 1);
   if (type && type !== 'all') query = query.eq('type', type);
-  if (search) query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,company.ilike.%${search}%,email.ilike.%${search}%`);
+  if (search) {
+    /* Valeur entre guillemets : une virgule ou une parenthèse dans la
+       recherche (« Dupont, Marie ») cassait le filtre PostgREST. */
+    const v = `"%${search.replace(/[\\"]/g, m => '\\' + m)}%"`;
+    query = query.or(`first_name.ilike.${v},last_name.ilike.${v},company.ilike.${v},email.ilike.${v}`);
+  }
 
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

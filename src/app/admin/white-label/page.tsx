@@ -17,6 +17,8 @@ type Config = {
   instagram: string; facebook: string; pinterest: string;
   currency: string; tva_rate: number; free_shipping_threshold: number;
   smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string;
+  /** Renvoyé par l'API à la place du mot de passe : « déjà renseigné ». */
+  smtp_pass_set?: boolean;
   announcement_fr: string; announcement_sv: string; announcement_en: string;
   footer_desc_fr: string; footer_desc_sv: string; footer_desc_en: string;
   footer_tagline_fr: string; footer_tagline_sv: string; footer_tagline_en: string;
@@ -95,9 +97,13 @@ function WhiteLabelInner() {
 
     const res = await adminFetch(`/api/white-label?type=${importType}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
-    });
-    const result = await res.json();
-    setImportResult(result);
+    }).catch(() => null);
+    const result = res ? await res.json().catch(() => null) : null;
+    // Réponse d'erreur (500, réseau) : pas de faux « 0 importé » muet.
+    if (!res || !res.ok || !result || typeof result.imported !== 'number') {
+      showToast(t('msgErrSauve'));
+      setImportResult(null);
+    } else setImportResult(result);
     setImporting(false);
     if (fileRef.current) fileRef.current.value = '';
   }
@@ -582,7 +588,9 @@ function SmtpSection({ config, update }: { config: any; update: (k: keyof Config
           </div>
           <div className="form-group">
             <label className="form-label">{t('motDePasse')}</label>
-            <input className="form-control" type="password" autoComplete="new-password" value={config.smtp_pass || ''} onChange={e => update('smtp_pass', e.target.value)} placeholder="••••••••••••" />
+            {/* Le mot de passe enregistré n'est jamais renvoyé : champ vide = inchangé */}
+            <input className="form-control" type="password" autoComplete="new-password" value={config.smtp_pass || ''} onChange={e => update('smtp_pass', e.target.value)}
+                   placeholder={config.smtp_pass_set ? 'Enregistré — laisser vide pour le garder' : '••••••••••••'} />
           </div>
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
             <label className="form-label">{t('expediteur')}</label>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
-import { decoderPJ, PJ_MAX } from '@/lib/mail-send';
+import { decoderPJ, PJ_MAX, oublierBrouillon } from '@/lib/mail-send';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  if (b.draftId) await supabaseAdmin.from('email_drafts').delete().eq('id', b.draftId);
+  if (b.draftId) await oublierBrouillon(b.draftId);
   return NextResponse.json({ ok: true, programme: data });
 }
 

@@ -95,4 +95,11 @@ export const TGE = {
   msgProduitDelOk: { fr: '🗑 Produit supprimé', en: '🗑 Product deleted', sv: '🗑 Produkten borttagen' },
   msgValeurs: { fr: '⚠️ Saisissez des valeurs', en: '⚠️ Enter some values', sv: '⚠️ Ange värden' },
   msgParamsOk: { fr: '✅ Paramètres sauvegardés !', en: '✅ Settings saved!', sv: '✅ Inställningarna sparade!' },
+  msgRienSupprime: { fr: 'rien n’a été supprimé (accès refusé)', en: 'nothing was deleted (access denied)', sv: 'inget togs bort (åtkomst nekad)' },
+  numeroAuto: { fr: 'Attribué à l’enregistrement (FAC-AAAA-NNNN)', en: 'Assigned on save (FAC-YYYY-NNNN)', sv: 'Tilldelas vid sparande (FAC-ÅÅÅÅ-NNNN)' },
+  contenuScelle: {
+    fr: 'Facture émise : son contenu ne se modifie plus (il se corrige par un avoir). Seuls le statut et la note changent.',
+    en: 'Issued invoice: its content can no longer change (it is corrected with a credit note). Only status and note can change.',
+    sv: 'Utfärdad faktura: innehållet kan inte längre ändras (det rättas med en kreditnota). Endast status och notering kan ändras.',
+  },
 };

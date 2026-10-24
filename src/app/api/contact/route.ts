@@ -19,6 +19,10 @@ export async function OPTIONS() {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const champ = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+/* Champs d'une ligne (ils vont dans l'objet de l'email) : sans retour à
+   la ligne ni caractère de contrôle, pour qu'aucun en-tête ne puisse être
+   glissé dans l'objet. Le destinataire, lui, est fixe (la boutique). */
+const ligne = (v: unknown, max: number) => champ(v, max).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
 
 /* Garde-fou anti-rafale, par instance : imparfait en serverless, mais
    suffisant contre un robot qui boucle sur le formulaire. */
@@ -38,10 +42,10 @@ export async function POST(req: NextRequest) {
   // Piège à robots : champ invisible rempli → on fait semblant d'accepter.
   if (champ(body.website, 200)) return NextResponse.json({ ok: true }, { headers: CORS });
 
-  const prenom  = champ(body.prenom, 80);
-  const nom     = champ(body.nom, 80);
+  const prenom  = ligne(body.prenom, 80);
+  const nom     = ligne(body.nom, 80);
   const email   = champ(body.email, 200).toLowerCase();
-  const sujet   = champ(body.sujet, 120);
+  const sujet   = ligne(body.sujet, 120);
   const message = champ(body.message, 5000);
 
   if (!prenom || !email || !message) {

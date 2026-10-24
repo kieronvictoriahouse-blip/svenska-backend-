@@ -4,6 +4,31 @@ import { expeditionEmail } from '@/lib/customer-emails';
 import { requireAuth } from '@/lib/auth';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
+import { resteDu, sortirColis } from '@/lib/expedition';
+
+/** Statuts où la marchandise a quitté l'étagère. */
+const PARTIS = ['shipped', 'delivered'];
+/** Statuts d'une commande payée. */
+const PAYES = ['paid', 'confirmed', 'preparing', 'partial', 'shipped', 'delivered'];
+
+/** Raison du refus d'une transition, ou null si elle est permise. */
+function transitionRefusee(avant?: string, apres?: string): string | null {
+  if (!apres || !avant || apres === avant) return null;
+  if (apres === 'partial') {
+    return 'Le statut « Partielle » se pose en expédiant un colis depuis la préparation, pas à la main.';
+  }
+  if (avant === 'refunded') return 'Commande remboursée : son statut ne change plus.';
+  if (avant === 'cancelled' && PARTIS.includes(apres)) {
+    return 'Commande annulée : repasse-la d’abord en « Payée » avant de l’expédier.';
+  }
+  if (PARTIS.includes(avant) && !PARTIS.includes(apres) && !['cancelled', 'refunded'].includes(apres)) {
+    return 'Commande déjà partie : elle ne peut pas revenir à un statut d’avant l’expédition.';
+  }
+  if (PAYES.includes(avant) && ['pending', 'abandoned'].includes(apres)) {
+    return 'Commande payée : elle ne peut pas redevenir un panier non payé.';
+  }
+  return null;
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -29,12 +54,49 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // Statut avant update
   const { data: before } = await supabaseAdmin.from('orders').select('*').eq('id', params.id).single();
+  if (!before) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
   const prevStatus = before?.status;
 
-  const { data, error } = await supabaseAdmin.from('orders')
-    .update({ ...body, updated_at: new Date().toISOString() })
-    .eq('id', params.id).select().single();
+  /* Les puces « Changer le statut » proposent tous les statuts : c'est
+     ici, pas dans l'écran, qu'on refuse ceux qui mentiraient. */
+  const refus = transitionRefusee(prevStatus, body?.status);
+  if (refus) return NextResponse.json({ error: refus }, { status: 409 });
+
+  /* ── Départ posé à la main ────────────────────────────────────────
+     « Marquer expédiée », une puce « Expédiée »/« Livrée » : la commande
+     quitte les statuts dus, sa réservation tombe — il faut donc que la
+     marchandise sorte du stock, comme depuis la préparation. Sans ça, le
+     rayon gardait des unités parties chez le client. On solde ce qui
+     reste dû, réclamé sous condition du statut lu : un double clic ou un
+     second poste ne sort rien deux fois. Une commande de test ne
+     réserve rien, elle ne sort donc rien non plus. */
+  const now = new Date().toISOString();
+  const depart = !!body?.status && PARTIS.includes(body.status) && !PARTIS.includes(prevStatus) && !before.is_test;
+  const colis = depart ? resteDu(before) : {};
+  const solde: Record<string, any> = {};
+  if (Object.keys(colis).length) {
+    const cumul: Record<string, number> = { ...(before.shipped_qty || {}) };
+    for (const [pid, n] of Object.entries(colis)) cumul[pid] = (Number(cumul[pid]) || 0) + n;
+    Object.assign(solde, { shipped_qty: cumul, last_shipment: colis, picked_at: now, picking: null });
+  }
+
+  let ecriture = supabaseAdmin.from('orders')
+    .update({ ...body, ...solde, updated_at: now })
+    .eq('id', params.id);
+  if (Object.keys(solde).length) ecriture = ecriture.eq('status', prevStatus);
+  const { data: lignesMaj, error } = await ecriture.select();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const data = lignesMaj?.[0];
+  if (!data) {
+    return NextResponse.json({ error: 'La commande vient de changer sur un autre poste — recharge-la avant de réessayer.' }, { status: 409 });
+  }
+
+  let echecsStock: Array<{ product_id: string; erreur: string }> = [];
+  if (Object.keys(solde).length) {
+    try { echecsStock = (await sortirColis(before, colis)).echecs; }
+    catch (e: any) { echecsStock = [{ product_id: '*', erreur: e?.message || String(e) }]; }
+    if (echecsStock.length) console.error('[orders PUT] sortie de stock incomplète', before.order_number, echecsStock);
+  }
 
   const newStatus = data?.status;
   const triggerStatuses = ['shipped', 'delivered', 'confirmed'];
@@ -81,7 +143,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
       try {
         await supabaseAdmin.from('accounting_entries').insert({
-          date:             (order.created_at || new Date().toISOString()).split('T')[0],
+          // Jour de Paris : une commande de 0 h 30 le 1er janvier n'est pas de l'année précédente.
+          date:             new Date(order.created_at || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }),
           type:             'income',
           category,
           description:      `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
@@ -146,7 +209,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
-  return NextResponse.json({ order: data });
+  return NextResponse.json({ order: data, ...(echecsStock.length ? { echecs_stock: echecsStock } : {}) });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {

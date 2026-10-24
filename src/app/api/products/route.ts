@@ -4,8 +4,12 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
 import { resolveDiscount } from '@/lib/product-price';
 import { pourVitrine, palierMarge } from '@/lib/produit-public';
+import { champsFiche, controlerFiche, messageDoublon } from '@/lib/fiche-produit';
 
 export const maxDuration = 60;
+
+/* Une page au plus : PostgREST plafonne de toute façon à 1 000 lignes. */
+const LIMITE_MAX = 1000;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -14,6 +18,11 @@ export async function GET(req: NextRequest) {
   const isNew      = searchParams.get('new');
   const search     = searchParams.get('search');
   const sortOrder  = searchParams.get('sort_order');
+  /* `limit` / `offset` étaient ignorés : ?limit=1 renvoyait tout le
+     catalogue (365 Ko). Sans `limit`, on renvoie toujours tout — la
+     vitrine et ses scripts de build lisent le catalogue en une fois. */
+  const limit  = parseInt(searchParams.get('limit') || '', 10);
+  const offset = parseInt(searchParams.get('offset') || '', 10);
 
   /* Vue back-office (fiches désactivées, rayon brut, prix d'achat) : sur
      jeton VALIDE seulement. La simple présence d'un en-tête Authorization
@@ -23,17 +32,25 @@ export async function GET(req: NextRequest) {
   const auth = !!req.headers.get('authorization');
   const isAdmin = auth && !!(await requireAuth(req));
   if (auth && !isAdmin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  /* Filtre par rayon : sans « !inner », PostgREST ne filtre que la
+     catégorie EMBARQUÉE (mise à null) et renvoie tous les produits. */
+  const rayon = cat ? 'categories!inner' : 'categories';
   let query = supabaseAdmin
     .from('products')
-    .select('*, product_variants(*), categories(name_fr, name_sv, name_en, slug, discount_type, discount_value, discount_start, discount_end)')
-    .order('sort_order', { ascending: true });
+    .select(`*, product_variants(*), ${rayon}(name_fr, name_sv, name_en, slug, discount_type, discount_value, discount_start, discount_end)`)
+    .order('sort_order', { ascending: true })
+    .order('id', { ascending: true });   // ordre stable d'une page à l'autre
   if (!isAdmin) query = query.eq('is_active', true);
 
-  if (sortOrder) query = query.eq('sort_order', parseInt(sortOrder));
+  if (sortOrder && Number.isFinite(parseInt(sortOrder, 10))) query = query.eq('sort_order', parseInt(sortOrder, 10));
   if (cat)        query = query.eq('categories.slug', cat);
   if (bestseller) query = query.eq('is_bestseller', true);
   if (isNew)      query = query.eq('is_new', true);
   if (search)     query = query.ilike('name_fr', `%${search}%`);
+  if (Number.isFinite(limit) && limit > 0) {
+    const debut = Number.isFinite(offset) && offset > 0 ? offset : 0;
+    query = query.range(debut, debut + Math.min(limit, LIMITE_MAX) - 1);
+  }
 
   const { data, error } = await query;
 
@@ -99,13 +116,21 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Requête invalide' }, { status: 400 });
 
   // Les variantes vivent dans la table product_variants, pas dans products → on les sépare.
-  const { variants, ...fields } = body;
+  const { variants } = body;
+
+  /* Liste blanche : une clé inconnue (« brand » du scan, « categories »
+     d'une ligne dupliquée…) faisait échouer l'insertion entière. */
+  const fields = champsFiche(body);
+  if (typeof fields.name_fr === 'string') fields.name_fr = fields.name_fr.trim();
+  // Colonnes NOT NULL : une traduction absente reprend le nom français.
+  for (const l of ['sv', 'en']) if (!String(fields[`name_${l}`] ?? '').trim()) fields[`name_${l}`] = fields.name_fr;
+  const refus = controlerFiche(fields, { creation: true });
+  if (refus) return NextResponse.json({ error: refus }, { status: 400 });
 
   // Rapatrie les images externes dans notre Storage (sinon liens morts type olw.se).
   // En cas d'échec on garde l'URL d'origine — mieux qu'aucune image.
@@ -119,22 +144,47 @@ export async function POST(req: NextRequest) {
   }
 
   /* Box (migration 054) : composition nettoyée, et jamais de rayon propre. */
-  if (fields.bundle_items !== undefined) {
-    const c = (await import('@/lib/lots')).composition(fields.bundle_items);
+  let estBox = false;
+  if (body.bundle_items !== undefined) {
+    const c = (await import('@/lib/lots')).composition(body.bundle_items);
     fields.bundle_items = c;
-    if (c) { fields.track_stock = false; fields.stock = null; }
+    if (c) { fields.track_stock = false; estBox = true; }
   }
+
+  /* Stock initial : la fiche naît à 0 et la quantité saisie passe par le
+     journal (inventaire), comme à l'import de catalogue. Écrit en direct,
+     il n'avait aucune trace — premier écart inexplicable du produit. */
+  const suivi = !estBox && fields.track_stock === true;
+  const stockInitial = suivi && body.stock !== undefined && body.stock !== null && body.stock !== ''
+    ? Math.max(0, Math.round(Number(body.stock) || 0)) : 0;
+  fields.stock = suivi ? 0 : null;
 
   const { data, error } = await supabaseAdmin.from('products').insert(fields).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // Variantes → table dédiée (non bloquant : le produit est déjà créé)
-  if (Array.isArray(variants) && variants.length > 0) {
-    const rows = variants
-      .filter((v: any) => v && v.label)
-      .map((v: any, i: number) => ({ product_id: data.id, label: v.label, price: parseFloat(v.price), is_default: i === 0, sort_order: i }));
-    if (rows.length) await supabaseAdmin.from('product_variants').insert(rows);
+  if (error) {
+    const doublon = messageDoublon(error);
+    return NextResponse.json({ error: doublon || error.message }, { status: doublon ? 409 : 500 });
   }
 
-  return NextResponse.json({ product: data });
+  const avertissements: string[] = [];
+  if (stockInitial > 0) {
+    const { poserStock } = await import('@/lib/stock');
+    const m = await poserStock(data.id, stockInitial, {
+      reason: 'inventory', note: 'Stock initial — création de la fiche',
+    }).catch(() => null);
+    if (m) data.stock = m.after;
+    else avertissements.push('Produit créé, mais le stock initial n’a pas pu être enregistré.');
+  }
+
+  // Variantes → table dédiée (le produit est déjà créé : un échec est signalé, pas bloquant)
+  if (Array.isArray(variants) && variants.length > 0) {
+    const rows = variants
+      .filter((v: any) => v && v.label && Number(v.price) > 0)
+      .map((v: any, i: number) => ({ product_id: data.id, label: v.label, price: parseFloat(v.price), is_default: i === 0, sort_order: i }));
+    if (rows.length) {
+      const { error: vErr } = await supabaseAdmin.from('product_variants').insert(rows);
+      if (vErr) avertissements.push('Produit créé, mais ses variantes n’ont pas été enregistrées : ' + vErr.message);
+    }
+  }
+
+  return NextResponse.json({ product: data, ...(avertissements.length ? { warning: avertissements.join(' ') } : {}) });
 }

@@ -86,7 +86,13 @@ export function grouper(
   const par = new Map<string, Seance>();
 
   for (const m of mouvements) {
-    const jour = String(m.created_at).slice(0, 10);
+    /* Le jour de PARIS, pas celui d'UTC : un mouvement passé à 1 h 30
+       (heure d'été) se rangeait sous la veille, dans la séance d'un autre
+       jour que celui affiché. */
+    const quand = new Date(m.created_at);
+    const jour = Number.isNaN(+quand)
+      ? String(m.created_at).slice(0, 10)
+      : quand.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
     const categorie = categoriser(m.reason);
     const cle = m.reference
       ? `ref:${m.reference}:${categorie}:${jour}`

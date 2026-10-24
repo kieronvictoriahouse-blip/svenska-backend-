@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { requireAuth } from '@/lib/auth';
 import {
   getWhiteLabelConfig, sendEmail,
-  abandonedCartTemplate, welcomeTemplate, winBackTemplate, postPurchaseTemplate,
+  welcomeTemplate, winBackTemplate, postPurchaseTemplate,
 } from '@/lib/email-send';
+import { desinscription } from '@/lib/relance-panier';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
+
+const PAYES = ['confirmed', 'paid', 'preparing', 'partial', 'shipped', 'delivered'];
+const norm = (e: unknown) => String(e || '').trim().toLowerCase();
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  /* Vercel appelle avec « Bearer CRON_SECRET » ; le bouton « Exécuter
+     maintenant » de l'admin, avec la session de l'admin. Sans
+     CRON_SECRET, la route tournait OUVERTE à tout l'internet (les autres
+     crons, eux, refusent) ; et avec, le bouton de l'admin recevait un 401
+     qui le déconnectait. */
+  const secret = (process.env.CRON_SECRET || '').trim();
+  const parCron = !!secret && req.headers.get('authorization') === `Bearer ${secret}`;
+  if (!parCron && !(await requireAuth(req))) {
+    if (!secret) console.error('[cron/marketing] CRON_SECRET absent de l’environnement : passage refusé');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -20,65 +33,21 @@ export async function GET(req: NextRequest) {
   const echecs: string[] = [];
   const now = Date.now();
 
-  // ── PANIER ABANDONNÉ (3 étapes automatiques) ─────────────
+  /* L'ancien circuit « panier abandonné » en trois emails (table
+     abandoned_carts, code RETOUR10 en dur, sans lien de désinscription ni
+     respect des oppositions) est retiré : plus rien n'alimente cette
+     table, et la règle de la boutique est « deux relances maximum »,
+     tenue par lib/relance-panier (cron relance-paniers + webhook Stripe). */
 
-  // Étape 1 : entre 20h et 48h après l'abandon
-  const { data: carts1 } = await supabaseAdmin
-    .from('abandoned_carts')
-    .select('id,customer_email,customer_name,cart_data,cart_total')
-    .eq('recovered', false)
-    .is('email_1_sent_at', null)
-    .not('customer_email', 'is', null)
-    .lt('created_at', new Date(now - 20 * 3600_000).toISOString())
-    .gt('created_at', new Date(now - 48 * 3600_000).toISOString());
-
-  for (const cart of (carts1 || [])) {
-    try {
-      const { html, subject } = abandonedCartTemplate(cart, 1, cfg);
-      await sendEmail({ from, to: cart.customer_email, subject, html }, cfg);
-      await supabaseAdmin.from('abandoned_carts').update({ email_1_sent_at: new Date().toISOString() }).eq('id', cart.id);
-      results.push(`cart_1:${cart.customer_email}`);
-    } catch (e: any) { echecs.push(e?.message || 'erreur'); }
-  }
-
-  // Étape 2 : 3 jours (email_1 envoyé, pas email_2)
-  const { data: carts2 } = await supabaseAdmin
-    .from('abandoned_carts')
-    .select('id,customer_email,customer_name,cart_data,cart_total')
-    .eq('recovered', false)
-    .not('email_1_sent_at', 'is', null)
-    .is('email_2_sent_at', null)
-    .not('customer_email', 'is', null)
-    .lt('created_at', new Date(now - 60 * 3600_000).toISOString())
-    .gt('created_at', new Date(now - 168 * 3600_000).toISOString());
-
-  for (const cart of (carts2 || [])) {
-    try {
-      const { html, subject } = abandonedCartTemplate(cart, 2, cfg);
-      await sendEmail({ from, to: cart.customer_email, subject, html }, cfg);
-      await supabaseAdmin.from('abandoned_carts').update({ email_2_sent_at: new Date().toISOString() }).eq('id', cart.id);
-      results.push(`cart_2:${cart.customer_email}`);
-    } catch (e: any) { echecs.push(e?.message || 'erreur'); }
-  }
-
-  // Étape 3 : 7 jours (email_2 envoyé, pas email_3) — avec code promo -10%
-  const { data: carts3 } = await supabaseAdmin
-    .from('abandoned_carts')
-    .select('id,customer_email,customer_name,cart_data,cart_total')
-    .eq('recovered', false)
-    .not('email_2_sent_at', 'is', null)
-    .is('email_3_sent_at', null)
-    .not('customer_email', 'is', null)
-    .lt('created_at', new Date(now - 144 * 3600_000).toISOString());
-
-  for (const cart of (carts3 || [])) {
-    try {
-      const { html, subject } = abandonedCartTemplate(cart, 3, cfg);
-      await sendEmail({ from, to: cart.customer_email, subject, html }, cfg);
-      await supabaseAdmin.from('abandoned_carts').update({ email_3_sent_at: new Date().toISOString() }).eq('id', cart.id);
-      results.push(`cart_3:${cart.customer_email}`);
-    } catch (e: any) { echecs.push(e?.message || 'erreur'); }
-  }
+  /* Adresses opposées (désinscrit, plainte, rejet) : aucune automation ne
+     leur écrit. Lues par lot de destinataires (une table entière
+     plafonnerait à 1000 lignes). */
+  const opposees = async (emails: string[]): Promise<Set<string>> => {
+    const l = Array.from(new Set(emails.map(norm).filter(Boolean)));
+    if (!l.length) return new Set();
+    const { data } = await supabaseAdmin.from('email_optouts').select('email').in('email', l);
+    return new Set((data || []).map((o: any) => norm(o.email)));
+  };
 
   // ── AUTOMATIONS PERSONNALISÉES (table marketing_automations) ─
 
@@ -90,27 +59,42 @@ export async function GET(req: NextRequest) {
   for (const auto of (automations || [])) {
     const delayMs = (auto.delay_hours || 24) * 3600_000;
     const cutoff = new Date(now - delayMs).toISOString();
+    /* Borne basse : une automation activée aujourd'hui ne doit pas
+       écrire à tout l'historique (50 anciens clients par jour recevaient
+       « merci pour votre première commande » des mois après). */
+    const depuisActivation = auto.created_at || new Date(now - 30 * 86400_000).toISOString();
     let sent = 0;
 
     // ── WELCOME EMAIL ──────────────────────────────────────
     if (auto.type === 'welcome') {
       const { data: orders } = await supabaseAdmin
         .from('orders')
-        .select('id,customer_email,customer_name')
+        .select('id,customer_email,customer_name,created_at')
         .not('customer_email', 'is', null)
         .is('welcome_email_sent_at', null)
-        .in('status', ['confirmed', 'paid', 'shipped', 'delivered'])
+        .in('status', PAYES)
+        .or('is_test.is.null,is_test.eq.false')
         .lt('created_at', cutoff)
+        .gte('created_at', depuisActivation)
         .limit(50);
 
+      const opposes = await opposees((orders || []).map((o: any) => o.customer_email));
       for (const order of (orders || [])) {
+        /* « Première commande » = première commande PAYÉE : les
+           brouillons (clics sur « Payer ») d'un même client le faisaient
+           passer pour un habitué. */
         const { count } = await supabaseAdmin
           .from('orders')
           .select('id', { count: 'exact', head: true })
-          .eq('customer_email', order.customer_email);
-        const isFirst = (count || 0) <= 1;
-        await supabaseAdmin.from('orders').update({ welcome_email_sent_at: isFirst ? new Date().toISOString() : 'skipped' }).eq('id', order.id);
-        if (!isFirst) continue;
+          .ilike('customer_email', norm(order.customer_email))
+          .in('status', [...PAYES, 'refunded'])
+          .lt('created_at', order.created_at);
+        const isFirst = (count || 0) === 0 && !opposes.has(norm(order.customer_email));
+        // La prise : deux passages simultanés (cron + bouton) n'envoient pas deux fois.
+        const { data: pris } = await supabaseAdmin.from('orders')
+          .update({ welcome_email_sent_at: isFirst ? new Date().toISOString() : 'skipped' })
+          .eq('id', order.id).is('welcome_email_sent_at', null).select('id');
+        if (!pris?.length || !isFirst) continue;
         try {
           const { html, subject } = welcomeTemplate(order, auto, cfg);
           await sendEmail({ from, to: order.customer_email, subject, html }, cfg);
@@ -124,33 +108,55 @@ export async function GET(req: NextRequest) {
     if (auto.type === 'win_back') {
       const inactiveDays = Math.round((auto.delay_hours || 2160) / 24);
       const winCutoff = new Date(now - inactiveDays * 24 * 3600_000).toISOString();
-      const recentCutoff = new Date(now - 30 * 24 * 3600_000).toISOString();
 
+      /* Clients PAYANTS uniquement (un brouillon jamais payé n'est pas un
+         client à « réactiver »), et « inactif » sur la même fenêtre que le
+         réglage : l'ancien filtre « rien depuis 30 jours » écrivait
+         « on vous manque » à qui avait commandé il y a 45 jours avec un
+         seuil de 90. */
       const [{ data: oldOrders }, { data: recentOrders }, { data: logs }] = await Promise.all([
-        supabaseAdmin.from('orders').select('customer_email,customer_name').lt('created_at', winCutoff),
-        supabaseAdmin.from('orders').select('customer_email').gt('created_at', recentCutoff),
+        supabaseAdmin.from('orders').select('customer_email,customer_name')
+          .in('status', PAYES).or('is_test.is.null,is_test.eq.false')
+          .not('customer_email', 'is', null).lt('created_at', winCutoff)
+          .order('created_at', { ascending: false }).limit(1000),
+        supabaseAdmin.from('orders').select('customer_email')
+          .not('status', 'in', '(abandoned,cancelled)').not('customer_email', 'is', null)
+          .gt('created_at', winCutoff).limit(1000),
         supabaseAdmin.from('marketing_automation_logs').select('recipient_email').eq('automation_id', auto.id).gt('sent_at', winCutoff),
       ]);
 
-      const recentSet = new Set((recentOrders || []).map((o: any) => o.customer_email));
-      const sentSet = new Set((logs || []).map((l: any) => l.recipient_email));
+      const recentSet = new Set((recentOrders || []).map((o: any) => norm(o.customer_email)));
+      const sentSet = new Set((logs || []).map((l: any) => norm(l.recipient_email)));
       const seen = new Set<string>();
-      const targets = (oldOrders || []).filter((o: any) => {
-        if (seen.has(o.customer_email) || recentSet.has(o.customer_email) || sentSet.has(o.customer_email)) return false;
-        seen.add(o.customer_email);
+      const candidats = (oldOrders || []).filter((o: any) => {
+        const e = norm(o.customer_email);
+        if (!e || seen.has(e) || recentSet.has(e) || sentSet.has(e)) return false;
+        seen.add(e);
         return true;
-      }).slice(0, 50);
+      });
+      // 200 candidats au plus par passage : la liste part dans l'URL du filtre `in`.
+      const lot = candidats.slice(0, 200);
+      const opposes = await opposees(lot.map((o: any) => o.customer_email));
+      const targets = lot.filter((o: any) => !opposes.has(norm(o.customer_email))).slice(0, 50);
 
       for (const customer of targets) {
+        const email = norm(customer.customer_email);
+        /* Journal AVANT l'envoi : un 2e passage simultané ne réécrit pas
+           au même client. Retiré si l'envoi échoue. */
+        const { data: log } = await supabaseAdmin.from('marketing_automation_logs').insert({
+          automation_id: auto.id, automation_type: 'win_back', recipient_email: email,
+        }).select('id').single();
         try {
-          const { html, subject } = winBackTemplate({ email: customer.customer_email, name: customer.customer_name || '' }, auto, cfg);
-          await sendEmail({ from, to: customer.customer_email, subject, html }, cfg);
-          await supabaseAdmin.from('marketing_automation_logs').insert({
-            automation_id: auto.id, automation_type: 'win_back', recipient_email: customer.customer_email,
-          });
-          results.push(`win_back:${customer.customer_email}`);
+          // Email commercial : lien de désinscription et en-tête List-Unsubscribe.
+          const d = desinscription(email, 'newsletter');
+          const { html, subject } = winBackTemplate({ email, name: customer.customer_name || '' }, auto, cfg, d.url);
+          await sendEmail({ from, to: email, subject, html, headers: d.headers }, cfg);
+          results.push(`win_back:${email}`);
           sent++;
-        } catch (e: any) { echecs.push(e?.message || 'erreur'); }
+        } catch (e: any) {
+          if (log?.id) await supabaseAdmin.from('marketing_automation_logs').delete().eq('id', log.id);
+          echecs.push(e?.message || 'erreur');
+        }
       }
     }
 
@@ -162,17 +168,30 @@ export async function GET(req: NextRequest) {
         .eq('status', 'delivered')
         .is('review_email_sent_at', null)
         .not('customer_email', 'is', null)
+        .or('is_test.is.null,is_test.eq.false')
         .lt('updated_at', cutoff)
+        // Pas tout l'historique livré le jour où l'automation est activée.
+        .gte('created_at', depuisActivation)
         .limit(50);
 
+      const opposes = await opposees((orders || []).map((o: any) => o.customer_email));
       for (const order of (orders || [])) {
+        // La prise avant l'envoi : deux passages simultanés n'envoient pas deux fois.
+        const marque = opposes.has(norm(order.customer_email)) ? 'skipped' : new Date().toISOString();
+        const { data: pris } = await supabaseAdmin.from('orders')
+          .update({ review_email_sent_at: marque })
+          .eq('id', order.id).is('review_email_sent_at', null).select('id');
+        if (!pris?.length || marque === 'skipped') continue;
         try {
           const { html, subject } = postPurchaseTemplate(order, auto, cfg);
           await sendEmail({ from, to: order.customer_email, subject, html }, cfg);
-          await supabaseAdmin.from('orders').update({ review_email_sent_at: new Date().toISOString() }).eq('id', order.id);
           results.push(`post_purchase:${order.customer_email}`);
           sent++;
-        } catch (e: any) { echecs.push(e?.message || 'erreur'); }
+        } catch (e: any) {
+          // Échec : on rend la commande au prochain passage.
+          await supabaseAdmin.from('orders').update({ review_email_sent_at: null }).eq('id', order.id).eq('review_email_sent_at', marque);
+          echecs.push(e?.message || 'erreur');
+        }
       }
     }
 

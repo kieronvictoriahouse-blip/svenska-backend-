@@ -97,7 +97,11 @@ export default function ImportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error('Erreur lors de la sauvegarde');
+      // Le motif du refus (prix à 0, EAN déjà pris…) est affiché, pas un message générique.
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Erreur lors de la sauvegarde');
+      }
       showToast(ajouteAuCatalogue(product.name_fr, langUi));
       setProduct(null); setUrl('');
     } catch (e: any) { setError(e.message); }

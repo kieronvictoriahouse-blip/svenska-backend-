@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { controlerRayon } from '@/lib/fiche-produit';
 
 /* Mise à jour et suppression d'une catégorie.
    Nécessaire à l'écran Catégories du handoff : réordonnancement par
@@ -8,16 +9,25 @@ import { requireAuth } from '@/lib/auth';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-  const body = await req.json();
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Requête invalide' }, { status: 400 });
 
   const ALLOWED = ['slug', 'emoji', 'name_fr', 'name_sv', 'name_en', 'sort_order', 'is_active',
     'discount_type', 'discount_value', 'discount_start', 'discount_end'];
   const payload = Object.fromEntries(Object.entries(body).filter(([k]) => ALLOWED.includes(k)));
   if (!Object.keys(payload).length) return NextResponse.json({ error: 'Rien à mettre à jour' }, { status: 400 });
+  /* Une promo de catégorie s'applique à TOUS ses produits, au checkout :
+     150 % mettait le rayon entier à 0 €. Nom vide, adresse invalide :
+     refusés aussi. */
+  const refus = controlerRayon(payload);
+  if (refus) return NextResponse.json({ error: refus }, { status: 400 });
 
   const { data, error } = await supabaseAdmin
     .from('categories').update(payload).eq('id', params.id).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (error.code === '23505') return NextResponse.json({ error: 'Cette adresse (slug) est déjà utilisée par une autre catégorie.' }, { status: 409 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json({ category: data });
 }
 
@@ -26,8 +36,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   // Refus si des produits y sont rattachés : une suppression silencieuse
   // les rendrait orphelins et invisibles en boutique.
-  const { count } = await supabaseAdmin
+  const { count, error: cErr } = await supabaseAdmin
     .from('products').select('id', { count: 'exact', head: true }).eq('category_id', params.id);
+  /* Comptage impossible : on ne supprime pas à l'aveugle (la clé étrangère
+     est ON DELETE SET NULL, la base ne protégerait pas les produits). */
+  if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
   if (count && count > 0) {
     return NextResponse.json(
       { error: `${count} produit(s) utilisent encore cette catégorie.`, code: 'CATEGORY_IN_USE', count },

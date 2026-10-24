@@ -7,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 // Défensif : si la colonne gift_product_ids n'existe pas encore, renvoie null.
 export async function GET() {
   try {
-    const now = new Date();
+    const { dansLaPeriode } = await import('@/lib/promo');
     const { data: promos, error } = await supabaseAdmin
       .from('promo_codes')
       .select('*')
@@ -18,13 +18,9 @@ export async function GET() {
     if (error || !promos || promos.length === 0) return NextResponse.json({ offer: null });
 
     // Première offre cadeau valide en date + non épuisée
-    const promo = promos.find((p: any) => {
-      const dateOk =
-        (!p.valid_from || now >= new Date(p.valid_from)) &&
-        (!p.valid_until || now <= new Date(String(p.valid_until).slice(0, 10) + 'T23:59:59'));
-      const usesOk = !p.max_uses || (p.used_count || 0) < p.max_uses;
-      return dateOk && usesOk;
-    });
+    // Dates au jour de Paris, comme le checkout (@/lib/promo).
+    const promo = promos.find((p: any) =>
+      dansLaPeriode(p) === 'ok' && (!p.max_uses || (p.used_count || 0) < p.max_uses));
     if (!promo) return NextResponse.json({ offer: null });
 
     // gift_product_ids : jsonb array d'UUID (peut être une string JSON selon le driver)

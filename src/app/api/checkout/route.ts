@@ -5,11 +5,14 @@ import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
 import { evaluatePromo, PromoRefusal } from '@/lib/promo';
 import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/product-price';
 import crypto from 'crypto';
-
-const CUSTOMER_SECRET = process.env.CUSTOMER_JWT_SECRET || process.env.SNIPCART_SECRET_KEY || 'sd-customer-secret';
+import { secretServeur } from '@/lib/secret-interne';
 
 function verifyCustomerToken(token: string): string | null {
   try {
+    /* Plus de repli « sd-customer-secret » : le dépôt est public, n'importe
+       qui pouvait signer un jeton pour l'email de son choix (cf. secret-interne). */
+    const CUSTOMER_SECRET = process.env.CUSTOMER_JWT_SECRET || process.env.SNIPCART_SECRET_KEY
+      || secretServeur('CUSTOMER_JWT_SECRET', 'jeton-client');
     const dot = token.lastIndexOf('.');
     if (dot === -1) return null;
     const payload = token.slice(0, dot);
@@ -330,21 +333,25 @@ export async function POST(req: NextRequest) {
     // ≥ seuil, et le produit demandé fait bien partie des cadeaux éligibles.
     if (giftClaims.length > 0) {
       try {
-        const now = new Date();
+        const { dansLaPeriode } = await import('@/lib/promo');
         const { data: gifts } = await supabaseAdmin
           .from('promo_codes').select('*').eq('type', 'gift').eq('is_active', true)
           .order('created_at', { ascending: false });
-        const offer = (gifts || []).find((p: any) => {
-          const dateOk = (!p.valid_from || now >= new Date(p.valid_from)) &&
-            (!p.valid_until || now <= new Date(String(p.valid_until).slice(0, 10) + 'T23:59:59'));
-          return dateOk && (!p.max_uses || (p.used_count || 0) < p.max_uses);
-        });
+        const offer = (gifts || []).find((p: any) =>
+          // Dates jugées au jour de Paris, comme les codes (cf. @/lib/promo).
+          dansLaPeriode(p) === 'ok' && (!p.max_uses || (p.used_count || 0) < p.max_uses));
         /* Combien de cadeaux le panier merite REELLEMENT — calcule ici,
            jamais depuis le panier. « 2 Piffi achetes, 1 dip offert »
            peut en accorder plusieurs ; l'ancien code n'en donnait qu'un
            quoi qu'il arrive. */
         const { cadeauxDus, listeIds } = await import('@/lib/cadeau');
-        const dus = cadeauxDus(offer, items, subtotal);
+        /* Compté sur les lignes VALIDÉES (produit actif, quantité
+           contrôlée, payées) — jamais sur le panier brut. Les demandes de
+           cadeau (`gift: true`) n'ont pas de quantité contrôlée : un
+           « cadeau » portant l'identifiant d'un produit déclencheur et
+           une quantité de 100 comptait comme 100 achats, et ouvrait droit
+           à autant de cadeaux réclamés. */
+        const dus = cadeauxDus(offer, orderLines.map(l => ({ product_id: l.product_id, qty: l.qty })), subtotal);
 
         if (offer && dus > 0) {
           const ids = listeIds((offer as any).gift_product_ids);

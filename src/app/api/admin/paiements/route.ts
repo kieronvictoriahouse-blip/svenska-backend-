@@ -27,9 +27,15 @@ export const maxDuration = 60;
    ═══════════════════════════════════════════════════════════════ */
 
 const API_VERSION = '2026-04-22.dahlia' as any;
+/* Les deux événements de paiement différé sont indispensables : sans
+   eux, une commande réglée par un moyen asynchrone (virement, SEPA…)
+   reste « en attente » pour toujours — le webhook sait les traiter, mais
+   Stripe ne les envoyait pas. */
 const EVENEMENTS: Stripe.WebhookEndpointCreateParams.EnabledEvent[] = [
   'checkout.session.completed',
   'checkout.session.expired',
+  'checkout.session.async_payment_succeeded',
+  'checkout.session.async_payment_failed',
 ];
 
 const geree = () => !!(process.env.VENDD_CP_URL && process.env.VENDD_INSTANCE_ID && process.env.CRON_SECRET);

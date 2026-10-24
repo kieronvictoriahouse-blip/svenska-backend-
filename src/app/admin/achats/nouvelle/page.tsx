@@ -425,7 +425,7 @@ function Composition() {
         {/* Jauge de franco */}
         {!!fournisseur?.franco && (
           <div style={{ padding: '11px 13px', borderTop: `1px solid ${C.ligne}` }}>
-            <Jauge valeur={t.sek / fournisseur.franco} couleur={t.francoAtteint ? C.vert : C.accent} largeur="100%" hauteur={7} />
+            <Jauge valeur={t.sekEquivalent / fournisseur.franco} couleur={t.francoAtteint ? C.vert : C.accent} largeur="100%" hauteur={7} />
             <div style={{ fontSize: 11, marginTop: 6, color: t.francoAtteint ? C.vert : C.ambre, fontWeight: 600 }}>
               {t.francoAtteint ? 'Franco atteint — port offert' : `Encore ${kr(t.francoReste)} pour le port offert`}
             </div>

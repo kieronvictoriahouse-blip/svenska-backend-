@@ -29,6 +29,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!order) {
     return NextResponse.json({ error: 'Commande introuvable' }, { status: 404, headers: CORS });
   }
+  /* Un lien de paiement ne se fait que pour une commande pas encore
+     payée : sur une commande payée (ou annulée), il fait payer deux fois. */
+  if (!['pending', 'abandoned'].includes(order.status)) {
+    return NextResponse.json(
+      { error: `Commande au statut « ${order.status} » : pas de lien de paiement.` },
+      { status: 409, headers: CORS });
+  }
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
@@ -49,6 +56,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
       quantity: l.qty || 1,
     }));
+
+  // La remise ne s'applique qu'aux lignes au prix catalogue, pas au repli (déjà remisé).
+  const depuisLignes = lineItems.length > 0;
 
   // Fallback : le total comme ligne unique
   if (lineItems.length === 0) {
@@ -76,11 +86,40 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const baseUrl = await urlVitrine();
   const shippingAmt = Math.round((order.shipping || 0) * 100);
 
+  /* La remise de la commande (code promo saisi à la création) : sans
+     elle, le lien faisait payer les articles au prix plein et le client
+     réglait plus que le total de sa commande et de sa facture. */
+  const remiseCts = depuisLignes ? Math.round((Number(order.discount) || 0) * 100) : 0;
+  const promoId = order.promo_code
+    ? (await supabaseAdmin.from('promo_codes').select('id').eq('code', String(order.promo_code).toUpperCase().trim()).maybeSingle()).data?.id || null
+    : null;
+
   let session: Stripe.Checkout.Session;
   try {
+    /* Régénérer laissait l'ancien lien valable 7 jours : le client qui
+       payait les deux était débité deux fois. On l'expire d'abord. */
+    const ancien = String(order.payment_link_url || '').match(/cs_(?:live|test)_[A-Za-z0-9]+/)?.[0];
+    if (ancien) {
+      /* L'ancien lien a peut-être déjà été payé (webhook manqué : la
+         commande est restée « en attente ») : en refaire un ferait payer
+         une seconde fois. */
+      const prec = await stripe.checkout.sessions.retrieve(ancien).catch(() => null);
+      if (prec?.payment_status === 'paid') {
+        return NextResponse.json(
+          { error: 'Le lien précédent a déjà été payé (paiement pas encore remonté) : vérifie dans Stripe avant d’en refaire un.' },
+          { status: 409, headers: CORS });
+      }
+      await stripe.checkout.sessions.expire(ancien).catch(() => {});
+    }
+
+    const coupon = remiseCts > 0
+      ? await stripe.coupons.create({ amount_off: remiseCts, currency: 'eur', duration: 'once' })
+      : null;
+
     session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
+      ...(coupon ? { discounts: [{ coupon: coupon.id }] } : {}),
       customer_email: order.customer_email || undefined,
       ...(shippingAmt >= 0 ? {
         shipping_options: [{
@@ -91,7 +130,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           },
         }],
       } : {}),
-      metadata: { order_id: order.id },
+      /* promo_code_id : l'usage du code se compte au paiement, par le
+         webhook — comme pour une commande passée sur le site. */
+      metadata: { order_id: order.id, ...(promoId ? { promo_code_id: promoId } : {}) },
       success_url: `${baseUrl}/success.html?order_id=${order.id}`,
       cancel_url:  `${baseUrl}/panier.html`,
       locale: 'fr',

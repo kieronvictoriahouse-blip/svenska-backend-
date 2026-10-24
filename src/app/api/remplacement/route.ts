@@ -71,14 +71,32 @@ function page(titre: string, corps: string, ton: 'ok' | 'ko' = 'ok') {
 const eur = (n: number) =>
   (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
+/** Enregistre la décision seulement si la demande est encore ouverte.
+ *  Lire « pending » puis écrire sans condition laissait deux clics
+ *  rapprochés (ou deux liens de l'email ouverts coup sur coup) écrire
+ *  chacun leur choix : le second écrasait le premier, déjà annoncé au
+ *  client comme « c'est noté ». */
+async function decider(c: any, maj: Record<string, any>): Promise<boolean> {
+  const { data } = await supabaseAdmin.from('order_line_choices')
+    .update(maj).eq('id', c.id).eq('status', 'pending').select('id');
+  return !!data?.length;
+}
+
+/** La demande a été tranchée entre la lecture et l'écriture : on relit
+ *  et on réaffiche ce qui a été retenu. */
+async function dejaDecideRelu(id: string) {
+  const { data } = await supabaseAdmin.from('order_line_choices').select('*').eq('id', id).maybeSingle();
+  return data ? dejaDecide(data) : page('Demande introuvable', 'Cette demande n’existe plus.', 'ko');
+}
+
 /** Réaffichage d'une décision déjà enregistrée — le client a recliqué. */
 function dejaDecide(c: any) {
   const quoi =
-    c.status === 'replaced' ? `remplacé par <strong>${c.chosen_label}</strong>`
+    c.status === 'replaced' ? `remplacé par <strong>${echap(c.chosen_label)}</strong>`
     : c.status === 'refund_requested' ? 'retiré de votre commande, avec remboursement'
     : 'mis en attente du réassort';
   return page('C’est déjà noté',
-    `Votre choix a bien été enregistré : l’article <strong>${c.line_name}</strong> sera ${quoi}.<br /><br />
+    `Votre choix a bien été enregistré : l’article <strong>${echap(c.line_name)}</strong> sera ${quoi}.<br /><br />
      Vous n’avez rien d’autre à faire — inutile de recliquer, votre réponse ne compte qu’une fois.`);
 }
 
@@ -191,9 +209,9 @@ export async function GET(req: NextRequest) {
 
   /* ── Attendre le réassort ─────────────────────────────────── */
   if (choix === 'attendre') {
-    await supabaseAdmin.from('order_line_choices')
-      .update({ status: 'waiting', chosen_label: 'Attente du réassort', decided_at: new Date().toISOString() })
-      .eq('id', c.id);
+    if (!await decider(c, { status: 'waiting', chosen_label: 'Attente du réassort', decided_at: new Date().toISOString() })) {
+      return dejaDecideRelu(c.id);
+    }
     return page('Entendu, on vous attend',
       `Nous gardons votre commande complète et l’expédions dès l’arrivée du réassort de
        <strong>${c.line_name}</strong>. Vous recevrez un email avec la date exacte dès que le camion est arrivé.`);
@@ -202,15 +220,13 @@ export async function GET(req: NextRequest) {
   /* ── Retrait + remboursement ──────────────────────────────── */
   if (choix === 'rembourser') {
     const du = Number(c.line_qty || 1) * Number(c.line_price || 0);
-    await supabaseAdmin.from('order_line_choices')
-      .update({
-        status: 'refund_requested',
-        chosen_label: 'Retrait et remboursement',
-        // Négatif : c'est la boutique qui doit cette somme.
-        price_delta: -du,
-        decided_at: new Date().toISOString(),
-      })
-      .eq('id', c.id);
+    if (!await decider(c, {
+      status: 'refund_requested',
+      chosen_label: 'Retrait et remboursement',
+      // Négatif : c'est la boutique qui doit cette somme.
+      price_delta: -du,
+      decided_at: new Date().toISOString(),
+    })) return dejaDecideRelu(c.id);
     return page('C’est noté, on vous rembourse',
       `Nous retirons <strong>${c.line_name}</strong> de votre commande et vous remboursons
        <strong>${eur(du)}</strong> sur le moyen de paiement d’origine. Le reste de votre commande suit son cours.<br /><br />
@@ -249,15 +265,13 @@ export async function GET(req: NextRequest) {
   const nouveau = qte * (Number(prod.price) || 0);
   const delta = ancien - nouveau;   // > 0 : la boutique doit la différence
 
-  await supabaseAdmin.from('order_line_choices')
-    .update({
-      status: 'replaced',
-      chosen_product_id: prod.id,
-      chosen_label: prod.name_fr,
-      price_delta: delta,
-      decided_at: new Date().toISOString(),
-    })
-    .eq('id', c.id);
+  if (!await decider(c, {
+    status: 'replaced',
+    chosen_product_id: prod.id,
+    chosen_label: prod.name_fr,
+    price_delta: delta,
+    decided_at: new Date().toISOString(),
+  })) return dejaDecideRelu(c.id);
 
   const mot = delta > 0
     ? `La différence de <strong>${eur(delta)}</strong> vous est remboursée — c’est nous qui sommes en rupture, pas vous.`
@@ -359,7 +373,7 @@ export async function POST(req: NextRequest) {
 
   const resume = mix.map(m => `${m.qte} × ${m.nom}`).join(', ');
 
-  await supabaseAdmin.from('order_line_choices').update({
+  if (!await decider(c, {
     status: 'replaced',
     chosen_mix: mix,
     /* Renseigné aussi quand le panachage tient sur un seul article : le
@@ -368,7 +382,7 @@ export async function POST(req: NextRequest) {
     chosen_label: resume,
     price_delta: delta,
     decided_at: new Date().toISOString(),
-  }).eq('id', c.id);
+  })) return dejaDecideRelu(c.id);
 
   const mot = delta > 0
     ? `La différence de <strong>${eur(delta)}</strong> vous est remboursée — c’est nous qui sommes en rupture, pas vous.`

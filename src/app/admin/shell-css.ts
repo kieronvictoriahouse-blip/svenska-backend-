@@ -71,6 +71,8 @@ export function shellCss(accent: string): string {
     .sc-search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.06); border-radius: 7px; padding: 0 10px; }
     .sc-search input { flex: 1; background: none; border: none; outline: none; color: #fff; font-size: 12.5px; }
     .sc-search input::placeholder { color: rgba(255,255,255,.38); }
+    .sc-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+    .sc-search:focus-within { border-color: rgba(255,255,255,.25); }
     .sc-kbd { font-size: 9.5px; color: rgba(255,255,255,.35); border: 1px solid rgba(255,255,255,.15); border-radius: 4px; padding: 1px 5px; letter-spacing: .5px; }
     .sc-top-link { display: flex; align-items: center; gap: 7px; padding: 0 14px; font-size: 12px; color: rgba(255,255,255,.55); text-decoration: none; border-left: 1px solid rgba(255,255,255,.07); transition: background .12s, color .12s; }
     .sc-top-link:hover { background: rgba(255,255,255,.06); color: #fff; }

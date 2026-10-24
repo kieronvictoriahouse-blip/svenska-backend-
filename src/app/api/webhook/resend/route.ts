@@ -38,7 +38,14 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const secret  = process.env.RESEND_WEBHOOK_SECRET;
 
-  if (secret && !verifySignature(rawBody, req.headers, secret)) {
+  /* Sans secret, la route acceptait n'importe quel POST : n'importe qui
+     pouvait gonfler les statistiques — et, maintenant qu'une plainte ou
+     un rejet définitif désinscrit l'adresse, désinscrire qui il veut. */
+  if (!secret) {
+    console.error('[webhook/resend] RESEND_WEBHOOK_SECRET absent : évènement refusé');
+    return NextResponse.json({ error: 'Webhook non configuré' }, { status: 503 });
+  }
+  if (!verifySignature(rawBody, req.headers, secret)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
@@ -64,6 +71,23 @@ export async function POST(req: NextRequest) {
       event_type:      eventType,
     });
   } catch { /* non bloquant */ }
+
+  /* Plainte (« c'est un spam ») ou rejet définitif : l'adresse rejoint la
+     liste d'opposition, que les campagnes, les automations et les
+     relances de panier respectent. Un rejet temporaire (boîte pleine…)
+     ne compte pas. */
+  const typeRejet = String(data?.bounce?.type || '').toLowerCase();
+  const definitif = eventType === 'complained'
+    || (eventType === 'bounced' && typeRejet !== 'transient' && typeRejet !== 'temporary');
+  if (definitif) {
+    const destinataires: string[] = (Array.isArray(data.to) ? data.to : [data.to])
+      .map((e: unknown) => String(e || '').trim().toLowerCase()).filter((e: string) => e.includes('@'));
+    for (const email of destinataires) {
+      const { error } = await supabaseAdmin.from('email_optouts')
+        .upsert({ email, source: eventType === 'complained' ? 'plainte' : 'rejet' }, { onConflict: 'email', ignoreDuplicates: true });
+      if (error) console.error('[webhook/resend] opposition non enregistrée', email, error.message);
+    }
+  }
 
   // Increment campaign counter
   if (campaignId) {

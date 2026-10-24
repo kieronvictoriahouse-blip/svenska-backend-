@@ -10,6 +10,7 @@ import { SqueletteTable, SqueletteListe } from '@/components/Squelette';
 import { useT, nomProduit } from '@/lib/admin-i18n';
 import { useIsMobile } from '@/lib/use-mobile';
 import { ADMIN_SEARCH_EVENT } from '@/lib/admin-nav';
+import { resolveDiscount, effectiveUnitPrice, DiscountFields } from '@/lib/product-price';
 import { TPR } from './i18n';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -25,6 +26,10 @@ type Product = {
   category_id?: string; is_active?: boolean;
   stock?: number; stock_alert?: number; track_stock?: boolean;
   sort_order?: number;
+  discount_type?: string | null; discount_value?: number | string | null;
+  discount_start?: string | null; discount_end?: string | null;
+  categories?: DiscountFields | null;
+  product_variants?: Array<{ label: string; price: number; sort_order?: number }>;
 };
 type Category = { id: string; name_fr: string; emoji?: string };
 
@@ -34,7 +39,11 @@ type Category = { id: string; name_fr: string; emoji?: string };
    suivait le seuil du produit : deux verites a l'ecran. */
 const LOW_STOCK = 12;
 const seuilDe = (p: Product) => p.stock_alert ?? LOW_STOCK;
-const TVA_RATE = 1.055;          // marge = (PV/1,055 − PA) / (PV/1,055)
+
+/** Prix payé par le client aujourd'hui : remise du produit, sinon de sa
+ *  catégorie — la règle du checkout (lib/product-price), pas une copie. */
+const prixEffectif = (p: Product) =>
+  effectiveUnitPrice(Number(p.price) || 0, resolveDiscount(p, p.categories));
 
 /** Référence affichée : la base n'a pas de champ SKU, on la dérive du sort_order. */
 /* Reference stable, colonne `sku` (migration 036). Le repli sur
@@ -44,11 +53,15 @@ const TVA_RATE = 1.055;          // marge = (PV/1,055 − PA) / (PV/1,055)
 const refOf = (p: any) =>
   p.sku || (p.sort_order ? `SC-${String(p.sort_order).padStart(4, '0')}` : String(p.id).slice(0, 6).toUpperCase());
 
-const marginPct = (price: number, cost?: number) => {
-  const ht = (Number(price) || 0) / TVA_RATE;
-  const c = Number(cost) || 0;
-  if (!ht || !c) return null;
-  return Math.round(((ht - c) / ht) * 100);
+/* Marge = (prix encaissé − PA) / prix encaissé : la même que sur la fiche
+   produit. L'ancienne formule retirait d'abord une TVA de 5,5 % que la
+   boutique ne facture pas (franchise en base, art. 293 B du CGI), et
+   ignorait les promos : la liste et la fiche affichaient deux marges. */
+const marginPct = (p: Product) => {
+  const pv = prixEffectif(p);
+  const c = Number(p.cost_price) || 0;
+  if (!pv || !c) return null;
+  return Math.round(((pv - c) / pv) * 100);
 };
 
 export default function ProduitsPage() {
@@ -129,18 +142,29 @@ export default function ProduitsPage() {
   const catName = (id?: string) => categories.find(c => c.id === id)?.name_fr || '—';
 
   /* ── Actions groupées ─────────────────────────────────── */
+  /* Chaque écriture est vérifiée : avant, l'écran annonçait « N produits
+     dépubliés / supprimés / prix ajustés » sans regarder les réponses.
+     Seuls les produits réellement modifiés changent à l'écran ; ceux en
+     échec restent sélectionnés pour réessayer. */
+  async function surChacun(ids: string[], appel: (id: string) => Promise<Response>) {
+    const oks = await Promise.all(ids.map(id => appel(id).then(r => r.ok).catch(() => false)));
+    return { ok: ids.filter((_, i) => oks[i]), ko: ids.filter((_, i) => !oks[i]) };
+  }
+  const bilan = (ok: number, ko: number, verbe: string) =>
+    ko ? `${ok} produit(s) ${verbe}, ${ko} en échec — réessaie` : `${ok} produit(s) ${verbe}`;
+
   async function bulkUnpublish() {
     if (!sel.size) return;
     setBusy(true);
     try {
-      await Promise.all(Array.from(sel).map(id =>
+      const { ok, ko } = await surChacun(Array.from(sel), id =>
         adminFetch(`/api/products/${id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_active: false }),
-        })));
-      setProducts(ps => ps.map(p => sel.has(p.id) ? { ...p, is_active: false } : p));
-      say(`${sel.size} produit(s) dépublié(s)`);
-      setSel(new Set());
+        }));
+      setProducts(ps => ps.map(p => ok.includes(p.id) ? { ...p, is_active: false } : p));
+      say(bilan(ok.length, ko.length, 'dépublié(s)'));
+      setSel(new Set(ko));
     } finally { setBusy(false); }
   }
 
@@ -149,45 +173,67 @@ export default function ProduitsPage() {
     if (!window.confirm(`Supprimer définitivement ${sel.size} produit(s) ? Cette action est irréversible.`)) return;
     setBusy(true);
     try {
-      await Promise.all(Array.from(sel).map(id => adminFetch(`/api/products/${id}`, { method: 'DELETE' })));
-      setProducts(ps => ps.filter(p => !sel.has(p.id)));
-      say(`${sel.size} produit(s) supprimé(s)`);
-      setSel(new Set());
+      const { ok, ko } = await surChacun(Array.from(sel), id => adminFetch(`/api/products/${id}`, { method: 'DELETE' }));
+      setProducts(ps => ps.filter(p => !ok.includes(p.id)));
+      say(bilan(ok.length, ko.length, 'supprimé(s)'));
+      setSel(new Set(ko));
     } finally { setBusy(false); }
   }
 
   async function bulkPrice() {
     const pct = parseFloat(pricePct.replace(',', '.'));
     if (!pct || Number.isNaN(pct)) { say(t('msgPourcent')); return; }
+    // −100 % ou moins : prix nul ou négatif, refusé par la fiche.
+    if (pct <= -100) { say('Une baisse de 100 % ou plus mettrait les prix à 0 €.'); return; }
+    const nouveau = (prix: number) => Math.round((Number(prix) || 0) * (1 + pct / 100) * 100) / 100;
     setBusy(true);
     try {
       const targets = products.filter(p => sel.has(p.id));
-      await Promise.all(targets.map(p => {
-        const next = Math.round((Number(p.price) || 0) * (1 + pct / 100) * 100) / 100;
-        return adminFetch(`/api/products/${p.id}`, {
+      const { ok, ko } = await surChacun(targets.map(p => p.id), id => {
+        const p = targets.find(x => x.id === id)!;
+        /* Les variantes suivent : sinon « +5 % » montait le prix affiché
+           mais pas celui du 250 g que le client met au panier. */
+        const variantes = (p.product_variants || []).slice()
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map(v => ({ label: v.label, price: nouveau(v.price) }));
+        return adminFetch(`/api/products/${id}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ price: next }),
+          body: JSON.stringify(variantes.length ? { price: nouveau(p.price), variants: variantes } : { price: nouveau(p.price) }),
         });
-      }));
-      setProducts(ps => ps.map(p => sel.has(p.id)
-        ? { ...p, price: Math.round((Number(p.price) || 0) * (1 + pct / 100) * 100) / 100 } : p));
-      say(`Prix ajustés de ${pct > 0 ? '+' : ''}${pct} % sur ${targets.length} produit(s)`);
-      setPriceModal(false); setPricePct(''); setSel(new Set());
+      });
+      setProducts(ps => ps.map(p => ok.includes(p.id)
+        ? { ...p, price: nouveau(p.price), product_variants: (p.product_variants || []).map(v => ({ ...v, price: nouveau(v.price) })) } : p));
+      say(ko.length ? bilan(ok.length, ko.length, 'mis à jour') : `Prix ajustés de ${pct > 0 ? '+' : ''}${pct} % sur ${ok.length} produit(s)`);
+      if (!ko.length) { setPriceModal(false); setPricePct(''); }
+      setSel(new Set(ko));
     } finally { setBusy(false); }
   }
 
   async function duplicate(p: Product) {
     setBusy(true);
     try {
-      const { id, ...rest } = p as any;
+      /* Copie de la FICHE, pas de la ligne de liste : sans catégorie
+         embarquée ni variantes brutes (colonnes inconnues → refus), sans
+         EAN ni référence (uniques → refus), sans stock (la copie n'a
+         encore rien en rayon). L'écran annonçait l'échec à chaque fois. */
+      const {
+        id: _id, categories: _c, product_variants, lot_disponible: _l, created_at: _ca, updated_at: _u,
+        ean: _e, sku: _s, stock: _st, ...rest
+      } = p as any;
+      const variants = (product_variants || []).slice()
+        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((v: any) => ({ label: v.label, price: v.price }));
       const res = await adminFetch('/api/products', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...rest, name_fr: `${p.name_fr} (copie)`, is_active: false }),
+        body: JSON.stringify({ ...rest, variants, name_fr: `${p.name_fr} (copie)`, is_active: false }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || '');
+      }
       say(t('msgDuplique'));
       load();
-    } catch { say(t('msgDupliqueKo')); }
+    } catch (e: any) { say(e?.message ? `${t('msgDupliqueKo')} ${e.message}` : t('msgDupliqueKo')); }
     finally { setBusy(false); }
   }
 
@@ -218,10 +264,12 @@ export default function ProduitsPage() {
 
   /** Publier / dépublier un produit (ligne du tableau et menu mobile). */
   async function togglePublish(p: Product) {
-    await adminFetch(`/api/products/${p.id}`, {
+    const res = await adminFetch(`/api/products/${p.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_active: !p.is_active }),
-    });
+    }).catch(() => null);
+    // Échec : l'écran garde l'état réel au lieu d'afficher « publié ».
+    if (!res || !res.ok) { say('Modification non enregistrée — réessaie'); return; }
     setProducts(ps => ps.map(x => x.id === p.id ? { ...x, is_active: !p.is_active } : x));
     say(p.is_active ? 'Produit masqué' : 'Produit publié');
   }
@@ -415,7 +463,7 @@ export default function ProduitsPage() {
                   const qty = p.stock ?? 0;
                   const thr = seuilDe(p);
                   const gaugeMax = Math.max(qty, thr * 4, 1);
-                  const m = marginPct(p.price, p.cost_price);
+                  const m = marginPct(p);
                   const st = statusOf(p);
                   return (
                     <tr key={p.id} style={checked ? { background: 'color-mix(in srgb, var(--accent) 4%, transparent)' } : undefined}>
@@ -430,7 +478,12 @@ export default function ProduitsPage() {
                         </Link>
                       </td>
                       <td>{catName(p.category_id)}</td>
-                      <td className="sc-num sc-right">{eur(p.price)}</td>
+                      <td className="sc-num sc-right">
+                        {/* Promo en cours (produit ou catégorie) : prix barré + prix payé */}
+                        {prixEffectif(p) < (Number(p.price) || 0)
+                          ? <><s style={{ display: 'block', color: T.muted3, fontWeight: 400, fontSize: 11, whiteSpace: 'nowrap' }}>{eur(p.price)}</s><span style={{ color: T.red, whiteSpace: 'nowrap' }}>{eur(prixEffectif(p))}</span></>
+                          : eur(p.price)}
+                      </td>
                       {showCosts && <td className="sc-num sc-right" style={{ color: T.muted }}>{p.cost_price ? eur(p.cost_price) : '—'}</td>}
                       {showCosts && <td className="sc-num sc-right" style={{ color: m != null ? T.green : T.muted3, fontWeight: 600 }}>{m != null ? `${m} %` : '—'}</td>}
                       <td>
@@ -474,7 +527,7 @@ export default function ProduitsPage() {
           {filtered.map(p => {
             const st = statusOf(p);
             const on = sel.has(p.id);
-            const m = marginPct(p.price, p.cost_price);
+            const m = marginPct(p);
             const body = (
               <>
                 {selectMode && (
@@ -487,7 +540,13 @@ export default function ProduitsPage() {
                   <div className="pr-card-name">{nomProduit(p, lang)}</div>
                   <div className="pr-card-meta">{refOf(p)} · {catName(p.category_id)}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
-                    <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>{eur(p.price)}</span>
+                    {prixEffectif(p) < (Number(p.price) || 0) ? (
+                      <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.red }}>
+                        <s style={{ color: T.muted3, fontWeight: 400, fontSize: 12.5, marginRight: 4 }}>{eur(p.price)}</s>{eur(prixEffectif(p))}
+                      </span>
+                    ) : (
+                      <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>{eur(p.price)}</span>
+                    )}
                     <span className="sc-badge" style={{ background: BADGE[st.tone].bg, color: BADGE[st.tone].fg }}>{st.label}</span>
                     {p.track_stock && <span className="sc-num" style={{ fontSize: 12.5, color: stockColor(p.stock ?? 0, seuilDe(p)), fontWeight: 600 }}>{p.stock ?? 0} en stock</span>}
                   </div>

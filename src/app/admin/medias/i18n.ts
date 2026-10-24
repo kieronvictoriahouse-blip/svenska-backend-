@@ -5,6 +5,7 @@ export const TME = {
   copierUrl: { fr: 'Copier l’URL', en: 'Copy the URL', sv: 'Kopiera URL:en' },
   msgSupprime: { fr: 'Fichier supprimé', en: 'File deleted', sv: 'Filen borttagen' },
   msgUrlCopiee: { fr: 'URL copiée', en: 'URL copied', sv: 'URL kopierad' },
+  msgSupprKo: { fr: 'Suppression impossible — réessaie', en: 'Could not delete — try again', sv: 'Kunde inte ta bort — försök igen' },
 };
 
 export const imagesEnvoyees = (n: number, lang: string) =>

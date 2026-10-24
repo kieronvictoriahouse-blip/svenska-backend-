@@ -32,7 +32,7 @@ const CURRENCIES = ['EUR', 'SEK', 'NOK', 'DKK', 'GBP', 'USD'];
 
 const T = {
   title:        { fr: 'Commandes d\'achat', en: 'Purchase orders', sv: 'Inköpsorder' },
-  newBtn:       { fr: '+ Nouvelle commande', en: '+ New order', sv: '+ Ny order' },
+  newBtn:       { fr: 'Nouvelle commande', en: 'New order', sv: 'Ny order' },
   newTitle:     { fr: 'Nouvelle commande d\'achat', en: 'New purchase order', sv: 'Ny inköpsorder' },
   editTitle:    { fr: 'Modifier la commande d\'achat', en: 'Edit purchase order', sv: 'Redigera inköpsorder' },
   editBtn:      { fr: '✏️', en: '✏️', sv: '✏️' },
@@ -60,6 +60,7 @@ const T = {
   recTitle:     { fr: '📬 Réception', en: '📬 Reception', sv: '📬 Mottagning' },
   ordered:      { fr: 'Commandé', en: 'Ordered', sv: 'Beställt' },
   receivedQty:  { fr: 'Reçu', en: 'Received', sv: 'Mottaget' },
+  alreadyReceived: { fr: 'Déjà reçu', en: 'Already received', sv: 'Redan mottaget' },
   recWarning:   { fr: '⚠️ La validation de cette réception mettra à jour le stock automatiquement.', en: '⚠️ Validating this reception will update stock automatically.', sv: '⚠️ Bekräftelse av mottagningen uppdaterar lagret automatiskt.' },
   recValidate:  { fr: '✅ Valider la réception', en: '✅ Validate reception', sv: '✅ Bekräfta mottagning' },
 };
@@ -98,6 +99,10 @@ export default function AchatsPage() {
   const [sendLang, setSendLang] = useState<'sv' | 'en'>('sv');
   const [sendEmailInput, setSendEmailInput] = useState('');
   const [sendingPdf, setSendingPdf] = useState(false);
+  /* Double clic sur « Créer » / « Valider la réception » : deux commandes,
+     ou deux entrées en stock. Les boutons se bloquent pendant l'envoi. */
+  const [saving, setSaving] = useState(false);
+  const [recSaving, setRecSaving] = useState(false);
   /* Téléphone : cartes au lieu des tableaux, actions secondaires dans « ⋯ ». */
   const mobile = useIsMobile();
   const [plus, setPlus] = useState(false);
@@ -148,8 +153,20 @@ export default function AchatsPage() {
     setProducts(data.products || []);
   }
 
+  /** Reconvertit toutes les lignes au taux donné. */
+  const reconvertir = (rate: number) => setForm(f => ({
+    ...f,
+    lines: f.lines.map(l => ({
+      ...l,
+      unit_cost_eur: parseFloat(((l.unit_cost || 0) * rate).toFixed(4)),
+      total: parseFloat(((l.qty || 0) * (l.unit_cost || 0) * rate).toFixed(2)),
+    })),
+  }));
+
   async function fetchExchangeRate(curr = currency) {
-    if (curr === 'EUR') { setExchangeRate(1); return; }
+    /* Retour à l'euro : les lignes gardaient leur conversion en couronnes
+       — le champ affichait 29,90 € et la commande partait à 2,62 €. */
+    if (curr === 'EUR') { setExchangeRate(1); reconvertir(1); return; }
     setFetchingRate(true);
     try {
       const res = await adminFetch(`/api/exchange-rate?from=${curr}&to=EUR&date=${paymentDate}`);
@@ -157,14 +174,7 @@ export default function AchatsPage() {
       const rate = data.rate;
       if (rate) {
         setExchangeRate(rate);
-        setForm(f => ({
-          ...f,
-          lines: f.lines.map(l => ({
-            ...l,
-            unit_cost_eur: parseFloat((l.unit_cost * rate).toFixed(4)),
-            total: parseFloat((l.qty * l.unit_cost * rate).toFixed(2)),
-          })),
-        }));
+        reconvertir(rate);
         showToast(tauxDuJour(curr, rate, data.date, L));
       }
     } catch {
@@ -196,50 +206,102 @@ export default function AchatsPage() {
 
   const subtotalEur = form.lines.reduce((s, l) => s + (l.total || 0), 0);
 
+  const formVide = () => ({
+    status: 'draft', supplier_id: '', expected_date: '', notes: '',
+    lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }],
+  });
+  /* Fermer une MODIFICATION vide le formulaire : sinon « Commander » sur
+     une suggestion ajoutait sa ligne aux lignes de la commande rouverte,
+     et créait une nouvelle commande qui les recopiait. Une saisie neuve
+     fermée sans enregistrer, elle, reste en brouillon à l'écran. */
+  const fermerSaisie = () => {
+    if (editingOrder) setForm(formVide());
+    setShowModal(false);
+    setEditingOrder(null);
+  };
+
   async function saveOrder() {
+    if (saving) return;
     if (!form.supplier_id) { showToast('⚠️ ' + t('supplier')); return; }
     if (currency !== 'EUR' && !exchangeRate) { showToast(t2('msgTauxManquant')); return; }
-    const token = localStorage.getItem('sd_admin_token') || '';
+    /* La ligne vide ajoutée d'office partait telle quelle : une ligne
+       sans produit ni quantité dans la commande, comptée dans « Lignes ».
+       Une ligne avec produit doit porter une quantité. */
+    const lignes = form.lines.filter(l => l.product_id || (Number(l.qty) || 0) > 0 || (Number(l.unit_cost) || 0) > 0);
+    if (!lignes.length) { showToast('⚠️ ' + t('linesTitle')); return; }
+    if (lignes.some(l => !l.product_id || !((Number(l.qty) || 0) > 0))) {
+      showToast('⚠️ ' + tc('product') + ' · ' + tc('qty')); return;
+    }
     const supplier = suppliers.find(s => s.id === form.supplier_id);
     const url = editingOrder ? `/api/purchase-orders/${editingOrder.id}` : '/api/purchase-orders';
     const method = editingOrder ? 'PUT' : 'POST';
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        ...form,
-        supplier_name: supplier?.company || `${supplier?.first_name} ${supplier?.last_name}`,
-        subtotal: subtotalEur,
-        total: subtotalEur,
-        currency,
-        exchange_rate: exchangeRate,
-        payment_date: currency !== 'EUR' ? paymentDate : undefined,
-        lines: form.lines.map(l => ({ ...l, unit_cost: l.unit_cost_eur || l.unit_cost })),
-      }),
-    });
-    if (!res.ok) { const e = await res.json(); showToast('❌ ' + (e?.error || 'Erreur serveur')); return; }
-    showToast(editingOrder ? '✅ Commande modifiée' : '✅ ' + t('newBtn'));
-    setShowModal(false);
-    setEditingOrder(null);
-    load();
+    setSaving(true);
+    try {
+      const res = await adminFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...form,
+          supplier_name: supplier?.company || `${supplier?.first_name || ''} ${supplier?.last_name || ''}`.trim(),
+          subtotal: Math.round(subtotalEur * 100) / 100,
+          total: Math.round(subtotalEur * 100) / 100,
+          currency,
+          exchange_rate: exchangeRate,
+          payment_date: currency !== 'EUR' ? paymentDate : undefined,
+          /* `unit_cost` part en euros (le bon, la réception et le PMP le
+             lisent ainsi). Le prix saisi dans la devise de la commande
+             reste dans `unit_cost_devise` : sans lui, rouvrir une commande
+             en SEK affichait les euros comme des couronnes, et la moindre
+             retouche les reconvertissait (× 0,0876). */
+          lines: lignes.map(l => ({
+            ...l,
+            unit_cost_devise: l.unit_cost,
+            unit_cost: l.unit_cost_eur || l.unit_cost,
+          })),
+        }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); showToast('❌ ' + (e?.error || 'Erreur serveur')); return; }
+      showToast(editingOrder ? '✅ Commande modifiée' : '✅ Commande créée');
+      // Enregistrée : la prochaine saisie repart de zéro.
+      setForm(formVide());
+      setShowModal(false);
+      setEditingOrder(null);
+      load();
+    } catch { showToast('❌ Erreur réseau'); }
+    finally { setSaving(false); }
   }
 
   async function updateStatus(id: string, status: string) {
-    await adminFetch(`/api/purchase-orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
-    showToast('✅ ' + tc('status'));
+    /* Le toast annonçait le changement même quand l'API le refusait. */
+    try {
+      const res = await adminFetch(`/api/purchase-orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); showToast('❌ ' + (e?.error || 'Erreur serveur')); }
+      else showToast('✅ ' + tc('status'));
+    } catch { showToast('❌ Erreur réseau'); }
     load();
   }
 
   function openEdit(order: PurchaseOrder) {
+    const devise = order.currency || 'EUR';
+    const taux = Number(order.exchange_rate) || 0;
     const lines = (typeof order.lines === 'string' ? JSON.parse(order.lines) : order.lines || [])
-      .map((l: any) => ({
-        product_id: l.product_id || '',
-        name: l.name || '',
-        qty: l.qty || 0,
-        unit_cost: l.unit_cost || 0,
-        unit_cost_eur: l.unit_cost_eur || l.unit_cost || 0,
-        total: l.total || 0,
-      }));
+      .map((l: any) => {
+        const eurU = Number(l.unit_cost_eur ?? l.unit_cost) || 0;
+        /* Le champ de saisie est dans la devise de la commande. `unit_cost`
+           est stocké en euros : on reprend le prix saisi (unit_cost_devise)
+           ou, à défaut, on reconvertit l'euro au taux de la commande. */
+        const enDevise = l.unit_cost_devise != null ? Number(l.unit_cost_devise) || 0
+          : devise !== 'EUR' && taux > 0 ? Math.round((eurU / taux) * 100) / 100
+          : Number(l.unit_cost) || 0;
+        return {
+          product_id: l.product_id || '',
+          name: l.name || '',
+          qty: l.qty || 0,
+          unit_cost: enDevise,
+          unit_cost_eur: eurU,
+          total: l.total || 0,
+        };
+      });
     setForm({
       status: order.status || 'draft',
       supplier_id: order.supplier_id || '',
@@ -256,8 +318,16 @@ export default function AchatsPage() {
 
   async function openReception(order: PurchaseOrder) {
     setSelected(order);
+    /* Pré-rempli avec le RELIQUAT, pas avec la quantité commandée : sur
+       une commande partielle, valider sans retoucher faisait entrer une
+       seconde fois ce qui était déjà en rayon. `received_qty` d'une ligne
+       de commande = cumul déjà reçu (tenu par le serveur) ; dans la ligne
+       de réception, il devient la quantité reçue cette fois-ci. */
     const lines = (typeof order.lines === 'string' ? JSON.parse(order.lines) : order.lines || [])
-      .map((l: any) => ({ ...l, received_qty: l.qty }));
+      .map((l: any) => {
+        const deja = Math.max(0, Number(l.received_qty) || 0);
+        return { ...l, deja_recu: deja, received_qty: Math.max(0, (Number(l.qty) || 0) - deja) };
+      });
     setRecForm({ notes: '', invoice_id: '', lines });
     setShowReception(true);
   }
@@ -318,21 +388,36 @@ export default function AchatsPage() {
   }
 
   async function saveReception() {
-    if (!selected) return;
-    const token = localStorage.getItem('sd_admin_token') || '';
-    const res = await adminFetch('/api/receptions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ...recForm, purchase_order_id: selected.id, supplier_id: selected.supplier_id, supplier_name: selected.supplier_name }),
-    });
-    if (!res.ok) { const e = await res.json(); showToast('❌ ' + (e?.error || 'Erreur serveur')); return; }
-    showToast('✅ ' + tc('save'));
-    setShowReception(false);
-    load();
+    if (!selected || recSaving) return;
+    if (!recForm.lines.some((l: any) => (Number(l.received_qty) || 0) > 0)) {
+      showToast('⚠️ ' + t('receivedQty') + ' = 0'); return;
+    }
+    setRecSaving(true);
+    try {
+      const res = await adminFetch('/api/receptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...recForm, purchase_order_id: selected.id, supplier_id: selected.supplier_id, supplier_name: selected.supplier_name }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast('❌ ' + (d?.error || 'Erreur serveur')); return; }
+      /* Le serveur dit si la commande est soldée ou s'il reste un reliquat,
+         et si une ligne n'a pas pu entrer en stock. */
+      const statut = d.statut_commande ? ` · ${(STATUSES as any)[d.statut_commande]?.[L] || d.statut_commande}` : '';
+      showToast(d.warning ? '⚠️ ' + d.warning : '✅ ' + (d.reception?.number || tc('save')) + statut);
+      setShowReception(false);
+      load();
+    } catch { showToast('❌ Erreur réseau'); }
+    finally { setRecSaving(false); }
   }
 
   const totalOrders = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.total, 0);
-  const pendingCount = orders.filter(o => ['draft', 'sent', 'confirmed'].includes(o.status)).length;
+  const pendingCount = orders.filter(o => ['draft', 'sent', 'confirmed', 'partial'].includes(o.status)).length;
+  /* Réceptionnable : une commande envoyée au magasin (statut posé
+     automatiquement après l'envoi du bon) l'est autant qu'une commande
+     confirmée — il fallait la repasser à la main en « Confirmée » pour
+     voir apparaître le bouton. */
+  const receptionnable = (o: PurchaseOrder) => ['sent', 'confirmed', 'partial'].includes(o.status);
 
   const css = `
     /* Achats — classes historiques remappees sur les tokens du nouveau
@@ -397,6 +482,32 @@ export default function AchatsPage() {
     .ac-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); gap:10px; margin-bottom:12px; }
     .sc-actions > .ac-plus { flex:0 0 48px; width:48px; padding:0; justify-content:center; }
 
+    /* ═══ Fenêtres « Saisie manuelle » et « Réception » ═════════
+       Primitives du shell (.sc-modal, .sc-input, .sc-label, .sc-grid-*,
+       .sc-table). Elles reposaient sur des classes jamais définies sur
+       ordinateur (grid-2, lines-table, lines-input…) : champs nus du
+       navigateur, tableau sans style. Les règles téléphone suivent. */
+    @media (min-width:900px) { .sc-modal.ac-modal-l { max-width:780px; } }
+    .ac-modal-titre { font-size:15px; font-weight:700; color:${TH.ink}; min-width:0; }
+    .ac-bloc { margin-bottom:14px; }
+    .ac-section { font-size:10px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:${TH.muted}; margin-bottom:8px; }
+    .ac-devise { border:1px solid ${TH.border}; border-radius:10px; padding:12px 14px; margin-bottom:14px; background:${TH.surfaceAlt}; }
+    .ac-devise-titre { display:flex; align-items:center; gap:6px; font-size:10px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:${TH.blue}; margin-bottom:10px; }
+    .ac-devise-titre .ms { font-size:16px; }
+    .ac-devise-act { display:flex; align-items:flex-end; }
+    .ac-devise-act .sc-btn { width:100%; justify-content:center; height:34px; }
+    .ac-devise-info { font-size:12px; color:${TH.muted}; padding-bottom:9px; }
+    .ac-taux { font-size:12px; margin-top:10px; color:${TH.green}; }
+    .ac-lignes-wrap { border:1px solid ${TH.border}; border-radius:8px; overflow:hidden; }
+    .ac-lignes td { vertical-align:middle; }
+    .ac-lignes .sc-input { height:32px; }
+    .ac-lignes .ac-num { text-align:right; white-space:nowrap; }
+    .ac-lignes .ac-retirer { width:44px; text-align:right; }
+    .ac-ajout { margin-top:8px; }
+    .ac-total { display:flex; justify-content:space-between; align-items:baseline; padding:12px 0; margin-bottom:12px; border-top:1px solid ${TH.border}; font-size:13px; font-weight:600; color:${TH.ink}; }
+    .ac-total .sc-num { font-size:18px; font-weight:700; }
+    .ac-avert { background:#FDF6EA; border:1px solid #E8CFA8; border-radius:8px; padding:10px 13px; margin-bottom:14px; font-size:12.5px; color:#8A5B08; line-height:1.5; }
+
     /* ═══ Téléphone ═══════════════════════════════════════════
        Liste : cartes (commandes, suggestions) au lieu de tableaux de
        760–800 px. Fenêtres : plein écran, en-tête et pied collés, champs
@@ -433,20 +544,26 @@ export default function AchatsPage() {
       .form-control { height:44px; font-size:16px; }
       textarea.form-control { height:auto; }
       .form-hint { font-size:12px; }
-      .grid-2, .grid-3 { display:grid; grid-template-columns:minmax(0,1fr); gap:0 12px; }
-      .currency-box { border:1px solid ${TH.border}; border-radius:10px; padding:12px; margin-bottom:14px; }
-      .currency-box .form-group { margin-bottom:10px !important; }
-      .rate-info { font-size:13px; margin-top:8px; color:${TH.green}; }
-      .totals-box { font-size:16px; font-weight:700; color:${TH.ink}; padding:12px 0; border-top:1px solid ${TH.border}; margin-top:8px; }
-      .lines-table, .lines-table tbody { display:block; width:100%; }
-      .lines-table thead { display:none; }
-      .lines-table tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px 0; border-bottom:1px solid ${TH.border}; align-items:end; }
-      .lines-table td { display:block; padding:0 !important; min-width:0; font-size:14px; }
-      .lines-table td:first-child { grid-column:1 / -1; }
-      .lines-table td[data-label]::before { content:attr(data-label); display:block; font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:${TH.muted}; margin-bottom:4px; }
-      .lines-table td.ac-retirer { grid-column:1 / -1; justify-self:end; }
-      .lines-table td.ac-retirer button { min-height:44px; padding:0 12px !important; font-size:14px; }
-      .lines-input { width:100% !important; height:44px; font-size:16px; border:1px solid ${TH.borderField}; border-radius:7px; padding:0 10px; background:#fff; color:${TH.ink}; }
+      /* Lignes des fenêtres de saisie et de réception : une carte par
+         ligne, produit sur toute la largeur, chiffres deux par deux. */
+      .ac-lignes-wrap { border:none; border-radius:0; }
+      .ac-lignes, .ac-lignes tbody { display:block; width:100%; }
+      .ac-lignes thead { display:none; }
+      .ac-lignes tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px 0; border-bottom:1px solid ${TH.border}; align-items:end; }
+      .ac-lignes td { display:block; padding:0 !important; min-width:0; font-size:14px; border:none; }
+      .ac-lignes td:first-child { grid-column:1 / -1; }
+      .ac-lignes td[data-label]::before { content:attr(data-label); display:block; font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:${TH.muted}; margin-bottom:4px; }
+      .ac-lignes .ac-num { text-align:left; }
+      .ac-lignes td.ac-retirer { grid-column:1 / -1; justify-self:end; width:auto; }
+      .ac-lignes td.ac-retirer button { min-height:44px; padding:0 12px !important; font-size:14px; }
+      .ac-lignes .sc-input { height:44px; }
+      .ac-lignes tbody tr:hover td { background:none; }
+      .ac-devise { padding:12px; }
+      .ac-devise-act .sc-btn { height:44px; }
+      .ac-devise-info { padding-bottom:0; font-size:13px; }
+      .ac-taux { font-size:13px; }
+      .ac-total { font-size:15px; }
+      .ac-modal-l .sc-modal-foot > .sc-btn { flex:1 1 0; justify-content:center; }
     }
   `;
 
@@ -479,7 +596,7 @@ export default function AchatsPage() {
   ];
 
   const ouvrirSaisieManuelle = () => {
-    setForm({ status: 'draft', supplier_id: '', expected_date: '', notes: '', lines: [{ product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] });
+    setForm(formVide());
     setCurrency('EUR'); setExchangeRate(null); setPaymentDate(new Date().toISOString().slice(0, 10));
     setEditingOrder(null); setShowModal(true);
   };
@@ -751,7 +868,7 @@ export default function AchatsPage() {
                     <span className="ms">send</span>
                   </button>
                 </div>
-                {['confirmed', 'partial'].includes(o.status) && (
+                {receptionnable(o) && (
                   <button className="sc-btn sc-btn-green" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
                           onClick={() => openReception(o)}>
                     <span className="ms">local_shipping</span>{t('reception').replace('📬 ', '')}
@@ -835,7 +952,7 @@ export default function AchatsPage() {
                         <button className="sc-iconbtn" onClick={() => openSendModal(o)} title={t2('pdfEnvoyer')}>
                           <span className="ms">send</span>
                         </button>
-                        {['confirmed', 'partial'].includes(o.status) && (
+                        {receptionnable(o) && (
                           <button className="sc-btn sc-btn-secondary" style={{ padding: '4px 9px', fontSize: 11 }}
                                   onClick={() => openReception(o)}>
                             <span className="ms" style={{ fontSize: 15 }}>local_shipping</span>{t('reception')}
@@ -853,116 +970,145 @@ export default function AchatsPage() {
       )}
 
         {showModal && (
-          <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setEditingOrder(null); } }}>
-            <div className="modal">
-              <div className="modal-header">
-                <span className="modal-title">{editingOrder ? `${t('editTitle')} — ${editingOrder.number}` : t('newTitle')}</span>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setShowModal(false); setEditingOrder(null); }}>✕</button>
+          /* Saisie manuelle : primitives du shell, fenêtre centrée sur
+             ordinateur, plein écran sur téléphone (.sc-modal). */
+          <div className="sc-modal-back" onClick={e => { if (e.target === e.currentTarget) fermerSaisie(); }}>
+            <div className="sc-modal ac-modal-l" role="dialog" aria-modal="true" aria-labelledby="ac-saisie-titre">
+              <div className="sc-modal-head">
+                <div id="ac-saisie-titre" className="ac-modal-titre">{editingOrder ? `${t('editTitle')} — ${editingOrder.number}` : t('newTitle')}</div>
+                <button type="button" className="sc-iconbtn" onClick={fermerSaisie} aria-label={tc('close')}>
+                  <span className="ms">close</span>
+                </button>
               </div>
-              <div className="modal-body">
-                <div className="grid-2" style={{ marginBottom: 14 }}>
-                  <div className="form-group">
-                    <label className="form-label">{t('supplier')}</label>
-                    <select className="form-control" value={form.supplier_id} onChange={e => setForm(f => ({ ...f, supplier_id: e.target.value }))}>
+              <div className="sc-modal-body">
+                <div className="sc-grid-2 ac-bloc">
+                  <div>
+                    <label className="sc-label" htmlFor="ac-fournisseur">{t('supplier')}</label>
+                    <select id="ac-fournisseur" className="sc-input sc-select" value={form.supplier_id} onChange={e => setForm(f => ({ ...f, supplier_id: e.target.value }))}>
                       <option value="">{t('chooseSupplier')}</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.company || `${s.first_name} ${s.last_name}`}</option>)}
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.company || `${s.first_name || ''} ${s.last_name || ''}`.trim()}</option>)}
                     </select>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">{t('expectedDate')}</label>
-                    <input type="date" className="form-control" value={form.expected_date} onChange={e => setForm(f => ({ ...f, expected_date: e.target.value }))} />
+                  <div>
+                    <label className="sc-label" htmlFor="ac-attendue">{t('expectedDate')}</label>
+                    <input id="ac-attendue" type="date" className="sc-input" value={form.expected_date} onChange={e => setForm(f => ({ ...f, expected_date: e.target.value }))} />
                   </div>
                 </div>
                 {editingOrder && (
-                  <div className="form-group" style={{ marginBottom: 14 }}>
-                    <label className="form-label">{tc('status')}</label>
-                    <select className="form-control" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                  <div className="ac-bloc">
+                    <label className="sc-label" htmlFor="ac-statut">{tc('status')}</label>
+                    <select id="ac-statut" className="sc-input sc-select" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                       {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v[L] || v.fr}</option>)}
                     </select>
                   </div>
                 )}
 
-                {/* Currency conversion */}
-                <div className="currency-box">
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#0369A1', marginBottom: 10 }}>
-                    💱 {t('currency')}
-                  </div>
-                  <div className="grid-3">
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">{t('currency')}</label>
-                      <select className="form-control" value={currency} onChange={e => { const c = e.target.value; setCurrency(c); setExchangeRate(null); if (c !== 'EUR') fetchExchangeRate(c); }}>
+                {/* Devise et conversion */}
+                <div className="ac-devise">
+                  <div className="ac-devise-titre"><span className="ms">currency_exchange</span>{t('currency')}</div>
+                  <div className="sc-grid-3">
+                    <div>
+                      <label className="sc-label" htmlFor="ac-devise">{t('currency')}</label>
+                      <select id="ac-devise" className="sc-input sc-select" value={currency} onChange={e => { const c = e.target.value; setCurrency(c); setExchangeRate(null); fetchExchangeRate(c); }}>
                         {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">{t('paymentDate')}</label>
-                      <input type="date" className="form-control" value={paymentDate} onChange={e => { setPaymentDate(e.target.value); if (currency !== 'EUR') { setExchangeRate(null); fetchExchangeRate(currency); } }} />
+                    <div>
+                      <label className="sc-label" htmlFor="ac-paiement">{t('paymentDate')}</label>
+                      <input id="ac-paiement" type="date" className="sc-input" value={paymentDate} onChange={e => { setPaymentDate(e.target.value); if (currency !== 'EUR') { setExchangeRate(null); fetchExchangeRate(currency); } }} />
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'flex-end' }}>
+                    <div className="ac-devise-act">
                       {currency !== 'EUR' ? (
-                        <button className="btn btn-info btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => fetchExchangeRate()} disabled={fetchingRate}>
-                          {fetchingRate ? t('converting') : exchangeRate ? `↻ Taux: 1 ${currency} = ${exchangeRate} EUR` : t('convertBtn')}
+                        <button type="button" className="sc-btn sc-btn-secondary" onClick={() => fetchExchangeRate()} disabled={fetchingRate}>
+                          {fetchingRate ? t('converting') : exchangeRate ? `↻ 1 ${currency} = ${exchangeRate} EUR` : t('convertBtn')}
                         </button>
                       ) : (
-                        <div style={{ fontSize: 12, color: '#6A7280', padding: '8px 0' }}>EUR natif — aucune conversion</div>
+                        <div className="ac-devise-info">EUR natif — aucune conversion</div>
                       )}
                     </div>
                   </div>
                   {exchangeRate && currency !== 'EUR' && (
-                    <div className="rate-info">
-                      ✅ {t('rateInfo')} {paymentDate} : 1 {currency} = <strong>{exchangeRate} EUR</strong>
+                    <div className="ac-taux">
+                      {t('rateInfo')} {paymentDate} : 1 {currency} = <strong>{exchangeRate} EUR</strong>
                     </div>
                   )}
                 </div>
 
-                {/* Lines */}
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6A7280', marginBottom: 8 }}>{t('linesTitle')}</div>
-                  <table className="lines-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: '35%' }}>{tc('product')}</th>
-                        <th>{tc('qty')}</th>
-                        <th>{currency !== 'EUR' ? t('unitCost') + ` (${currency})` : t('unitCost')}</th>
-                        {currency !== 'EUR' && <th>{t('unitCostEur')}</th>}
-                        <th>{tc('total')} EUR</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {form.lines.map((l, i) => (
-                        <tr key={i}>
-                          <td>
-                            <select className="lines-input" value={l.product_id} onChange={e => updateLine(i, 'product_id', e.target.value)}>
-                              <option value="">—</option>
-                              {products.map(p => <option key={p.id} value={p.id}>{nomProduit(p, lang)}</option>)}
-                            </select>
-                          </td>
-                          <td data-label={tc('qty')}><input type="number" inputMode="numeric" className="lines-input" style={{ width: 56 }} value={l.qty || ''} min={1} placeholder="Qté" onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 0)} /></td>
-                          <td data-label={currency !== 'EUR' ? t('unitCost') + ` (${currency})` : t('unitCost')}><input type="number" inputMode="decimal" className="lines-input" style={{ width: 80 }} value={l.unit_cost || ''} step="0.01" placeholder="0.00" onChange={e => updateLine(i, 'unit_cost', parseFloat((e.target.value || '0').replace(',', '.')) || 0)} /></td>
-                          {currency !== 'EUR' && <td data-label={t('unitCostEur')} className="mono" style={{ padding: '4px 8px', color: exchangeRate ? '#0369A1' : '#EF4444' }}>{exchangeRate ? (l.unit_cost_eur ? l.unit_cost_eur + ' €' : '—') : '⚠️ taux ?'}</td>}
-                          <td data-label={`${tc('total')} EUR`} className="mono" style={{ padding: '4px 8px' }}>{exchangeRate || currency === 'EUR' ? (l.total || 0).toFixed(2) + ' €' : '—'}</td>
-                          <td className="ac-retirer"><button aria-label={t2('retirer')} title={t2('retirer')} onClick={() => setForm(f => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))} style={{ border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer' }}>✕{mobile ? ` ${t2('retirer')}` : ''}</button></td>
+                {/* Lignes */}
+                <div className="ac-bloc">
+                  <div className="ac-section">{t('linesTitle')}</div>
+                  <div className="ac-lignes-wrap">
+                    <table className="sc-table ac-lignes">
+                      <thead>
+                        <tr>
+                          <th>{tc('product')}</th>
+                          <th style={{ width: 84 }}>{tc('qty')}</th>
+                          <th style={{ width: 120 }}>{currency !== 'EUR' ? t('unitCost') + ` (${currency})` : t('unitCost')}</th>
+                          {currency !== 'EUR' && <th className="sc-right" style={{ width: 110 }}>{t('unitCostEur')}</th>}
+                          <th className="sc-right" style={{ width: 110 }}>{tc('total')} EUR</th>
+                          <th style={{ width: 44 }}></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, lines: [...f.lines, { product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] }))}>+ {tc('product')}</button>
+                      </thead>
+                      <tbody>
+                        {form.lines.map((l, i) => (
+                          <tr key={i}>
+                            <td>
+                              <select className="sc-input sc-select" aria-label={tc('product')} value={l.product_id} onChange={e => updateLine(i, 'product_id', e.target.value)}>
+                                <option value="">—</option>
+                                {/* Pas de box : elle n'a pas de rayon, on achète ses sachets. */}
+                                {products.filter(p => p.id === l.product_id || !(Array.isArray(p.bundle_items) && p.bundle_items.length))
+                                  .map(p => <option key={p.id} value={p.id}>{nomProduit(p, lang)}</option>)}
+                              </select>
+                            </td>
+                            <td data-label={tc('qty')}>
+                              <input type="number" inputMode="numeric" className="sc-input sc-num" aria-label={tc('qty')} value={l.qty || ''} min={1} step={1} placeholder="0"
+                                     onChange={e => updateLine(i, 'qty', Math.max(0, parseInt(e.target.value) || 0))} />
+                            </td>
+                            <td data-label={currency !== 'EUR' ? t('unitCost') + ` (${currency})` : t('unitCost')}>
+                              <input type="number" inputMode="decimal" className="sc-input sc-num" aria-label={t('unitCost')} value={l.unit_cost || ''} min={0} step="0.01" placeholder="0.00"
+                                     onChange={e => updateLine(i, 'unit_cost', Math.max(0, parseFloat((e.target.value || '0').replace(',', '.')) || 0))} />
+                            </td>
+                            {currency !== 'EUR' && (
+                              <td data-label={t('unitCostEur')} className="sc-num ac-num" style={{ color: exchangeRate ? TH.blue : TH.red }}>
+                                {exchangeRate ? (l.unit_cost_eur ? fmt(l.unit_cost_eur) : '—') : '⚠️ taux ?'}
+                              </td>
+                            )}
+                            <td data-label={`${tc('total')} EUR`} className="sc-num ac-num" style={{ fontWeight: 600, color: TH.ink }}>
+                              {exchangeRate || currency === 'EUR' ? fmt(l.total || 0) : '—'}
+                            </td>
+                            <td className="ac-retirer">
+                              <button type="button" className="sc-iconbtn" aria-label={t2('retirer')} title={t2('retirer')}
+                                      onClick={() => setForm(f => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))}
+                                      style={{ color: TH.red, width: mobile ? 'auto' : undefined, gap: 6 }}>
+                                <span className="ms">close</span>{mobile ? t2('retirer') : ''}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button type="button" className="sc-btn sc-btn-secondary ac-ajout"
+                          onClick={() => setForm(f => ({ ...f, lines: [...f.lines, { product_id: '', name: '', qty: 0, unit_cost: 0, unit_cost_eur: 0, total: 0 }] }))}>
+                    <span className="ms">add</span>{tc('product')}
+                  </button>
                 </div>
 
-                <div className="totals-box" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div className="ac-total">
                   <span>{tc('total')} EUR</span>
-                  <span>{subtotalEur.toFixed(2)} €</span>
+                  <span className="sc-num">{fmt(subtotalEur)}</span>
                 </div>
 
-                <div className="form-group" style={{ marginTop: 12 }}>
-                  <label className="form-label">{tc('notes')}</label>
-                  <textarea className="form-control" style={{ minHeight: 60, resize: 'vertical' }} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                <div>
+                  <label className="sc-label" htmlFor="ac-notes">{tc('notes')}</label>
+                  <textarea id="ac-notes" className="sc-input sc-textarea" rows={3} style={{ resize: 'vertical' }} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
               </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => { setShowModal(false); setEditingOrder(null); }}>{tc('cancel')}</button>
-                <button className="btn btn-primary" onClick={saveOrder}>💾 {editingOrder ? tc('save') : tc('create')}</button>
+              <div className="sc-modal-foot">
+                <button type="button" className="sc-btn sc-btn-secondary" onClick={fermerSaisie}>{tc('cancel')}</button>
+                <button type="button" className="sc-btn sc-btn-primary" onClick={saveOrder} disabled={saving}>
+                  <span className="ms">save</span>{saving ? '…' : editingOrder ? tc('save') : tc('create')}
+                </button>
               </div>
             </div>
           </div>
@@ -1034,39 +1180,57 @@ export default function AchatsPage() {
 
         {/* Modal réception */}
         {showReception && selected && (
-          <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowReception(false)}>
-            <div className="modal">
-              <div className="modal-header">
-                <span className="modal-title">{t('recTitle')} — {selected.number}</span>
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowReception(false)}>✕</button>
+          <div className="sc-modal-back" onClick={e => { if (e.target === e.currentTarget && !recSaving) setShowReception(false); }}>
+            <div className="sc-modal ac-modal-l" role="dialog" aria-modal="true" aria-labelledby="ac-reception-titre">
+              <div className="sc-modal-head">
+                <div id="ac-reception-titre" className="ac-modal-titre">{t('recTitle').replace('📬 ', '')} — {selected.number}</div>
+                <button type="button" className="sc-iconbtn" onClick={() => setShowReception(false)} aria-label={tc('close')} disabled={recSaving}>
+                  <span className="ms">close</span>
+                </button>
               </div>
-              <div className="modal-body">
-                <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400E' }}>
-                  {t('recWarning')}
+              <div className="sc-modal-body">
+                <div className="ac-avert">{t('recWarning').replace('⚠️ ', '')}</div>
+                <div className="ac-bloc">
+                  <div className="ac-lignes-wrap">
+                    <table className="sc-table ac-lignes">
+                      <thead>
+                        <tr>
+                          <th>{tc('product')}</th>
+                          <th className="sc-right" style={{ width: 96 }}>{t('ordered')}</th>
+                          <th className="sc-right" style={{ width: 96 }}>{t('alreadyReceived')}</th>
+                          <th style={{ width: 110 }}>{t('receivedQty')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recForm.lines.map((l: any, i: number) => (
+                          <tr key={i}>
+                            <td style={{ fontWeight: 600, color: TH.ink }}>{l.name || l.product_id}</td>
+                            <td data-label={t('ordered')} className="sc-num ac-num">{l.qty}</td>
+                            <td data-label={t('alreadyReceived')} className="sc-num ac-num" style={{ color: l.deja_recu ? TH.text2b : TH.muted }}>{l.deja_recu || '—'}</td>
+                            <td data-label={t('receivedQty')}>
+                              <input type="number" inputMode="numeric" className="sc-input sc-num" aria-label={`${t('receivedQty')} — ${l.name || ''}`}
+                                     value={l.received_qty} min={0} step={1}
+                                     onChange={e => {
+                                       const v = Math.max(0, parseInt(e.target.value) || 0);
+                                       setRecForm(r => ({ ...r, lines: r.lines.map((x: any, j: number) => j === i ? { ...x, received_qty: v } : x) }));
+                                     }} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <table className="lines-table">
-                  <thead><tr><th>{tc('product')}</th><th>{t('ordered')}</th><th>{t('receivedQty')}</th></tr></thead>
-                  <tbody>
-                    {recForm.lines.map((l: any, i: number) => (
-                      <tr key={i}>
-                        <td style={{ padding: '6px 8px' }}><strong>{l.name || l.product_id}</strong></td>
-                        <td data-label={t('ordered')} style={{ padding: '6px 8px' }} className="mono">{l.qty}</td>
-                        <td data-label={t('receivedQty')} style={{ padding: '6px 4px' }}>
-                          <input type="number" inputMode="numeric" className="lines-input" style={{ width: 80 }} value={l.received_qty} min={0} max={l.qty}
-                            onChange={e => { const nl = [...recForm.lines]; nl[i].received_qty = parseInt(e.target.value) || 0; setRecForm(r => ({ ...r, lines: nl })); }} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="form-group" style={{ marginTop: 12 }}>
-                  <label className="form-label">{tc('notes')}</label>
-                  <textarea className="form-control" style={{ minHeight: 60 }} value={recForm.notes} onChange={e => setRecForm(r => ({ ...r, notes: e.target.value }))} />
+                <div>
+                  <label className="sc-label" htmlFor="ac-rec-notes">{tc('notes')}</label>
+                  <textarea id="ac-rec-notes" className="sc-input sc-textarea" rows={3} value={recForm.notes} onChange={e => setRecForm(r => ({ ...r, notes: e.target.value }))} />
                 </div>
               </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowReception(false)}>{tc('cancel')}</button>
-                <button className="btn btn-primary" onClick={saveReception}>{t('recValidate')}</button>
+              <div className="sc-modal-foot">
+                <button type="button" className="sc-btn sc-btn-secondary" onClick={() => setShowReception(false)} disabled={recSaving}>{tc('cancel')}</button>
+                <button type="button" className="sc-btn sc-btn-green" onClick={saveReception} disabled={recSaving}>
+                  <span className="ms">inventory</span>{recSaving ? '…' : t('recValidate').replace('✅ ', '')}
+                </button>
               </div>
             </div>
           </div>

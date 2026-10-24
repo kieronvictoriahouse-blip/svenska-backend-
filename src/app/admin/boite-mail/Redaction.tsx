@@ -14,6 +14,20 @@ export type Brouillon = {
   repond?: string; pj?: Array<{ filename: string; content: string; taille: number }>;
 };
 
+/** Un corps qui contient de vraies balises (modèle inséré) — sinon c'est du texte. */
+export const estHtml = (s: string) => /<\s*(html|body|table|div|p|span|a|img|h[1-6]|ul|ol|td|style)\b[^>]*>/i.test(s);
+
+/** Inverse de l'enregistrement : le corps d'un brouillon redevient du texte éditable. */
+export const corpsTexte = (html: string) => {
+  const t = String(html || '').split('<br />').join('\n');
+  return estHtml(t) ? t : t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+};
+
+/* Vercel refuse un corps de requête au-delà de 4,5 Mo ; en base64, les
+   pièces jointes pèsent un tiers de plus. Au-delà de 3 Mo de fichiers,
+   l'envoi échouait avec un simple « Échec ». */
+const PJ_MAX_OCTETS = 3 * 1024 * 1024;
+
 /** Date locale au format attendu par <input type="datetime-local">. */
 function dansUneHeure() {
   const d = new Date(Date.now() + 3600_000);
@@ -38,7 +52,13 @@ export default function Redaction(p: {
   const [quand, setQuand] = useState('');
   const pj = v.pj || [];
 
-  const corpsHtml = () => v.corps.split('\n').join('<br />');
+  /* Le corps est du texte, sauf quand un modèle (HTML) a été inséré. Le
+     texte était injecté tel quel : « prix < 10 € » ou l'adresse
+     « <client@…> » d'une citation disparaissaient comme des balises. */
+  const corpsHtml = () => (estHtml(v.corps)
+    ? v.corps
+    : v.corps.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+    .split('\n').join('<br />');
   const charge = () => ({
     id: v.id, to: v.to, cc: v.cc, subject: v.subject, corps: corpsHtml(),
     inReplyTo: v.repond, attachments: pj.map(f => ({ filename: f.filename, content: f.content })),
@@ -77,7 +97,7 @@ export default function Redaction(p: {
     if (!quand) { setQuand(dansUneHeure()); return; }
     try {
       await appel('/api/inbox/scheduled', { ...charge(), sendAt: new Date(quand).toISOString(), draftId: v.id }, 'prog');
-      p.say(envoiProgramme(quand, lang));
+      p.say(`${envoiProgramme(quand, lang)} — ${tr('notePrevue')}`);
       p.onEnvoye();
     } catch (e: any) { p.say(e.message); }
   }
@@ -96,15 +116,26 @@ export default function Redaction(p: {
   }
 
   async function ajouterPj(files: FileList | null) {
-    for (const f of Array.from(files || [])) {
+    const liste = Array.from(files || []);
+    const total = pj.reduce((s, f) => s + f.taille, 0) + liste.reduce((s, f) => s + f.size, 0);
+    if (total > PJ_MAX_OCTETS) {
+      p.say(tr('pjTropLourdes'));
+      return;
+    }
+    /* Tous les fichiers d'abord, puis une seule mise à jour : chaque
+       onChange repartait de la même valeur `v`, et de trois fichiers
+       choisis d'un coup il ne restait que le dernier. */
+    const nouveaux: Array<{ filename: string; content: string; taille: number }> = [];
+    for (const f of liste) {
       const b64: string = await new Promise((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(String(r.result).split(',')[1] || '');
         r.onerror = rej;
         r.readAsDataURL(f);
       });
-      p.onChange({ ...v, pj: [...(v.pj || []), { filename: f.name, content: b64, taille: f.size }] });
+      nouveaux.push({ filename: f.name, content: b64, taille: f.size });
     }
+    if (nouveaux.length) p.onChange({ ...v, pj: [...(v.pj || []), ...nouveaux] });
   }
 
   /* Sur téléphone : champs à 16 px (sinon iOS zoome à la saisie), clavier
@@ -196,7 +227,7 @@ export default function Redaction(p: {
       )}
 
       {quand && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: m ? '10px 14px' : '9px 15px', background: '#F3EDF3', borderTop: `1px solid ${C.selBord}`, flexWrap: m ? 'wrap' : undefined, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: m ? '10px 14px' : '9px 15px', background: '#F3EDF3', borderTop: `1px solid ${C.selBord}`, flexWrap: 'wrap', flexShrink: 0 }}>
           <span className="ms" style={{ fontSize: 17, color: C.selTexte }}>schedule_send</span>
           <input type="datetime-local" value={quand} onChange={e => setQuand(e.target.value)} aria-label={tr('programmer')}
                  className="sc-input" style={m ? { flex: '1 1 180px', width: 'auto' } : { height: 30, fontSize: 12 }} />
@@ -207,6 +238,7 @@ export default function Redaction(p: {
           <button className="sc-btn sc-btn-secondary" style={m ? { flex: '1 1 0', justifyContent: 'center' } : { padding: '5px 11px', fontSize: 11.5 }} onClick={() => setQuand('')}>
             Annuler
           </button>
+          <span style={{ flexBasis: '100%', fontSize: m ? 12.5 : 10.5, color: C.selTexte, lineHeight: 1.45 }}>{tr('notePrevue')}</span>
         </div>
       )}
 

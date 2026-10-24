@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { STATUTS_EXPEDIABLES, duParProduit, sortirColis } from '@/lib/expedition';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,11 +30,6 @@ export const dynamic = 'force-dynamic';
    L'idempotence ne repose pas sur la discipline de l'appelant.
    ═══════════════════════════════════════════════════════════════ */
 
-const J = (v: any): any[] => {
-  try { return typeof v === 'string' ? JSON.parse(v) : (Array.isArray(v) ? v : []); }
-  catch { return []; }
-};
-
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
@@ -46,15 +42,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .from('orders').select('*').eq('id', params.id).maybeSingle();
   if (!order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
 
+  /* Seule une commande payée et pas encore soldée peut partir. Un onglet
+     de préparation resté ouvert pendant qu'on rembourse ou annule la
+     commande ailleurs sortait sinon le stock d'une commande morte. */
+  if (!STATUTS_EXPEDIABLES.includes(order.status)) {
+    return NextResponse.json({
+      error: `Commande ${order.order_number} au statut « ${order.status} » : rien à expédier.`,
+      statut: order.status,
+    }, { status: 409 });
+  }
+
   /* Ce qui est dû, par produit. Une même référence peut apparaître sur
      plusieurs lignes — un remplacement de rupture en ajoute une — et
      les quantités s'additionnent alors. Prendre la ligne au lieu du
      total ferait disparaître la seconde. */
-  const du: Record<string, number> = {};
-  for (const l of J(order.lines)) {
-    if (!l.product_id) continue;
-    du[l.product_id] = (du[l.product_id] || 0) + (Number(l.qty) || 0);
-  }
+  const du = duParProduit(order.lines);
 
   const deja: Record<string, number> = (order as any).shipped_qty || {};
 
@@ -124,43 +126,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   /* ── Sortie de stock ──────────────────────────────────────────────
      `order_id` est renseigné : c'est ce qui rattache la sortie à la
-     commande et rend l'anomalie détectable après coup. Les sorties de
-     picking n'en portaient pas, et le contrôle quotidien ne les voyait
-     donc pas. */
-  const { adjustStock } = await import('@/lib/stock');
-
-  /* Une box (migration 054) n'a pas de rayon : ce sont ses sachets qui
-     partent dans le carton, donc eux qui sortent du stock. La commande,
-     elle, reste suivie par box (shipped_qty), comme le client l'a achetée. */
-  const { chargerLots } = await import('@/lib/lots');
-  const lots = await chargerLots();
-  const sorties: Array<{ product_id: string; qty: number; box?: string }> = [];
-  for (const [pid, n] of Object.entries(colis)) {
-    if (lots[pid]) for (const it of lots[pid]) sorties.push({ product_id: it.product_id, qty: n * it.qty, box: pid });
-    else sorties.push({ product_id: pid, qty: n });
-  }
-
-  const { data: produits } = await supabaseAdmin
-    .from('products').select('id, track_stock')
-    .in('id', Array.from(new Set(sorties.map(s => s.product_id))));
-  const suivi = new Set((produits || []).filter((p: any) => p.track_stock === true).map((p: any) => p.id));
-
-  const applied: Array<{ product_id: string; qty: number; box?: string }> = [];
-  const echecs: Array<{ product_id: string; erreur: string }> = [];
-  for (const s of sorties) {
-    if (!suivi.has(s.product_id)) { applied.push(s); continue; }
-    try {
-      await adjustStock(s.product_id, -s.qty, {
-        reason: 'picking',
-        reference: order.order_number,
-        order_id: order.id,
-        note: s.box ? `Expédition ${order.order_number} — dans une box` : `Expédition ${order.order_number}`,
-      });
-      applied.push(s);
-    } catch (e: any) {
-      echecs.push({ product_id: s.product_id, erreur: e?.message || 'erreur inconnue' });
-    }
-  }
+     commande et rend l'anomalie détectable après coup. Une box sort ses
+     sachets ; la commande, elle, reste suivie par box (shipped_qty),
+     comme le client l'a achetée. Même code que le statut posé à la main
+     (@/lib/expedition). */
+  const { applied, echecs } = await sortirColis(order, colis);
 
   /* ── Prevenir le client ───────────────────────────────────────────
      L'ecran d'expedition ecrivait le statut directement en base, sans

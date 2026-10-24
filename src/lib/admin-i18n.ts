@@ -153,9 +153,9 @@ export const T_ORDER_STATUS = {
 export const T_SHELL = {
   backoffice:  { fr: 'Back-office', en: 'Back office', sv: 'Backoffice' },
   searchPlaceholder: {
-    fr: 'Rechercher un produit, une commande, un client…',
-    en: 'Search a product, an order, a customer…',
-    sv: 'Sök produkt, beställning eller kund…',
+    fr: 'Rechercher un produit, une commande (n° ou e-mail)…',
+    en: 'Search a product, an order (# or email)…',
+    sv: 'Sök produkt eller beställning (nr eller e-post)…',
   },
   viewSite:    { fr: 'Voir le site', en: 'View site', sv: 'Visa sajten' },
   logout:      { fr: 'Se déconnecter', en: 'Sign out', sv: 'Logga ut' },

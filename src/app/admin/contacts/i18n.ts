@@ -2,6 +2,7 @@ export const TCO = {
   exporter: { fr: 'Exporter', en: 'Export', sv: 'Exportera' },
   ajouter: { fr: 'Ajouter', en: 'Add', sv: 'Lägg till' },
   aucun: { fr: 'Aucun contact.', en: 'No contact.', sv: 'Inga kontakter.' },
+  inactif: { fr: 'Inactif', en: 'Inactive', sv: 'Inaktiv' },
   ville: { fr: 'Ville', en: 'City', sv: 'Stad' },
   totalDepense: { fr: 'Total dépensé', en: 'Total spent', sv: 'Totalt spenderat' },
   inscritLe: { fr: 'Inscrit le', en: 'Registered on', sv: 'Registrerad den' },

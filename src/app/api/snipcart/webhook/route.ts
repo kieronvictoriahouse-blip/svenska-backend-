@@ -8,23 +8,29 @@ export async function POST(req: NextRequest) {
   const token = req.headers.get('x-snipcart-requesttoken');
   const secretKey = process.env.SNIPCART_SECRET_KEY;
 
-  if (token && secretKey) {
-    try {
-      const check = await fetch(
-        `https://app.snipcart.com/api/requestvalidation/${token}`,
-        {
-          headers: {
-            Authorization: 'Basic ' + Buffer.from(`${secretKey}:`).toString('base64'),
-            Accept: 'application/json',
-          },
-        }
-      );
-      if (!check.ok) {
-        return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 });
+  /* Vérification OBLIGATOIRE. Elle ne se faisait que si l'en-tête était
+     présent : un POST sans en-tête passait, et « order.completed » créait
+     une commande « payée » inventée — qui réservait du stock, entrait
+     dans la file de préparation et comptait pour le code fidélité de
+     l'email choisi. Snipcart n'est plus utilisé : sans clé, on refuse. */
+  if (!token || !secretKey) {
+    return NextResponse.json({ error: 'Webhook Snipcart non vérifiable' }, { status: 401 });
+  }
+  try {
+    const check = await fetch(
+      `https://app.snipcart.com/api/requestvalidation/${encodeURIComponent(token)}`,
+      {
+        headers: {
+          Authorization: 'Basic ' + Buffer.from(`${secretKey}:`).toString('base64'),
+          Accept: 'application/json',
+        },
       }
-    } catch {
-      return NextResponse.json({ error: 'Cannot verify webhook' }, { status: 500 });
+    );
+    if (!check.ok) {
+      return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 });
     }
+  } catch {
+    return NextResponse.json({ error: 'Cannot verify webhook' }, { status: 500 });
   }
 
   // ── Parse event ────────────────────────────────────────────

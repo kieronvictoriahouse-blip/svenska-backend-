@@ -4,9 +4,17 @@ import { signatureEmail } from '@/lib/relance-panier';
 
 export const dynamic = 'force-dynamic';
 
-/* Désinscription des relances de panier — lien signé présent dans
-   chaque email. Un clic suffit, sans compte ni confirmation : c'est ce
-   que la loi exige, et c'est ce qu'on attend d'un email correct. */
+/* Désinscription — lien signé présent dans chaque relance de panier et
+   chaque email de newsletter (`t=n`). Un clic suffit, sans compte ni
+   confirmation : c'est ce que la loi exige, et c'est ce qu'on attend
+   d'un email correct.
+
+   Une seule liste d'opposition (email_optouts) : relances et newsletter
+   la respectent toutes les deux.
+
+   POST : le « se désinscrire » en un clic des messageries (en-têtes
+   List-Unsubscribe / List-Unsubscribe-Post, RFC 8058). Mêmes paramètres
+   signés dans l'URL ; la messagerie n'attend qu'un 200. */
 const page = (titre: string, texte: string, status = 200) => new NextResponse(
   `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${titre}</title></head>
@@ -20,16 +28,32 @@ const page = (titre: string, texte: string, status = 200) => new NextResponse(
   { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
 );
 
-export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams;
+/** Enregistre l'opposition si la signature est bonne. null = lien invalide. */
+async function desinscrire(q: URLSearchParams): Promise<{ email: string; newsletter: boolean } | null> {
   const email = String(q.get('e') || '').trim().toLowerCase();
   const sig = String(q.get('s') || '');
-  if (!email || sig !== signatureEmail(email)) {
+  if (!email || sig !== signatureEmail(email)) return null;
+  const newsletter = q.get('t') === 'n';
+  await supabaseAdmin.from('email_optouts')
+    .upsert({ email, source: newsletter ? 'newsletter' : 'relance_panier' }, { onConflict: 'email', ignoreDuplicates: true });
+  return { email, newsletter };
+}
+
+export async function GET(req: NextRequest) {
+  const r = await desinscrire(req.nextUrl.searchParams);
+  if (!r) {
     return page('Lien invalide', 'Ce lien de désinscription est incomplet. Répondez simplement à l’un de nos emails et nous vous retirons à la main.', 400);
   }
-  await supabaseAdmin.from('email_optouts')
-    .upsert({ email, source: 'relance_panier' }, { onConflict: 'email', ignoreDuplicates: true });
-  const safe = email.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  return page('C’est noté',
-    `Vous ne recevrez plus de rappels de panier à l’adresse <strong>${safe}</strong>. Vos confirmations de commande continueront bien sûr d’arriver.`);
+  const safe = r.email.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return r.newsletter
+    ? page('C’est noté',
+      `Vous ne recevrez plus notre newsletter à l’adresse <strong>${safe}</strong>. Vos confirmations de commande continueront bien sûr d’arriver.`)
+    : page('C’est noté',
+      `Vous ne recevrez plus de rappels de panier à l’adresse <strong>${safe}</strong>. Vos confirmations de commande continueront bien sûr d’arriver.`);
+}
+
+export async function POST(req: NextRequest) {
+  const r = await desinscrire(req.nextUrl.searchParams);
+  if (!r) return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }

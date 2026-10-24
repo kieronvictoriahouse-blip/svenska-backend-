@@ -80,6 +80,11 @@ export const TP = {
   reste: { fr: 'reste', en: 'left', sv: 'kvar' },
   termine: { fr: 'Tout est prélevé', en: 'Everything is picked', sv: 'Allt är plockat' },
   voirArticles: { fr: 'Voir les articles', en: 'See items', sv: 'Visa artiklar' },
+  stockKo: {
+    fr: 'Colis parti, mais le stock n’a pas pu être décrémenté pour certains articles — corrige-le dans Stock.',
+    en: 'Parcel shipped, but stock could not be deducted for some items — fix it in Stock.',
+    sv: 'Paketet har skickats, men lagret kunde inte dras av för vissa artiklar — rätta det under Lager.',
+  },
 };
 
 /**

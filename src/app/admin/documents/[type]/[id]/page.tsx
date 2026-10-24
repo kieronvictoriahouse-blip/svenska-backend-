@@ -306,12 +306,19 @@ export default function DocumentPrintPage() {
 
   /* ══════════ FACTURE ══════════ */
   if (type === 'facture') {
+    /* Remise d'un code promo : les factures récentes la portent en ligne
+       (« Remise (code X) »), les anciennes non — sous-total + port ne
+       retombait alors pas sur le total payé. L'écart, s'il existe, est la
+       remise ; il vaut 0 quand la ligne est déjà là. */
+    const total = Number(doc.total_ttc) || 0;
+    const ecartRemise = Math.round((subtotal + (shipping || 0) - total) * 100) / 100;
     const d: FactureData = {
       number: doc.number, date: doc.date, dueLabel: 'À réception',
       orderNumber: doc.order_number || undefined, paymentLabel: 'Carte bancaire',
       seller, client, lines, subtotal, shipping,
       shippingLabel: shippingLine?.desc || undefined,
-      total: Number(doc.total_ttc) || 0,
+      ...(ecartRemise > 0.004 ? { discount: ecartRemise, discountLabel: doc.promo_code ? `Remise · ${doc.promo_code}` : 'Remise' } : {}),
+      total,
       paid: doc.status === 'paid', bank: null, ...legals,
     };
     return wrap(<Facture d={d} />);
@@ -375,6 +382,24 @@ export default function DocumentPrintPage() {
        n'existait pas. */
     const dernierColis: Record<string, number> | null = doc.last_shipment || null;
     const expedie: Record<string, number> | null = doc.shipped_qty || doc.last_shipment || null;
+    /* Les quantités expédiées sont tenues PAR PRODUIT. Deux lignes d'un
+       même produit (un remplacement de rupture en ajoute une) recevaient
+       chacune le total : « Livré » comptait le colis deux fois et « Reste
+       à livrer » tombait à zéro sur la seconde. On répartit dans l'ordre
+       des lignes, comme l'écran de la commande. */
+    const repartir = (parProduit: Record<string, number>) => {
+      const dispo: Record<string, number> = { ...parProduit };
+      return productLines.map(l => {
+        if (!l.product_id) return 0;
+        const pris = Math.min(Number(l.qty) || 1, Math.max(0, Number(dispo[l.product_id]) || 0));
+        dispo[l.product_id] = (Number(dispo[l.product_id]) || 0) - pris;
+        return pris;
+      });
+    };
+    const partiTotal = expedie ? repartir(expedie) : null;
+    const partiAvant = dernierColis && expedie
+      ? repartir(Object.fromEntries(Object.entries(expedie).map(([pid, n]) => [pid, (Number(n) || 0) - (Number(dernierColis[pid]) || 0)])))
+      : null;
 
     return wrap(<BonDeLivraison d={{
       number: `BL-${String(doc.order_number || '').replace(/^SD-/, '')}`,
@@ -393,8 +418,8 @@ export default function DocumentPrintPage() {
          bien qu'une livraison partielle s'annoncait complete. */
       lines: productLines.map((l, i) => {
         const commande = Number(l.qty) || 1;
-        const ceColis = dernierColis ? (Number(dernierColis[l.product_id]) || 0) : commande;
-        const cumul = expedie ? (Number(expedie[l.product_id]) || 0) : commande;
+        const ceColis = partiTotal && partiAvant ? partiTotal[i] - partiAvant[i] : commande;
+        const cumul = partiTotal ? partiTotal[i] : commande;
         return {
           ...lines[i],
           ordered: commande,

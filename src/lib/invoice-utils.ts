@@ -2,6 +2,16 @@ import { supabaseAdmin } from './supabase';
 import PDFDocument from 'pdfkit';
 
 /**
+ * Date du jour à Paris, AAAA-MM-JJ. Le serveur tourne en UTC : entre
+ * minuit et 1 h/2 h (heure de Paris), `toISOString()` donnait la veille —
+ * une commande payée le 1er janvier à 0 h 30 était facturée au 31 décembre
+ * de l'année précédente, dans la série FAC de l'année suivante.
+ */
+export function dateParis(d: Date = new Date()): string {
+  return d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+}
+
+/**
  * Numéro de pièce séquentiel et continu (Art. 242 nonies A CGI).
  * Dérivé du plus grand numéro existant en base pour ce préfixe — ne dépend
  * d'aucun compteur externe susceptible de dériver, donc pas de doublon ni de
@@ -113,7 +123,8 @@ export async function generateInvoicePdfLegacy(invoice: any): Promise<Buffer> {
 }
 
 export async function createInvoiceFromOrder(order: any): Promise<any> {
-  const year = new Date().getFullYear();
+  const dateFacture = dateParis();
+  const year = Number(dateFacture.slice(0, 4));
 
   /* La config du vendeur. Un échec de LECTURE (réseau, base) n'est pas
      une config vide : créer la facture avec un vendeur vide, puis la
@@ -153,6 +164,22 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
 
   const totalTtc = parseFloat(order.total) || 0;
 
+  /* Remise d'un code promo (orders.discount) : elle porte sur la commande,
+     pas sur les lignes. Sans ligne de remise, la facture affichait
+     sous-total + port ≠ total payé, sans dire pourquoi — or toute remise
+     chiffrable doit figurer sur la facture (art. 242 nonies A, I-6° CGI).
+     Le montant est l'écart réel (le pourcentage Stripe arrondit au
+     centime) : les lignes retombent exactement sur le total encaissé. */
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const sommeLignes = r2(lines.reduce((s: number, l: any) => s + r2((Number(l.qty) || 0) * (Number(l.price) || 0)), 0));
+  const remise = r2(sommeLignes - totalTtc);
+  if ((parseFloat(order.discount) > 0 || order.promo_code) && remise >= 0.01) {
+    if (Math.abs(remise - (parseFloat(order.discount) || 0)) > 0.05) {
+      console.warn('[invoice-utils] remise facturée', remise, '≠ remise de la commande', order.discount, order.order_number);
+    }
+    lines.push({ desc: order.promo_code ? `Remise (code ${order.promo_code})` : 'Remise', qty: 1, price: -remise, tva: 0 });
+  }
+
   // Adresse client (gère string ou objet JSONB)
   let clientAddress = '';
   const addr = order.shipping_address || order.customer_address;
@@ -183,7 +210,7 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     const numero = essai === 0 ? invoiceNumber : await nextSequentialNumber(`FAC-${year}-`);
     const res = await supabaseAdmin.from('invoices').insert({
     number:          numero,
-    date:            new Date().toISOString().split('T')[0],
+    date:            dateFacture,
     status,
     client_name:     order.customer_name || '',
     client_address:  clientAddress,

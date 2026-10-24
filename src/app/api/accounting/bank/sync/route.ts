@@ -11,7 +11,10 @@ export const dynamic = 'force-dynamic';
 // POST — tire les nouvelles opérations de l'agrégateur actif (Bridge/GoCardless).
 // Autorisé admin OU cron (Bearer CRON_SECRET).
 export async function POST(req: NextRequest) {
-  const cronOk = req.headers.get('Authorization') === `Bearer ${process.env.CRON_SECRET}`;
+  /* Secret absent : `Bearer ${undefined}` valait « Bearer undefined », et
+     n'importe qui envoyant cet en-tête déclenchait la synchro. */
+  const cronSecret = process.env.CRON_SECRET;
+  const cronOk = !!cronSecret && req.headers.get('Authorization') === `Bearer ${cronSecret}`;
   if (!cronOk && !await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const provider = activeProvider();
@@ -34,9 +37,12 @@ export async function POST(req: NextRequest) {
         getAccountTransactions(acc.external_id, since),
         getAccountBalances(acc.external_id).catch(() => null),
       ]);
+      /* Opérations COMPTABILISÉES seulement. Une opération « pending »
+         n'a souvent pas de transactionId, et en reçoit un autre une fois
+         comptabilisée : elle entrait deux fois (clé différente), jamais
+         mise à jour, et se rapprochait deux fois. */
       const booked = txResp.transactions?.booked || [];
-      const pending = txResp.transactions?.pending || [];
-      const lines: RawLine[] = [...booked, ...pending].map(t => ({
+      const lines: RawLine[] = booked.map(t => ({
         external_id: `gc:${t.transactionId || t.internalTransactionId || `${t.bookingDate}_${t.transactionAmount.amount}`}`,
         booking_date: (t.bookingDate || t.valueDate || '').slice(0, 10),
         value_date: (t.valueDate || t.bookingDate || '').slice(0, 10),
@@ -44,7 +50,7 @@ export async function POST(req: NextRequest) {
         currency: t.transactionAmount.currency || 'EUR',
         label: gcLabel(t),
         counterparty: t.creditorName || t.debtorName,
-        status: (booked.includes(t) ? 'booked' : 'pending') as 'booked' | 'pending',
+        status: 'booked' as const,
         raw: t,
       })).filter(l => l.booking_date && isFinite(l.amount));
 

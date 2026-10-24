@@ -1,14 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { SLUG } from '@/lib/fiche-produit';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+/* Colonnes d'une page que l'écran écrit (le corps était inséré tel quel). */
+const CHAMPS_PAGE = [
+  'slug', 'title_fr', 'title_sv', 'title_en', 'nav_label_fr', 'nav_label_sv', 'nav_label_en',
+  'hero_image', 'hero_title_fr', 'hero_title_sv', 'hero_title_en',
+  'hero_subtitle_fr', 'hero_subtitle_sv', 'hero_subtitle_en',
+  'blocks', 'show_in_nav', 'is_active', 'sort_order',
+];
+
+export async function GET(req: NextRequest) {
   try {
-    const { data, error } = await supabaseAdmin
+    /* L'écran Pages voit aussi les pages désactivées : décocher « active »
+       faisait disparaître la page de la liste, sans moyen de la retrouver. */
+    const admin = !!req.headers.get('authorization') && !!(await requireAuth(req));
+    let q = supabaseAdmin
       .from('cms_pages')
       .select('id, slug, title_fr, title_sv, title_en, nav_label_fr, nav_label_sv, nav_label_en, show_in_nav, is_active, sort_order')
-      .eq('is_active', true)
       .order('sort_order');
+    if (!admin) q = q.eq('is_active', true);
+    const { data, error } = await q;
     if (error) { console.error('[pages] GET:', error.message); return NextResponse.json({ pages: [] }); }
     return NextResponse.json({ pages: data || [] });
   } catch (e: unknown) {
@@ -22,8 +36,16 @@ export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   try {
     const body = await req.json();
-    const { data, error } = await supabaseAdmin.from('cms_pages').insert(body).select().maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const row = Object.fromEntries(Object.entries(body || {}).filter(([k]) => CHAMPS_PAGE.includes(k)));
+    // L'adresse finit dans une URL publique (/pages/<slug>) : forme stricte.
+    if (!SLUG.test(String(row.slug || ''))) {
+      return NextResponse.json({ error: 'Adresse (slug) invalide : minuscules sans accent, chiffres et tirets seulement.' }, { status: 400 });
+    }
+    const { data, error } = await supabaseAdmin.from('cms_pages').insert(row).select().maybeSingle();
+    if (error) {
+      if (error.code === '23505') return NextResponse.json({ error: 'Une page utilise déjà cette adresse.' }, { status: 409 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
     return NextResponse.json({ page: data });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';

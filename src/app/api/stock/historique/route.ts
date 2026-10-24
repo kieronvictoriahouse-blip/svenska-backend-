@@ -41,5 +41,11 @@ export async function GET(req: NextRequest) {
     seances: grouper(mouvements, noms),
     produits: prods || [],
     total: mouvements.length,
+    /* La lecture s'arrête aux `limite` mouvements les plus récents, AVANT
+       le filtre par catégorie : l'écran doit le dire, sinon « aucune
+       réception en juillet » se lit comme un fait et non comme une
+       coupure. */
+    tronque: (data || []).length >= limite,
+    limite,
   });
 }

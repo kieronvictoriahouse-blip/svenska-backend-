@@ -4,6 +4,7 @@ import { adminFetch } from '@/lib/auth-client';
 import { T } from '@/lib/admin-theme';
 import { useT } from '@/lib/admin-i18n';
 import { TME, imagesEnvoyees, confirmerSuppressionFichier, ceFichier } from './i18n';
+import { reduirePhoto, erreurEnvoi } from '@/lib/reduire-photo';
 
 /* ═══════════════════════════════════════════════════════════════
    ÉCRAN 16 — MÉDIATHÈQUE
@@ -46,28 +47,32 @@ export default function MediasPage() {
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     setUploading(true);
-    const token = localStorage.getItem('sd_admin_token');
     let ok = 0;
-    for (const file of Array.from(files)) {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('folder', 'library');
-      const res = await adminFetch('/api/upload', {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      });
-      if (res.ok) ok++;
+    let erreur = '';
+    for (const brut of Array.from(files)) {
+      try {
+        // Photo de téléphone réduite avant l'envoi (limite de 4 Mo, cf. lib/reduire-photo).
+        const fd = new FormData();
+        fd.append('file', await reduirePhoto(brut));
+        fd.append('folder', 'library');
+        const res = await adminFetch('/api/upload', { method: 'POST', body: fd });
+        if (res.ok) ok++;
+        else erreur = erreur || `${brut.name} : ${await erreurEnvoi(res)}`;
+      } catch { erreur = erreur || `${brut.name} : réseau indisponible`; }
     }
     setUploading(false);
-    say(imagesEnvoyees(ok, lang));
+    // Les refus se disent : avant, « 0 image envoyée » sans dire pourquoi.
+    say(erreur ? `${imagesEnvoyees(ok, lang)} · ${erreur}` : imagesEnvoyees(ok, lang));
     load();
   }
 
   async function remove(item: Media) {
     if (!window.confirm(confirmerSuppressionFichier(item.filename || ceFichier(lang), lang))) return;
-    await adminFetch('/api/upload', {
+    const res = await adminFetch('/api/upload', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mediaId: item.id }),
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) { say(t('msgSupprKo')); return; }
     setMedia(m => m.filter(x => x.id !== item.id));
     say(t('msgSupprime'));
   }

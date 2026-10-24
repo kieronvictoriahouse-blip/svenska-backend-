@@ -43,7 +43,11 @@ export async function GET(req: NextRequest) {
     if (filtre === 'non-lus') r = r.eq('seen', false);
     if (filtre === 'pieces-jointes' && avecColonnePJ) r = r.eq('has_attachment', true);
     if (etiq) r = r.eq('label', etiq);
-    if (q) r = r.or(`subject.ilike.%${q}%,from_email.ilike.%${q}%,preview.ilike.%${q}%`);
+    if (q) {
+      // Entre guillemets : une virgule dans la recherche cassait le filtre PostgREST.
+      const v = `"%${q.replace(/[\\"]/g, m => '\\' + m)}%"`;
+      r = r.or(`subject.ilike.${v},from_email.ilike.${v},preview.ilike.${v}`);
+    }
     return r;
   };
 
@@ -109,6 +113,13 @@ export async function PUT(req: NextRequest) {
     .from('inbox_messages').select('id, folder, uid, seen, flagged').in('id', liste);
 
   const roles = await resolveFolders().catch(() => null);
+  /* Un échec IMAP était avalé et la réponse disait « ok » : l'écran
+     retirait le message de la liste alors qu'il n'avait pas bougé du
+     serveur. On compte les échecs pour que l'écran se recharge. */
+  let echecs = 0;
+  if (action === 'corbeille' && !roles) {
+    return NextResponse.json({ error: 'Serveur mail injoignable : rien n’a été déplacé' }, { status: 502 });
+  }
 
   for (const m of msgs || []) {
     try {
@@ -130,9 +141,11 @@ export async function PUT(req: NextRequest) {
         await moveMessage(m.folder, m.uid, roles.trash);
       }
     } catch (e) {
-      // Le cache est deja a jour ; l'ecart sera rattrape a la prochaine releve.
+      // Le cache est deja a jour pour lu / suivi ; la corbeille, elle, n'a pas eu lieu.
+      echecs++;
       console.error('[inbox] action non reportee vers IMAP', action, e);
     }
   }
+  if (echecs) return NextResponse.json({ ok: false, echecs, error: `${echecs} message(s) non mis à jour sur le serveur mail` }, { status: 502 });
   return NextResponse.json({ ok: true });
 }

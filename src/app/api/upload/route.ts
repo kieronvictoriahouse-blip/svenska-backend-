@@ -26,7 +26,9 @@ export async function POST(req: NextRequest) {
   // Parse multipart
   const formData = await req.formData();
   const file = formData.get('file') as File | null;
-  const folder = (formData.get('folder') as string) || 'products';
+  /* Dossier du bucket : un seul segment simple (products, home, library,
+     tickets…). Pris tel quel, « ../ » ou « a/b » écrivaient ailleurs. */
+  const folder = String(formData.get('folder') || 'products').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'products';
   const altText = (formData.get('alt_text') as string) || '';
 
   if (!file) return NextResponse.json({ error: 'Aucun fichier fourni' }, { status: 400 });
@@ -137,11 +139,14 @@ export async function DELETE(req: NextRequest) {
 
   const { mediaId, storagePath } = await req.json();
 
+  // Échecs remontés : l'écran retirait la vignette sur un « success » inconditionnel.
   if (storagePath) {
-    await supabaseAdmin.storage.from(BUCKET).remove([storagePath]);
+    const { error } = await supabaseAdmin.storage.from(BUCKET).remove([storagePath]);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (mediaId) {
-    await supabaseAdmin.from('media').delete().eq('id', mediaId);
+    const { error } = await supabaseAdmin.from('media').delete().eq('id', mediaId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

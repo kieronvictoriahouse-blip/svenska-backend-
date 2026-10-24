@@ -4,6 +4,7 @@ import { adminFetch } from '@/lib/auth-client';
 import { T, BADGE, BadgeTone } from '@/lib/admin-theme';
 import { useT, formatDate } from '@/lib/admin-i18n';
 import { TBA } from './i18n';
+import { reduirePhoto, erreurEnvoi } from '@/lib/reduire-photo';
 
 /* ═══════════════════════════════════════════════════════════════
    BANNIÈRE D'ACCUEIL — image fixe ou carrousel
@@ -152,11 +153,13 @@ const txt = (s: Slide, champ: string, l: Lang) => s[`${champ}_${l}`] || s[`${cha
 
 async function uploadImage(file: File): Promise<string> {
   const fd = new FormData();
-  fd.append('file', file);
+  // Au-delà de 3,5 Mo, réduite à 2000 px avant l'envoi (limite de 4 Mo, cf. lib/reduire-photo).
+  fd.append('file', await reduirePhoto(file));
   fd.append('folder', 'home');
   const res = await adminFetch('/api/upload', { method: 'POST', body: fd });
+  if (!res.ok) throw new Error(await erreurEnvoi(res));
   const d = await res.json().catch(() => ({}));
-  if (!res.ok || !d.url) throw new Error(d.error || '');
+  if (!d.url) throw new Error(d.error || '');
   return d.url;
 }
 

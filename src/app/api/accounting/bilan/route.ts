@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { categoryDef } from '@/lib/finance/pcg';
+import { toutLire } from '@/lib/finance/tout-lire';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,11 +13,20 @@ export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const year = Number(req.nextUrl.searchParams.get('year')) || new Date().getFullYear();
 
-  const [{ data: entries }, { data: accounts }, { data: invoices }, { data: products }, { data: pos }] = await Promise.all([
-    supabaseAdmin.from('accounting_entries').select('type, amount, category, is_personal').gte('date', `${year}-01-01`).lte('date', `${year}-12-31`),
+  // Écritures et produits lus en entier (1000 lignes max par réponse Supabase).
+  let entries: any[], products: any[];
+  try {
+    [entries, products] = await Promise.all([
+      toutLire(() => supabaseAdmin.from('accounting_entries').select('id, type, amount, category, is_personal')
+        .gte('date', `${year}-01-01`).lte('date', `${year}-12-31`).order('id', { ascending: true })),
+      toutLire(() => supabaseAdmin.from('products').select('*').order('id', { ascending: true })),
+    ]);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+  const [{ data: accounts }, { data: invoices }, { data: pos }] = await Promise.all([
     supabaseAdmin.from('bank_accounts').select('balance'),
     supabaseAdmin.from('invoices').select('total_ttc, status, due_date, client_name').in('status', ['sent', 'late']),
-    supabaseAdmin.from('products').select('*'),
     supabaseAdmin.from('purchase_orders').select('total, status'),
   ]);
 

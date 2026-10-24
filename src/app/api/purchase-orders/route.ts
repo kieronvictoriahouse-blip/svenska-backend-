@@ -18,8 +18,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const body = await req.json();
-  const { count } = await supabaseAdmin.from('purchase_orders').select('id', { count: 'exact', head: true });
-  const num = String((count || 0) + 1).padStart(4, '0');
+  /* Numérotation par le maximum existant, comme l'écran de composition :
+     le nombre de lignes compte aussi les commandes de ticket (PO-…) et
+     redonne un numéro déjà pris dès que deux créations se croisent. */
+  const { data: dernieres } = await supabaseAdmin.from('purchase_orders')
+    .select('number').like('number', 'ACH-%').order('number', { ascending: false }).limit(1);
+  const num = String((Number(String(dernieres?.[0]?.number || '').replace(/\D/g, '')) || 0) + 1).padStart(4, '0');
 
   const payload: Record<string, unknown> = {
     number:        `ACH-${num}`,

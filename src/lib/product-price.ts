@@ -20,7 +20,11 @@ export type DiscountFields = {
   discount_end?: string | null;    // 'YYYY-MM-DD' ou null
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+/* Jour de PARIS : en UTC, une promo « jusqu'au 31 » courait encore le 1er
+   jusqu'à 1 h (2 h l'été). Le site (js/sd-api-client.js, _today) suit la
+   même règle : les deux doivent changer ensemble, sinon vitrine et
+   paiement ne s'accordent plus sur le prix autour de minuit. */
+const todayISO = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
 const dayOf = (v: string | null | undefined) => (v ? String(v).slice(0, 10) : null);
 
 /** La remise est-elle active aujourd'hui (type valide, valeur > 0, dans les bornes) ? */

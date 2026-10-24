@@ -9,6 +9,8 @@ export type SendOpts = {
   tags?: { name: string; value: string }[];
   /** Adresse de réponse (ex. formulaire de contact : répondre au client). */
   replyTo?: string;
+  /** En-têtes supplémentaires — List-Unsubscribe des emails marketing. */
+  headers?: Record<string, string>;
 };
 
 export async function getWhiteLabelConfig(): Promise<Record<string, string>> {
@@ -31,7 +33,11 @@ export async function sendEmailSmtp(opts: SendOpts, cfg: Record<string, string>)
     tls: { rejectUnauthorized: false },
   });
   const attachments = opts.attachments?.map(a => ({ filename: a.filename, content: a.content }));
-  await transporter.sendMail({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, attachments, ...(opts.replyTo ? { replyTo: opts.replyTo } : {}) });
+  await transporter.sendMail({
+    from: opts.from, to: opts.to, subject: opts.subject, html: opts.html, attachments,
+    ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+    ...(opts.headers ? { headers: opts.headers } : {}),
+  });
 }
 
 export async function sendEmailResend(opts: SendOpts) {
@@ -47,6 +53,7 @@ export async function sendEmailResend(opts: SendOpts) {
       ...(attachments?.length ? { attachments } : {}),
       ...(opts.tags?.length ? { tags: opts.tags } : {}),
       ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+      ...(opts.headers ? { headers: opts.headers } : {}),
     }),
   });
   const data = await res.json();
@@ -61,7 +68,22 @@ export async function sendEmail(opts: SendOpts, cfg: Record<string, string>) {
   throw new Error('Aucune config email. Allez dans Configuration → 📧 Email pour configurer SMTP.');
 }
 
-export function baseTemplate(content: string, title: string, cfg: Record<string, any>) {
+/** Bloc « se désinscrire » ajouté au bas de tout email marketing (lien
+ *  signé, propre au destinataire). Libellé minimal, à valider par la
+ *  boutique : c'est sa présence que la loi exige. */
+export function piedDesinscription(url: string): string {
+  return `<div style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.6;color:#8A8067;padding:16px 12px 24px">`
+    + `Vous recevez cet email car vous êtes inscrit à notre newsletter. `
+    + `<a href="${url}" style="color:#8A8067;text-decoration:underline">Se désinscrire</a></div>`;
+}
+
+/** Ajoute le pied de désinscription à un HTML complet (avant </body>) ou à un fragment. */
+export function avecDesinscription(html: string, url: string): string {
+  const pied = piedDesinscription(url);
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${pied}</body>`) : html + pied;
+}
+
+export function baseTemplate(content: string, title: string, cfg: Record<string, any>, lienDesinscription?: string) {
   const siteName = cfg.site_name || 'Admin';
   const siteSlogan = cfg.site_slogan || '';
   const colorPrimary = cfg.color_primary || '#1C2028';
@@ -102,7 +124,7 @@ export function baseTemplate(content: string, title: string, cfg: Record<string,
   <div class="footer">
     <p class="footer-text">
       ${siteName}${frontUrl ? ` · <a href="${frontUrl}" class="footer-link">${frontUrl}</a>` : ''}<br>
-      Vous recevez cet email car vous avez passé une commande sur notre site.${contactEmail ? `<br><a href="mailto:${contactEmail}" class="footer-link">${contactEmail}</a>` : ''}
+      Vous recevez cet email car vous avez passé une commande sur notre site.${contactEmail ? `<br><a href="mailto:${contactEmail}" class="footer-link">${contactEmail}</a>` : ''}${lienDesinscription ? `<br><a href="${lienDesinscription}" class="footer-link" style="text-decoration:underline">Se désinscrire</a>` : ''}
     </p>
   </div>
 </div>
@@ -142,7 +164,7 @@ export function welcomeTemplate(order: any, auto: any, cfg: Record<string, any>)
   return { html: baseTemplate(content, subject, cfg), subject };
 }
 
-export function winBackTemplate(customer: { email: string; name: string }, auto: any, cfg: Record<string, any>) {
+export function winBackTemplate(customer: { email: string; name: string }, auto: any, cfg: Record<string, any>, lienDesinscription?: string) {
   const frontUrl = cfg.front_url || process.env.NEXT_PUBLIC_FRONT_URL || '';
   const subject = auto?.subject || 'On vous manque ? 💌';
   const content = auto?.custom_html || `
@@ -152,7 +174,7 @@ export function winBackTemplate(customer: { email: string; name: string }, auto:
     <p class="text">Nous avons de nouvelles saveurs qui pourraient vous plaire. Venez découvrir nos dernières nouveautés !</p>
     ${frontUrl ? `<div style="text-align:center"><a href="${frontUrl}" class="btn">Retourner à la boutique →</a></div>` : ''}
     <p class="text" style="font-size:13px;color:#6A7280">Si vous ne souhaitez plus recevoir nos emails, ignorez simplement ce message.</p>`;
-  return { html: baseTemplate(content, subject, cfg), subject };
+  return { html: baseTemplate(content, subject, cfg, lienDesinscription), subject };
 }
 
 export function postPurchaseTemplate(order: any, auto: any, cfg: Record<string, any>) {

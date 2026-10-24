@@ -8,6 +8,10 @@ const ALLOWED = new Set([
   'color_primary','color_secondary','color_bg','color_text',
   'font_display','font_body','font_ui',
   'email','phone','address','siret','tva',
+  /* Identité légale (migration 046) : saisie sur l'écran « Contact &
+     légal », imprimée sur les factures — elle manquait ici, la route la
+     jetait en répondant « Sauvegardé ». */
+  'legal_name','rcs_city','shop_city',
   'front_url','instagram','facebook','pinterest','currency','tva_rate','free_shipping_threshold',
   'smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from',
   'stripe_public_key','stripe_secret_key',
@@ -45,6 +49,23 @@ function publicOnly(row: Record<string, unknown>) {
   return Object.fromEntries(PUBLIC_FIELDS.filter(k => k in row).map(k => [k, row[k]]));
 }
 
+/* Secrets : jamais renvoyés, même à l'admin. Chaque écran du back-office
+   lit /api/white-label (couleurs, nom) : le mot de passe SMTP et la clé
+   Stripe secrète partaient dans le navigateur à chaque page. L'écran
+   reçoit seulement « déjà renseigné » (`smtp_pass_set`…), laisse le champ
+   vide, et un champ vide à l'enregistrement veut dire « inchangé ». */
+const SECRETS = ['smtp_pass', 'stripe_secret_key'] as const;
+
+function sansSecrets(row: Record<string, any> | null) {
+  if (!row) return {};
+  const out: Record<string, any> = { ...row };
+  for (const k of SECRETS) { out[`${k}_set`] = !!row[k]; out[k] = ''; }
+  return out;
+}
+
+/** Valeur vide, ou masque renvoyé tel quel (••••, ****) : on ne touche pas au secret en base. */
+const secretInchange = (v: unknown) => v == null || /^[\s•*·]*$/.test(String(v));
+
 export async function GET(req: NextRequest) {
   try {
     // Ligne complète pour les écrans d'admin (adminFetch) : même contrôle que le PUT.
@@ -55,7 +76,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ config: {} });
     }
     if (admin) {
-      return NextResponse.json({ config: data || {} }, { headers: { 'Cache-Control': 'private, no-store' } });
+      return NextResponse.json({ config: data ? sansSecrets(data) : {} }, { headers: { 'Cache-Control': 'private, no-store' } });
     }
     return NextResponse.json({ config: data ? publicOnly(data) : {} });
   } catch (e: any) {
@@ -69,7 +90,9 @@ export async function PUT(req: NextRequest) {
   try {
     const raw = await req.json();
     // Strip unknown columns before sending to Supabase
-    const body = Object.fromEntries(Object.entries(raw).filter(([k]) => ALLOWED.has(k)));
+    const body: Record<string, any> = Object.fromEntries(Object.entries(raw || {}).filter(([k]) => ALLOWED.has(k)));
+    // Champ secret laissé vide (ou masque) : le secret enregistré est conservé, jamais écrasé.
+    for (const k of SECRETS) if (k in body && secretInchange(body[k])) delete body[k];
     const { data: existing } = await supabaseAdmin.from('white_label_config').select('id').limit(1).maybeSingle();
     let result;
     if (existing) {
@@ -79,7 +102,7 @@ export async function PUT(req: NextRequest) {
       result = await supabaseAdmin.from('white_label_config').insert(body).select().maybeSingle();
     }
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
-    return NextResponse.json({ config: result.data });
+    return NextResponse.json({ config: sansSecrets(result.data) }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e: any) {
     console.error('[white-label] PUT exception:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -94,19 +117,27 @@ export async function POST(req: NextRequest) {
   const rows = body.rows || [];
   const results = { imported: 0, errors: [] as string[] };
 
+  /* Chaque ligne est comptée « importée » seulement si l'écriture a réussi :
+     les erreurs Supabase ne lèvent pas d'exception, l'écran annonçait
+     N lignes importées quoi qu'il arrive. */
+  const verifier = (r: { error: { message: string } | null }) => { if (r.error) throw new Error(r.error.message); };
   for (const row of rows) {
     try {
       if (type === 'products') {
-        await supabaseAdmin.from('products').insert({
-          name_fr: row.nom || row.name_fr || row.name,
-          name_sv: row.name_sv || row.nom,
-          name_en: row.name_en || row.nom,
-          price: parseFloat(row.prix || row.price || 0),
+        const nom = String(row.nom || row.name_fr || row.name || '').trim();
+        const prix = parseFloat(String(row.prix || row.price || '0').replace(',', '.'));
+        // Même règle que la fiche : pas de produit sans nom ni à 0 € en ligne.
+        if (!nom || !(prix > 0)) throw new Error('nom ou prix manquant');
+        verifier(await supabaseAdmin.from('products').insert({
+          name_fr: nom,
+          name_sv: row.name_sv || nom,
+          name_en: row.name_en || nom,
+          price: prix,
           is_active: true,
           sort_order: results.imported + 1,
-        });
+        }));
       } else if (type === 'contacts' || type === 'suppliers') {
-        await supabaseAdmin.from('contacts').insert({
+        verifier(await supabaseAdmin.from('contacts').insert({
           type: type === 'suppliers' ? 'supplier' : 'client',
           company: row.societe || row.company,
           first_name: row.prenom || row.first_name,
@@ -114,22 +145,25 @@ export async function POST(req: NextRequest) {
           email: row.email,
           phone: row.telephone || row.phone,
           address: row.adresse || row.address,
-        });
+        }));
       } else if (type === 'stock') {
         const { data: product } = await supabaseAdmin.from('products')
-          .select('id').eq('name_fr', row.produit || row.product).single();
-        if (product) {
-          await supabaseAdmin.from('products').update({ track_stock: true }).eq('id', product.id);
-          /* La quantité passe par le journal comme tout le reste. Un
-             import qui écrit le stock en silence, c'est un inventaire
-             fantôme : six mois plus tard, personne ne sait pourquoi la
-             valeur a changé ce jour-là. */
-          const { poserStock } = await import('@/lib/stock');
-          await poserStock(product.id, parseInt(row.stock || 0), {
-            reason: 'import',
-            note: 'Import CSV depuis les réglages',
-          });
-        }
+          .select('id').eq('name_fr', row.produit || row.product).maybeSingle();
+        // Produit introuvable (ou nom ambigu) : erreur visible, pas « importé ».
+        if (!product) throw new Error('produit introuvable');
+        verifier(await supabaseAdmin.from('products').update({ track_stock: true }).eq('id', product.id));
+        /* La quantité passe par le journal comme tout le reste. Un
+           import qui écrit le stock en silence, c'est un inventaire
+           fantôme : six mois plus tard, personne ne sait pourquoi la
+           valeur a changé ce jour-là. */
+        const { poserStock } = await import('@/lib/stock');
+        const m = await poserStock(product.id, Math.max(0, parseInt(row.stock || 0) || 0), {
+          reason: 'import',
+          note: 'Import CSV depuis les réglages',
+        });
+        if (!m) throw new Error('stock non enregistré');
+      } else {
+        throw new Error('type d’import inconnu');
       }
       results.imported++;
     } catch(e: any) {

@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { appendToSent, appendToDrafts } from '@/lib/imap';
+import { appendToSent, appendToDrafts, deleteMessage } from '@/lib/imap';
 import { getWhiteLabelConfig } from '@/lib/email-send';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -143,6 +143,22 @@ export async function envoyer(m: Message): Promise<{ destinataires: string[]; av
   }
 
   return { destinataires, avertissement };
+}
+
+/**
+ * Supprime un brouillon devenu inutile (message envoyé ou programmé) : la
+ * ligne en base ET sa copie dans le dossier Brouillons du serveur. Seule
+ * la ligne partait — le webmail gardait un brouillon fantôme de chaque
+ * message déjà envoyé.
+ */
+export async function oublierBrouillon(id: string): Promise<void> {
+  const { supabaseAdmin } = await import('@/lib/supabase');
+  const { data } = await supabaseAdmin.from('email_drafts').select('imap_uid, imap_folder').eq('id', id).maybeSingle();
+  if (data?.imap_uid && data?.imap_folder) {
+    await deleteMessage(data.imap_folder, data.imap_uid)
+      .catch(e => console.error('[mail-send] copie IMAP du brouillon non supprimée', e?.message || e));
+  }
+  await supabaseAdmin.from('email_drafts').delete().eq('id', id);
 }
 
 /** Dépose un brouillon sur le serveur et retourne son UID. */

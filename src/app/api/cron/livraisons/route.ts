@@ -72,8 +72,14 @@ function dateIso(brut: any): string | null {
 }
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  /* Sans CRON_SECRET, la route était ouverte à tous : n'importe qui
+     pouvait déclencher les appels UGO et les emails de livraison. Même
+     règle que les autres crons : pas de secret, pas de passage. */
+  const secret = (process.env.CRON_SECRET || '').trim();
+  if (!secret) {
+    return NextResponse.json({ error: 'CRON_SECRET non configuré — définir la variable dans Vercel' }, { status: 500 });
+  }
+  if (req.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 

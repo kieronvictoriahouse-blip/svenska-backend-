@@ -300,16 +300,35 @@ export async function expeditionEmail(order: any, o: OptEmail = {}) {
   const toutes = lignesDe(order, lang, o.produits);
   const brutes = parseLines(order?.lines).filter(l => !isShipping(l));
 
-  const lignes = colis
-    ? toutes.map((l, i) => ({ ...l, qte: String(colis[brutes[i]?.product_id] ?? 0) }))
+  /* Les quantités expédiées sont comptées PAR PRODUIT ; deux lignes d'un
+     même produit (un remplacement de rupture en ajoute une) recevaient
+     chacune le total : l'email annonçait deux fois le contenu du carton
+     et taisait le reliquat de la seconde ligne. On répartit dans l'ordre
+     des lignes, comme l'écran de la commande. */
+  const repartir = (parProduit: Record<string, number>) => {
+    const dispo: Record<string, number> = { ...parProduit };
+    return brutes.map(l => {
+      const pid = l?.product_id;
+      if (!pid) return 0;
+      const pris = Math.min(Number(l.qty) || 0, Math.max(0, Number(dispo[pid]) || 0));
+      dispo[pid] = (Number(dispo[pid]) || 0) - pris;
+      return pris;
+    });
+  };
+  const partiTotal = cumul ? repartir(cumul) : null;
+  const partiAvant = colis && cumul
+    ? repartir(Object.fromEntries(Object.entries(cumul).map(([pid, n]) => [pid, (Number(n) || 0) - (Number(colis[pid]) || 0)])))
+    : null;
+
+  const lignes = colis && partiTotal && partiAvant
+    ? toutes.map((l, i) => ({ ...l, qte: String(partiTotal[i] - partiAvant[i]) }))
             .filter(l => Number(l.qte) > 0)
     : toutes;
 
-  const reste = cumul
+  const reste = partiTotal
     ? toutes.map((l, i) => {
         const commande = Number(brutes[i]?.qty) || 0;
-        const parti = Number(cumul[brutes[i]?.product_id]) || 0;
-        return { nom: l.nom, qte: String(Math.max(0, commande - parti)) };
+        return { nom: l.nom, qte: String(Math.max(0, commande - partiTotal[i])) };
       }).filter(l => Number(l.qte) > 0)
     : [];
 

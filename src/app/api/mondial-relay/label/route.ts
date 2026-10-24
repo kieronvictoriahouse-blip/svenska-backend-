@@ -17,6 +17,16 @@ export async function POST(req: NextRequest) {
   const { data: order } = await supabaseAdmin.from('orders').select('*').eq('id', order_id).single();
   if (!order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
 
+  /* Une étiquette Mondial Relay est facturée à sa création : on n'en
+     refait pas une sur une commande qui en a déjà une (double clic,
+     second onglet), ni sur une commande annulée ou remboursée. */
+  if (order.mondial_relay_tracking) {
+    return NextResponse.json({ error: `Une étiquette Mondial Relay existe déjà (${order.mondial_relay_tracking})` }, { status: 409 });
+  }
+  if (['cancelled', 'refunded'].includes(order.status)) {
+    return NextResponse.json({ error: 'Commande annulée ou remboursée : pas d’étiquette' }, { status: 409 });
+  }
+
   const livRel = livRelInput || order.relay_point_id;
   if (!livRel) return NextResponse.json({ error: 'Code point relais de livraison requis' }, { status: 400 });
 
@@ -118,12 +128,34 @@ export async function POST(req: NextRequest) {
     const tracking = mrParseXml(xml, 'ExpeditionNum') || mrParseXml(xml, 'NumExpe');
     const labelUrl = mrParseXml(xml, 'URL_Etiquette');
 
-    await supabaseAdmin.from('orders').update({
+    /* La commande passe « expédiée » : ce qui restait dû sort du stock,
+       comme depuis la préparation (@/lib/expedition). Le statut seul
+       libérait la réservation sans rien retirer du rayon. */
+    const { STATUTS_EXPEDIABLES, resteDu, sortirColis } = await import('@/lib/expedition');
+    const colis = STATUTS_EXPEDIABLES.includes(order.status) ? resteDu(order) : {};
+    const solde: Record<string, any> = {};
+    if (Object.keys(colis).length) {
+      const cumul: Record<string, number> = { ...(order.shipped_qty || {}) };
+      for (const [pid, n] of Object.entries(colis)) cumul[pid] = (Number(cumul[pid]) || 0) + n;
+      Object.assign(solde, { shipped_qty: cumul, last_shipment: colis, picked_at: new Date().toISOString(), picking: null });
+    }
+    let ecriture = supabaseAdmin.from('orders').update({
       tracking_number: tracking,
       mondial_relay_tracking: tracking,
       mondial_relay_label_url: labelUrl,
-      status: 'shipped',
+      status: ['shipped', 'delivered'].includes(order.status) ? order.status : 'shipped',
+      ...solde,
+      updated_at: new Date().toISOString(),
     }).eq('id', order_id);
+    if (Object.keys(solde).length) ecriture = ecriture.eq('status', order.status);
+    const { data: pris } = await ecriture.select('id');
+    if (pris?.length && Object.keys(solde).length) await sortirColis(order, colis);
+    else if (!pris?.length) {
+      // Statut changé entre-temps (autre poste) : l'étiquette payée est gardée, rien d'autre.
+      await supabaseAdmin.from('orders').update({
+        tracking_number: tracking, mondial_relay_tracking: tracking, mondial_relay_label_url: labelUrl,
+      }).eq('id', order_id);
+    }
 
     return NextResponse.json({ tracking, labelUrl });
   } catch (err: any) {

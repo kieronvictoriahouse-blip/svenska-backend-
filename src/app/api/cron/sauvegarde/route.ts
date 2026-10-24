@@ -58,8 +58,12 @@ async function lireTable(table: string): Promise<any[]> {
 }
 
 export async function GET(req: NextRequest) {
+  /* Sans CRON_SECRET, la route était ouverte à tous : chaque appel relit
+     TOUTE la base (quota de bande passante Supabase, déjà épuisé une
+     fois le 01/10/2026). Même règle que cron/sync et cron/bank-sync. */
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!secret) return NextResponse.json({ error: 'CRON_SECRET non configuré — définir la variable dans Vercel' }, { status: 500 });
+  if (req.headers.get('authorization') !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 

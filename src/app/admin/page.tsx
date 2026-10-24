@@ -16,16 +16,40 @@ import { TDB } from './i18n';
 type Order = {
   id: string; order_number: string; status: string; total: number;
   customer_name?: string; created_at: string; is_test?: boolean;
+  exclude_from_stats?: boolean;
   lines?: any; refunded_amount?: number; refunds?: any[];
 };
 type Product = {
   id: string; name_fr: string; price: number; cost_price?: number;
-  stock?: number; track_stock?: boolean; low_stock_threshold?: number;
+  stock?: number; track_stock?: boolean; stock_alert?: number | null;
   image_url?: string; sort_order?: number;
 };
 
-const PAID = ['paid', 'confirmed', 'shipped', 'delivered'];
+/* Commandes payées : « preparing » et « partial » (expédition en
+   plusieurs colis) le sont aussi — elles manquaient, et le CA du mois
+   baissait dès qu'on commençait à préparer. Même liste que les avis
+   vérifiés (api/reviews) : payée, de la préparation à la livraison. */
+const PAID = ['paid', 'confirmed', 'preparing', 'partial', 'shipped', 'delivered'];
+/* « À traiter » : ce qui reste à expédier — la file de la préparation
+   et le badge de la barre latérale. */
+const A_TRAITER = ['paid', 'confirmed', 'preparing', 'partial'];
+/* Seuil de stock bas : `stock_alert` du produit, repli 12 — comme les
+   écrans Stock et Produits (la colonne lue avant, low_stock_threshold,
+   n'existe pas : tout tombait à 12). */
+const LOW_STOCK = 12;
 const r2 = (n: number) => Math.round((n || 0) * 100) / 100;
+
+/** Jour et mois calendaires à Paris (« 2026-10-24 », « 2026-10 ») : une
+ *  commande de 00 h 30 le 1er appartient au nouveau mois, pas à l'ancien
+ *  comme en UTC. */
+const jourParis = (d: Date | string) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(d));
+const moisParis = (d: Date | string) => jourParis(d).slice(0, 7);
+/** Mois précédent d'un « AAAA-MM ». */
+const moisAvant = (m: string) => {
+  const [a, mo] = m.split('-').map(Number);
+  return mo === 1 ? `${a - 1}-12` : `${a}-${String(mo - 1).padStart(2, '0')}`;
+};
 
 /** Remboursements non répercutés dans les montants de la commande.
  *  Même règle que la page Commandes — cf. flag `order_modified`. */
@@ -67,32 +91,32 @@ export default function AdminHome() {
 
   /* ── Agrégats ──────────────────────────────────────────── */
   const real = orders.filter(o => !o.is_test);
-  const paidOrders = real.filter(o => PAID.includes(o.status));
+  /* Chiffres : ni les commandes de test, ni celles mises « Hors stats »
+     dans l'écran Commandes (même règle que ses marges et la compta). */
+  const paidOrders = real.filter(o => PAID.includes(o.status) && !o.exclude_from_stats);
 
   const now = new Date();
-  const inMonth = (d: string, delta = 0) => {
-    const x = new Date(d);
-    const ref = new Date(now.getFullYear(), now.getMonth() - delta, 1);
-    return x.getMonth() === ref.getMonth() && x.getFullYear() === ref.getFullYear();
-  };
+  const moisCourant = moisParis(now);
+  const inMonth = (d: string, delta = 0) => moisParis(d) === (delta ? moisAvant(moisCourant) : moisCourant);
   const netOf = (o: Order) => r2((Number(o.total) || 0) - pendingRefund(o));
 
   const caMonth = r2(paidOrders.filter(o => inMonth(o.created_at)).reduce((s, o) => s + netOf(o), 0));
   const caPrev  = r2(paidOrders.filter(o => inMonth(o.created_at, 1)).reduce((s, o) => s + netOf(o), 0));
   const ordersMonth = paidOrders.filter(o => inMonth(o.created_at)).length;
   const ordersPrev  = paidOrders.filter(o => inMonth(o.created_at, 1)).length;
-  const avgCart = paidOrders.length ? r2(paidOrders.reduce((s, o) => s + netOf(o), 0) / paidOrders.length) : 0;
-  const avgPrev = ordersPrev ? r2(paidOrders.filter(o => inMonth(o.created_at, 1)).reduce((s, o) => s + netOf(o), 0) / ordersPrev) : 0;
+  /* Panier moyen DU MOIS, comparé à celui du mois précédent. Il était
+     calculé sur tout l'historique puis comparé au seul mois précédent. */
+  const avgCart = ordersMonth ? r2(caMonth / ordersMonth) : 0;
+  const avgPrev = ordersPrev ? r2(caPrev / ordersPrev) : 0;
 
   const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
 
-  /** Sparkline : CA net par jour sur les 12 derniers jours, normalisé 0-100. */
+  /** Sparkline : CA net par jour (calendrier de Paris) sur les 12 derniers jours, normalisé 0-100. */
   const spark = (pick: (o: Order) => number) => {
     const days: number[] = [];
     for (let i = 11; i >= 0; i--) {
-      const d = new Date(now); d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      days.push(paidOrders.filter(o => String(o.created_at).slice(0, 10) === key).reduce((s, o) => s + pick(o), 0));
+      const key = jourParis(new Date(now.getTime() - i * 86400000));
+      days.push(paidOrders.filter(o => jourParis(o.created_at) === key).reduce((s, o) => s + pick(o), 0));
     }
     const max = Math.max(...days, 1);
     return days.map(v => Math.round((v / max) * 100));
@@ -108,12 +132,14 @@ export default function AdminHome() {
   ];
 
   /* ── Stock ─────────────────────────────────────────────── */
-  const tracked = products.filter(p => p.track_stock === true && typeof p.stock === 'number');
-  const threshOf = (p: Product) => Number(p.low_stock_threshold) || 12;
-  const outOfStock = tracked.filter(p => (p.stock || 0) <= 0);
-  const lowStock = tracked.filter(p => (p.stock || 0) > 0 && (p.stock || 0) <= threshOf(p));
+  /* Mêmes définitions que l'écran Stock vers lequel pointent les alertes :
+     rupture = stock ≤ 0, stock bas = 0 < stock ≤ seuil du produit. */
+  const tracked = products.filter(p => p.track_stock === true);
+  const threshOf = (p: Product) => p.stock_alert ?? LOW_STOCK;
+  const outOfStock = tracked.filter(p => (p.stock ?? 0) <= 0);
+  const lowStock = tracked.filter(p => (p.stock ?? 0) > 0 && (p.stock ?? 0) <= threshOf(p));
   const toRestock = [...outOfStock, ...lowStock].slice(0, 5);
-  const toProcess = real.filter(o => ['paid', 'confirmed'].includes(o.status)).length;
+  const toProcess = real.filter(o => A_TRAITER.includes(o.status)).length;
 
   /* ── Top ventes 30 j ───────────────────────────────────── */
   const since = new Date(now); since.setDate(since.getDate() - 30);
@@ -132,7 +158,8 @@ export default function AdminHome() {
   const top = Object.values(sales).sort((a, b) => b.qty - a.qty).slice(0, 5);
   const topMax = Math.max(...top.map(t => t.qty), 1);
 
-  const recent = [...real]
+  // Paniers abandonnés masqués, comme par défaut sur l'écran Commandes.
+  const recent = real.filter(o => o.status !== 'abandoned')
     .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
     .slice(0, 6);
 
@@ -140,7 +167,8 @@ export default function AdminHome() {
   const syncMin = Math.max(0, Math.round((Date.now() - +syncedAt) / 60000));
 
   const alerts = [
-    toProcess > 0 && { tone: BADGE.amber,  icon: 'pending_actions', text: `${toProcess} commande${toProcess > 1 ? 's' : ''} à traiter`, href: '/admin/commandes' },
+    // Vers la file de préparation : c'est exactement la liste comptée ici.
+    toProcess > 0 && { tone: BADGE.amber,  icon: 'pending_actions', text: `${toProcess} commande${toProcess > 1 ? 's' : ''} à traiter`, href: '/admin/commandes/preparation' },
     lowStock.length > 0 && { tone: BADGE.orange, icon: 'warning', text: `${lowStock.length} produit${lowStock.length > 1 ? 's' : ''} sous le seuil`, href: '/admin/stock' },
     outOfStock.length > 0 && { tone: BADGE.red, icon: 'error', text: `${outOfStock.length} rupture${outOfStock.length > 1 ? 's' : ''}${outOfStock[0] ? ' · ' + outOfStock[0].name_fr : ''}`, href: '/admin/stock' },
   ].filter(Boolean) as Array<{ tone: { bg: string; fg: string }; icon: string; text: string; href: string }>;

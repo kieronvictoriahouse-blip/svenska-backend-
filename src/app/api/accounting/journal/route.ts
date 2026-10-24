@@ -15,7 +15,11 @@ export async function GET(req: NextRequest) {
   let q = supabaseAdmin.from('accounting_entries')
     .select('date, type, category, description, amount, reference_number, account_code, journal, piece')
     .order('date', { ascending: false }).limit(limit);
-  if (period) q = q.gte('date', `${period}-01`).lte('date', `${period}-31`);
+  // Dernier jour réel du mois : « 2026-09-31 » est une date invalide (erreur 500).
+  if (period && /^\d{4}-\d{2}$/.test(period)) {
+    const fin = new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate();
+    q = q.gte('date', `${period}-01`).lte('date', `${period}-${String(fin).padStart(2, '0')}`);
+  }
   else q = q.gte('date', `${year}-01-01`).lte('date', `${year}-12-31`);
 
   const { data, error } = await q;

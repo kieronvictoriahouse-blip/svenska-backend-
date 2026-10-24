@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   // Produits avec suivi de stock
   const { data: products } = await supabaseAdmin
     .from('products')
-    .select('id, name_fr, stock, stock_alert, cost_price, track_stock, reorder_qty')
+    .select('id, name_fr, stock, stock_alert, cost_price, track_stock, reorder_qty, pack_size')
     .eq('track_stock', true)
     .eq('is_active', true);
 
@@ -17,10 +17,14 @@ export async function GET(req: NextRequest) {
   // sporadiques, et masque les produits en rupture depuis > 30 j).
   const WINDOW_DAYS = 90;
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  /* Toutes les commandes payées, y compris celles en préparation ou
+     partiellement expédiées : les oublier faisait disparaître des ventes
+     au moment précis où elles partent. Hors commandes exclues des stats,
+     comme la vélocité nocturne (lib/velocity). */
   const { data: orders } = await supabaseAdmin
     .from('orders')
-    .select('lines')
-    .in('status', ['paid', 'confirmed', 'shipped', 'delivered'])
+    .select('lines, exclude_from_stats')
+    .in('status', ['paid', 'confirmed', 'preparing', 'partial', 'shipped', 'delivered'])
     .or('is_test.is.null,is_test.eq.false')
     .gte('created_at', since);
 
@@ -36,6 +40,7 @@ export async function GET(req: NextRequest) {
   const { chargerLots, developper } = await import('@/lib/lots');
   const lots = await chargerLots();
   for (const order of orders || []) {
+    if ((order as any).exclude_from_stats) continue;
     for (const line of developper(parseLines(order.lines), lots)) {
       salesMap[line.product_id] = (salesMap[line.product_id] || 0) + line.qty;
     }
@@ -74,7 +79,12 @@ export async function GET(req: NextRequest) {
       // Besoin = couvrir 60 jours − (stock + déjà commandé). Si on réapprovisionne,
       // on ne descend jamais sous la quantité mini du produit (MOQ/carton).
       const need = Math.ceil(velocity * 60) - effectiveStock;
-      const suggested = (need > 0 || effectiveStock <= 0) ? Math.max(need, minReorder) : 0;
+      const brut = (need > 0 || effectiveStock <= 0) ? Math.max(need, minReorder) : 0;
+      /* Arrondi au carton supérieur (Achats › Conditionnements) : « 10 »
+         d'un article vendu par 12 n'est pas commandable, et le bouton
+         « Commander » reprend ce chiffre tel quel. */
+      const carton = Math.max(1, Number(p.pack_size) || 1);
+      const suggested = brut > 0 ? Math.ceil(brut / carton) * carton : 0;
 
       const urgency = effectiveStock <= 0 ? 'rupture' : effectiveStock <= alert ? 'faible' : daysLeft <= 14 ? 'attention' : null;
 

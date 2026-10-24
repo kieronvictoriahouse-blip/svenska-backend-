@@ -2,10 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
-export async function GET(_req: NextRequest, { params }: { params: { slug: string } }) {
+/* Colonnes modifiables (le corps était écrit tel quel, `id` et `slug` compris). */
+const CHAMPS_PAGE = [
+  'title_fr', 'title_sv', 'title_en', 'nav_label_fr', 'nav_label_sv', 'nav_label_en',
+  'hero_image', 'hero_title_fr', 'hero_title_sv', 'hero_title_en',
+  'hero_subtitle_fr', 'hero_subtitle_sv', 'hero_subtitle_en',
+  'blocks', 'show_in_nav', 'is_active', 'sort_order',
+];
+
+export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('cms_pages').select('*').eq('slug', params.slug).maybeSingle();
+    // Page désactivée : visible de l'écran Pages, pas du public.
+    const admin = !!req.headers.get('authorization') && !!(await requireAuth(req));
+    let q = supabaseAdmin.from('cms_pages').select('*').eq('slug', params.slug);
+    if (!admin) q = q.eq('is_active', true);
+    const { data, error } = await q.maybeSingle();
     if (error || !data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json({ page: data });
   } catch (e: unknown) {
@@ -19,12 +30,15 @@ export async function PUT(req: NextRequest, { params }: { params: { slug: string
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   try {
     const body = await req.json();
+    const maj = Object.fromEntries(Object.entries(body || {}).filter(([k]) => CHAMPS_PAGE.includes(k)));
     const { data, error } = await supabaseAdmin
       .from('cms_pages')
-      .update({ ...body, updated_at: new Date().toISOString() })
+      .update({ ...maj, updated_at: new Date().toISOString() })
       .eq('slug', params.slug)
       .select().maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // Aucune ligne : la page a été supprimée ou renommée ailleurs — ne pas annoncer « sauvée ».
+    if (!data) return NextResponse.json({ error: 'Page introuvable' }, { status: 404 });
     return NextResponse.json({ page: data });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';

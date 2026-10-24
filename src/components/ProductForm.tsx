@@ -3,7 +3,14 @@ import { adminFetch } from '@/lib/auth-client';
 import { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { T } from '@/lib/admin-theme';
 import { useIsMobile } from '@/lib/use-mobile';
+import { resolveDiscount, effectiveUnitPrice } from '@/lib/product-price';
+import { reduirePhoto, erreurEnvoi } from '@/lib/reduire-photo';
+import { eanValide } from '@/lib/fiche-produit';
 import BarcodeScanner from './BarcodeScanner';
+
+/** Emballage d'une box (carton kraft + papier de soie), ajouté au coût
+ *  des produits — règle de coût des box fixée par la boutique. */
+const EMBALLAGE_BOX = 2.5;
 
 /* ═══════════════════════════════════════════════════════════════
    FORMULAIRE PRODUIT — écran 3 du handoff (« Fiche produit »).
@@ -114,7 +121,7 @@ type Props = {
   formId?: string;
 };
 
-type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved';
+type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
 /* ── Téléphone ──────────────────────────────────────────────
    La fiche est longue (40 champs) : sur téléphone chaque bloc se replie
@@ -289,12 +296,24 @@ export default function ProductForm({
       badge:         f.badge || null,
       category_id:   f.category_id || null,
       ean:           f.ean?.trim() || null,
+      sku:           f.sku?.trim() || null,
       stock:         f.track_stock && f.stock !== '' ? parseInt(f.stock) : null,
       reorder_qty:   f.reorder_qty !== '' ? parseInt(f.reorder_qty) : null,
       variants: f.variants
         .filter(v => v.label && v.price)
         .map(v => ({ label: v.label, price: parseFloat(v.price) })),
     };
+    /* Stock : envoyé seulement s'il a été modifié ici. L'autosave renvoie
+       tout le formulaire à chaque frappe ; avec le stock lu à l'ouverture,
+       une description retouchée après une expédition reposait l'ancienne
+       quantité (« correction » journalisée, mais fausse). */
+    const stockLu = initialData?.stock != null ? String(initialData.stock) : '';
+    if (initialData?.id && f.stock === stockLu) delete payload.stock;
+    /* Champs de la fiche chargée qui ne sont pas des colonnes modifiables
+       (id, catégorie embarquée, variantes brutes, dates…) : la route les
+       ignore, inutile de les envoyer. */
+    for (const k of ['id', 'categories', 'product_variants', 'lot_disponible', 'lot_contenu', 'created_at', 'updated_at', 'brand'])
+      delete payload[k];
     /* Box (migration 054) : n'est envoyée que si elle existe (ou existait),
        et une box n'a jamais de stock propre — ce sont ses sachets. */
     const lot = (_bi || [])
@@ -326,9 +345,13 @@ export default function ProductForm({
         setAsStatus('pending');
         asTimer.current = setTimeout(async () => {
           setAsStatus('saving');
-          await onSave(serialize(next));
-          setAsStatus('saved');
-          setTimeout(() => setAsStatus('idle'), 2200);
+          /* Un enregistrement refusé (prix vide, EAN invalide…) ne doit pas
+             s'afficher « Enregistré » : le parent rejette, on le montre. */
+          try {
+            await onSave(serialize(next));
+            setAsStatus('saved');
+            setTimeout(() => setAsStatus(s => (s === 'saved' ? 'idle' : s)), 2200);
+          } catch { setAsStatus('error'); }
         }, 1500);
       }
       return next;
@@ -363,23 +386,23 @@ export default function ProductForm({
     set('variants', form.variants.filter((_, idx) => idx !== i));
   }
 
-  async function uploadFile(file: File) {
-    if (!file) return;
+  async function uploadFile(brut: File) {
+    if (!brut) return;
     setUploading(true);
-    const token = localStorage.getItem('sd_admin_token');
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('folder', 'products');
-    fd.append('alt_text', form.name_fr || file.name);
     try {
-      const res = await adminFetch('/api/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-      const data = await res.json();
+      // Photo de téléphone : réduite ici, sinon refusée au-delà de 4 Mo (cf. lib/reduire-photo).
+      const file = await reduirePhoto(brut);
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('folder', 'products');
+      fd.append('alt_text', form.name_fr || file.name);
+      const res = await adminFetch('/api/upload', { method: 'POST', body: fd });
+      if (!res.ok) { alert('Erreur upload : ' + await erreurEnvoi(res)); return; }
+      const data = await res.json().catch(() => ({}));
       if (data.url) set('image_url', data.url);
       else alert('Erreur upload : ' + (data.error || 'inconnue'));
+    } catch {
+      alert('Erreur upload : réseau indisponible.');
     } finally {
       setUploading(false);
     }
@@ -397,7 +420,12 @@ export default function ProductForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (asTimer.current) clearTimeout(asTimer.current);
-    await onSave(serialize(form));
+    // Le nom FR n'est « required » que sous l'onglet FR : on y ramène si vide.
+    if (!String(form.name_fr || '').trim()) setLang('fr');
+    try {
+      await onSave(serialize(form));
+      if (autoSave) setAsStatus('idle');
+    } catch { if (autoSave) setAsStatus('error'); }
   }
 
   /* ── Affichage par onglet ───────────────────────────────── */
@@ -429,8 +457,18 @@ export default function ProductForm({
   const promoScheduled = hasDiscount && !!form.discount_start && todayStr < form.discount_start;
   const promoExpired = hasDiscount && !!form.discount_end && todayStr > form.discount_end;
   const promoActive = hasDiscount && !promoScheduled && !promoExpired;
-  // La marge se lit sur le prix réellement encaissé (remise incluse si active).
-  const pvNet = promoActive ? effPrice : pv;
+  /* La marge se lit sur le prix réellement encaissé : remise du produit si
+     active, sinon celle de sa catégorie — la règle du checkout et de la
+     vitrine (lib/product-price), pas une copie. La promo de catégorie
+     n'apparaissait nulle part sur la fiche. */
+  const remiseProduit = {
+    discount_type: form.discount_type || null, discount_value: form.discount_value,
+    discount_start: form.discount_start || null, discount_end: form.discount_end || null,
+  };
+  const categorie = categories.find(c => c.id === form.category_id);
+  const remiseEffective = resolveDiscount(remiseProduit, categorie);
+  const promoCategorie = remiseEffective !== remiseProduit ? remiseEffective : null;
+  const pvNet = effectiveUnitPrice(pv, remiseEffective);
   const margeEur = pa > 0 ? pvNet - pa : null;
   const margePct = pa > 0 && pvNet > 0 ? ((pvNet - pa) / pvNet) * 100 : null;
   const margeColor = margePct === null ? T.muted : margePct >= 50 ? T.green : margePct >= 30 ? '#C97A2B' : T.red;
@@ -524,6 +562,15 @@ export default function ProductForm({
                     </div>
                   )}
                 </div>
+                {promoCategorie && (
+                  <div className="pf-hint" style={{ marginTop: 8, color: '#C0392B' }}>
+                    Promo de la catégorie « {categorie?.name_fr} » en cours :{' '}
+                    {promoCategorie.discount_type === 'percent'
+                      ? `−${Number(promoCategorie.discount_value)} %`
+                      : `−${Number(promoCategorie.discount_value).toFixed(2)} €`}
+                    {' '}→ {pvNet.toFixed(2)} € payés par le client. La marge ci-dessus est calculée sur ce prix.
+                  </div>
+                )}
               </Card>
 
               <Card title="Remise / promo" defaultOpen={!!form.discount_type}>
@@ -663,12 +710,16 @@ export default function ProductForm({
                           Sans prix d&apos;achat (compté 0 €) : {sansPA.map(x => x.p.name_fr).join(', ')}
                         </div>
                       )}
+                      {/* Règle des box : coût = produits + 2,50 € d'emballage. Le
+                          bouton reportait les produits seuls et laissait l'ajout à
+                          faire de tête ; la marge affichée était donc trop belle. */}
+                      {ligne('Emballage (carton, papier de soie)', `${EMBALLAGE_BOX.toFixed(2)} €`)}
                       <button type="button" className="sc-btn sc-btn-secondary" style={{ marginTop: 6 }}
-                              onClick={() => set('cost_price', cout.toFixed(2))}>
-                        Reporter {cout.toFixed(2)} € dans le prix d&apos;achat
+                              onClick={() => set('cost_price', (cout + EMBALLAGE_BOX).toFixed(2))}>
+                        Reporter {(cout + EMBALLAGE_BOX).toFixed(2)} € dans le prix d&apos;achat
                       </button>
                       <div className="pf-hint" style={{ marginTop: 4 }}>
-                        Ajoute ensuite l&apos;emballage (carton, papier de soie) au prix d&apos;achat pour des marges justes.
+                        Produits + {EMBALLAGE_BOX.toFixed(2).replace('.', ',')} € d&apos;emballage.
                       </div>
                       {typeof dispo === 'number' && ligne('Box vendables maintenant', String(Math.max(0, dispo)), dispo > 0 ? T.ink : T.red)}
                     </div>
@@ -903,6 +954,12 @@ export default function ProductForm({
                     <span className="ms">barcode_scanner</span>{scanOpen ? 'Fermer' : 'Scanner'}
                   </button>
                 </div>
+                {/* Même contrôle qu'à l'enregistrement : longueur et clé de contrôle */}
+                {!!form.ean && form.ean !== String(initialData?.ean ?? '') && !eanValide(form.ean) && (
+                  <div className="pf-hint" style={{ color: T.red, marginTop: 4 }}>
+                    Code incomplet ou erroné (8, 12, 13 ou 14 chiffres, clé de contrôle incluse) : la fiche ne sera pas enregistrée.
+                  </div>
+                )}
               </Field>
 
               {/* Lecteur : en ligne sur ordinateur, plein écran sur téléphone

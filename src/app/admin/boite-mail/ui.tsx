@@ -91,6 +91,52 @@ export function useRetourMobile(cle: string, actif: boolean, fermer: () => void)
   }, [cle]);
 }
 
+/* ── HTML reçu, rendu inoffensif ─────────────────────────────────
+   Sur téléphone, l'email est mesuré pour être réduit à l'écran : son
+   iframe est en sandbox="allow-same-origin" (sans allow-scripts). Aucun
+   script ne s'y exécute, aucun formulaire ne part, meta refresh et liens
+   target=_blank/_top sont bloqués — vérifié. Mais le document a alors
+   l'ORIGINE DU BACK-OFFICE : une image, un fond CSS ou une feuille de
+   style pointant vers /api/… partait AVEC le cookie de session de
+   l'admin (requête GET authentifiée, sans clic, à l'ouverture du
+   message). On retire donc, avant affichage, tout ce qui chargerait une
+   ressource du back-office ou une adresse relative (qui s'y résout). */
+const ATTRS_URL = ['src', 'href', 'xlink:href', 'background', 'poster', 'data', 'action', 'formaction', 'lowsrc', 'dynsrc', 'longdesc'];
+
+export function neutraliserHtml(html: string): string {
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return '';
+  const ici = window.location.origin;
+  const sur = (u: string): boolean => {
+    const s = String(u || '').trim();
+    if (!s || s.startsWith('#') || /^(cid:|mailto:|tel:|data:image\/)/i.test(s)) return true;
+    if (!/^https?:\/\//i.test(s)) return false;          // relatif, « //hôte », javascript:… → back-office ou pire
+    try { return new URL(s).origin !== ici; } catch { return false; }
+  };
+  const cssPropre = (css: string) => css
+    // Échappements CSS (« \75 rl( ») décodés avant contrôle.
+    .replace(/\\([0-9a-f]{1,6})\s?/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ''; } })
+    .replace(/@import[^;]*;?/gi, '')
+    .replace(/(?:-webkit-)?image-set\([^)]*\)/gi, 'none')
+    .replace(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi, (tout, _q, u) => (sur(u) ? tout : 'none'));
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, base, meta, link, form, iframe, frame, frameset, object, embed, applet, portal')
+    .forEach(e => e.remove());
+  doc.querySelectorAll('style').forEach(s => { s.textContent = cssPropre(s.textContent || ''); });
+  doc.querySelectorAll('*').forEach(el => {
+    for (const a of Array.from(el.attributes)) {
+      const n = a.name.toLowerCase();
+      if (n.startsWith('on') || n === 'ping') el.removeAttribute(a.name);
+      else if (n === 'style') el.setAttribute('style', cssPropre(a.value));
+      else if (n === 'srcset' || n === 'imagesrcset') {
+        const ok = a.value.split(',').map(c => c.trim()).filter(c => sur(c.split(/\s+/)[0]));
+        if (ok.length) el.setAttribute(a.name, ok.join(', ')); else el.removeAttribute(a.name);
+      } else if (ATTRS_URL.includes(n) && !sur(a.value)) el.removeAttribute(a.name);
+    }
+  });
+  return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+}
+
 export const COULEUR_ETIQ: Record<string, string> = {
   Clients: '#7B4F7B', Fournisseurs: '#1C4E80', Logistique: '#3E5238',
   'Comptabilité': '#8A5B08', Marketing: '#A6501F',
@@ -123,7 +169,7 @@ export function depuis(iso?: string | null) {
 
 export type Msg = {
   id: string; folder: string; uid: number; message_id?: string;
-  from_name?: string; from_email?: string; to_emails?: string[];
+  from_name?: string; from_email?: string; to_emails?: string[]; cc_emails?: string[];
   subject?: string; preview?: string; seen: boolean; flagged: boolean;
   label?: string | null; attachments?: any[]; has_attachment?: boolean;
   sent_at?: string; body_html?: string; body_text?: string;

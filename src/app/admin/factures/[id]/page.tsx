@@ -54,8 +54,15 @@ const PAYMENT_LABELS: Record<string, string> = {
 const fmt = (n: number) =>
   (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
+/* `paid_at` est un horodatage complet : y coller « T12:00 » donnait
+   « Invalid Date » (« acquittée le Invalid Date »). Seule la partie date
+   compte. */
 const fmtDate = (d?: string) =>
-  d ? new Date(d + 'T12:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
+  d ? new Date(String(d).slice(0, 10) + 'T12:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
+
+/** « Marquer payée » n'a de sens que pour une facture en attente — pas
+ *  pour un avoir ni pour une facture déjà remboursée. */
+const PEUT_ETRE_PAYEE = ['draft', 'sent', 'late'];
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'BROUILLON', sent: 'ÉMISE', paid: 'PAYÉE', late: 'EN RETARD',
@@ -155,15 +162,19 @@ export default function FacturePage() {
   }, [id]);
 
   async function markPaid() {
-    if (!invoice) return;
+    if (!invoice || saving) return;
     setSaving(true);
-    const res = await adminFetch(`/api/invoices/${invoice.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'paid' }),
-    });
-    if (res.ok) setInvoice(inv => inv ? { ...inv, status: 'paid' } : inv);
-    setSaving(false);
+    try {
+      const res = await adminFetch(`/api/invoices/${invoice.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'paid' }),
+      });
+      const d = await res.json().catch(() => ({}));
+      // Échec visible : avant, rien ne se passait et rien ne le disait.
+      if (!res.ok) { alert(d?.error || t('msgMajKo')); return; }
+      setInvoice(inv => inv ? { ...inv, ...(d.invoice || {}), status: 'paid' } : inv);
+    } finally { setSaving(false); }
   }
 
   if (loading) return <div style={{ padding: 40, fontFamily: 'system-ui', color: '#64748b' }}>{tc('loading')}</div>;
@@ -171,9 +182,15 @@ export default function FacturePage() {
 
   const lines: InvoiceLine[] = Array.isArray(invoice.lines) ? invoice.lines : [];
   const subtotal = lines.reduce((s, l) => s + (l.qty * l.price), 0);
+  /* Factures émises avant la ligne de remise : le code promo de la
+     commande expliquait l'écart entre les lignes et le total payé. */
+  const ecartRemise = invoice.status === 'avoir' ? 0
+    : Math.round((subtotal + (invoice.total_tva || 0) - (invoice.total_ttc || 0)) * 100) / 100;
   const isMicro = !invoice.total_tva || invoice.total_tva === 0;
 
   const statusLabel = STATUS_LABELS[invoice.status] || invoice.status.toUpperCase();
+  // Un avoir s'ouvre ici (« Voir l'avoir ») : il était titré « FACTURE ».
+  const docTitre = invoice.status === 'avoir' ? 'Avoir' : 'Facture';
 
   return (
     <>
@@ -191,13 +208,13 @@ export default function FacturePage() {
               color: invoice.status === 'paid' ? '#166534' : invoice.status === 'sent' ? '#1d4ed8' : '#64748b',
             }}>{statusLabel}</span>
           </div>
-          {(invoice.status !== 'paid' || avoirId) && (
+          {(PEUT_ETRE_PAYEE.includes(invoice.status) || avoirId) && (
             <>
               <button ref={menuRef} className="sc-iconbtn" aria-label={traduire(TFM.plus, lang)} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(v => !v)}>
                 <span className="ms">more_vert</span>
               </button>
-              <MenuActions open={menu} anchor={menuRef.current} onClose={() => setMenu(false)} title={`Facture ${invoice.number}`}>
-                {invoice.status !== 'paid' && (
+              <MenuActions open={menu} anchor={menuRef.current} onClose={() => setMenu(false)} title={`${docTitre} ${invoice.number}`}>
+                {PEUT_ETRE_PAYEE.includes(invoice.status) && (
                   <MenuItem icon="task_alt" label={traduire(TFM.marquerPayee, lang)} disabled={saving} onClick={markPaid} />
                 )}
                 {avoirId && <MenuItem icon="undo" label={traduire(TFM.voirAvoir, lang)} href={`/admin/factures/${avoirId}`} />}
@@ -221,7 +238,7 @@ export default function FacturePage() {
         >
           ← Retour
         </button>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>Facture {invoice.number}</span>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{docTitre} {invoice.number}</span>
         <span style={{
           padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 700,
           background: invoice.status === 'paid' ? '#10b981' : invoice.status === 'sent' ? '#3b82f6' : '#94a3b8',
@@ -230,7 +247,7 @@ export default function FacturePage() {
           {STATUS_LABELS[invoice.status] || invoice.status.toUpperCase()}
         </span>
         <div style={{ flex: 1 }} />
-        {invoice.status !== 'paid' && (
+        {PEUT_ETRE_PAYEE.includes(invoice.status) && (
           <button
             onClick={markPaid}
             disabled={saving}
@@ -350,7 +367,7 @@ export default function FacturePage() {
           {/* Bloc facture */}
           <div className="inv-head-r" style={{ textAlign: 'right' }}>
             <div className="inv-doc-title" style={{ fontSize: 32, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>
-              FACTURE
+              {docTitre.toUpperCase()}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#3b82f6', marginTop: 4 }}>
               {invoice.number}
@@ -456,6 +473,12 @@ export default function FacturePage() {
               <span>{tc('subtotal')}</span>
               <span>{fmt(subtotal)}</span>
             </div>
+            {ecartRemise >= 0.01 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: 14, color: '#64748b' }}>
+                <span>Remise</span>
+                <span>− {fmt(ecartRemise)}</span>
+              </div>
+            )}
             {!isMicro && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: 14, color: '#64748b' }}>
                 <span>TVA</span>

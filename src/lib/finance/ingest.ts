@@ -41,7 +41,11 @@ export async function ingestTransactions(
     .map(l => {
       const direction: Sens = l.amount >= 0 ? 'in' : 'out';
       const p = proposeCategory(rules, { label: l.label, direction, amount: l.amount });
-      const isStripePayout = direction === 'in' && /STRIPE.*(PAYOUT|VIREMENT)|PAYOUT.*STRIPE/i.test(l.label);
+      /* Tout encaissement Stripe est un versement groupé : les libellés
+         réels (« VIR SEPA STRIPE PAYMENTS EUROPE LTD ») ne disent ni
+         PAYOUT ni VIREMENT, et la ligne partait en « vente » à créer —
+         une seconde fois le chiffre d'affaires déjà compté par commande. */
+      const isStripePayout = direction === 'in' && /STRIPE/i.test(`${l.label} ${l.counterparty || ''}`);
       return {
         account_id: accountId,
         provider,

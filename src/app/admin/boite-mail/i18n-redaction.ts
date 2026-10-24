@@ -9,6 +9,14 @@ export const TRD = {
   joindre: { fr: 'Joindre un fichier', en: 'Attach a file', sv: 'Bifoga en fil' },
   msgBrouillon: { fr: 'Brouillon enregistré', en: 'Draft saved', sv: 'Utkast sparat' },
   msgModeleKo: { fr: 'Modèle illisible', en: 'Template unreadable', sv: 'Mallen kunde inte läsas' },
+  /* Ce que « programmer » veut vraiment dire : aucun automate ne tourne à
+     l'heure dite (un seul passage automatique par jour sur Vercel). */
+  notePrevue: {
+    fr: 'Il part à la première relève de la boîte après cette heure (« Envoyer / recevoir »), sinon au passage automatique du matin (6 h l’hiver, 7 h l’été).',
+    en: 'It goes out at the first mailbox check after this time (“Send / receive”), otherwise at the automatic morning run (6 am in winter, 7 am in summer, Paris time).',
+    sv: 'Det skickas vid första hämtningen efter denna tid (”Skicka / ta emot”), annars vid den automatiska körningen på morgonen (kl. 6 på vintern, 7 på sommaren, Paristid).',
+  },
+  pjTropLourdes: { fr: 'Pièces jointes trop lourdes — 3 Mo maximum au total', en: 'Attachments too large — 3 MB maximum in total', sv: 'Bilagorna är för stora — högst 3 MB totalt' },
 };
 
 /** La date suit la langue : « 3 septembre » n'a pas sa place dans une

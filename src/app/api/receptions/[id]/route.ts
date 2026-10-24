@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { applyStockAndPmp } from '@/lib/reception-utils';
+import { applyStockAndPmp, majCommandeAchat, lignesDe, recuDe } from '@/lib/reception-utils';
 import { requireAuth } from '@/lib/auth';
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
@@ -11,25 +11,39 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (error || !reception) return NextResponse.json({ error: 'Réception introuvable' }, { status: 404 });
   if (reception.status === 'cancelled') return NextResponse.json({ error: 'Déjà annulée' }, { status: 400 });
 
-  const lines = typeof reception.lines === 'string' ? JSON.parse(reception.lines) : reception.lines || [];
+  /* L'annulation se réserve AVANT de toucher au stock : deux clics, ou
+     deux onglets, lisaient tous deux « pas encore annulée » et retiraient
+     chacun la marchandise. La mise à jour conditionnelle ne réussit
+     qu'une fois. */
+  const { data: pris } = await supabaseAdmin.from('receptions')
+    .update({ status: 'cancelled' }).eq('id', params.id).neq('status', 'cancelled').select('id');
+  if (!pris || !pris.length) return NextResponse.json({ error: 'Déjà annulée' }, { status: 400 });
+
+  const lines = lignesDe(reception.lines);
 
   // Inverser le stock et le PMP pour chaque ligne
   for (const line of lines) {
-    if (!line.product_id || !line.received_qty) continue;
-    const qty = parseInt(line.received_qty) || 0;
-    const cost = parseFloat(line.unit_cost) || 0;
+    const qty = recuDe(line);
+    if (!line.product_id || qty <= 0) continue;
+    // Prix en euros : les anciennes lignes de ticket avaient des couronnes dans unit_cost.
+    const cost = parseFloat(line.unit_cost_eur ?? line.unit_cost) || 0;
 
     const { data: product } = await supabaseAdmin.from('products')
       .select('stock, cost_price').eq('id', line.product_id).single();
     if (!product) continue;
 
-    const newStock = Math.max(0, (product.stock || 0) - qty);
-    let newPmp = product.cost_price || 0;
-    if (newStock > 0 && qty > 0) {
-      newPmp = ((product.stock || 0) * (product.cost_price || 0) - qty * cost) / newStock;
-      if (newPmp < 0) newPmp = 0;
-    } else if (newStock === 0) {
-      newPmp = 0;
+    /* On retire du PMP ce que la réception y avait apporté, tant qu'il
+       reste des unités pour porter la moyenne. Sinon on garde le dernier
+       PMP connu : le mettre à 0 (ancien comportement, dès que le rayon
+       tombait à zéro) faisait afficher 100 % de marge sur ce produit
+       jusqu'à la réception suivante. */
+    const stock = Number(product.stock) || 0;
+    const pmp = Number(product.cost_price) || 0;
+    const reste = stock - qty;
+    let newPmp = pmp;
+    if (reste > 0) {
+      const v = (stock * pmp - qty * cost) / reste;
+      if (v > 0) newPmp = v;
     }
 
     await supabaseAdmin.from('products').update({
@@ -47,43 +61,73 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     });
   }
 
-  // Marquer la réception comme annulée
-  await supabaseAdmin.from('receptions').update({ status: 'cancelled' }).eq('id', params.id);
-
-  // Remettre la commande d'achat en "confirmed" UNIQUEMENT s'il ne reste plus
-  // aucune autre réception valide pour cette PO (sinon on la remettrait en
-  // attente à tort alors qu'une autre réception l'a déjà réceptionnée).
-  if (reception.purchase_order_id) {
-    const { data: otherReceptions } = await supabaseAdmin
-      .from('receptions')
-      .select('id')
-      .eq('purchase_order_id', reception.purchase_order_id)
-      .neq('status', 'cancelled')
-      .neq('id', params.id);
-    if (!otherReceptions || otherReceptions.length === 0) {
-      await supabaseAdmin.from('purchase_orders')
-        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-        .eq('id', reception.purchase_order_id)
-        .eq('status', 'received');
-    }
-  }
+  /* Statut de la commande d'achat recalculé sur les réceptions qui
+     restent : partielle, reçue, ou de nouveau confirmée s'il n'en reste
+     aucune. */
+  if (reception.purchase_order_id) await majCommandeAchat(reception.purchase_order_id);
 
   return NextResponse.json({ success: true, reversed: lines.length });
 }
 
+/**
+ * Rejeu d'une réception : applique le stock des lignes qui ne sont
+ * jamais entrées (échec en cours de route).
+ *
+ * Il réappliquait TOUTES les lignes, sans garde : deux appels, ou un
+ * appel sur une réception déjà passée, doublaient le stock et
+ * redécalaient le PMP. Une ligne n'est rejouée que si aucun mouvement
+ * d'entrée ne la rattache déjà à cette réception.
+ */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const { data: reception, error } = await supabaseAdmin
     .from('receptions').select('*').eq('id', params.id).single();
   if (error || !reception) return NextResponse.json({ error: 'Réception introuvable' }, { status: 404 });
-
-  const lines = typeof reception.lines === 'string' ? JSON.parse(reception.lines) : reception.lines || [];
-  const reason = `Rejeu réception ${reception.number} — ${reception.supplier_name || ''}`;
-
-  for (const line of lines) {
-    if (!line.product_id || !line.received_qty) continue;
-    await applyStockAndPmp(line, reason);
+  if (reception.status === 'cancelled') {
+    return NextResponse.json({ error: 'Réception annulée : rien à rejouer' }, { status: 400 });
   }
 
-  return NextResponse.json({ success: true, replayed: lines.length });
+  const numero = String(reception.number || '');
+  const chiffres = numero.replace(/^REC-/, '');
+
+  /* Trois traces possibles d'une entrée déjà faite :
+     · la référence = numéro de réception (depuis cette correction) ;
+     · la référence = numéro de commande du ticket (PO-AAAA-NNN) ;
+     · les anciennes réceptions, sans référence : « Réception 0008 — … »
+       ou « Rejeu réception REC-0008 — … » dans le motif. */
+  const [parRef, parMotif, parRejeu] = await Promise.all([
+    supabaseAdmin.from('stock_movements').select('product_id, delta')
+      .in('reference', [numero, `PO-${chiffres}`]),
+    supabaseAdmin.from('stock_movements').select('product_id, delta')
+      .ilike('reason', `Réception ${chiffres} —%`),
+    supabaseAdmin.from('stock_movements').select('product_id, delta')
+      .ilike('reason', `Rejeu réception ${numero} —%`),
+  ]);
+  const dejaEntres = new Set(
+    [...(parRef.data || []), ...(parMotif.data || []), ...(parRejeu.data || [])]
+      .filter(m => (Number(m.delta) || 0) > 0)
+      .map(m => m.product_id as string),
+  );
+
+  const lines = lignesDe(reception.lines);
+  const reason = `Rejeu réception ${numero} — ${reception.supplier_name || ''}`;
+
+  let rejouees = 0;
+  const ignorees: string[] = [];
+  const echecs: string[] = [];
+  for (const line of lines) {
+    if (!line.product_id || recuDe(line) <= 0) continue;
+    if (dejaEntres.has(line.product_id)) { ignorees.push(line.name || line.product_id); continue; }
+    try {
+      await applyStockAndPmp(line, reason, numero);
+      rejouees++;
+    } catch (e: any) {
+      echecs.push(`${line.name || line.product_id} (${e?.message || 'erreur'})`);
+    }
+  }
+
+  return NextResponse.json({
+    success: echecs.length === 0, replayed: rejouees, deja_entrees: ignorees,
+    ...(echecs.length ? { echecs } : {}),
+  });
 }

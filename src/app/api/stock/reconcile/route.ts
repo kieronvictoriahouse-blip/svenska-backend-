@@ -10,10 +10,11 @@ import { adjustStock } from '@/lib/stock';
 
        théorique = total reçu − total vendu
 
-   « reçu » = lignes des réceptions non annulées ; « vendu » = lignes
-   des commandes réelles (hors test, hors exclues des stats, hors
-   annulées). C'est la seule base reconstituable : les ventes n'ont
-   longtemps laissé aucune trace dans le journal de stock.
+   « reçu » = lignes des réceptions non annulées ; « vendu » = quantités
+   EXPÉDIÉES des commandes réelles (hors test, hors exclues des stats,
+   hors annulées) — le stock ne bouge qu'à l'expédition. C'est la seule
+   base reconstituable : les ventes n'ont longtemps laissé aucune trace
+   dans le journal de stock.
 
    Limite honnête : un produit jamais entré par une réception n'a pas
    de théorique exploitable — son stock a été saisi à la main. Ces
@@ -26,32 +27,69 @@ const J = (v: any): any[] => {
   catch { return []; }
 };
 
+/* PostgREST plafonne une lecture à 1000 lignes (max-rows de Supabase),
+   sans erreur : passé 1000 commandes, « vendu » aurait silencieusement
+   perdu les autres, et « Aligner » aurait remis en rayon leur marchandise.
+   On lit donc par pages, dans un ordre stable. */
+async function toutLire(table: string, colonnes: string): Promise<any[]> {
+  const PAGE = 1000;
+  const out: any[] = [];
+  for (let de = 0; ; de += PAGE) {
+    const { data, error } = await supabaseAdmin.from(table).select(colonnes)
+      .order('id', { ascending: true }).range(de, de + PAGE - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
 async function compute() {
-  const [{ data: products }, { data: orders }, { data: receptions }] = await Promise.all([
-    supabaseAdmin.from('products').select('id, name_fr, stock, stock_alert, track_stock, sort_order, image_url'),
-    supabaseAdmin.from('orders').select('id, order_number, status, lines, is_test, exclude_from_stats'),
-    supabaseAdmin.from('receptions').select('id, number, status, lines'),
+  const [products, orders, receptions] = await Promise.all([
+    toutLire('products', 'id, name_fr, stock, stock_alert, track_stock, sort_order, image_url'),
+    toutLire('orders', 'id, order_number, status, lines, shipped_qty, is_test, exclude_from_stats'),
+    toutLire('receptions', 'id, number, status, lines'),
   ]);
 
   const received: Record<string, number> = {};
   for (const r of receptions || []) {
     if (r.status === 'cancelled') continue;
     for (const l of J(r.lines)) {
-      const q = Number(l.received_qty != null ? l.received_qty : l.qty) || 0;
+      const q = Number(l.received_qty ?? l.qty_received ?? l.qty) || 0;
       if (l.product_id && q) received[l.product_id] = (received[l.product_id] || 0) + q;
     }
   }
 
+  /* « Vendu » = ce qui est SORTI du rayon, exactement comme le contrôle
+     quotidien (cron/stock-audit). Ce calcul comptait encore toutes les
+     lignes de toutes les commandes non annulées — y compris les paniers
+     abandonnés, les brouillons en attente de paiement et les commandes
+     payées pas encore expédiées, qui sont toujours sur l'étagère.
+     « Aligner » retirait alors du stock physique la marchandise d'un
+     panier jamais payé, ou celle d'une commande qui allait de nouveau la
+     sortir à l'expédition. */
+  const PARTIES = ['shipped', 'delivered', 'partial'];
   const sold: Record<string, number> = {};
   /* Une box vendue a vendu ses sachets (migration 054) : sans ce
      développement, le rapprochement « corrigerait » à la hausse le stock
      de chaque sachet parti dans une box. */
-  const { chargerLots, developper } = await import('@/lib/lots');
+  const { chargerLots } = await import('@/lib/lots');
   const lots = await chargerLots();
   for (const o of orders || []) {
     if (o.is_test || o.exclude_from_stats || o.status === 'cancelled') continue;
-    for (const l of developper(J(o.lines), lots)) {
-      if (l.qty) sold[l.product_id] = (sold[l.product_id] || 0) + l.qty;
+    const envoye = (o as any).shipped_qty || null;
+    for (const l of J(o.lines)) {
+      if (!l.product_id) continue;
+      /* Expédition partielle : shipped_qty fait foi. Commande expédiée
+         avant que cette colonne existe : tout est parti. Sinon : rien. */
+      const q = envoye
+        ? Number(envoye[l.product_id]) || 0
+        : (PARTIES.includes(o.status) ? Number(l.qty) || 0 : 0);
+      if (!q) continue;
+      if (lots[l.product_id]) {
+        for (const it of lots[l.product_id]) sold[it.product_id] = (sold[it.product_id] || 0) + q * it.qty;
+      } else {
+        sold[l.product_id] = (sold[l.product_id] || 0) + q;
+      }
     }
   }
 

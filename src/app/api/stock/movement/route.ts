@@ -32,11 +32,20 @@ export async function POST(req: NextRequest) {
   for (const it of items) {
     const productId = it.product_id;
     if (!productId) continue;
+    /* Un comptage est un entier positif ou nul, une variation un entier :
+       « −3 comptés » ou « 2,5 » ne sont pas des saisies, ce sont des
+       fautes de frappe qui finiraient en stock. */
+    if (it.counted != null && !(Number.isInteger(Number(it.counted)) && Number(it.counted) >= 0)) {
+      failed.push(productId); continue;
+    }
+    if (it.counted == null && it.delta != null && !Number.isInteger(Number(it.delta))) {
+      failed.push(productId); continue;
+    }
     try {
       const options = {
         reason: it.reason || reason,
         reference: it.reference || reference || undefined,
-        note: it.note || undefined,
+        note: it.note || body.note || undefined,
       };
       const r = it.counted != null
         ? await poserStock(productId, Number(it.counted), options)

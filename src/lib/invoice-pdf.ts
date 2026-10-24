@@ -80,6 +80,10 @@ function fmtSiren(s: string) {
   return s;
 }
 
+/** Le numéro saisi est souvent le SIRET (14 chiffres) : l'étiqueter
+ *  « SIREN » le rendait faux. */
+const libelleSiren = (s: any) => String(s || '').replace(/\D/g, '').length === 14 ? 'SIRET' : 'SIREN';
+
 const PAYMENT_LABELS: Record<string, string> = {
   card: 'Carte bancaire', stripe: 'Carte bancaire',
   transfer: 'Virement bancaire', paypal: 'PayPal', other: 'Autre moyen',
@@ -127,11 +131,13 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
      la case « Commande » du bandeau reste vide, comme sur l'ancien PDF. */
   let orderNumber: string = inv.order_number || '';
   let orderPaid = false;
+  let promoCode = '';
   if (inv.order_id) {
     const { data: ord } = await supabaseAdmin
-      .from('orders').select('order_number, status').eq('id', inv.order_id).maybeSingle();
+      .from('orders').select('order_number, status, promo_code').eq('id', inv.order_id).maybeSingle();
     orderNumber = orderNumber || ord?.order_number || '';
     orderPaid = ['paid', 'confirmed', 'shipped', 'delivered'].includes(ord?.status || '');
+    promoCode = ord?.promo_code || '';
   }
 
   /* Le paiement se fait à la commande : dès que la commande est payée, la
@@ -150,11 +156,23 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   const toneUnder = isAvoir ? D.green : D.gold;
   const docTitle = isAvoir ? 'Avoir' : 'Facture';
 
-  const productLines = rawLines.filter(l => !isShippingLine(l));
-  const shipLine = rawLines.find(isShippingLine);
-  const shipping = shipLine ? (Number(shipLine.qty) || 1) * (Number(shipLine.price) || 0) : undefined;
-  const subtotal = productLines.reduce((s, l) => s + (Number(l.qty) || 1) * (Number(l.price) || 0), 0);
+  /* Trois familles de lignes : les articles, le port, et les montants
+     NÉGATIFS (remise d'un code promo sur une facture ; port retenu ou
+     ajustement sur un avoir). Ces derniers passaient pour des articles
+     — « − -4,90 € » — ou, sur un avoir, pour un port « Offert ». */
+  const montant = (l: any) => (Number(l.qty) || 1) * (Number(l.price) || 0);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const negatives = rawLines.filter(l => montant(l) < 0);
+  const shipLine = rawLines.find(l => isShippingLine(l) && montant(l) >= 0);
+  const productLines = rawLines.filter(l => l !== shipLine && montant(l) >= 0);
+  const shipping = shipLine ? montant(shipLine) : undefined;
+  const subtotal = productLines.reduce((s, l) => s + montant(l), 0);
   const total = Math.abs(Number(inv.total_ttc) || 0);
+  /* Factures émises avant la ligne de remise : le total payé était
+     inférieur aux lignes sans explication. L'écart est affiché comme
+     remise (il ne peut venir que du code promo de la commande). */
+  const ecartRemise = isAvoir ? 0
+    : r2(subtotal + (shipping || 0) + negatives.reduce((s, l) => s + montant(l), 0) - total);
 
   /* ── Document ──────────────────────────────────────────────────
      PDF/A-3 avec le XML CII embarqué sous le nom réservé
@@ -175,8 +193,8 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   } as any);
 
   try {
-    const { construireFacturX } = await import('@/lib/facturx');
-    const fx = construireFacturX(inv);
+    const { construireFacturX, vendeurDeConfig } = await import('@/lib/facturx');
+    const fx = construireFacturX(inv, vendeurDeConfig(wl));
     (doc as any).file(Buffer.from(fx.xml, 'utf8'), {
       name: 'factur-x.xml',
       type: 'text/xml',
@@ -260,7 +278,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   const sellerLines = [
     wl.legal_name || '',
     ...splitAddress(inv.seller_address || wl.address || ''),
-    `SIREN : ${fmtSiren(inv.seller_siret || wl.siret || '')}`,
+    `${libelleSiren(inv.seller_siret || wl.siret)} : ${fmtSiren(inv.seller_siret || wl.siret || '')}`,
     wl.rcs_city ? `RCS ${wl.rcs_city}` : '',
     inv.seller_email || wl.email || '',
   ].filter(Boolean);
@@ -345,9 +363,14 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   const totalsX = M + CW - totalsW;
   const blockTop = y + PX(11);
 
+  /* Un montant négatif réduit le document : remise sur une facture
+     (« − »), port retenu sur un avoir (le crédit diminue : « + »). */
+  const signeInverse = isAvoir ? '+ ' : '− ';
   const rows: Array<{ label: string; value: string }> = [
     { label: 'Sous-total', value: sign + eur(subtotal) },
     ...(shipping != null ? [{ label: shipLine?.desc || 'Livraison', value: shipping > 0 ? sign + eur(shipping) : 'Offerte' }] : []),
+    ...negatives.map(l => ({ label: String(l.desc || (isAvoir ? 'Retenue' : 'Remise')), value: signeInverse + eur(Math.abs(montant(l))) })),
+    ...(ecartRemise >= 0.01 ? [{ label: promoCode ? `Remise (code ${promoCode})` : 'Remise', value: '− ' + eur(ecartRemise) }] : []),
     { label: 'TVA', value: 'Non applicable' },
   ];
 
@@ -401,7 +424,7 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   // Mêmes deux lignes que la maquette (legalLine1 / legalLine2).
   text(
     [sellerName, wl.legal_name, inv.seller_address || wl.address].filter(Boolean).join(' · ') + '\n' +
-    [`SIREN ${fmtSiren(inv.seller_siret || wl.siret || '')}`, wl.rcs_city ? `RCS ${wl.rcs_city}` : '',
+    [`${libelleSiren(inv.seller_siret || wl.siret)} ${fmtSiren(inv.seller_siret || wl.siret || '')}`, wl.rcs_city ? `RCS ${wl.rcs_city}` : '',
      'TVA non applicable, art. 293 B du CGI'].filter(Boolean).join(' · '),
     M, ruleY + PX(13), { size: PX(9.5), color: D.soft2, width: CW * 0.64, lineGap: PX(9.5) * 0.65 },
   );

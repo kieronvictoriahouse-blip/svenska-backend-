@@ -11,7 +11,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  const fx = await facturXDe(params.id);
+  /* SIREN absent ou invalide : construireFacturX refuse (à raison) — on
+     le dit au lieu de répondre une erreur 500 muette. */
+  let fx;
+  try { fx = await facturXDe(params.id); }
+  catch (e: any) { return NextResponse.json({ error: e?.message || 'Factur-X impossible' }, { status: 422 }); }
   if (!fx) return NextResponse.json({ error: 'Facture introuvable' }, { status: 404 });
 
   return new NextResponse(fx.xml, {

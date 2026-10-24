@@ -85,15 +85,27 @@ export function parseCsv(text: string): ParsedTx[] {
     .sort((a, b) => b.n - a.n)[0].d;
 
   const header = splitCsvLine(lines[0], delim).map(h => h.toLowerCase());
-  const find = (...names: string[]) => header.findIndex(h => names.some(n => h.includes(n)));
+  /* Les noms sont essayés DANS L'ORDRE (le premier trouvé gagne), et une
+     colonne de date n'est jamais un montant : avant, « valeur » attrapait
+     « Date de valeur » (Banque Populaire, Caisse d'Épargne…) et chaque
+     montant était lu dans une date — 23/10/2026 devenait 23 €. */
+  const find = (...names: string[]) => {
+    for (const n of names) { const i = header.findIndex(h => h.includes(n)); if (i >= 0) return i; }
+    return -1;
+  };
+  const findMontant = (...names: string[]) => {
+    for (const n of names) { const i = header.findIndex(h => h.includes(n) && !h.includes('date')); if (i >= 0) return i; }
+    return -1;
+  };
   const iDate = find('date');
   const iLabel = find('libell', 'label', 'nature', 'description', 'motif', 'communication');
-  const iAmount = find('montant', 'amount', 'valeur');
-  const iDebit = find('débit', 'debit');
-  const iCredit = find('crédit', 'credit');
+  const iAmount = findMontant('montant', 'amount', 'valeur');
+  const iDebit = findMontant('débit', 'debit');
+  const iCredit = findMontant('crédit', 'credit');
   const hasHeader = iDate >= 0 && (iAmount >= 0 || iDebit >= 0 || iCredit >= 0);
 
   const out: ParsedTx[] = [];
+  const vus: Record<string, number> = {};
   const rows = hasHeader ? lines.slice(1) : lines;
   for (const line of rows) {
     const c = splitCsvLine(line, delim);
@@ -112,8 +124,14 @@ export function parseCsv(text: string): ParsedTx[] {
     }
     if (!isFinite(amount) || amount === 0) continue;
     const label = (hasHeader && iLabel >= 0 ? c[iLabel] : c.filter(v => v && !parseFrDate(v) && !isFinite(parseAmount(v))).join(' ')) || 'Opération';
+    /* Deux opérations identiques le même jour (deux étiquettes Mondial
+       Relay à 4,90 €) avaient la même clé : la seconde était écartée
+       comme doublon. Le rang d'occurrence dans le fichier les distingue,
+       et reste stable si l'on réimporte le même relevé. */
+    const cle = `csv:${iso}_${amount}_${label.slice(0, 20).replace(/\s+/g, '')}`;
+    vus[cle] = (vus[cle] || 0) + 1;
     out.push({
-      external_id: `csv:${iso}_${amount}_${label.slice(0, 20).replace(/\s+/g, '')}`,
+      external_id: vus[cle] > 1 ? `${cle}#${vus[cle]}` : cle,
       booking_date: iso,
       amount: Math.round(amount * 100) / 100,
       currency: 'EUR',

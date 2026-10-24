@@ -323,6 +323,11 @@ export default function TicketPage() {
   async function submit(draft: boolean) {
     if (!lines.length) { say(t('msgAucuneLigne')); return; }
     if (!draft && !rateNum) { say(t('msgTaux')); return; }
+    /* « À vérifier » = rapprochement deviné (score 0,4–0,8). Sans cette
+       question, la validation l'appliquait en silence : stock et prix sur
+       le produit deviné, et l'alias appris le resservait ensuite. */
+    const nonVerifiees = lines.filter(l => l.status === 'review' && !l.ignored).length;
+    if (!draft && nonVerifiees && !window.confirm(t('confirmAVerifier').replace('{n}', String(nonVerifiees)))) return;
     setBusy(true);
     try {
       const res = await adminFetch('/api/tickets', {

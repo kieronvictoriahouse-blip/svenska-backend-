@@ -33,18 +33,53 @@ const ECHANTILLON: Record<string, any> = {
   options: [{ nom: 'Lingonsylt 200 g', note: 'format plus petit', prix: '3,90 €', ecart: '− 2,30 €', lien: 'token=X&choix=p1' }],
 };
 
+/* Cet écran édite la version FRANÇAISE (les surcharges sont indexées
+   `cle@langue` par lib/email-templates). Le GET cherchait `cle` seule :
+   une personnalisation enregistrée n'était jamais relue — l'éditeur
+   montrait le modèle d'origine, « Revenir au modèle » n'apparaissait
+   jamais, et la sauvegarde suivante repartait du modèle. */
+const LANGUE = 'fr';
+
+const MARQUE = ['boutique', 'boutique_email', 'boutique_url', 'boutique_domaine', 'atelier_ville', 'boutique_adresse', 'boutique_siret'];
+
+/** Noms de balises d'un gabarit : {{ x }}, {{{ x }}}, blocs #each / #if. */
+const nomsDe = (html: string) => {
+  const s = new Set(Array.from(html.matchAll(/\{\{\{?\s*([\w.]+)\s*\}?\}\}/g)).map(m => m[1].split('.')[0]));
+  for (const m of Array.from(html.matchAll(/<!--#(?:each|if)\s+!?(\w+)-->/g))) s.add(m[1]);
+  return s;
+};
+
+/** Ce que le code fournit vraiment à un gabarit : le catalogue, la marque,
+ *  et toute balise des modèles livrés (fr/en/sv) — le catalogue seul est
+ *  incomplet. */
+function variablesConnues(key: EmailTemplate): Set<string> {
+  const ok = new Set(MARQUE);
+  for (const v of TEMPLATES.find(t => t.key === key)?.variables || []) {
+    const [base, champ] = v.split('[].');
+    ok.add(base.replace('[]', ''));
+    if (champ) ok.add(champ);
+  }
+  for (const l of ['fr', 'en', 'sv'] as const) {
+    try { nomsDe(loadDefault(key, l)).forEach(n => ok.add(n)); } catch { /* langue absente */ }
+  }
+  return ok;
+}
+
 export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
   const over = await loadOverrides(true);
   return NextResponse.json({
-    templates: TEMPLATES.map(t => ({
-      ...t,
-      defaut: loadDefault(t.key),
-      html: over[t.key]?.html || loadDefault(t.key),
-      subject: over[t.key]?.subject || '',
-      modifie: !!over[t.key],
-    })),
+    templates: TEMPLATES.map(t => {
+      const o = over[`${t.key}@${LANGUE}`];
+      return {
+        ...t,
+        defaut: loadDefault(t.key),
+        html: o?.html || loadDefault(t.key),
+        subject: o?.subject || '',
+        modifie: !!o,
+      };
+    }),
   });
 }
 
@@ -75,23 +110,35 @@ export async function PUT(req: NextRequest) {
       error: 'Un bloc #each ou #if n’est pas refermé — vérifie les commentaires <!--/each--> et <!--/if-->.',
     }, { status: 400 });
   }
+  /* Une variable mal orthographiée ({{ prenon }}) se rendait vide, sans
+     aucune alerte : le contrôle ci-dessus ne voyait que les balises
+     malformées. On compare maintenant aux variables réellement fournies. */
+  const connues = variablesConnues(key);
+  const inconnues = Array.from(nomsDe(`${html}\n${subject || ''}`)).filter(n => !connues.has(n));
+  if (inconnues.length) {
+    return NextResponse.json({
+      error: `Variable(s) inconnue(s) pour ce gabarit, elles partiraient vides : ${inconnues.map(n => `{{ ${n} }}`).join(', ')}`,
+    }, { status: 400 });
+  }
 
   const { error } = await supabaseAdmin.from('email_templates').upsert({
-    key, html, subject: subject || null,
+    key, lang: LANGUE, html, subject: subject || null,
     updated_at: new Date().toISOString(),
     updated_by: (user as any)?.email || null,
-  }, { onConflict: 'key' });
+  }, { onConflict: 'key,lang' });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await loadOverrides(true);
   return NextResponse.json({ ok: true });
 }
 
-/** Retour au modèle livré : on supprime la surcharge, rien d'autre. */
+/** Retour au modèle livré : on supprime la surcharge française, rien
+ *  d'autre — pas les versions anglaise et suédoise personnalisées. */
 export async function DELETE(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const key = new URL(req.url).searchParams.get('key') || '';
-  const { error } = await supabaseAdmin.from('email_templates').delete().eq('key', key);
+  if (!TEMPLATES.some(t => t.key === key)) return NextResponse.json({ error: 'Gabarit inconnu' }, { status: 400 });
+  const { error } = await supabaseAdmin.from('email_templates').delete().eq('key', key).eq('lang', LANGUE);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   await loadOverrides(true);
   return NextResponse.json({ ok: true, html: loadDefault(key as EmailTemplate) });

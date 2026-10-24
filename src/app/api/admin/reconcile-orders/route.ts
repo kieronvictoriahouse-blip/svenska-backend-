@@ -2,14 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { traiterSessionPayee } from '@/lib/session-payee';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 // Réconcilie les commandes avec Stripe : pour chaque session de paiement RÉUSSIE,
-// si la commande liée est restée "pending" (webhook raté), on la passe "paid" et
-// on remplit nom/email/téléphone. Idempotent, sans email ni facture (déjà gérés
-// ailleurs). Sert de filet quand un webhook a échoué.
+// si la commande liée est restée "pending" (webhook raté), on la traite EXACTEMENT
+// comme le webhook l'aurait fait (@/lib/session-payee) : statut payé, usage du
+// code promo, facture, compta, fidélité, emails, étiquette relais. Avant, seul le
+// statut changeait — « sans email ni facture (déjà gérés ailleurs) », sauf que
+// l'ailleurs, c'était justement le webhook raté. Idempotent : la prise du statut
+// ne réussit qu'une fois. Sert de filet quand un webhook a échoué.
 export async function POST(req: NextRequest) {
   // Auth : admin connecté OU appel interne du cron (Bearer CRON_SECRET, jamais en dur)
   const cronSecret = process.env.CRON_SECRET;
@@ -40,31 +44,11 @@ export async function POST(req: NextRequest) {
          livrée ou annulée retombait en « payée » à chaque passage. */
       if (!['pending', 'abandoned'].includes(order.status)) { skipped.push(order.order_number); continue; }
 
-      const full = s as any;
-      const name  = full.shipping_details?.name || full.customer_details?.name || '';
-      const email = full.customer_details?.email || '';
-      const phone = full.customer_details?.phone || '';
-      const total = (s.amount_total || 0) / 100;
-      const shippingCost = full.shipping_cost?.amount_total ? full.shipping_cost.amount_total / 100 : 0;
-      const subtotal = total - shippingCost > 0 ? total - shippingCost : total;
+      const r = await traiterSessionPayee(s as any, { stripe, isTestEvent: !s.livemode });
+      if (r.status !== 200) { skipped.push(`${order.order_number} (erreur: ${String(r.body?.error || r.status)})`); continue; }
+      if (r.body?.duplicate) { skipped.push(`${order.order_number} (déjà traitée entre-temps)`); continue; }
 
-      // essentiel — colonnes garanties
-      const { error: coreErr } = await supabaseAdmin.from('orders').update({
-        customer_name:     name,
-        customer_email:    email,
-        subtotal, shipping: shippingCost, total,
-        status:            'paid',
-        stripe_session_id: s.id,
-        updated_at:        new Date().toISOString(),
-      }).eq('id', orderId).in('status', ['pending', 'abandoned']);
-      if (coreErr) { skipped.push(`${order.order_number} (erreur: ${coreErr.message})`); continue; }
-
-      // optionnel — téléphone (colonne éventuellement absente)
-      if (phone) {
-        try { await supabaseAdmin.from('orders').update({ customer_phone: phone }).eq('id', orderId); } catch { /* non bloquant */ }
-      }
-
-      fixed.push({ order: order.order_number, email, total });
+      fixed.push({ order: order.order_number, email: (s as any).customer_details?.email || '', total: (s.amount_total || 0) / 100 });
     }
     if (!sessions.has_more) break;
     startingAfter = sessions.data[sessions.data.length - 1]?.id;

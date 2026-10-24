@@ -78,7 +78,8 @@ const DEFAULT_ROWS = [
   { key: 'season_image',       label: 'Section saison – Photo de fond',         type: 'image', value_fr: '', value_sv: '', value_en: '' },
 ];
 
-// Bump this string whenever DEFAULT_ROWS texts change — triggers an auto-reseed on next load.
+// Version des valeurs par défaut. Ne sert plus qu'à tamponner la base : une
+// nouvelle version ajoute les clés manquantes et ne réécrit aucun texte existant.
 const SEED_VERSION = 'v5';
 
 export async function GET() {
@@ -92,15 +93,12 @@ export async function GET() {
   const needsReseed = !seedRow || seedRow.value_fr !== SEED_VERSION;
 
   if (needsReseed) {
-    // Update all existing text-type rows to latest DEFAULT_ROWS values
-    const textDefaults = DEFAULT_ROWS.filter(r => r.type === 'text');
-    for (const row of textDefaults) {
-      if (existingMap.has(row.key)) {
-        await supabaseAdmin.from('cms_home')
-          .update({ value_fr: row.value_fr, value_sv: row.value_sv, value_en: row.value_en, updated_at: new Date().toISOString() })
-          .eq('key', row.key);
-      }
-    }
+    /* Changement de version : on AJOUTE les clés nouvelles, on ne réécrit
+       JAMAIS une clé existante. L'ancienne version remettait tous les
+       textes aux valeurs par défaut — sur un simple GET public, au premier
+       visiteur venu — et effaçait chaque texte retouché dans « Textes
+       d'accueil ». Changer un texte déjà en base se fait dans l'écran, ou
+       par une requête SQL relue, pas en touchant DEFAULT_ROWS. */
     // Insert any missing rows (text + image)
     const missing = DEFAULT_ROWS.filter(r => !existingMap.has(r.key));
     if (missing.length > 0) await supabaseAdmin.from('cms_home').insert(missing);
@@ -151,11 +149,19 @@ export async function POST(req: NextRequest) {
   const updates = (body.updates ?? body.cms) as { key: string; value_fr: string; value_sv: string; value_en: string }[];
   if (!Array.isArray(updates)) return NextResponse.json({ error: 'updates[] requis' }, { status: 400 });
 
+  /* Chaque écriture est vérifiée : l'écran affichait « publié » même quand
+     une mise à jour échouait. */
+  const echecs: string[] = [];
   for (const u of updates) {
-    await supabaseAdmin.from('cms_home').update({
+    if (!u?.key || u.key === '_seed_version') continue;
+    const { error } = await supabaseAdmin.from('cms_home').update({
       value_fr: u.value_fr, value_sv: u.value_sv, value_en: u.value_en,
       updated_at: new Date().toISOString()
     }).eq('key', u.key);
+    if (error) echecs.push(u.key);
+  }
+  if (echecs.length) {
+    return NextResponse.json({ error: `Textes non enregistrés : ${echecs.join(', ')}`, failed: echecs }, { status: 500 });
   }
   return NextResponse.json({ success: true });
 }

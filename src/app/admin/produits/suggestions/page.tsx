@@ -52,19 +52,23 @@ export default function SuggestionsPage() {
 
   useEffect(() => { load(); }, []);
 
+  /* Réponses vérifiées : l'écran affichait le nouveau statut (ou retirait
+     la ligne) même quand l'API refusait. */
   async function setStatus(id: string, status: string) {
-    await adminFetch('/api/product-suggestions', {
+    const res = await adminFetch('/api/product-suggestions', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status }),
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) { say(t('msgEchec')); return; }
     setSuggestions(s => s.map(x => (x.id === id ? { ...x, status: status as Suggestion['status'] } : x)));
     say(t('msgStatut'));
   }
 
   async function deleteSuggestion(id: string) {
     if (!confirm(t('msgConfirmDel'))) return;
-    await adminFetch(`/api/product-suggestions?id=${id}`, { method: 'DELETE' });
+    const res = await adminFetch(`/api/product-suggestions?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
+    if (!res || !res.ok) { say(t('msgEchec')); return; }
     setSuggestions(s => s.filter(x => x.id !== id));
     say(t('msgSupprimee'));
   }

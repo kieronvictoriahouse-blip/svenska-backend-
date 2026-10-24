@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { categoryDef } from '@/lib/finance/pcg';
+import { toutLire } from '@/lib/finance/tout-lire';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,16 +23,22 @@ export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   const year = req.nextUrl.searchParams.get('year') || new Date().getFullYear().toString();
 
-  const { data, error } = await supabaseAdmin
-    .from('accounting_entries')
-    .select('*')
-    .gte('date', `${year}-01-01`)
-    .lte('date', `${year}-12-31`)
-    .order('date', { ascending: true });
+  if (!/^\d{4}$/.test(year)) return NextResponse.json({ error: 'Année invalide' }, { status: 400 });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const entries = data || [];
+  // Toute l'année : une seule lecture s'arrêtait à 1000 écritures.
+  let entries: any[];
+  try {
+    entries = await toutLire(() => supabaseAdmin
+      .from('accounting_entries')
+      .select('*')
+      .gte('date', `${year}-01-01`)
+      .lte('date', `${year}-12-31`)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true }));
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
 
   const rows: string[] = [
     ['Date', 'Type', 'Catégorie', 'Description', 'Montant (€)', 'N° pièce', 'Source'].join(';'),
@@ -40,7 +48,8 @@ export async function GET(req: NextRequest) {
     rows.push([
       entry.date,
       entry.type === 'income' ? 'Recette' : 'Dépense',
-      CATEGORY_LABELS[entry.category] || entry.category,
+      // Catégories de la pile de tri (march, emb…) : leur libellé, pas la clé.
+      CATEGORY_LABELS[entry.category] || categoryDef(entry.category).label,
       `"${(entry.description || '').replace(/"/g, '""')}"`,
       String(parseFloat(entry.amount).toFixed(2)).replace('.', ','),
       entry.reference_number || '',

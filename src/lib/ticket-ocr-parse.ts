@@ -21,7 +21,13 @@ const ONLY_AMOUNT = new RegExp(`^\\s*(${AMOUNT})(?:\\s*kr)?\\s*$`, 'i');
 
 /** Convertit « 1 234,56 » / « 1234.56 » en nombre. */
 function toNum(s: string): number {
-  const cleaned = s.replace(/[  ]/g, '').replace(',', '.');
+  let cleaned = s.replace(/[  ]/g, '');
+  /* Un montant reconnu finit toujours par « ,dd » ou « .dd » : c'est ce
+     séparateur-là qui est décimal, les autres sont des milliers.
+     `replace(',', '.')` seul lisait « 1.234,56 » comme 1,23. */
+  const m = cleaned.match(/^(-?[\d.,]*?)[.,](\d{2})$/);
+  if (m) cleaned = `${m[1].replace(/[.,]/g, '')}.${m[2]}`;
+  else cleaned = cleaned.replace(',', '.');
   const n = parseFloat(cleaned);
   return Number.isFinite(n) ? n : 0;
 }

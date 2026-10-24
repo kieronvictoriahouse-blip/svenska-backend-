@@ -65,13 +65,16 @@ export default function CategoriesPage() {
     const payload = type && val > 0
       ? { discount_type: type, discount_value: val, discount_start: promo.discount_start || null, discount_end: promo.discount_end || null }
       : { discount_type: null, discount_value: null, discount_start: null, discount_end: null };
-    await patch(promo.id, payload as Partial<Category>);
+    /* Refus (ex. 150 %) : la fenêtre reste ouverte avec le message du
+       serveur, au lieu de se fermer sur « Promo enregistrée ». */
+    if (!await patch(promo.id, payload as Partial<Category>)) return;
     setPromo(null);
     say(payload.discount_type ? 'Promo enregistrée' : 'Promo retirée');
   }
   async function clearPromo(c: Category) {
-    await patch(c.id, { discount_type: null, discount_value: null, discount_start: null, discount_end: null } as Partial<Category>);
-    say('Promo retirée');
+    if (await patch(c.id, { discount_type: null, discount_value: null, discount_start: null, discount_end: null } as Partial<Category>)) {
+      say('Promo retirée');
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -119,13 +122,20 @@ export default function CategoriesPage() {
     finally { setSaving(false); }
   }
 
-  async function patch(id: string, payload: Partial<Category>) {
+  /** Écrit puis confirme ; renvoie false (et recharge l'état réel) si refusé. */
+  async function patch(id: string, payload: Partial<Category>): Promise<boolean> {
     setCats(cs => cs.map(c => c.id === id ? { ...c, ...payload } as Category : c));
     const res = await adminFetch(`/api/categories/${id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
-    if (!res.ok) { say(t('msgEnregKo')); load(); }
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const d = res ? await res.json().catch(() => ({})) : {};
+      say(d.error || t('msgEnregKo'));
+      load();
+      return false;
+    }
+    return true;
   }
 
   async function remove(c: Category) {
@@ -160,17 +170,20 @@ export default function CategoriesPage() {
     const next = [...cats];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    setCats(next);
-    // Persistance : uniquement les lignes dont l'ordre a réellement changé
-    next.forEach((c, i) => {
-      if (c.sort_order !== i) {
-        adminFetch(`/api/categories/${c.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: i }),
-        }).catch(() => {});
-      }
-    });
-    say(t('msgOrdre'));
+    setCats(next.map((c, i) => ({ ...c, sort_order: i })));
+    /* Persistance : uniquement les lignes dont l'ordre a réellement changé.
+       Les réponses sont vérifiées : un échec annonçait quand même « ordre
+       enregistré », et le rayon reprenait sa place au rechargement. */
+    const changes = next.map((c, i) => ({ c, i })).filter(({ c, i }) => c.sort_order !== i);
+    Promise.all(changes.map(({ c, i }) =>
+      adminFetch(`/api/categories/${c.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sort_order: i }),
+      }).then(r => r.ok).catch(() => false)))
+      .then(oks => {
+        if (oks.every(Boolean)) say(t('msgOrdre'));
+        else { say(t('msgEnregKo')); load(); }
+      });
   }
 
   /* Téléphone : le tableau (800 px de large) devient une carte par
@@ -282,7 +295,12 @@ export default function CategoriesPage() {
                         {editing?.id === c.id ? (
                           <input className="sc-input ca-rename" autoFocus defaultValue={c.name_fr}
                                  aria-label={t('nomFr')}
-                                 onBlur={e => { patch(c.id, { name_fr: e.target.value }); setEditing(null); }}
+                                 onBlur={e => {
+                                   // Nom vidé ou inchangé : rien à écrire (un rayon sans nom s'affichait vide en boutique).
+                                   const v = e.target.value.trim();
+                                   if (v && v !== c.name_fr) patch(c.id, { name_fr: v });
+                                   setEditing(null);
+                                 }}
                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                         ) : (
                           <button className="ca-name" onClick={() => setEditing(c)} title="Renommer">

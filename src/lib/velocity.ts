@@ -54,12 +54,26 @@ export type Velocite = {
  * réceptionné n'a pas d'historique exploitable — il ressort à zéro
  * plutôt qu'avec un chiffre inventé.
  */
+/* PostgREST plafonne une lecture à 1000 lignes (max-rows de Supabase),
+   sans erreur : passé 1000 commandes, les ventes au-delà disparaissaient
+   du calcul. Lecture par pages, dans un ordre stable. */
+async function toutLire(table: string, colonnes: string): Promise<any[]> {
+  const PAGE = 1000;
+  const out: any[] = [];
+  for (let de = 0; ; de += PAGE) {
+    const { data, error } = await supabaseAdmin.from(table).select(colonnes)
+      .order('id', { ascending: true }).range(de, de + PAGE - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
 export async function calculerVelocites(): Promise<Velocite[]> {
-  const [{ data: produits }, { data: commandes }, { data: receptions }, lots] = await Promise.all([
-    supabaseAdmin.from('products').select('id, track_stock, is_active'),
-    supabaseAdmin.from('orders')
-      .select('lines, created_at, status, is_test, exclude_from_stats'),
-    supabaseAdmin.from('receptions').select('lines, received_at, created_at, status'),
+  const [produits, commandes, receptions, lots] = await Promise.all([
+    toutLire('products', 'id, track_stock, is_active'),
+    toutLire('orders', 'id, lines, created_at, status, is_test, exclude_from_stats'),
+    toutLire('receptions', 'id, lines, received_at, created_at, status'),
     chargerLots(),
   ]);
 
@@ -88,7 +102,10 @@ export async function calculerVelocites(): Promise<Velocite[]> {
 
   for (const o of commandes || []) {
     if (o.is_test || o.exclude_from_stats) continue;
-    if (['cancelled', 'pending'].includes(o.status)) continue;
+    /* `abandoned` : session de paiement expirée, rien n'a été vendu. Ces
+       paniers comptaient comme des ventes et gonflaient la vitesse — donc
+       les quantités recommandées. */
+    if (['cancelled', 'pending', 'abandoned'].includes(o.status)) continue;
     const d = jour(o.created_at);
     /* Une box vendue consomme ses sachets : c'est eux qu'il faudra
        racheter (migration 054). */
@@ -146,10 +163,16 @@ export async function calculerVelocites(): Promise<Velocite[]> {
       if (stock < 0) stock = 0;      // le passé n'est pas rejouable au négatif
     }
 
-    /* Rapporter aux jours de disponibilité. Sans aucun jour disponible,
-       on ne sait rien : mieux vaut zéro qu'un chiffre invente. */
-    const hebdo = dispo > 0 ? (vendus / dispo) * 7 : 0;
+    /* Rapporter aux jours de disponibilité. Sans aucun jour disponible
+       ET sans vente, on ne sait rien : zéro plutôt qu'un chiffre inventé.
+       Mais des ventes sans aucun jour « disponible » veulent dire que le
+       stock est entré autrement que par une réception (inventaire, saisie
+       à la main) : l'historique rejoué ne le voit pas. Répondre 0 faisait
+       passer un article qui se vend pour une « nouveauté » sans besoin,
+       et il n'était plus jamais recommandé. On retombe alors sur la
+       moyenne calendaire, prudente mais réelle. */
     const hebdoCalendaire = fenetre > 0 ? (vendus / fenetre) * 7 : 0;
+    const hebdo = dispo > 0 ? (vendus / dispo) * 7 : hebdoCalendaire;
 
     out.push({
       product_id: p.id,
