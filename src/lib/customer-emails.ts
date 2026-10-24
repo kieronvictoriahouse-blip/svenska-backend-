@@ -387,6 +387,37 @@ export async function colisDisponibleEmail(order: any, o: OptEmail = {}) {
   };
 }
 
+/** Comment la commande a été remise au client. */
+export type ModeRemise = 'atelier' | 'relais' | 'domicile';
+export const modeRemise = (order: any): ModeRemise =>
+  order?.delivery_mode === 'pickup' ? 'atelier'
+  : (order?.delivery_mode === 'mondial_relay' || order?.relay_point_name || order?.relay_point_address) ? 'relais'
+  : 'domicile';
+
+/**
+ * Livrée — la commande est entre les mains du client : retirée à
+ * l'atelier, retirée en point relais, ou livrée à domicile. C'est le bon
+ * moment pour demander un avis Google ; sans lien, le gabarit propose de
+ * revenir à la boutique.
+ */
+export async function livraisonEmail(order: any, o: OptEmail & { lienAvis?: string } = {}) {
+  const lang = langueDe(order, o);
+  const mode = modeRemise(order);
+  return {
+    lang,
+    sujet: await sujetDe('email-livraison',
+      SUJETS.livraison(order?.order_number || '', mode !== 'domicile', lang), lang),
+    html: await renderEmail('email-livraison', {
+      prenom: prenomDe(order?.customer_name, lang),
+      numero: order?.order_number || '',
+      atelier: mode === 'atelier',
+      relais: mode === 'relais',
+      domicile: mode === 'domicile',
+      lien_avis: o.lienAvis || '',
+    }, lang),
+  };
+}
+
 /** Message libre — envoi manuel depuis la fiche commande. */
 export async function messageLibre(
   order: any, opts: { surtitre?: string; titre: string; corps: string; lang?: LangueClient },

@@ -3,7 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { expeditionEmail } from '@/lib/customer-emails';
 import { requireAuth } from '@/lib/auth';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
-import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
+import { getWhiteLabelConfig, sendEmail } from '@/lib/email-send';
+import { envoyerEmailLivraison } from '@/lib/email-livraison';
 import { resteDu, sortirColis } from '@/lib/expedition';
 
 /** Statuts où la marchandise a quitté l'étagère. */
@@ -156,56 +157,25 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       } catch { /* non bloquant */ }
     }
 
-    // 3. Envoyer la facture par email si statut = shipped ou delivered
-    if (['shipped', 'delivered'].includes(newStatus) && order.customer_email && invoice) {
+    // 3. Emails client : suivi à l'expédition, remerciement + avis à la livraison
+    if (newStatus === 'shipped' && order.customer_email && invoice) {
       try {
         const cfg = await getWhiteLabelConfig();
-        const siteName  = cfg.site_name || '';
         const fromEmail = cfg.smtp_from || process.env.SMTP_FROM || process.env.RESEND_FROM || '';
-
-        const lines: any[] = typeof order.lines === 'string' ? JSON.parse(order.lines) : (order.lines || []);
-        const linesHtml = lines.map((l: any) =>
-          `<div class="line"><span>${l.name || l.desc || '—'} × ${l.qty || 1}</span><span>${((l.qty || 1) * (l.price || 0)).toFixed(2)} €</span></div>`
-        ).join('');
-
-        const content = `
-          <h1 class="title">${newStatus === 'shipped' ? '📦 Votre commande est en route !' : '✅ Commande livrée'}</h1>
-          <p class="text">Bonjour ${order.customer_name},</p>
-          <p class="text">${newStatus === 'shipped'
-            ? 'Votre commande a été expédiée. Vous la recevrez dans les prochains jours.'
-            : 'Votre commande a été livrée. Merci de votre confiance !'
-          }</p>
-          <div class="box">
-            <div class="box-title">🧾 Facture ${invoice.number || invoice.invoice_number || ''}</div>
-            ${linesHtml}
-            <hr class="divider">
-            <div class="line total"><span>Total TTC</span><span>${(order.total || 0).toFixed(2)} €</span></div>
-          </div>
-          <p class="text" style="font-size:13px">Votre facture est disponible dans votre espace client.</p>
-          ${cfg.email ? `<p class="text" style="font-size:13px">Des questions ? <a href="mailto:${cfg.email}" style="color:#3E4550">${cfg.email}</a></p>` : ''}`;
-
-        /* Expédition : gabarit du handoff, avec le suivi et le point
-           relais. La livraison garde le message générique — le gabarit
-           « colis disponible » se déclenche sur le statut remonté par
-           Mondial Relay, pas sur ce changement manuel. */
-        /* « Livrée » = remis au client, y compris en point relais (retrait
-           effectué, cf. cron livraisons). L'ancien envoi de « votre colis
-           vous attend » à ce moment-là tombait après le retrait ; l'avis de
-           mise à disposition est envoyé par Mondial Relay lui-même. */
-        if (newStatus === 'shipped') {
-          const mail = await expeditionEmail({ ...order, ...body });
-          await sendEmail({ from: fromEmail, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
-        } else {
-          await sendEmail({
-            from:    fromEmail,
-            to:      order.customer_email,
-            subject: `Livraison — ${order.order_number}${siteName ? ` | ${siteName}` : ''}`,
-            html:    baseTemplate(content, `Commande ${order.order_number}`, cfg),
-          }, cfg);
-        }
+        const mail = await expeditionEmail({ ...order, ...body });
+        await sendEmail({ from: fromEmail, to: order.customer_email, subject: mail.sujet, html: mail.html }, cfg);
       } catch (emailErr) {
         console.error('[orders PUT] email error:', emailErr);
       }
+    }
+
+    /* « Livrée » = entre les mains du client, quel que soit le mode :
+       retrait à l'atelier, retrait en point relais (l'avis de mise à
+       disposition est envoyé par Mondial Relay lui-même), ou domicile.
+       Gabarit de la boutique, avec la demande d'avis Google. */
+    if (newStatus === 'delivered') {
+      try { await envoyerEmailLivraison(order); }
+      catch (emailErr) { console.error('[orders PUT] email de livraison :', emailErr); }
     }
   }
 

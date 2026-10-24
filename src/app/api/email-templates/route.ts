@@ -31,6 +31,7 @@ const ECHANTILLON: Record<string, any> = {
   note_ecart: "L'écart est pour nous.",
   lignes: [{ nom: 'Fromage suédois', qte: '2', pu: '8,90 €', montant: '17,80 €', motif: 'Article cassé' }],
   options: [{ nom: 'Lingonsylt 200 g', note: 'format plus petit', prix: '3,90 €', ecart: '− 2,30 €', lien: 'token=X&choix=p1' }],
+  domicile: true, lien_avis: 'https://g.page/r/exemple/review',
 };
 
 /* Cet écran édite la version FRANÇAISE (les surcharges sont indexées

@@ -32,7 +32,8 @@ export type EmailTemplate =
   | 'email-expedition'
   | 'email-colis-disponible'
   | 'email-relance-panier'
-  | 'email-fidelite';
+  | 'email-fidelite'
+  | 'email-livraison';
 
 const cacheFichier = new Map<string, string>();
 
@@ -112,6 +113,13 @@ const get = (ctx: Record<string, any>, key: string) =>
    trois langues. Cache court, comme les surcharges. */
 let marqueCtx: Record<string, string> = {};
 let marqueAt = 0;
+
+/** « 10500353700013 » → « 105 003 537 00013 » ; une saisie atypique reste telle quelle. */
+const siretLisible = (v: unknown) => {
+  const s = String(v ?? '').trim();
+  const c = s.replace(/\s+/g, '');
+  return /^\d{14}$/.test(c) ? `${c.slice(0, 3)} ${c.slice(3, 6)} ${c.slice(6, 9)} ${c.slice(9)}` : s;
+};
 export async function contexteMarque(): Promise<Record<string, string>> {
   if (Date.now() - marqueAt < 60_000 && Object.keys(marqueCtx).length) return marqueCtx;
   try {
@@ -132,7 +140,7 @@ export async function contexteMarque(): Promise<Record<string, string>> {
       /* Adresse et SIRET réels, tirés des Réglages : les gabarits du
          handoff portaient des valeurs de démonstration écrites en dur. */
       boutique_adresse: (data as any)?.address || '',
-      boutique_siret: (data as any)?.siret || '',
+      boutique_siret: siretLisible((data as any)?.siret),
     };
     marqueAt = Date.now();
   } catch { /* un email sans marque part quand meme */ }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { modeRemise } from '@/lib/customer-emails';
+import { envoyerEmailLivraison } from '@/lib/email-livraison';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -28,9 +30,9 @@ export const maxDuration = 300;
    envoyé au client par Mondial Relay lui-même : on lui transmet email et
    téléphone dans ship_to.
 
-   Ce qu'il envoie :
-     — point relais → rien : le client vient de retirer son colis.
-     — domicile     → message de livraison classique.
+   Ce qu'il envoie, à chaque arrivée : l'email de livraison de la
+   boutique (merci + demande d'avis Google), relais comme domicile —
+   une seule fois par commande, cf. lib/email-livraison.
 
    Les colis sans numéro de suivi sont ignorés : rien à demander au
    transporteur. Un colis en transit depuis plus de 60 jours est
@@ -138,31 +140,27 @@ export async function GET(req: NextRequest) {
       const { livre, date } = await estLivre(o.relay_carrier_uuid || UUID_DEFAUT, tracking);
       if (!livre) { rapport.en_transit++; continue; }
 
-      await supabaseAdmin.from('orders')
+      const { data: passee, error: errMaj } = await supabaseAdmin.from('orders')
         .update({ status: 'delivered', updated_at: date || new Date().toISOString() })
         .eq('id', o.id)
-        .eq('status', 'shipped');   // ne rien écraser si le statut a bougé entre-temps
+        .eq('status', 'shipped')   // ne rien écraser si le statut a bougé entre-temps
+        .select('id');
+      if (errMaj) throw new Error(errMaj.message);
+      /* Statut changé entre-temps (bouton « Livrée », autre passage) :
+         c'est ce déclencheur-là qui a prévenu le client. */
+      if (!passee?.length) continue;
 
       rapport.livrees++;
+      if (modeRemise(o) === 'relais') rapport.retires++;
 
-      /* Point relais : le client vient de retirer son colis, il n'y a
-         rien à lui annoncer (l'ancien « votre colis vous attend » partait
-         ici, au moment du retrait — donc trop tard et à contresens).
-         Domicile : message de livraison, comme avant. Un email raté ne doit
-         pas empêcher le statut d'avancer. */
-      const enRelais = !!(o.relay_point_name || o.relay_point_address) || o.delivery_mode === 'mondial_relay';
-      if (enRelais) { rapport.retires++; continue; }
-      if (o.customer_email) {
-        try {
-          const { expeditionEmail } = await import('@/lib/customer-emails');
-          const { getWhiteLabelConfig, sendEmail } = await import('@/lib/email-send');
-          const cfg = await getWhiteLabelConfig();
-          const from = (cfg.email_from as string) || (cfg as any).smtp_from || '';
-          const mail = await expeditionEmail({ ...o, tracking_number: tracking });
-          await sendEmail({ from, to: o.customer_email, subject: mail.sujet, html: mail.html }, cfg);
-        } catch (e: any) {
-          rapport.echecs.push(`${o.order_number} email: ${e?.message || e}`);
-        }
+      /* Tous les modes reçoivent le remerciement + demande d'avis : en
+         relais, le client vient de retirer son colis ; à domicile, il
+         vient de le recevoir. Un email raté ne doit pas empêcher le
+         statut d'avancer. */
+      try {
+        await envoyerEmailLivraison(o);
+      } catch (e: any) {
+        rapport.echecs.push(`${o.order_number} email: ${e?.message || e}`);
       }
     } catch (e: any) {
       rapport.echecs.push(`${o.order_number}: ${e?.message || e}`);

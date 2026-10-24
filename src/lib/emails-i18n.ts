@@ -72,6 +72,12 @@ export const SUJETS = {
     lang === 'sv' ? `Ditt paket ${numero} väntar hos ombudet`.trim()
     : lang === 'en' ? `Your parcel ${numero} is waiting at the pickup point`.trim()
     : `Votre colis ${numero} vous attend en point relais`.trim(),
+
+  /** Livrée à domicile, ou retirée (atelier, point relais). */
+  livraison: (numero: string, retiree: boolean, lang: LangueClient) =>
+    lang === 'sv' ? (retiree ? `Din order ${numero} är hämtad — tack!` : `Din order ${numero} har levererats — tack!`)
+    : lang === 'en' ? (retiree ? `Order ${numero} collected — thank you!` : `Order ${numero} delivered — thank you!`)
+    : retiree ? `Commande ${numero} retirée — merci !` : `Commande ${numero} livrée — merci !`,
 };
 
 /* ── Fragments calculés ─────────────────────────────────────── */
