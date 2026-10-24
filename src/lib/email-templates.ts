@@ -33,7 +33,8 @@ export type EmailTemplate =
   | 'email-colis-disponible'
   | 'email-relance-panier'
   | 'email-fidelite'
-  | 'email-livraison';
+  | 'email-livraison'
+  | 'email-retour-stock';
 
 const cacheFichier = new Map<string, string>();
 

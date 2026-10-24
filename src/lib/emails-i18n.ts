@@ -78,6 +78,12 @@ export const SUJETS = {
     lang === 'sv' ? (retiree ? `Din order ${numero} är hämtad — tack!` : `Din order ${numero} har levererats — tack!`)
     : lang === 'en' ? (retiree ? `Order ${numero} collected — thank you!` : `Order ${numero} delivered — thank you!`)
     : retiree ? `Commande ${numero} retirée — merci !` : `Commande ${numero} livrée — merci !`,
+
+  /** Alerte « retour en stock » demandée sur la fiche produit. */
+  retourStock: (produit: string, lang: LangueClient) =>
+    lang === 'sv' ? `${produit} är tillbaka i lager`
+    : lang === 'en' ? `${produit} is back in stock`
+    : `${produit} est de retour en stock`,
 };
 
 /* ── Fragments calculés ─────────────────────────────────────── */

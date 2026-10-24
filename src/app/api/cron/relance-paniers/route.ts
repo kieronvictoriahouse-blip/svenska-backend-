@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { envoyerRelance, heuresCalmes } from '@/lib/relance-panier';
+import { envoyerAlertesStock } from '@/lib/alertes-stock';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -17,6 +18,7 @@ export const maxDuration = 120;
      12 h laisse partir la 2e le lendemain matin, quelle que soit
      l'heure de la 1re (au plus tard 20 h), sans jamais l'envoyer le
      même matin qu'elle.
+   · Alertes « retour en stock » (lib/alertes-stock).
 
    Toutes les règles (désinscrit, a commandé depuis, panier plus
    récent, double envoi) vivent dans envoyerRelance — ce passage ne
@@ -71,6 +73,11 @@ export async function GET(req: NextRequest) {
     .limit(100);
   if (e2) { erreurs++; journal.push(`R2 : lecture impossible (${e2.message})`); }
   for (const o of r2 || []) journal.push(`R2 ${o.id} : ${(await envoyerRelance(o.id, 2)).raison}`);
+
+  /* Alertes « retour en stock » demandées sur les fiches épuisées : même
+     passage du matin, mêmes heures d'envoi que les relances. */
+  try { for (const l of await envoyerAlertesStock()) journal.push(`Stock ${l}`); }
+  catch (e: any) { erreurs++; journal.push(`Stock : ${e?.message || e}`); }
 
   // Le journal part dans les logs Vercel : la réponse d'un cron, personne ne la lit.
   if (erreurs) console.error('[cron/relance-paniers]', journal);

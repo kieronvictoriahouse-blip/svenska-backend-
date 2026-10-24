@@ -32,6 +32,7 @@ const ECHANTILLON: Record<string, any> = {
   lignes: [{ nom: 'Fromage suédois', qte: '2', pu: '8,90 €', montant: '17,80 €', motif: 'Article cassé' }],
   options: [{ nom: 'Lingonsylt 200 g', note: 'format plus petit', prix: '3,90 €', ecart: '− 2,30 €', lien: 'token=X&choix=p1' }],
   domicile: true, lien_avis: 'https://g.page/r/exemple/review',
+  produit: 'Ahlgrens Bilar Original', prix: '3,49 €', lien: 'https://exemple.test/produit/ahlgrens-bilar',
 };
 
 /* Cet écran édite la version FRANÇAISE (les surcharges sont indexées
