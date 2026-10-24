@@ -108,7 +108,23 @@ async function move(
      appliquée (colonnes delta / qty_before / qty_after absentes). */
   if (logErr) console.error('[stock] mouvement non journalisé', product_id, logErr.message);
 
+  await apresHausse(product_id, before, after);
   return { product_id, name, before, after, delta };
+}
+
+/* Une hausse peut rendre disponible un produit que des clients attendent
+   (alerte « retour en stock » posée sur la fiche) : l'e-mail part tout de
+   suite, sans attendre le passage du lendemain matin. Le stock est déjà
+   écrit ; un e-mail raté ne doit jamais faire échouer le mouvement. */
+async function apresHausse(product_id: string, before: number, after: number) {
+  if (after <= before || after <= 0) return;
+  try {
+    const { alerterRetour } = await import('@/lib/alertes-stock');
+    const journal = await alerterRetour([product_id]);
+    if (journal.length) console.log('[stock] retour en stock :', journal);
+  } catch (e: any) {
+    console.error('[stock] alerte retour en stock :', e?.message || e);
+  }
 }
 
 /* `applySaleStock` n'existe plus, et c'est délibéré : elle déduisait le
@@ -163,6 +179,7 @@ export async function poserStock(
       note: opts.note || null,
     });
     if (logErr) console.error('[stock] mouvement non journalisé', product_id, logErr.message);
+    await apresHausse(product_id, before, cible);
     return { product_id, name: p.name_fr, before, after: cible, delta };
   }
   throw new Error('Stock modifié en continu par un autre poste — réessayer.');

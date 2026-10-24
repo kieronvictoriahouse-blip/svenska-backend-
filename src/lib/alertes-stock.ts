@@ -8,14 +8,16 @@ import type { LangueClient } from '@/lib/langue-client';
 /* ═══════════════════════════════════════════════════════════════
    ALERTES « RETOUR EN STOCK »
 
-   Passage quotidien (cron relance-paniers) : pour chaque produit qui a
-   des alertes en attente et qui est de nouveau DISPONIBLE — stock moins
-   les commandes payées pas encore parties, box comprises
-   (disponiblesPour) —, un e-mail par adresse, une seule fois.
+   Pour chaque produit qui a des alertes en attente et qui est de nouveau
+   DISPONIBLE — stock moins les commandes payées pas encore parties, box
+   comprises (disponiblesPour) —, un e-mail par adresse, une seule fois.
 
-   On ne s'accroche pas aux mouvements de stock : un produit redevient
-   aussi disponible quand une commande payée est annulée, sans le
-   moindre mouvement. Le balayage voit tous les cas.
+   Deux déclencheurs :
+   — tout de suite, à chaque hausse de stock (lib/stock → alerterRetour) :
+     réception, inventaire, saisie dans la fiche, retour de commande… ;
+   — chaque matin (cron relance-paniers), le balayage complet : un produit
+     redevient aussi disponible quand une commande payée est annulée, sans
+     le moindre mouvement de stock.
    ═══════════════════════════════════════════════════════════════ */
 
 const SUPA_MEDIA = /^https?:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/svenska-media\//i;
@@ -33,17 +35,50 @@ function slugProduit(p: any): string {
 const nomEn = (p: any, lang: LangueClient) =>
   (lang === 'sv' ? p.name_sv : lang === 'en' ? p.name_en : '') || p.name_fr || '';
 
-export async function envoyerAlertesStock(): Promise<string[]> {
+/**
+ * Hausse de stock de ces produits : alertes en attente sur eux, ou sur une
+ * box qui les contient (un sachet qui rentre peut compléter une box).
+ * Appelé par lib/stock après chaque hausse ; ne lève jamais d'erreur bloquante.
+ */
+export async function alerterRetour(productIds: string[]): Promise<string[]> {
+  const ids = new Set(productIds.filter(Boolean));
+  if (!ids.size) return [];
+  const { data: attente } = await supabaseAdmin
+    .from('stock_alerts').select('product_id').is('notified_at', null).limit(1000);
+  if (!attente?.length) return [];
+
+  const enAttente = Array.from(new Set(attente.map(a => a.product_id as string)));
+  const cibles = enAttente.filter(id => ids.has(id));
+  const autres = enAttente.filter(id => !ids.has(id));
+  if (autres.length) {
+    const { data: boxes } = await supabaseAdmin
+      .from('products').select('id, bundle_items').in('id', autres);
+    for (const b of boxes || []) {
+      if (Array.isArray(b.bundle_items) && b.bundle_items.some((it: any) => ids.has(it?.product_id))) cibles.push(b.id);
+    }
+  }
+  /* L'envoi se fait pendant l'enregistrement du stock (réception,
+     inventaire…) : au plus 5 e-mails ici, pour ne pas faire attendre
+     l'écran ; s'il y en a plus, le passage du matin envoie la suite. */
+  return cibles.length ? envoyerAlertesStock({ produits: cibles, max: 5 }) : [];
+}
+
+/** Sans `produits` : le balayage complet du matin (avec la purge). */
+export async function envoyerAlertesStock(opts: { produits?: string[]; max?: number } = {}): Promise<string[]> {
   const journal: string[] = [];
 
-  // Conservation (062) : envoyées → 90 jours, jamais servies → 1 an.
-  const jours = (n: number) => new Date(Date.now() - n * 86400_000).toISOString();
-  await supabaseAdmin.from('stock_alerts').delete().lt('notified_at', jours(90));
-  await supabaseAdmin.from('stock_alerts').delete().is('notified_at', null).lt('created_at', jours(365));
+  if (!opts.produits) {
+    // Conservation (062) : envoyées → 90 jours, jamais servies → 1 an.
+    const jours = (n: number) => new Date(Date.now() - n * 86400_000).toISOString();
+    await supabaseAdmin.from('stock_alerts').delete().lt('notified_at', jours(90));
+    await supabaseAdmin.from('stock_alerts').delete().is('notified_at', null).lt('created_at', jours(365));
+  }
 
-  const { data: alertes, error } = await supabaseAdmin
+  let lecture = supabaseAdmin
     .from('stock_alerts').select('id, product_id, email, lang')
-    .is('notified_at', null).order('created_at').limit(500);
+    .is('notified_at', null).order('created_at').limit(opts.max ?? 500);
+  if (opts.produits) lecture = lecture.in('product_id', opts.produits);
+  const { data: alertes, error } = await lecture;
   if (error) { journal.push(`alertes : lecture impossible (${error.message})`); return journal; }
   if (!alertes?.length) return journal;
 
