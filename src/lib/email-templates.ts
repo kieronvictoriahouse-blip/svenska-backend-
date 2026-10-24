@@ -34,7 +34,8 @@ export type EmailTemplate =
   | 'email-relance-panier'
   | 'email-fidelite'
   | 'email-livraison'
-  | 'email-retour-stock';
+  | 'email-retour-stock'
+  | 'email-newsletter';
 
 const cacheFichier = new Map<string, string>();
 

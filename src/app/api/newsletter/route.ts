@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Email invalide' }, { status: 400, headers: CORS });
   }
 
+  // Langue du site au moment de l'inscription : la newsletter part dans cette langue.
+  const lang = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
+
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'inconnu';
   if (tropDInscriptions(ip)) {
     return NextResponse.json({ error: 'Trop de tentatives, réessayez plus tard' }, { status: 429, headers: CORS });
@@ -67,10 +70,11 @@ export async function POST(req: NextRequest) {
        newsletter. */
     const c = existing[0];
     const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
-    if (!tags.includes('newsletter') || c.is_active === false) {
+    if (!tags.includes('newsletter') || c.is_active === false || lang) {
       await supabaseAdmin.from('contacts').update({
         tags: Array.from(new Set([...tags, 'newsletter'])),
         is_active: true,
+        ...(lang ? { lang } : {}),
         updated_at: new Date().toISOString(),
       }).eq('id', c.id);
     }
@@ -82,6 +86,7 @@ export async function POST(req: NextRequest) {
     type: 'client',
     company: 'Inscrit newsletter',
     tags: ['newsletter'],
+    ...(lang ? { lang } : {}),
     first_name: '',
     last_name: '',
     updated_at: new Date().toISOString(),

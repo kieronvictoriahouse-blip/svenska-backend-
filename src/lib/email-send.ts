@@ -68,6 +68,38 @@ export async function sendEmail(opts: SendOpts, cfg: Record<string, string>) {
   throw new Error('Aucune config email. Allez dans Configuration → 📧 Email pour configurer SMTP.');
 }
 
+/**
+ * Envoi en série (newsletter) : une seule connexion SMTP, réutilisée,
+ * au lieu d'une poignée de main TLS par message — c'est ce qui permet
+ * d'envoyer quelques centaines de lettres dans le temps d'un cron.
+ * Penser à appeler fermer() à la fin.
+ */
+export async function envoyeurGroupe(cfg: Record<string, string>) {
+  const hasSmtp = cfg.smtp_host && cfg.smtp_user && cfg.smtp_pass;
+  if (!hasSmtp) {
+    if (!RESEND_API_KEY) throw new Error('Aucune config email. Allez dans Configuration → 📧 Email pour configurer SMTP.');
+    return { envoyer: async (o: SendOpts) => { await sendEmailResend(o); }, fermer: () => {} };
+  }
+  const nodemailer = await import('nodemailer');
+  const port = parseInt(cfg.smtp_port) || 587;
+  const transport = nodemailer.default.createTransport({
+    pool: true, maxConnections: 2,
+    host: cfg.smtp_host, port, secure: port === 465,
+    auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
+    tls: { rejectUnauthorized: false },
+  });
+  return {
+    envoyer: async (o: SendOpts) => {
+      await transport.sendMail({
+        from: o.from, to: o.to, subject: o.subject, html: o.html,
+        ...(o.replyTo ? { replyTo: o.replyTo } : {}),
+        ...(o.headers ? { headers: o.headers } : {}),
+      });
+    },
+    fermer: () => transport.close(),
+  };
+}
+
 /** Bloc « se désinscrire » ajouté au bas de tout email marketing (lien
  *  signé, propre au destinataire). Libellé minimal, à valider par la
  *  boutique : c'est sa présence que la loi exige. */

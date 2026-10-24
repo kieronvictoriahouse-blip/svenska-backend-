@@ -4,6 +4,7 @@ import { renderEmail, sujetPersonnalise, contexteMarque } from '@/lib/email-temp
 import { disponiblesPour } from '@/lib/reserve';
 import { SUJETS, formatEuro } from '@/lib/emails-i18n';
 import type { LangueClient } from '@/lib/langue-client';
+import { slugProduit, imageProduit } from '@/lib/url-fiche';
 
 /* ═══════════════════════════════════════════════════════════════
    ALERTES « RETOUR EN STOCK »
@@ -19,18 +20,6 @@ import type { LangueClient } from '@/lib/langue-client';
      redevient aussi disponible quand une commande payée est annulée, sans
      le moindre mouvement de stock.
    ═══════════════════════════════════════════════════════════════ */
-
-const SUPA_MEDIA = /^https?:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/svenska-media\//i;
-
-/** Adresse de la fiche : le slug figé en base s'il existe, sinon le même
- *  calcul que sdProductUrl() du site (js/app.js). */
-function slugProduit(p: any): string {
-  const fige = String(p?.slug || '');
-  if (/^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{8}$/.test(fige)) return fige;
-  const base = String(p?.name_fr || 'produit').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
-  return `${base}-${String(p?.id || '').slice(0, 8)}`;
-}
 
 const nomEn = (p: any, lang: LangueClient) =>
   (lang === 'sv' ? p.name_sv : lang === 'en' ? p.name_en : '') || p.name_fr || '';
@@ -117,12 +106,11 @@ export async function envoyerAlertesStock(opts: { produits?: string[]; max?: num
 
     const lang = (['fr', 'en', 'sv'].includes(a.lang) ? a.lang : 'fr') as LangueClient;
     const produit = nomEn(p, lang);
-    const image = String(p.image_url || '').replace(SUPA_MEDIA, `${site}/media-w/600/`);
     try {
       const html = await renderEmail('email-retour-stock', {
         produit,
         prix: Number(p.price) > 0 ? formatEuro(Number(p.price), lang) : '',
-        image: /^https:\/\//.test(image) ? image : '',
+        image: imageProduit(p.image_url, site, 600),
         lien: `${site}/produit/${slugProduit(p)}`,
       }, lang);
       const sujet = (await sujetPersonnalise('email-retour-stock', lang)) || SUJETS.retourStock(produit, lang);
