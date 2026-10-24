@@ -189,15 +189,20 @@ export function renderSource(
     },
   );
 
-  // Blocs conditionnels
-  html = html.replace(
-    /<!--#if\s+(!?)(\w+)-->([\s\S]*?)<!--\/if-->/g,
-    (_, neg, key, body) => {
+  /* Blocs conditionnels, du plus intérieur au plus extérieur. En une
+     seule passe, un #if imbriqué (relance : offre → offre_code) se
+     refermait sur le premier /if venu : sans offre, la fin du bloc
+     restait avec ses </td></tr></table> orphelins. */
+  const SI = /<!--#if\s+(!?)(\w+)-->((?:(?!<!--#if\s)[\s\S])*?)<!--\/if-->/g;
+  let avant: string;
+  do {
+    avant = html;
+    html = html.replace(SI, (_, neg, key, body) => {
       const v = get(ctx, key);
       const on = neg ? !v : !!v;
       return on ? body : '';
-    },
-  );
+    });
+  } while (html !== avant);
 
   html = interpolate(html, ctx);
 

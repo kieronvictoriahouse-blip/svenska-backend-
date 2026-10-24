@@ -6,7 +6,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <meta name="color-scheme" content="light dark" />
 <meta name="supported-color-schemes" content="light dark" />
-<title>Votre facture {{ numero_facture }} — {{ boutique }}</title>
+<title>Din faktura {{ numero_facture }} — {{ boutique }}</title>
 <!--[if mso]>
 <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
 <![endif]-->
@@ -25,7 +25,7 @@
 </head>
 <body style="margin:0; padding:0; background-color:#F1EEE9;">
 
-<span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Votre facture {{ numero_facture }} est disponible — {{ total }} réglés par carte bancaire. Merci !</span>
+<span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Din faktura {{ numero_facture }} är klar — {{ total }} betalt med kort. Tack!</span>
 
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F1EEE9;">
   <tr>
@@ -51,9 +51,9 @@
 
         <tr>
           <td class="pad" style="padding:30px 40px 0 40px;">
-            <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:14px; mso-line-height-rule:exactly; letter-spacing:2.6px; color:#B49256; font-weight:bold;">FACTURE {{ numero_facture }}</div>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:14px; mso-line-height-rule:exactly; letter-spacing:2.6px; color:#B49256; font-weight:bold;">FAKTURA {{ numero_facture }}</div>
             <div class="h1" style="font-family:Georgia,'Times New Roman',Times,serif; font-size:32px; line-height:38px; mso-line-height-rule:exactly; color:#1F231C; padding-top:10px;">Din faktura är klar</div>
-            <div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:25px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:14px;">Bonjour {{ prenom }}, voici la facture correspondant à votre commande n° {{ numero }}. Elle est déjà réglée — ce document est à conserver.</div>
+            <div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:25px; mso-line-height-rule:exactly; color:#5F5A4E; padding-top:14px;">Hej {{ prenom }}! Här är fakturan för din order nr {{ numero }}. Den är redan betald — spara gärna dokumentet.</div>
           </td>
         </tr>
 
@@ -72,12 +72,12 @@
               </tr>
               <tr>
                 <td class="metacell" width="50%" style="width:50%; padding:13px 16px; border-right:1px solid #E3DCCB; font-family:Arial,Helvetica,sans-serif;">
-                  <div style="font-size:8.5px; line-height:12px; mso-line-height-rule:exactly; letter-spacing:2px; color:#A0977F; font-weight:bold;">COMMANDE</div>
-                  <div style="font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; padding-top:4px;">N° {{ numero }}</div>
+                  <div style="font-size:8.5px; line-height:12px; mso-line-height-rule:exactly; letter-spacing:2px; color:#A0977F; font-weight:bold;">ORDER</div>
+                  <div style="font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; padding-top:4px;">Nr {{ numero }}</div>
                 </td>
                 <td class="metacell" width="50%" style="width:50%; padding:13px 16px; font-family:Arial,Helvetica,sans-serif;">
-                  <div style="font-size:8.5px; line-height:12px; mso-line-height-rule:exactly; letter-spacing:2px; color:#A0977F; font-weight:bold;">RÈGLEMENT</div>
-                  <div style="font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; padding-top:4px;">Carte bancaire</div>
+                  <div style="font-size:8.5px; line-height:12px; mso-line-height-rule:exactly; letter-spacing:2px; color:#A0977F; font-weight:bold;">BETALNING</div>
+                  <div style="font-size:14px; line-height:20px; mso-line-height-rule:exactly; color:#1F231C; padding-top:4px;">Betalkort</div>
                 </td>
               </tr>
             </table>
@@ -88,7 +88,7 @@
           <td class="pad" style="padding:22px 40px 0 40px;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; border-collapse:collapse;">
               <tr>
-                <td colspan="2" style="padding:0 0 9px 0; border-bottom:1px solid #B49256; font-family:Arial,Helvetica,sans-serif; font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A6A1F; font-weight:bold;">DÉTAIL</td>
+                <td colspan="2" style="padding:0 0 9px 0; border-bottom:1px solid #B49256; font-family:Arial,Helvetica,sans-serif; font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A6A1F; font-weight:bold;">SPECIFIKATION</td>
               </tr>
 <!--#each lignes-->
               <tr>
@@ -101,12 +101,12 @@
                 <td align="right" style="padding:12px 0 4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">{{ sous_total }}</td>
               </tr>
               <tr>
-                <td style="padding:4px 10px 4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Livraison · Mondial Relay</td>
+                <td style="padding:4px 10px 4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Frakt · Mondial Relay</td>
                 <td align="right" style="padding:4px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">{{ livraison }}</td>
               </tr>
               <tr>
-                <td style="padding:4px 10px 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">TVA</td>
-                <td align="right" style="padding:4px 0 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Non applicable</td>
+                <td style="padding:4px 10px 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Moms</td>
+                <td align="right" style="padding:4px 0 12px 0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:19px; mso-line-height-rule:exactly; color:#5F5A4E;">Ej tillämplig</td>
               </tr>
             </table>
           </td>
@@ -116,7 +116,7 @@
           <td class="pad" style="padding:4px 40px 0 40px;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; background-color:#44573D;">
               <tr>
-                <td style="padding:16px 18px; font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:15px; mso-line-height-rule:exactly; letter-spacing:2.4px; color:#D8DCD2; font-weight:bold;">MONTANT PAYÉ</td>
+                <td style="padding:16px 18px; font-family:Arial,Helvetica,sans-serif; font-size:10px; line-height:15px; mso-line-height-rule:exactly; letter-spacing:2.4px; color:#D8DCD2; font-weight:bold;">BETALT BELOPP</td>
                 <td align="right" style="padding:16px 18px; font-family:Georgia,'Times New Roman',Times,serif; font-size:26px; line-height:30px; mso-line-height-rule:exactly; color:#FDFBF5;">{{ total }}</td>
               </tr>
             </table>
@@ -141,7 +141,7 @@
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; background-color:#F4EEE1;">
               <tr>
                 <td style="padding:18px 20px; border-left:2px solid #B49256; font-family:Arial,Helvetica,sans-serif;">
-                  <div style="font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A8067; font-weight:bold;">FACTURÉ À</div>
+                  <div style="font-size:9px; line-height:13px; mso-line-height-rule:exactly; letter-spacing:2.2px; color:#8A8067; font-weight:bold;">FAKTURERAS TILL</div>
                   <div style="font-size:14px; line-height:22px; mso-line-height-rule:exactly; color:#1F231C; padding-top:8px;"><strong>{{ client }}</strong><br />{{{ adresse_html }}}</div>
                 </td>
               </tr>
