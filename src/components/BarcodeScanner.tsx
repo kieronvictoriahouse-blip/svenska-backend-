@@ -17,11 +17,18 @@ import { T } from '@/lib/admin-theme';
 
    Voie rapide : `BarcodeDetector`, l'API native de Chrome/Android,
    accélérée matériellement. Quand elle est là, elle passe devant.
-   Repli automatique : elle est réputée faible sur les EAN imprimés, et
-   elle n'existe pas du tout sur iPhone. Si elle ne rend rien pendant
-   BASCULE_MS, on passe définitivement au WASM pour la session. Le
-   moteur réellement en service est affiché dans le diagnostic — on ne
-   devine pas, on lit.
+   Repli automatique : elle n'existe pas sur iPhone, et selon l'étiquette
+   c'est l'un ou l'autre moteur qui lit. Si elle ne rend rien pendant
+   BASCULE_MS, zxing-cpp tente aussi chaque image (sans abandonner le
+   natif). Le moteur de chaque lecture est affiché dans le diagnostic —
+   on ne devine pas, on lit.
+
+   ── Objectif ─────────────────────────────────────────────────────
+   Le vrai coupable du flou (diagnostic du 26/10/2026, Samsung) : le
+   navigateur prenait un objectif arrière SANS autofocus (« focus
+   manual »). On garde désormais le premier objectif arrière qui fait la
+   mise au point en continu, mémorisé par appareil (localStorage), avec
+   un bouton « Changer d'objectif » pour corriger à la main.
 
    Le binaire est servi par notre domaine (public/zxing_reader.wasm,
    recopié au build par scripts/copier-wasm.js). Dépendre d'un CDN pour
@@ -83,6 +90,86 @@ const FORMATS_NATIF = [
    La bande est large — un EAN est bien plus large que haut. */
 const ZONE = { x: 0.04, y: 0.20, w: 0.92, h: 0.60 };
 
+/* Objectif retenu, memorise par appareil : la recherche ouvre chaque
+   camera arriere une a une, on ne la refait pas a chaque scan. */
+const CLE_OBJECTIF = 'sc_scanner_device_id';
+
+const lireObjectif = () => { try { return localStorage.getItem(CLE_OBJECTIF) || ''; } catch { return ''; } };
+const memoriserObjectif = (id: string) => {
+  try { if (id) localStorage.setItem(CLE_OBJECTIF, id); else localStorage.removeItem(CLE_OBJECTIF); } catch { /* stockage bloque */ }
+};
+
+/* 1080p : on ne decode que la zone du cadre, la definition en plus
+   sert a donner assez de pixels aux barres d'un EAN-13 sans faire
+   ralentir le decodage. En 720p avec zoom 2x, il en manquait. */
+function ouvrirFlux(deviceId?: string) {
+  return navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }),
+      width: { ideal: 1920 }, height: { ideal: 1080 },
+    },
+  });
+}
+
+/** L'objectif sait-il faire la mise au point tout seul ? */
+function aAutofocus(stream: MediaStream): boolean {
+  const caps: any = stream.getVideoTracks()[0]?.getCapabilities?.() || {};
+  return Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous');
+}
+
+/**
+ * Ouvre le bon objectif arriere.
+ *
+ * Le libelle ne suffit pas a reconnaitre l'objectif principal : un
+ * Samsung annonce « camera2 2, facing back » pour son ultra grand-angle,
+ * sans le mot « ultra ». Le navigateur, lui, prenait justement cet
+ * objectif sans autofocus (« focus manual ») — image floue a toute
+ * distance, quel que soit le moteur de lecture.
+ *
+ * Le critere fiable est la capacite : on garde le premier objectif
+ * arriere qui fait la mise au point en continu, et on le memorise.
+ */
+async function ouvrirMeilleurObjectif(): Promise<{ stream: MediaStream; arriere: MediaDeviceInfo[] }> {
+  const listerArriere = async () => {
+    const sources = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const arr = sources.filter(d => /back|arri|rear|environment/i.test(d.label));
+    return arr.length ? arr : sources;
+  };
+
+  // a) l'objectif deja retenu sur cet appareil
+  const memo = lireObjectif();
+  if (memo) {
+    try { const s = await ouvrirFlux(memo); return { stream: s, arriere: await listerArriere() }; }
+    catch { memoriserObjectif(''); }
+  }
+
+  // b) le choix du navigateur, s'il fait le point (ce premier acces rend aussi les libelles lisibles)
+  const premier = await ouvrirFlux();
+  const arriere = await listerArriere();
+  if (aAutofocus(premier)) {
+    memoriserObjectif(premier.getVideoTracks()[0]?.getSettings?.().deviceId || '');
+    return { stream: premier, arriere };
+  }
+  const idPremier = premier.getVideoTracks()[0]?.getSettings?.().deviceId;
+  premier.getTracks().forEach(t => t.stop());
+
+  /* c) les autres objectifs arriere, en commencant par ceux dont le
+        libelle n'annonce ni ultra grand-angle, ni tele, ni macro. */
+  const exclus = /ultra|wide|grand.?angle|t[ée]l[ée]|depth|profondeur|macro/i;
+  const ordre = [...arriere.filter(d => !exclus.test(d.label)), ...arriere.filter(d => exclus.test(d.label))]
+    .filter(d => d.deviceId !== idPremier);
+  for (const d of ordre) {
+    let s: MediaStream;
+    try { s = await ouvrirFlux(d.deviceId); } catch { continue; }
+    if (aAutofocus(s)) { memoriserObjectif(d.deviceId); return { stream: s, arriere }; }
+    s.getTracks().forEach(t => t.stop());
+  }
+
+  // d) aucun autofocus expose : le choix du navigateur, faute de mieux
+  return { stream: await ouvrirFlux(), arriere };
+}
+
 /** Cle de controle EAN-13 / EAN-8 / UPC-A. Un code mal lu la rate. */
 function cleValide(code: string): boolean {
   if (!/^\d+$/.test(code)) return true;
@@ -126,6 +213,9 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
   const [objectif, setObjectif] = useState('');
   const [diag, setDiag] = useState('');
   const [moteur, setMoteur] = useState('');
+  const [derniere, setDerniere] = useState('');            // dernière lecture et son moteur
+  const [objectifs, setObjectifs] = useState<MediaDeviceInfo[]>([]);
+  const [objectifId, setObjectifId] = useState('');
 
   const [active, setActive] = useState(false);
   const [error, setError] = useState('');
@@ -225,51 +315,33 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
     natifRef.current = null;
     trackRef.current = null;
     canvasRef.current = null;
-    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif(''); setDiag(''); setMoteur('');
+    setTorche(false); setTorcheDispo(false); setZoomMax(1); setObjectif(''); setDiag(''); setMoteur(''); setDerniere('');
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     setActive(false);
   }, []);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (objectifImpose?: string) => {
     setError('');
     try {
-      /* Choix de l'objectif — c'est ici que se jouait le flou.
-         « facingMode: environment » laisse le navigateur choisir, et sur
-         les telephones recents il prend souvent l'ULTRA GRAND-ANGLE, qui
-         ne fait pas la mise au point de pres : l'image reste floue quel
-         que soit le moteur de lecture.
-         On demande donc explicitement l'objectif principal arriere, en
-         ecartant ceux dont le libelle annonce un ultra grand-angle, un
-         teleobjectif ou un capteur de profondeur. */
-      let deviceId: string | undefined;
-      try {
-        // Un premier acces est necessaire pour que les libelles soient lisibles.
-        const amorce = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
-        const sources = (await navigator.mediaDevices.enumerateDevices())
-          .filter(d => d.kind === 'videoinput');
-        amorce.getTracks().forEach(t => t.stop());
-
-        const arriere = sources.filter(d => /back|arri|rear|environment/i.test(d.label) || sources.length === 1);
-        const exclus = /ultra|wide|grand.?angle|t[ée]l[ée]|depth|profondeur|macro/i;
-        const principal = arriere.find(d => !exclus.test(d.label)) || arriere[0];
-        deviceId = principal?.deviceId;
-        setObjectif(principal?.label || 'libellé non communiqué');
-      } catch { /* libelles indisponibles : on laisse le navigateur choisir */ }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }),
-          /* 1280x720 plutot que 1080p : au-dela, chaque appel au detecteur
-             coute plus cher et on lit MOINS de codes par seconde. */
-          width: { ideal: 1280 }, height: { ideal: 720 },
-        },
-      });
+      /* Choix de l'objectif — c'est ici que se jouait le flou (voir
+         ouvrirMeilleurObjectif). « Changer d'objectif » impose le sien. */
+      let stream: MediaStream;
+      if (objectifImpose) {
+        stream = await ouvrirFlux(objectifImpose);
+        memoriserObjectif(objectifImpose);
+      } else {
+        const r = await ouvrirMeilleurObjectif();
+        stream = r.stream;
+        setObjectifs(r.arriere);
+      }
       if (!monteRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
       streamRef.current = stream;
 
       const track = stream.getVideoTracks()[0];
       trackRef.current = track || null;
+      setObjectif(track?.label || 'libellé non communiqué');
+      setObjectifId(track?.getSettings?.().deviceId || '');
       try {
         const caps: any = track?.getCapabilities?.() || {};
         setTorcheDispo(!!caps.torch);
@@ -288,20 +360,16 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           const depart = Math.min(max, Math.max(min, 2));
           await track.applyConstraints({ advanced: [{ zoom: depart } as any] });
           setZoom(depart);
-        } else {
-          /* Pas de zoom pilotable — c'est le cas de Safari sur iPhone.
-             On compense par la definition : plus de pixels sur le code
-             permet de le lire de plus loin, la ou l'objectif fait encore
-             le point. */
-          try {
-            await track.applyConstraints({ width: { ideal: 1920 }, height: { ideal: 1080 } });
-          } catch { /* definition refusee : on garde celle obtenue */ }
         }
-        const r = track?.getSettings?.() || {};
+        if (caps.exposureMode?.includes?.('continuous')) {
+          try { await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' } as any] }); } catch { /* non pilotable */ }
+        }
+        const r: any = track?.getSettings?.() || {};
         setDiag([
           `${r.width || '?'}x${r.height || '?'}`,
           caps.zoom ? `zoom ${caps.zoom.min}-${caps.zoom.max}` : 'zoom non pilotable',
-          caps.focusMode ? `focus ${(caps.focusMode || []).join('/')}` : 'focus non pilotable',
+          /* Le mode EN SERVICE, pas la liste : « continuous » attendu. */
+          r.focusMode ? `focus ${r.focusMode}` : caps.focusMode ? `focus ${(caps.focusMode || []).join('/')}` : 'focus non pilotable',
           caps.torch ? 'lampe' : 'pas de lampe',
         ].join(' · '));
       } catch { /* capacites non exposees */ }
@@ -323,7 +391,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           const retenus = FORMATS_NATIF.filter(f => dispo.includes(f));
           if (retenus.length) {
             natifRef.current = new Detecteur({ formats: retenus });
-            setMoteur('BarcodeDetector (natif)');
+            setMoteur('BarcodeDetector (+ zxing-cpp en secours)');
           }
         } catch { /* pas exploitable : on reste sur le WASM */ }
       }
@@ -345,21 +413,27 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
         if (!vivantRef.current) return;
         const v = videoRef.current;
         try {
-          if (v && v.readyState >= 2 && v.videoWidth) {
-            let lu: { code: string; format: string } | null = null;
+          if (v && v.readyState >= 2 && v.videoWidth && ctx) {
+            let lu: { code: string; format: string; moteur: string } | null = null;
+
+            /* Les deux moteurs lisent la même chose : la zone du cadre,
+               recopiée sur le canevas. Moins de pixels, plus de tentatives
+               par seconde, et pas l'étiquette du carton d'à côté. */
+            const sx = Math.round(v.videoWidth * ZONE.x);
+            const sy = Math.round(v.videoHeight * ZONE.y);
+            const sw = Math.round(v.videoWidth * ZONE.w);
+            const sh = Math.round(v.videoHeight * ZONE.h);
+            if (canvas.width !== sw || canvas.height !== sh) { canvas.width = sw; canvas.height = sh; }
+            ctx.drawImage(v, sx, sy, sw, sh, 0, 0, sw, sh);
 
             if (natifRef.current) {
-              // L'API native accepte l'élément vidéo directement.
-              const codes = await natifRef.current.detect(v);
-              if (codes?.length) lu = { code: String(codes[0].rawValue || ''), format: String(codes[0].format || '') };
-            } else if (ctx) {
-              const sx = Math.round(v.videoWidth * ZONE.x);
-              const sy = Math.round(v.videoHeight * ZONE.y);
-              const sw = Math.round(v.videoWidth * ZONE.w);
-              const sh = Math.round(v.videoHeight * ZONE.h);
-              if (canvas.width !== sw || canvas.height !== sh) { canvas.width = sw; canvas.height = sh; }
-              ctx.drawImage(v, sx, sy, sw, sh, 0, 0, sw, sh);
-
+              const codes = await natifRef.current.detect(canvas);
+              if (codes?.length) lu = { code: String(codes[0].rawValue || ''), format: String(codes[0].format || ''), moteur: 'BarcodeDetector' };
+            }
+            /* Le natif passe devant ; s'il ne rend rien depuis un moment,
+               zxing-cpp tente AUSSI chaque image. On ne l'abandonne plus :
+               selon l'étiquette, c'est l'un ou l'autre qui lit. */
+            if (!lu && (!natifRef.current || Date.now() - depuisRef.current > BASCULE_MS)) {
               const resultats = await readBarcodes(ctx.getImageData(0, 0, sw, sh), {
                 formats: FORMATS_WASM as unknown as any,
                 tryHarder: true,      // on préfère le temps de calcul au code manqué
@@ -370,19 +444,13 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
                 returnErrors: false,  // un code à la clé fausse n'est pas un code
               });
               const bon = (resultats || []).find((r: any) => r.isValid && r.text);
-              if (bon) lu = { code: String(bon.text).trim(), format: String(bon.format || '') };
+              if (bon) lu = { code: String(bon.text).trim(), format: String(bon.format || ''), moteur: 'zxing-cpp' };
             }
 
             if (lu?.code) {
               depuisRef.current = Date.now();
+              setDerniere(`${lu.code} via ${lu.moteur}`);
               emit(lu.code, lu.format);
-            } else if (natifRef.current && Date.now() - depuisRef.current > BASCULE_MS) {
-              /* Le détecteur natif ne rend rien depuis un moment. Il est
-                 réputé faible sur les EAN imprimés — on ne s'acharne pas,
-                 on passe au WASM pour le reste de la session. */
-              natifRef.current = null;
-              depuisRef.current = Date.now();
-              setMoteur('zxing-cpp (WASM)');
             }
           }
         } catch { /* image illisible : on passe à la suivante */ }
@@ -400,6 +468,16 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       );
     }
   }, [emit]);
+
+  /* Pour les téléphones où l'objectif retenu n'est pas le bon : on passe
+     au suivant parmi les objectifs arrière, et il devient le mémorisé. */
+  const changerObjectif = useCallback(async () => {
+    if (objectifs.length < 2) return;
+    const i = objectifs.findIndex(d => d.deviceId === objectifId);
+    const suivant = objectifs[(i + 1) % objectifs.length];
+    stop();
+    await start(suivant.deviceId);
+  }, [objectifs, objectifId, stop, start]);
 
   useEffect(() => () => stop(), [stop]);
 
@@ -494,7 +572,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button
           type="button"
-          onClick={active ? stop : start}
+          onClick={active ? stop : () => { start(); }}
           style={{
             flex: 1, height: 44, borderRadius: 9, border: 'none',
             background: '#F4EEE1', color: '#15181E', fontSize: 13.5, fontWeight: 700,
@@ -516,6 +594,20 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
             <span className="ms" style={{ fontSize: 21 }}>{torche ? 'flashlight_on' : 'flashlight_off'}</span>
+          </button>
+        )}
+
+        {/* Changer d'objectif : quand le téléphone a plusieurs objectifs
+            arrière et que l'image reste floue malgré tout. */}
+        {active && objectifs.length > 1 && (
+          <button type="button" onClick={changerObjectif} aria-label="Changer d'objectif" title="Changer d'objectif"
+                  style={{
+                    width: 52, height: 44, borderRadius: 9, cursor: 'pointer',
+                    border: '1px solid rgba(255,255,255,.16)', background: 'transparent',
+                    color: 'rgba(255,255,255,.85)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+            <span className="ms" style={{ fontSize: 21 }}>cameraswitch</span>
           </button>
         )}
       </div>
@@ -561,6 +653,7 @@ export default function BarcodeScanner({ onScan, compact = false, label = 'Vise 
           {objectif && <><br />Objectif : {objectif}</>}
           {diag && <><br />{diag}</>}
           {moteur && <><br />Moteur : {moteur}</>}
+          {derniere && <><br />Dernière lecture : {derniere}</>}
         </div>
       )}
 
