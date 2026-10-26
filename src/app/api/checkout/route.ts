@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
     const { quantitesReservees } = await import('@/lib/reserve');
     const { chargerLots } = await import('@/lib/lots');
     const [reserve, lots] = await Promise.all([quantitesReservees(), chargerLots()]);
-    const giftClaims: Array<{ id: string }> = [];
+    const giftClaims: Array<{ id: string; offer_id?: string }> = [];
     /* Box (migration 054) : ce sont leurs sachets qui sont en rayon. On
        cumule ici la demande du panier par sachet — box ET achats à
        l'unité — pour la confronter au disponible après la boucle. Une
@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
 
     for (const item of items) {
       // Les cadeaux (offerts) sont mis de côté : validés + ajoutés à 0 € après le sous-total.
-      if (item && item.gift) { giftClaims.push({ id: item.id }); continue; }
+      if (item && item.gift) { giftClaims.push({ id: item.id, ...(typeof item.offer_id === 'string' ? { offer_id: item.offer_id } : {}) }); continue; }
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
       const sortOrder = isUUID ? NaN : parseInt(item.id);
       let q = supabaseAdmin.from('products').select('*, product_variants(*), categories(discount_type, discount_value, discount_start, discount_end)').eq('is_active', true);
@@ -337,7 +337,11 @@ export async function POST(req: NextRequest) {
         const { data: gifts } = await supabaseAdmin
           .from('promo_codes').select('*').eq('type', 'gift').eq('is_active', true)
           .order('created_at', { ascending: false });
-        const offer = (gifts || []).find((p: any) =>
+        /* Plusieurs offres peuvent cohabiter (« Center offert » ET
+           « 2 dipmix achetés, le 3e offert ») : chacune est jugée seule,
+           sur le panier payé, et ne sert que les cadeaux qui lui sont
+           rattachés. */
+        const offres = (gifts || []).filter((p: any) =>
           // Dates jugées au jour de Paris, comme les codes (cf. @/lib/promo).
           dansLaPeriode(p) === 'ok' && (!p.max_uses || (p.used_count || 0) < p.max_uses));
         /* Combien de cadeaux le panier merite REELLEMENT — calcule ici,
@@ -351,14 +355,30 @@ export async function POST(req: NextRequest) {
            « cadeau » portant l'identifiant d'un produit déclencheur et
            une quantité de 100 comptait comme 100 achats, et ouvrait droit
            à autant de cadeaux réclamés. */
-        const dus = cadeauxDus(offer, orderLines.map(l => ({ product_id: l.product_id, qty: l.qty })), subtotal);
+        /* Instantané AVANT d'ajouter les cadeaux : un cadeau d'une offre
+           ne doit pas compter comme achat déclencheur d'une autre. */
+        const lignesPayees = orderLines.map(l => ({ product_id: l.product_id, qty: l.qty }));
+        const pris = new Set<number>();   // indices des demandes déjà servies
+        /* Cadeaux déjà servis, par produit : deux offres qui donnent le
+           même produit ne doivent pas promettre deux fois la dernière boîte. */
+        const servis: Record<string, number> = {};
 
-        if (offer && dus > 0) {
+        for (const offer of offres) {
+          const dus = cadeauxDus(offer, lignesPayees, subtotal);
+          if (dus <= 0) continue;
           const ids = listeIds((offer as any).gift_product_ids);
           /* On sert les cadeaux demandes, dans l'ordre, jusqu'a
              concurrence de ce qui est du. Un client qui en reclame trois
-             pour deux merites en recoit deux. */
-          const retenus = giftClaims.filter(g => ids.includes(g.id)).slice(0, dus);
+             pour deux merites en recoit deux. Une demande qui nomme son
+             offre ne sert qu'elle ; sans nom (ancien panier), elle va à
+             la première offre qui propose ce produit. */
+          const retenus: Array<{ id: string; offer_id?: string }> = [];
+          giftClaims.forEach((g, i) => {
+            if (retenus.length >= dus || pris.has(i) || !ids.includes(g.id)) return;
+            if (g.offer_id && g.offer_id !== (offer as any).id) return;
+            pris.add(i);
+            retenus.push(g);
+          });
 
           for (const claim of retenus) {
             const { data: gp } = await supabaseAdmin
@@ -368,9 +388,16 @@ export async function POST(req: NextRequest) {
             /* Un cadeau en rupture n'est pas un cadeau : on l'omet
                plutot que de promettre ce qu'on ne peut pas mettre dans
                le carton. Le disponible tient compte du reserve. */
-            const dispo = gp ? (Number(gp.stock) || 0) - (reserve[gp.id] || 0) : 0;
+            /* « 2 dipmix achetés, le 3e offert » : le cadeau est souvent le
+               même produit que ceux achetés, et deux offres peuvent donner
+               le même. On retire donc aussi ce que le panier paie déjà et
+               les cadeaux déjà servis. */
+            const dispo = gp
+              ? (Number(gp.stock) || 0) - (reserve[gp.id] || 0) - (demandeSachets[gp.id] || 0) - (servis[gp.id] || 0)
+              : 0;
             const servable = gp && !(gp.track_stock === true && dispo <= 0);
             if (gp && servable) {
+              servis[gp.id] = (servis[gp.id] || 0) + 1;
               orderLines.push({
                 product_id: gp.id,
                 name: (gp.name_fr || 'Cadeau') + ' (offert)',
