@@ -51,7 +51,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const compo = composition((data as any).bundle_items);
   if (compo) {
     const { data: sachets } = await supabaseAdmin
-      .from('products').select('id, name_fr, name_sv, name_en, image_url, price, weight')
+      .from('products').select('id, name_fr, name_sv, name_en, image_url, price, weight, is_active')
       .in('id', compo.map(c => c.product_id));
     (data as any).lot_contenu = compo.map(c => ({
       ...c, ...((sachets || []).find((s: any) => s.id === c.product_id) || {}),
