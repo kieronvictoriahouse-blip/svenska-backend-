@@ -33,6 +33,8 @@ export const CHAMPS_FICHE = [
   'track_stock', 'stock_alert', 'pack_size',
   // Remise par article (migration 049)
   'discount_type', 'discount_value', 'discount_start', 'discount_end',
+  // Pré-commande (migration 065)
+  'preorder', 'preorder_ship_date', 'preorder_end',
 ] as const;
 
 /** Ne garde que les colonnes modifiables (les clés absentes restent absentes).
@@ -94,9 +96,21 @@ export function controlerFiche(
   }
   const remise = controlerRemise(f);
   if (remise) return remise;
+  const pre = controlerPrecommande(f);
+  if (pre) return pre;
   if (f.discount_type === 'fixed' && 'price' in f && Number(f.discount_value) >= Number(f.price)) {
     return 'La remise en euros doit rester inférieure au prix de vente.';
   }
+  return null;
+}
+
+/** Pré-commande (migration 065) : dates AAAA-MM-JJ ; la fin des
+ *  pré-commandes ne peut pas tomber après la date d'expédition. */
+function controlerPrecommande(f: Record<string, any>): string | null {
+  const s = f.preorder_ship_date ? String(f.preorder_ship_date).slice(0, 10) : '';
+  const e = f.preorder_end ? String(f.preorder_end).slice(0, 10) : '';
+  if ((s && !JOUR.test(s)) || (e && !JOUR.test(e))) return 'Dates de pré-commande invalides.';
+  if (s && e && e > s) return 'La fin des pré-commandes doit précéder la date d’expédition.';
   return null;
 }
 

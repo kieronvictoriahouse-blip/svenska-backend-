@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
 import { evaluatePromo, PromoRefusal } from '@/lib/promo';
 import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/product-price';
+import { precommandeActive, SUFFIXE_PRECOMMANDE } from '@/lib/precommande';
 import crypto from 'crypto';
 import { secretServeur } from '@/lib/secret-interne';
 
@@ -232,8 +233,15 @@ export async function POST(req: NextRequest) {
          dû à des commandes payées non expédiées. Comparer au stock brut
          laisserait vendre deux fois la même boîte : elle est encore en
          rayon, mais elle appartient déjà à quelqu'un. */
+      /* Pré-commande (migration 065) : vendue SANS stock jusqu'à sa date de
+         fin — on achète d'après les commandes reçues. Elle n'entre ni dans
+         le contrôle de stock ni dans la demande par sachet : elle ne doit
+         pas prendre l'étagère des articles vendus en stock. */
+      const precommande = precommandeActive(product);
       const compoBox = lots[product.id];
-      if (compoBox) {
+      if (precommande) {
+        // rien à confronter au disponible
+      } else if (compoBox) {
         for (const it of compoBox) {
           demandeSachets[it.product_id] = (demandeSachets[it.product_id] || 0) + it.qty * item.quantity;
         }
@@ -242,7 +250,7 @@ export async function POST(req: NextRequest) {
         demandeSachets[product.id] = (demandeSachets[product.id] || 0) + item.quantity;
       }
 
-      if (!compoBox && product.track_stock === true && typeof product.stock === 'number') {
+      if (!precommande && !compoBox && product.track_stock === true && typeof product.stock === 'number') {
         const dispo = product.stock - (reserve[product.id] || 0);
         if (dispo <= 0 || item.quantity > dispo) {
           stockErrors.push({
@@ -264,14 +272,21 @@ export async function POST(req: NextRequest) {
       const remise    = resolveDiscount(product, product.categories);
       const price     = effectiveUnitPrice(basePrice, remise);
       const suffix   = item.variant ? ` — ${item.variant}` : '';
-      const name     = (product.name_fr || '') + suffix;
-      const name_en  = (product.name_en || product.name_fr || '') + suffix;
-      const name_sv  = (product.name_sv || product.name_fr || '') + suffix;
+      /* « — pré-commande » dans le nom de la ligne : il suit la commande
+         partout (Stripe, facture, e-mails, écran de préparation). */
+      const pre = (l: 'fr' | 'en' | 'sv') => (precommande ? SUFFIXE_PRECOMMANDE[l] : '');
+      const name     = (product.name_fr || '') + suffix + pre('fr');
+      const name_en  = (product.name_en || product.name_fr || '') + suffix + pre('en');
+      const name_sv  = (product.name_sv || product.name_fr || '') + suffix + pre('sv');
 
       subtotal += price * item.quantity;
       if (!isDiscountActive(remise)) baseRemisable += price * item.quantity;
 
-      orderLines.push({ product_id: product.id, name, name_en, name_sv, qty: item.quantity, price, ...(product.image_url ? { image_url: product.image_url } : {}) });
+      orderLines.push({
+        product_id: product.id, name, name_en, name_sv, qty: item.quantity, price,
+        ...(product.image_url ? { image_url: product.image_url } : {}),
+        ...(precommande ? { preorder: true, preorder_ship_date: product.preorder_ship_date || null } : {}),
+      });
 
       const image = imageAbsolue(product.image_url, baseUrl);
       lineItems.push({

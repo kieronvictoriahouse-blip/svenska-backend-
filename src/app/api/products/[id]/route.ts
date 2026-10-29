@@ -34,6 +34,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
   }
 
+  /* Pré-commande (migration 065) : unités payées encore à servir — la
+     quantité à acheter. Back-office seulement. */
+  if (isAdmin && ((data as any).preorder || (data as any).preorder_ship_date)) {
+    const { precommandesDues } = await import('@/lib/precommande');
+    (data as any).preorder_dues = (await precommandesDues([params.id]))[params.id] || 0;
+  }
+
   /* Même règle que sur la liste : la fiche publique annonce le
      disponible. Sans ça, la vitrine et le tunnel se contredisent —
      « I LAGER » sur la page, refus au paiement. */

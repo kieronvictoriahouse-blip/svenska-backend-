@@ -44,6 +44,10 @@ type ProductFormData = {
   discount_value: string;
   discount_start: string;
   discount_end: string;
+  /** Pré-commande (migration 065) : vendable sans stock jusqu'à preorder_end. */
+  preorder: boolean;
+  preorder_ship_date: string;
+  preorder_end: string;
   weight: string;
   origin_sv: string; origin_fr: string; origin_en: string;
   image_url: string;
@@ -76,6 +80,7 @@ const EMPTY: ProductFormData = {
   desc_sv: '', desc_fr: '', desc_en: '',
   price: '', cost_price: '',
   discount_type: '', discount_value: '', discount_start: '', discount_end: '',
+  preorder: false, preorder_ship_date: '', preorder_end: '',
   weight: '',
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
@@ -249,6 +254,9 @@ export default function ProductForm({
     discount_value: (initialData as any)?.discount_value != null ? String((initialData as any).discount_value) : '',
     discount_start: (initialData as any)?.discount_start ? String((initialData as any).discount_start).slice(0, 10) : '',
     discount_end: (initialData as any)?.discount_end ? String((initialData as any).discount_end).slice(0, 10) : '',
+    preorder: !!(initialData as any)?.preorder,
+    preorder_ship_date: (initialData as any)?.preorder_ship_date ? String((initialData as any).preorder_ship_date).slice(0, 10) : '',
+    preorder_end: (initialData as any)?.preorder_end ? String((initialData as any).preorder_end).slice(0, 10) : '',
     pickup_only: !!(initialData?.pickup_only),
     track_stock: !!(initialData?.track_stock),
     stock: initialData?.stock != null ? String(initialData.stock) : '',
@@ -283,7 +291,8 @@ export default function ProductForm({
        QUE si une remise est posée (ou l'était déjà). Ainsi, tant que la
        migration 049 n'a pas ajouté les colonnes, un produit sans remise
        s'enregistre normalement — on n'écrit jamais de colonne absente. */
-    const { discount_type: _dt, discount_value: _dv, discount_start: _ds, discount_end: _de, bundle_items: _bi, ...rest } = f;
+    const { discount_type: _dt, discount_value: _dv, discount_start: _ds, discount_end: _de, bundle_items: _bi,
+            preorder: _po, preorder_ship_date: _ps, preorder_end: _pe, ...rest } = f;
     const hasDisc = !!_dt && parseFloat(_dv) > 0;
     const hadDisc = !!(initialData as any)?.discount_type;
     const payload: Record<string, any> = {
@@ -312,8 +321,15 @@ export default function ProductForm({
     /* Champs de la fiche chargée qui ne sont pas des colonnes modifiables
        (id, catégorie embarquée, variantes brutes, dates…) : la route les
        ignore, inutile de les envoyer. */
-    for (const k of ['id', 'categories', 'product_variants', 'lot_disponible', 'lot_contenu', 'created_at', 'updated_at', 'brand'])
+    for (const k of ['id', 'categories', 'product_variants', 'lot_disponible', 'lot_contenu', 'preorder_dues', 'created_at', 'updated_at', 'brand'])
       delete payload[k];
+    /* Pré-commande (migration 065) : envoyée seulement si elle est (ou
+       était) activée — un produit s'enregistre même avant la migration. */
+    if (_po || (initialData as any)?.preorder) {
+      payload.preorder = !!_po;
+      payload.preorder_ship_date = _po && _ps ? _ps : null;
+      payload.preorder_end = _po && _pe ? _pe : null;
+    }
     /* Box (migration 054) : n'est envoyée que si elle existe (ou existait),
        et une box n'a jamais de stock propre — ce sont ses sachets. */
     const lot = (_bi || [])
@@ -632,6 +648,54 @@ export default function ProductForm({
                     </div>
                   </>
                 )}
+              </Card>
+
+              {/* Pré-commande (migration 065) : vendue sans stock jusqu'à la date de fin */}
+              <Card title="Pré-commande" defaultOpen={form.preorder}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: T.ink }}>
+                  <input type="checkbox" checked={form.preorder} onChange={e => set('preorder', e.target.checked)} />
+                  Vendre en pré-commande (même sans stock)
+                </label>
+                <div className="pf-hint" style={{ marginTop: 6 }}>
+                  Le produit affiche le badge « Pré-commande » et la date d’expédition, et se vend même à 0 en stock.
+                  Passé la date de fin, il redevient un produit normal, vendu selon son stock.
+                </div>
+                {form.preorder && (() => {
+                  const fini = !!form.preorder_end && todayStr > form.preorder_end;
+                  const dues = (initialData as any)?.preorder_dues;
+                  return (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginTop: 12 }}>
+                        <Field label="Expédition à partir du" hint="Affiché aux clients">
+                          <input className="sc-input" type="date" value={form.preorder_ship_date}
+                                 onChange={e => set('preorder_ship_date', e.target.value)} />
+                        </Field>
+                        <Field label="Fin des pré-commandes (optionnel)" hint="Dernier jour inclus · vide = sans fin">
+                          <input className="sc-input" type="date" value={form.preorder_end}
+                                 onChange={e => set('preorder_end', e.target.value)} />
+                        </Field>
+                      </div>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4,
+                        background: fini ? '#F5F3EF' : '#EEF3EA', border: `1px solid ${fini ? T.border : '#C9D8BF'}`,
+                        borderRadius: 8, padding: '11px 14px',
+                      }}>
+                        <span style={{
+                          fontSize: 10.5, fontWeight: 700, letterSpacing: .4, padding: '2px 8px', borderRadius: 20,
+                          background: fini ? T.muted : '#5F7052', color: '#fff',
+                        }}>
+                          {fini ? 'PRÉ-COMMANDES CLOSES' : 'PRÉ-COMMANDES OUVERTES'}
+                        </span>
+                        {typeof dues === 'number' && (
+                          <span style={{ fontSize: 13, color: T.ink }}>
+                            <span className="sc-num" style={{ fontSize: 17, fontWeight: 800 }}>{dues}</span>
+                            {' '}payée{dues > 1 ? 's' : ''} à servir : c’est la quantité à acheter.
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </Card>
 
               <Card title="Variantes de conditionnement" defaultOpen={aDesVariantes}
