@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete } from '@/lib/boutique';
 
 // Inscription newsletter — PUBLIC (pas d'auth). Enregistre l'email dans le CRM (contacts)
 // pour qu'il soit exploitable par le module Marketing (campagnes).
@@ -55,14 +56,28 @@ export async function POST(req: NextRequest) {
   /* Une nouvelle inscription vaut nouveau consentement : une
      désinscription NEWSLETTER antérieure est levée. Une opposition aux
      relances de panier, elle, reste (ce n'est pas le même accord). */
-  await supabaseAdmin.from('email_optouts').delete().eq('email', email).eq('source', 'newsletter');
+  /* email_optouts n'a pas encore de boutique : une inscription sur une
+     autre vitrine ne doit pas lever l'opposition donnée à Swedish Cravings. */
+  const b = boutiqueDeRequete(req);
+  if (b === BOUTIQUE_DEFAUT) {
+    await supabaseAdmin.from('email_optouts').delete().eq('email', email).eq('source', 'newsletter');
+  }
 
-  // Anti-doublon : si l'email existe déjà, on le marque abonné (idempotent)
-  const { data: existing } = await supabaseAdmin
+  /* Anti-doublon : si l'email existe déjà, on le marque abonné (idempotent).
+     Dans la boutique de la vitrine seulement : s'inscrire chez l'une ne
+     doit pas abonner à la newsletter de l'autre. */
+  const { data: existing, error: exErr } = await supabaseAdmin
     .from('contacts')
     .select('id, tags, is_active')
     .eq('email', email)
+    .eq('boutique_id', b)
     .limit(1);
+
+  // Recherche ratée : on n'insère pas un doublon à l'aveugle.
+  if (exErr) {
+    console.error('[newsletter] recherche contact :', exErr.message);
+    return NextResponse.json({ error: 'Inscription impossible' }, { status: 500, headers: CORS });
+  }
 
   if (existing && existing.length > 0) {
     /* Un client déjà présent dans le CRM qui s'inscrit était ignoré :
@@ -90,6 +105,8 @@ export async function POST(req: NextRequest) {
     first_name: '',
     last_name: '',
     updated_at: new Date().toISOString(),
+    // Swedish Cravings : le défaut de la base suffit, comme avant.
+    ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
   });
 
   if (error) {

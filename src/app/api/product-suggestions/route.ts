@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete } from '@/lib/boutique';
 
 export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-  const { data, error } = await supabaseAdmin
-    .from('product_suggestions')
-    .select('*')
-    .order('created_at', { ascending: false });
+  // Admin : toutes les boutiques, sauf si une boutique est demandée explicitement.
+  const explicite = new URL(req.url).searchParams.has('boutique') || req.headers.has('x-boutique');
+  let q = supabaseAdmin.from('product_suggestions').select('*');
+  if (explicite) q = q.eq('boutique_id', boutiqueDeRequete(req));
+  const { data, error } = await q.order('created_at', { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ suggestions: data || [] });
 }
@@ -23,6 +25,7 @@ export async function POST(req: NextRequest) {
   if (!customer_name) return NextResponse.json({ error: 'customer_name requis' }, { status: 400 });
   if (!customer_email) return NextResponse.json({ error: 'customer_email requis' }, { status: 400 });
   if (!product_name) return NextResponse.json({ error: 'product_name requis' }, { status: 400 });
+  const b = boutiqueDeRequete(req);
   const { data, error } = await supabaseAdmin
     .from('product_suggestions')
     .insert({
@@ -33,6 +36,8 @@ export async function POST(req: NextRequest) {
       customer_email,
       lang: ['fr', 'sv', 'en'].includes(body.lang) ? body.lang : 'fr',
       status: 'new',
+      // Swedish Cravings : le défaut de la base suffit, comme avant.
+      ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
     })
     .select('id, status, created_at')
     .single();

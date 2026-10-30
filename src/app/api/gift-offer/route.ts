@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { boutiqueDeRequete } from '@/lib/boutique';
 
 // ─── GET /api/gift-offer ──────────────────────────────────────────────
 // Public : renvoie les offres "cadeau offert" actives (type=gift), chacune
@@ -11,7 +12,9 @@ import { supabaseAdmin } from '@/lib/supabase';
 // toutes, la plus récente d'abord. `offer` (la première) reste pour les
 // pages pas encore à jour.
 // Défensif : si la colonne gift_product_ids n'existe pas encore, renvoie vide.
-export async function GET() {
+// Seules les offres de la boutique de la vitrine (`?boutique=`, défaut Swedish Cravings).
+export async function GET(req: NextRequest) {
+  const b = boutiqueDeRequete(req);
   try {
     const { dansLaPeriode } = await import('@/lib/promo');
     const { listeIds, parQuantite } = await import('@/lib/cadeau');
@@ -20,6 +23,7 @@ export async function GET() {
       .select('*')
       .eq('type', 'gift')
       .eq('is_active', true)
+      .eq('boutique_id', b)
       .order('created_at', { ascending: false });
 
     if (error || !promos || promos.length === 0) return NextResponse.json({ offer: null, offers: [] });

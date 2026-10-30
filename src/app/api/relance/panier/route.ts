@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { boutiqueDeRequete } from '@/lib/boutique';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,8 @@ export async function GET(req: NextRequest) {
   const { data: o } = await supabaseAdmin
     .from('orders')
     .select('id, status, lines, delivery_mode, customer_email, recovery_token, relay_point_id, relay_point_name, relay_point_address, relay_point_pays, relay_carrier_uuid')
-    .eq('id', id).maybeSingle();
+    // Un panier ne se reprend que dans la vitrine où il a été commencé.
+    .eq('id', id).eq('boutique_id', boutiqueDeRequete(req)).maybeSingle();
   if (!o || !o.recovery_token || o.recovery_token !== jeton) {
     return NextResponse.json({ error: 'Lien invalide' }, { status: 404, headers: CORS });
   }

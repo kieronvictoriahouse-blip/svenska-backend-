@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { LangueClient } from '@/lib/langue-client';
+import { BOUTIQUE_DEFAUT, boutique, codeBoutique, configBoutique } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    GABARITS D'EMAIL
@@ -112,9 +113,9 @@ const get = (ctx: Record<string, any>, key: string) =>
    Les gabarits parlent en variables ({{ boutique }}, {{ atelier_ville }},
    {{ boutique_email }}…) : c'est ICI, au rendu, que la marque du
    marchand les remplit — un seul point pour les six gabarits et leurs
-   trois langues. Cache court, comme les surcharges. */
-let marqueCtx: Record<string, string> = {};
-let marqueAt = 0;
+   trois langues. Cache court, comme les surcharges — une entrée par
+   boutique : deux vitrines ne doivent jamais se prêter leur marque. */
+const marqueCache = new Map<string, { at: number; ctx: Record<string, string> }>();
 
 /** « 10500353700013 » → « 105 003 537 00013 » ; une saisie atypique reste telle quelle. */
 const siretLisible = (v: unknown) => {
@@ -122,17 +123,19 @@ const siretLisible = (v: unknown) => {
   const c = s.replace(/\s+/g, '');
   return /^\d{14}$/.test(c) ? `${c.slice(0, 3)} ${c.slice(3, 6)} ${c.slice(6, 9)} ${c.slice(9)}` : s;
 };
-export async function contexteMarque(): Promise<Record<string, string>> {
-  if (Date.now() - marqueAt < 60_000 && Object.keys(marqueCtx).length) return marqueCtx;
+export async function contexteMarque(code: string = BOUTIQUE_DEFAUT): Promise<Record<string, string>> {
+  const b = codeBoutique(code);
+  const hit = marqueCache.get(b);
+  if (hit && Date.now() - hit.at < 60_000 && Object.keys(hit.ctx).length) return hit.ctx;
+  let marqueCtx: Record<string, string> = hit?.ctx || {};
   try {
-    const { data } = await supabaseAdmin
-      .from('white_label_config')
-      /* select('*') a dessein : lister les colonnes ferait echouer TOUTE
-         la requete si l'une manque (migration pas encore passee) — et un
-         email partirait sans marque. Le surcout est nul, la ligne est unique. */
-      .select('*')
-      .limit(1).maybeSingle();
-    const url = String((data as any)?.front_url || process.env.NEXT_PUBLIC_FRONT_URL || '').replace(/\/$/, '');
+    /* select('*') a dessein : lister les colonnes ferait echouer TOUTE
+       la requete si l'une manque (migration pas encore passee) — et un
+       email partirait sans marque. Le surcout est nul, la ligne est unique. */
+    const data = await configBoutique(b, '*');
+    const url = String((data as any)?.front_url
+      || (b !== BOUTIQUE_DEFAUT ? (await boutique(b)).front_url : process.env.NEXT_PUBLIC_FRONT_URL)
+      || '').replace(/\/$/, '');
     marqueCtx = {
       boutique: (data as any)?.site_name || '',
       boutique_email: (data as any)?.email || (data as any)?.smtp_user || '',
@@ -144,7 +147,7 @@ export async function contexteMarque(): Promise<Record<string, string>> {
       boutique_adresse: (data as any)?.address || '',
       boutique_siret: siretLisible((data as any)?.siret),
     };
-    marqueAt = Date.now();
+    marqueCache.set(b, { at: Date.now(), ctx: marqueCtx });
   } catch { /* un email sans marque part quand meme */ }
   return marqueCtx;
 }
@@ -154,8 +157,10 @@ export async function renderEmail(
   ctx: Record<string, any>,
   lang: LangueClient = 'fr',
   baseUrl = process.env.NEXT_PUBLIC_FRONT_URL || '',
+  /* Boutique de la commande / du destinataire : sa marque remplit le gabarit. */
+  boutiqueCode: string = BOUTIQUE_DEFAUT,
 ): Promise<string> {
-  const marque = await contexteMarque();
+  const marque = await contexteMarque(boutiqueCode);
   ctx = { ...marque, ...ctx };            // le contexte metier prime
   const over = await loadOverrides();
   /* Une personnalisation faite dans la langue du client prime ; sinon on

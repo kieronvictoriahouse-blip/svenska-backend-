@@ -5,8 +5,14 @@ import { rehostImage } from '@/lib/rehost-image';
 import { resolveDiscount } from '@/lib/product-price';
 import { pourVitrine, palierMarge } from '@/lib/produit-public';
 import { champsFiche, controlerFiche, messageDoublon } from '@/lib/fiche-produit';
+import { boutiqueDeRequete, codeBoutique } from '@/lib/boutique';
 
 export const maxDuration = 60;
+
+/* Boutique nommée par l'appel (?boutique= ou en-tête x-boutique). Sans
+   elle, le back-office continue de tout voir. */
+const boutiqueExplicite = (req: NextRequest) =>
+  req.nextUrl.searchParams.has('boutique') || req.headers.has('x-boutique');
 
 /* Une page au plus : PostgREST plafonne de toute façon à 1 000 lignes. */
 const LIMITE_MAX = 1000;
@@ -41,6 +47,9 @@ export async function GET(req: NextRequest) {
     .order('sort_order', { ascending: true })
     .order('id', { ascending: true });   // ordre stable d'une page à l'autre
   if (!isAdmin) query = query.eq('is_active', true);
+  /* Vitrine : son seul catalogue (migration 066). Le back-office, sans
+     boutique demandée, garde la vue complète. */
+  if (!isAdmin || boutiqueExplicite(req)) query = query.eq('boutique_id', boutiqueDeRequete(req));
 
   if (sortOrder && Number.isFinite(parseInt(sortOrder, 10))) query = query.eq('sort_order', parseInt(sortOrder, 10));
   if (cat)        query = query.eq('categories.slug', cat);
@@ -131,6 +140,11 @@ export async function POST(req: NextRequest) {
   for (const l of ['sv', 'en']) if (!String(fields[`name_${l}`] ?? '').trim()) fields[`name_${l}`] = fields.name_fr;
   const refus = controlerFiche(fields, { creation: true });
   if (refus) return NextResponse.json({ error: refus }, { status: 400 });
+
+  /* Boutique : seulement si l'écran la nomme (corps ou ?boutique).
+     Sinon la base pose son défaut, Swedish Cravings, comme avant. */
+  if (typeof body.boutique_id === 'string' && body.boutique_id.trim()) fields.boutique_id = codeBoutique(body.boutique_id);
+  else if (boutiqueExplicite(req)) fields.boutique_id = boutiqueDeRequete(req);
 
   // Rapatrie les images externes dans notre Storage (sinon liens morts type olw.se).
   // En cas d'échec on garde l'URL d'origine — mieux qu'aucune image.

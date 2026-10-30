@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    FACTURE / AVOIR EN PDF
@@ -123,8 +124,12 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   }
   if (!inv) throw new Error('Facture introuvable');
 
-  const { data: cfg } = await supabaseAdmin
-    .from('white_label_config').select('*').limit(1).maybeSingle();
+  /* Marque de la boutique qui a émis la facture. Lecture ratée = config
+     vide, comme l'ancienne lecture qui ignorait l'erreur. */
+  const codeFac = inv.boutique_id ?? BOUTIQUE_DEFAUT;
+  /* Une seule entreprise : à défaut de config propre, l'identité commune. */
+  const cfg = (await configBoutique(codeFac, '*').catch(() => null))
+    ?? (codeFac !== BOUTIQUE_DEFAUT ? await configBoutique(BOUTIQUE_DEFAUT, '*').catch(() => null) : null);
   const wl: Record<string, any> = cfg || {};
 
   /* La table invoices ne porte pas toujours order_number : sans ce repli,

@@ -4,6 +4,7 @@ import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { rehostImage } from '@/lib/rehost-image';
 import { pourVitrine } from '@/lib/produit-public';
 import { champsFiche, controlerFiche, messageDoublon } from '@/lib/fiche-produit';
+import { boutiqueDeRequete, codeBoutique } from '@/lib/boutique';
 
 export const maxDuration = 60;
 
@@ -17,15 +18,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const isAdmin = auth && !!(await requireAuth(req));
   if (auth && !isAdmin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  const { data, error } = await supabaseAdmin
+  let requete = supabaseAdmin
     .from('products')
     .select(`
       *,
       categories ( * ),
       product_variants ( * )
     `)
-    .eq('id', params.id)
-    .single();
+    .eq('id', params.id);
+  /* Une vitrine ne lit pas la fiche d'une autre boutique (migration 066) :
+     introuvable, comme une fiche dépubliée. Le back-office sans boutique
+     demandée lit toutes les fiches. */
+  const explicite = req.nextUrl.searchParams.has('boutique') || req.headers.has('x-boutique');
+  if (!isAdmin || explicite) requete = requete.eq('boutique_id', boutiqueDeRequete(req));
+  const { data, error } = await requete.single();
 
   if (error) return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
   /* Fiche dépubliée (brouillon) : introuvable pour le public, comme dans
@@ -92,6 +98,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
      article (migration 049) : seuls ses paramètres sont stockés. */
   const updateData: Record<string, any> = champsFiche(body);
   if (typeof updateData.name_fr === 'string') updateData.name_fr = updateData.name_fr.trim();
+  /* Changement de boutique : seulement si le corps la nomme. Absente, la
+     fiche reste où elle est. */
+  if (typeof body.boutique_id === 'string' && body.boutique_id.trim()) updateData.boutique_id = codeBoutique(body.boutique_id);
 
   /* Contrôles : nom FR non vide, prix > 0, remise cohérente, EAN valide.
      L'autosave de la fiche envoie tout le formulaire : un prix effacé le

@@ -7,6 +7,7 @@ import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/pro
 import { precommandeActive, SUFFIXE_PRECOMMANDE } from '@/lib/precommande';
 import crypto from 'crypto';
 import { secretServeur } from '@/lib/secret-interne';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete, configBoutique } from '@/lib/boutique';
 
 function verifyCustomerToken(token: string): string | null {
   try {
@@ -119,6 +120,9 @@ async function numeroCommande(essai: number): Promise<string> {
 export async function POST(req: NextRequest) {
   // Langue des messages d'erreur : connue dès le corps lu, français sinon.
   let langue: Langue = 'fr';
+  /* Vitrine d'origine (migration 066) : un panier ne paie que les
+     produits, codes et offres de SA boutique. Sans paramètre, « sc ». */
+  const b = boutiqueDeRequete(req);
   try {
     const body = await req.json();
     const { items, customer_token, delivery_mode, promo_code, customer_note, relay_point_id, relay_point_name, relay_point_address, relay_point_pays, relay_carrier_uuid } = body;
@@ -191,7 +195,7 @@ export async function POST(req: NextRequest) {
        est un message pour développeur, pas pour un acheteur. Lue dès ici :
        les images des articles en dépendent. */
     const { urlVitrine } = await import('@/lib/urls-instance');
-    const baseUrl = await urlVitrine();
+    const baseUrl = await urlVitrine(b);
 
     const lineItems: any[] = [];
     // Cadeaux du colis, dans les trois langues, pour le rappel chez Stripe.
@@ -222,7 +226,7 @@ export async function POST(req: NextRequest) {
       if (item && item.gift) { giftClaims.push({ id: item.id, ...(typeof item.offer_id === 'string' ? { offer_id: item.offer_id } : {}) }); continue; }
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
       const sortOrder = isUUID ? NaN : parseInt(item.id);
-      let q = supabaseAdmin.from('products').select('*, product_variants(*), categories(discount_type, discount_value, discount_start, discount_end)').eq('is_active', true);
+      let q = supabaseAdmin.from('products').select('*, product_variants(*), categories(discount_type, discount_value, discount_start, discount_end)').eq('is_active', true).eq('boutique_id', b);
       q = isUUID ? q.eq('id', item.id) : q.eq('sort_order', sortOrder);
       const { data: product } = await q.maybeSingle();
       if (!product) continue;
@@ -320,18 +324,18 @@ export async function POST(req: NextRequest) {
         if (!p || p.track_stock !== true || typeof p.stock !== 'number') return null;
         return p.stock - (reserve[id] || 0);
       };
-      for (const b of boxDuPanier) {
+      for (const bx of boxDuPanier) {
         let possibles: number | null = null;
-        for (const it of lots[b.id]) {
+        for (const it of lots[bx.id]) {
           const d = dispoSachet(it.product_id);
           if (d === null) continue;
           /* Ce que le reste du panier prend déjà sur ce sachet. */
-          const autres = (demandeSachets[it.product_id] || 0) - it.qty * b.qty;
+          const autres = (demandeSachets[it.product_id] || 0) - it.qty * bx.qty;
           const p = Math.floor(Math.max(0, d - autres) / it.qty);
           possibles = possibles === null ? p : Math.min(possibles, p);
         }
-        if (possibles !== null && b.qty > possibles) {
-          stockErrors.push({ name: b.name, available: possibles, requested: b.qty });
+        if (possibles !== null && bx.qty > possibles) {
+          stockErrors.push({ name: bx.name, available: possibles, requested: bx.qty });
         }
       }
     }
@@ -350,7 +354,7 @@ export async function POST(req: NextRequest) {
       try {
         const { dansLaPeriode } = await import('@/lib/promo');
         const { data: gifts } = await supabaseAdmin
-          .from('promo_codes').select('*').eq('type', 'gift').eq('is_active', true)
+          .from('promo_codes').select('*').eq('type', 'gift').eq('is_active', true).eq('boutique_id', b)
           .order('created_at', { ascending: false });
         /* Plusieurs offres peuvent cohabiter (« Center offert » ET
            « 2 dipmix achetés, le 3e offert ») : chacune est jugée seule,
@@ -399,7 +403,7 @@ export async function POST(req: NextRequest) {
             const { data: gp } = await supabaseAdmin
               .from('products')
               .select('id, name_fr, name_en, name_sv, image_url, is_active, track_stock, stock')
-              .eq('id', claim.id).eq('is_active', true).maybeSingle();
+              .eq('id', claim.id).eq('is_active', true).eq('boutique_id', b).maybeSingle();
             /* Un cadeau en rupture n'est pas un cadeau : on l'omet
                plutot que de promettre ce qu'on ne peut pas mettre dans
                le carton. Le disponible tient compte du reserve. */
@@ -433,7 +437,10 @@ export async function POST(req: NextRequest) {
     /* Cadeau de relance : le client arrive d'un email de relance dont
        l'offre de la semaine était un produit offert. Le jeton du brouillon
        d'origine fait foi — sans lui, rien n'est ajouté. */
-    if (body.reprise) {
+    /* Relances : Swedish Cravings seulement pour l'instant — cadeauDeReprise
+       ne connaît pas la boutique, et un cadeau SC n'a rien à faire dans le
+       panier d'une autre vitrine. */
+    if (body.reprise && b === BOUTIQUE_DEFAUT) {
       try {
         const { cadeauDeReprise } = await import('@/lib/relance-panier');
         const c = await cadeauDeReprise(body.reprise);
@@ -483,7 +490,7 @@ export async function POST(req: NextRequest) {
         { status: 400, headers: CORS },
       );
       const { data: promo, error: promoErr } = await supabaseAdmin
-        .from('promo_codes').select('*').eq('code', codeSaisi).maybeSingle();
+        .from('promo_codes').select('*').eq('code', codeSaisi).eq('boutique_id', b).maybeSingle();
       if (promoErr) console.error('[checkout] lecture du code promo', promoErr.message);
       if (promoErr || !promo) return refuser('invalid');
 
@@ -537,8 +544,13 @@ export async function POST(req: NextRequest) {
 
     // Barème + opération « livraison offerte » : le serveur fait autorité,
     // le front n'affiche qu'une estimation.
-    const { data: shipCfg } = await supabaseAdmin
-      .from('white_label_config').select('*').limit(1).maybeSingle();
+    /* Config de LA boutique du panier. Une erreur de lecture retombe sur
+       le barème par défaut, comme l'ancienne lecture qui l'ignorait :
+       pas de paiement bloqué pour ça. */
+    const shipCfg = await configBoutique(b, '*').catch((e) => {
+      console.error('[checkout] lecture white_label_config', e?.message || e);
+      return null;
+    });
     const shipRules = resolveShipping(shipCfg, { isInternational });
 
     const freeShipping = subtotal >= shipRules.threshold || isFreeShippingPromo;
@@ -577,6 +589,8 @@ export async function POST(req: NextRequest) {
       } : {}),
       ...(codeSaisi && (discountAmount > 0 || isFreeShippingPromo) ? { promo_code: codeSaisi } : {}),
       ...(customer_note ? { notes: String(customer_note).slice(0, 1000) } : {}),
+      // Swedish Cravings : la base pose 'sc' par défaut, insertion inchangée.
+      ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
     };
 
     /* L'insertion n'était pas vérifiée : sur un numéro déjà pris, la
@@ -679,7 +693,13 @@ export async function POST(req: NextRequest) {
       /* promo_code_id : l'usage du code est compté par le webhook, au
          paiement — plus ici, où chaque panier abandonné consommait un
          usage (max_uses, codes à usage unique). */
-      metadata: { order_id: orderId, ...(promoCodeId ? { promo_code_id: promoCodeId } : {}) },
+      /* boutique : seulement hors Swedish Cravings, pour garder la session
+         Stripe de « sc » identique à l'octet près. */
+      metadata: {
+        order_id: orderId,
+        ...(promoCodeId ? { promo_code_id: promoCodeId } : {}),
+        ...(b !== BOUTIQUE_DEFAUT ? { boutique: b } : {}),
+      },
       /* 3 h au lieu de 24 : l'expiration déclenche la 1re relance
          (webhook checkout.session.expired). Un client qui revient après
          repasse par le panier, qui recrée une session. */

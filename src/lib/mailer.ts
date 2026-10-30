@@ -1,10 +1,12 @@
-import { supabaseAdmin } from './supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from './boutique';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-export async function getWlConfig(): Promise<Record<string, string>> {
+/* Marque de la boutique concernée (celle de la commande) : sans code,
+   Swedish Cravings, comme avant. */
+export async function getWlConfig(code: string = BOUTIQUE_DEFAUT): Promise<Record<string, string>> {
   try {
-    const { data } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
+    const data = await configBoutique(code, '*');
     return (data as Record<string, string>) || {};
   } catch { return {}; }
 }

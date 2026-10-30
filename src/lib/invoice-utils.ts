@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from './boutique';
 import PDFDocument from 'pdfkit';
 
 /**
@@ -133,10 +134,17 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
      Échec de lecture → pas de facture, bruyamment. L'audit signale la
      commande payée sans facture, et on la régénère une fois la cause
      réglée — l'inverse n'est pas rattrapable. */
-  const { data: config, error: cfgErr } = await supabaseAdmin
-    .from('white_label_config').select('*').limit(1).maybeSingle();
-  if (cfgErr) {
-    console.error('[invoice-utils] config vendeur illisible — facture NON créée :', cfgErr.message);
+  /* Boutique de la commande : la facture porte sa marque et lui reste
+     rattachée. Swedish Cravings laisse la base poser son défaut. */
+  const boutiqueCmd: string = order.boutique_id ?? BOUTIQUE_DEFAUT;
+  let config: Record<string, any> | null;
+  try {
+    config = await configBoutique(boutiqueCmd, '*');
+    /* Une seule entreprise : une boutique sans ligne de config propre
+       facture sous l'identité légale commune, jamais avec un vendeur vide. */
+    if (!config && boutiqueCmd !== BOUTIQUE_DEFAUT) config = await configBoutique(BOUTIQUE_DEFAUT, '*');
+  } catch (cfgErr: any) {
+    console.error('[invoice-utils] config vendeur illisible — facture NON créée :', cfgErr?.message);
     return null;
   }
 
@@ -227,6 +235,9 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     seller_address:  config?.address     || '',
     seller_email:    config?.email       || '',
     seller_phone:    config?.phone       || '',
+    ...(boutiqueCmd !== BOUTIQUE_DEFAUT
+      ? { boutique_id: boutiqueCmd, ...(order.currency ? { currency: order.currency } : {}) }
+      : {}),
     }).select().single();
     if (res.data) { invoice = res.data; break; }
     error = res.error;

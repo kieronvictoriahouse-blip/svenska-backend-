@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 // Contrôle commun (comptes admin seulement) : la copie locale acceptait tout compte Supabase.
 import { requireAuth } from '@/lib/auth';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete, codeBoutique } from '@/lib/boutique';
+
+/* Boutique nommée par l'appel (?boutique=, en-tête x-boutique) ou, pour une
+   écriture, par le corps. null = aucune : comportement d'avant. */
+function boutiqueNommee(req: NextRequest, body?: any): string | null {
+  if (typeof body?.boutique_id === 'string' && body.boutique_id.trim()) return codeBoutique(body.boutique_id);
+  if (req.nextUrl.searchParams.has('boutique') || req.headers.has('x-boutique')) return boutiqueDeRequete(req);
+  return null;
+}
 
 const DEFAULT_ROWS = [
   { key: 'hero_eyebrow',    label: 'Hero – Eyebrow',                      type: 'text',  value_fr: 'Épicerie suédoise', value_sv: 'Svenskt skafferi', value_en: 'Nordic Pantry' },
@@ -82,11 +91,31 @@ const DEFAULT_ROWS = [
 // nouvelle version ajoute les clés manquantes et ne réécrit aucun texte existant.
 const SEED_VERSION = 'v5';
 
-export async function GET() {
-  const { data, error } = await supabaseAdmin.from('cms_home').select('*').order('key');
+export async function GET(req: NextRequest) {
+  /* Vitrine : les textes de sa seule boutique (migration 066). L'écran
+     « Textes d'accueil » (jeton admin valide), sans boutique demandée,
+     lit tout comme avant. Un jeton refusé reçoit la vue publique : la
+     lecture a toujours été ouverte. */
+  const admin = !!req.headers.get('authorization') && !!(await requireAuth(req));
+  const b = boutiqueDeRequete(req);
+  const filtrer = !admin || boutiqueNommee(req) !== null;
+  const lire = () => {
+    let q = supabaseAdmin.from('cms_home').select('*');
+    if (filtrer) q = q.eq('boutique_id', b);
+    return q.order('key');
+  };
+
+  const { data, error } = await lire();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const existing = data || [];
+
+  /* Autre boutique : pas d'amorçage. DEFAULT_ROWS sont les textes de
+     Swedish Cravings, et `key` reste unique sur toute la table : leur
+     insertion échouerait, et le tampon de version est celui de « sc ». */
+  if (b !== BOUTIQUE_DEFAUT) {
+    return NextResponse.json({ cms: existing.filter((r: any) => r.key !== '_seed_version') });
+  }
   const existingMap = new Map(existing.map((r: any) => [r.key, r]));
 
   const seedRow = existingMap.get('_seed_version');
@@ -107,7 +136,7 @@ export async function GET() {
       { key: '_seed_version', label: 'Internal – seed version', type: 'meta', value_fr: SEED_VERSION, value_sv: SEED_VERSION, value_en: SEED_VERSION },
       { onConflict: 'key' }
     );
-    const { data: refreshed } = await supabaseAdmin.from('cms_home').select('*').order('key');
+    const { data: refreshed } = await lire();
     return NextResponse.json({ cms: (refreshed || []).filter((r: any) => r.key !== '_seed_version') });
   }
 
@@ -115,7 +144,7 @@ export async function GET() {
   const missing = DEFAULT_ROWS.filter(r => !existingMap.has(r.key));
   if (missing.length > 0) {
     await supabaseAdmin.from('cms_home').insert(missing);
-    const { data: refreshed } = await supabaseAdmin.from('cms_home').select('*').order('key');
+    const { data: refreshed } = await lire();
     return NextResponse.json({ cms: (refreshed || []).filter((r: any) => r.key !== '_seed_version') });
   }
 
@@ -130,10 +159,14 @@ export async function PUT(req: NextRequest) {
   const { key, value_fr, value_sv, value_en } = body;
   if (!key) return NextResponse.json({ error: 'key requis' }, { status: 400 });
 
-  const { data, error } = await supabaseAdmin
+  let maj = supabaseAdmin
     .from('cms_home')
     .update({ value_fr, value_sv, value_en, updated_at: new Date().toISOString() })
-    .eq('key', key)
+    .eq('key', key);
+  // Boutique nommée : on ne touche que ses textes. Sinon, comme avant.
+  const bn = boutiqueNommee(req, body);
+  if (bn) maj = maj.eq('boutique_id', bn);
+  const { data, error } = await maj
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -152,12 +185,16 @@ export async function POST(req: NextRequest) {
   /* Chaque écriture est vérifiée : l'écran affichait « publié » même quand
      une mise à jour échouait. */
   const echecs: string[] = [];
+  // Boutique nommée : on ne touche que ses textes. Sinon, comme avant.
+  const bn = boutiqueNommee(req, body);
   for (const u of updates) {
     if (!u?.key || u.key === '_seed_version') continue;
-    const { error } = await supabaseAdmin.from('cms_home').update({
+    let maj = supabaseAdmin.from('cms_home').update({
       value_fr: u.value_fr, value_sv: u.value_sv, value_en: u.value_en,
       updated_at: new Date().toISOString()
     }).eq('key', u.key);
+    if (bn) maj = maj.eq('boutique_id', bn);
+    const { error } = await maj;
     if (error) echecs.push(u.key);
   }
   if (echecs.length) {

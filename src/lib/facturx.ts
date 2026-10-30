@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    FACTUR-X — le XML structuré de la facture (CII, profil EN 16931)
@@ -223,7 +224,11 @@ export async function facturXDe(invoiceId: string): Promise<FacturXResult | null
   const { data: inv } = await supabaseAdmin
     .from('invoices').select('*').eq('id', invoiceId).maybeSingle();
   if (!inv) return null;
-  const { data: cfg } = await supabaseAdmin
-    .from('white_label_config').select('*').limit(1).maybeSingle();
+  /* Repli vendeur : la config de la boutique qui a émis la facture.
+     Une lecture ratée donne un repli vide, comme avant. */
+  const codeFac = inv.boutique_id ?? BOUTIQUE_DEFAUT;
+  /* Une seule entreprise : à défaut de config propre, l'identité commune. */
+  const cfg = (await configBoutique(codeFac, '*').catch(() => null))
+    ?? (codeFac !== BOUTIQUE_DEFAUT ? await configBoutique(BOUTIQUE_DEFAUT, '*').catch(() => null) : null);
   return construireFacturX(inv, vendeurDeConfig(cfg));
 }

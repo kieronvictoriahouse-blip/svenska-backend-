@@ -1,23 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyChoice } from '@/lib/replacement-token';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete, configBoutique } from '@/lib/boutique';
 
 /* ── Marque de l'instance ────────────────────────────────────────
    Cette page est la seule du back vue par le CLIENT FINAL (le lien de
    remplacement dans son email) : elle doit porter la marque du
-   marchand, jamais une adresse en dur. Chargée à chaque requête —
-   valeur identique pour toute l'instance, le partage de module entre
-   requêtes concurrentes est donc sans conséquence. */
+   marchand, jamais une adresse en dur. Chargée à chaque requête, avec
+   la boutique de la commande. Partagée par le module : tant qu'une
+   seule vitrine envoie ces liens, sans conséquence ; avec deux, deux
+   requêtes simultanées pourraient s'échanger la marque (à rendre locale). */
 let MARQUE = { nom: '', email: '' };
-async function chargerMarque() {
+async function chargerMarque(code: string = BOUTIQUE_DEFAUT) {
   try {
-    const { data } = await supabaseAdmin
-      .from('white_label_config').select('site_name, email, smtp_user').limit(1).maybeSingle();
+    const data = await configBoutique(code, 'site_name, email, smtp_user');
     MARQUE = {
       nom: (data as any)?.site_name || '',
       email: (data as any)?.email || (data as any)?.smtp_user || '',
     };
   } catch { /* page utilisable sans marque */ }
+}
+/* Boutique dont la marque habille la page : celle de la commande du
+   lien (jeton valide), sinon celle de la requête — Swedish Cravings
+   par défaut. Une lecture ratée retombe aussi sur le défaut. */
+async function boutiqueDuLien(req: NextRequest, token: string): Promise<string> {
+  const v = verifyChoice(token);
+  if (!v.ok) return boutiqueDeRequete(req);
+  const { data, error } = await supabaseAdmin
+    .from('orders').select('boutique_id').eq('id', v.payload.oid).maybeSingle();
+  return (!error && (data as any)?.boutique_id) || boutiqueDeRequete(req);
 }
 const lienContact = () => MARQUE.email
   ? `<a href="mailto:${MARQUE.email}" style="color:#44573D;">${MARQUE.email}</a>`
@@ -173,7 +184,7 @@ function echap(v: unknown) {
 }
 
 export async function GET(req: NextRequest) {
-  await chargerMarque();
+  await chargerMarque(await boutiqueDuLien(req, new URL(req.url).searchParams.get('token') || ''));
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token') || '';
   const choix = searchParams.get('choix') || '';
@@ -294,8 +305,8 @@ export async function GET(req: NextRequest) {
    n'accepte que des articles réellement proposés dans l'email.
    ═══════════════════════════════════════════════════════════════ */
 export async function POST(req: NextRequest) {
-  await chargerMarque();
   const form = await req.formData().catch(() => null);
+  await chargerMarque(await boutiqueDuLien(req, String(form?.get('token') || '')));
   if (!form) return page('Formulaire illisible', 'Réessayez depuis le lien de votre email.', 'ko');
 
   const token = String(form.get('token') || '');

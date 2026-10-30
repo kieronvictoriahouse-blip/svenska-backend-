@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
 import {
   PX, D, SANS, SANS_B, SERIF_B, nouveauDocument, fondEtFilets, enTete, bandeau, pied,
 } from '@/lib/pdf-doc';
@@ -77,8 +78,9 @@ export async function generatePurchaseOrderPdf(
     .from('purchase_orders').select('*, contacts(*)').eq('id', orderId).single();
   if (!order) throw new Error('Commande introuvable');
 
-  const { data: cfg } = await supabaseAdmin
-    .from('white_label_config').select('*').limit(1).maybeSingle();
+  /* L'acheteur est l'entreprise, commune à toutes les vitrines : son
+     identité légale est celle de la boutique par défaut. */
+  const cfg = await configBoutique(BOUTIQUE_DEFAUT, '*').catch(() => null);
   const wl: Record<string, any> = cfg || {};
 
   const lignes = parse(order.lines);

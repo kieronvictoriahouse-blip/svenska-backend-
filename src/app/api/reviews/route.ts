@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete } from '@/lib/boutique';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,9 @@ const CORS = {
 
    Le nom affiché est tronqué au prénom + initiale (« Camille C. ») :
    un avis public ne doit pas exposer l'identité complète d'un client.
+
+   Boutiques : chaque vitrine (`?boutique=`, défaut Swedish Cravings)
+   ne lit que ses avis et n'accepte que ses propres commandes.
    ═══════════════════════════════════════════════════════════════ */
 
 const PAYEES = ['paid', 'confirmed', 'preparing', 'partial', 'shipped', 'delivered'];
@@ -49,6 +53,7 @@ export async function GET(req: NextRequest) {
     .from('product_reviews')
     .select('id,rating,comment,customer_name,created_at')
     .eq('product_id', productId)
+    .eq('boutique_id', boutiqueDeRequete(req))
     .eq('is_published', true)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -77,6 +82,7 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ error: 'Requête invalide' }, { status: 400, headers: CORS });
 
   const { order_id, product_id, rating, comment } = body;
+  const b = boutiqueDeRequete(req);
   const note = parseInt(rating, 10);
 
   if (!order_id || !product_id) {
@@ -92,6 +98,7 @@ export async function POST(req: NextRequest) {
     .from('orders')
     .select('id,status,lines,customer_name,customer_email')
     .eq('id', order_id)
+    .eq('boutique_id', b)
     .maybeSingle();
 
   if (!commande || !PAYEES.includes(commande.status)) {
@@ -128,6 +135,8 @@ export async function POST(req: NextRequest) {
       customer_email: commande.customer_email || null,
       lang: String(body.lang || 'fr').slice(0, 5),
       updated_at: new Date().toISOString(),
+      // Swedish Cravings : le défaut de la base suffit, comme avant.
+      ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
     }, { onConflict: 'product_id,order_id' });
 
   if (error) {

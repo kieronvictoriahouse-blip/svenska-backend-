@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { evaluatePromo, PromoRefusal } from '@/lib/promo';
+import { boutiqueDeRequete } from '@/lib/boutique';
 
 /**
  * Validation publique d'UN code promo, pour l'affichage panier.
@@ -39,10 +40,12 @@ export async function POST(req: NextRequest) {
   if (!code || code.length > 64) return refuse('invalid');
 
   // select('*') : seule la réponse ci-dessous est publique, et elle est filtrée.
+  // Un code ne vaut que dans la boutique qui l'a créé.
   const { data: promo, error } = await supabaseAdmin
     .from('promo_codes')
     .select('*')
     .eq('code', code)
+    .eq('boutique_id', boutiqueDeRequete(req))
     .maybeSingle();
 
   if (error || !promo) return refuse('invalid');

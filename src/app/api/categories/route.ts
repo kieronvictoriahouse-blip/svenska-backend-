@@ -2,12 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabase, supabaseAdmin } from '@/lib/supabase';
 import { controlerRayon } from '@/lib/fiche-produit';
+import { boutiqueDeRequete, codeBoutique } from '@/lib/boutique';
 
-export async function GET() {
-  const { data, error } = await supabase
+/* Boutique nommée par l'appel (?boutique= ou en-tête x-boutique). */
+const boutiqueExplicite = (req: NextRequest) =>
+  req.nextUrl.searchParams.has('boutique') || req.headers.has('x-boutique');
+
+export async function GET(req: NextRequest) {
+  /* Vitrine : les rayons de sa seule boutique (migration 066). Le
+     back-office (jeton admin valide), sans boutique demandée, voit tout.
+     Un jeton refusé n'est pas une erreur ici : la route était publique,
+     elle répond la vue vitrine comme avant. */
+  const admin = !!req.headers.get('authorization') && !!(await requireAuth(req));
+  let q = supabase
     .from('categories')
-    .select('*')
-    .order('sort_order', { ascending: true });
+    .select('*');
+  if (!admin || boutiqueExplicite(req)) q = q.eq('boutique_id', boutiqueDeRequete(req));
+  const { data, error } = await q.order('sort_order', { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ categories: data });
 }
@@ -27,6 +38,9 @@ export async function POST(req: NextRequest) {
   for (const l of ['sv', 'en']) if (!String(row[`name_${l}`] ?? '').trim()) row[`name_${l}`] = row.name_fr;
   const refus = controlerRayon(row, { creation: true });
   if (refus) return NextResponse.json({ error: refus }, { status: 400 });
+  /* Boutique : seulement si l'écran la nomme ; sinon défaut de la base (Swedish Cravings). */
+  if (typeof body.boutique_id === 'string' && body.boutique_id.trim()) row.boutique_id = codeBoutique(body.boutique_id);
+  else if (boutiqueExplicite(req)) row.boutique_id = boutiqueDeRequete(req);
 
   const { data, error } = await supabaseAdmin.from('categories').insert(row).select().single();
   if (error) {

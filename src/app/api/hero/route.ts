@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    HAUT DE LA PAGE D'ACCUEIL — image fixe ou carrousel
@@ -16,6 +17,11 @@ import { supabaseAdmin } from '@/lib/supabase';
    Réglages dans cms_home (hero_mode, hero_interval, hero_image) pour
    que l'image fixe reste celle de « Textes d'accueil ». Diapositives
    dans home_slides (migrations 058, 059 « Bannière promo », 061 « Code HTML »).
+
+   Boutiques (migration 066) : la vitrine ne voit que ses diapositives,
+   le PUT ne touche que celles de la boutique demandée (`?boutique=`,
+   Swedish Cravings par défaut). L'admin sans `?boutique=` voit tout,
+   comme avant, en attendant le sélecteur de boutique.
    ═══════════════════════════════════════════════════════════════ */
 
 const LANGS = ['fr', 'en', 'sv'] as const;
@@ -51,9 +57,18 @@ function isVisible(s: any, today: string): boolean {
   return true;
 }
 
-async function readSettings() {
-  const { data } = await supabaseAdmin.from('cms_home')
+/** Boutique demandée explicitement (paramètre ou en-tête) : sans elle,
+ *  l'admin garde la vue d'ensemble d'avant les boutiques. */
+function boutiqueExplicite(req: NextRequest): boolean {
+  return new URL(req.url).searchParams.has('boutique') || req.headers.has('x-boutique');
+}
+
+/** b = null : pas de filtre (admin sans boutique choisie). */
+async function readSettings(b: string | null) {
+  let q = supabaseAdmin.from('cms_home')
     .select('key, value_fr').in('key', ['hero_mode', 'hero_interval', 'hero_image']);
+  if (b) q = q.eq('boutique_id', b);
+  const { data } = await q;
   const v = Object.fromEntries((data || []).map((r: any) => [r.key, r.value_fr || '']));
   const n = parseInt(v.hero_interval, 10);
   return {
@@ -67,10 +82,14 @@ export async function GET(req: NextRequest) {
   const admin = new URL(req.url).searchParams.get('admin') === '1';
   if (admin && !await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
 
-  const settings = await readSettings();
-  const { data, error } = await supabaseAdmin.from('home_slides')
-    .select(admin ? '*' : `${PUBLIC_COLUMNS},is_active`)
-    .order('sort_order', { ascending: true });
+  // Vitrine : toujours sa boutique. Admin : filtre seulement si demandé.
+  const b = boutiqueDeRequete(req);
+  const filtre = !admin || boutiqueExplicite(req) ? b : null;
+  const settings = await readSettings(filtre);
+  let q = supabaseAdmin.from('home_slides')
+    .select(admin ? '*' : `${PUBLIC_COLUMNS},is_active`);
+  if (filtre) q = q.eq('boutique_id', filtre);
+  const { data, error } = await q.order('sort_order', { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const today = todayParis();
@@ -187,6 +206,14 @@ export async function PUT(req: NextRequest) {
     rows.push(row!);
   }
 
+  const b = boutiqueDeRequete(req);
+  /* Réglages du carrousel (mode, délai, image) : pas encore enregistrables
+     pour une autre boutique (cms_home unique sur `key`). On refuse AVANT
+     toute écriture plutôt que de répondre « enregistré » sans l'avoir fait. */
+  if (b !== BOUTIQUE_DEFAUT && (body.mode !== undefined || body.interval !== undefined || typeof body.image === 'string')) {
+    return NextResponse.json({ error: 'Réglages du carrousel pas encore disponibles pour cette boutique.' }, { status: 409 });
+  }
+
   // Réglages — l'image fixe s'écrit dans les trois langues, comme sur « Textes d'accueil ».
   const mode = body.mode === 'carousel' ? 'carousel' : 'image';
   const n = parseInt(body.interval, 10);
@@ -201,17 +228,38 @@ export async function PUT(req: NextRequest) {
     if (body.image.trim() && !img) return NextResponse.json({ error: 'Image fixe : adresse invalide.' }, { status: 400 });
     settings.push({ key: 'hero_image', label: 'Hero – Photo de fond', type: 'image', value_fr: img, value_sv: img, value_en: img, updated_at: now });
   }
-  const { error: sErr } = await supabaseAdmin.from('cms_home').upsert(settings, { onConflict: 'key' });
-  if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
+  /* ⚠️ cms_home est unique sur `key` seul : une autre boutique écraserait
+     ici les réglages du carrousel de Swedish Cravings. La contrainte doit
+     devenir (boutique_id, key) avant qu'une autre boutique règle son
+     carrousel ; d'ici là, seuls ses réglages à elle s'écrivent. */
+  if (b === BOUTIQUE_DEFAUT) {
+    const { error: sErr } = await supabaseAdmin.from('cms_home').upsert(settings, { onConflict: 'key' });
+    if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
+  }
 
   // Diapositives : mise à jour des connues, création des nouvelles, puis
-  // suppression de celles retirées de la liste.
-  const { data: existing, error: eErr } = await supabaseAdmin.from('home_slides').select('id');
+  // suppression de celles retirées de la liste — DANS CETTE BOUTIQUE
+  // seulement : sans ce filtre, publier le carrousel d'une boutique
+  // effaçait celui de l'autre.
+  const { data: existing, error: eErr } = await supabaseAdmin.from('home_slides').select('id').eq('boutique_id', b);
   if (eErr) return NextResponse.json({ error: eErr.message }, { status: 500 });
   const known = new Set((existing || []).map((r: any) => r.id));
 
+  /* L'admin sans boutique choisie voit les diapositives de toutes les
+     boutiques et les renvoie toutes : celles d'une autre boutique ne sont
+     ni recopiées ici (id inconnu → création) ni modifiées. */
+  const inconnus = rows.map(r => r.id).filter((id): id is string => !!id && !known.has(id));
+  let ailleurs = new Set<string>();
+  if (inconnus.length) {
+    const { data: autres, error: aErr } = await supabaseAdmin.from('home_slides')
+      .select('id').in('id', inconnus).neq('boutique_id', b);
+    if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+    ailleurs = new Set((autres || []).map((r: any) => r.id));
+  }
+
   const keep: string[] = [];
   for (const row of rows) {
+    if (row.id && ailleurs.has(row.id)) continue;
     if (row.id && known.has(row.id)) {
       const { id, ...upd } = row;
       const { error } = await supabaseAdmin.from('home_slides').update(upd).eq('id', id);
@@ -219,18 +267,23 @@ export async function PUT(req: NextRequest) {
       keep.push(id);
     } else {
       const { id: _ignore, ...ins } = row;
-      const { data, error } = await supabaseAdmin.from('home_slides').insert(ins).select('id').single();
+      const { data, error } = await supabaseAdmin.from('home_slides')
+        .insert({ ...ins, ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}) }).select('id').single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       keep.push(data.id);
     }
   }
   const gone = Array.from(known).filter(id => !keep.includes(id));
   if (gone.length) {
-    const { error } = await supabaseAdmin.from('home_slides').delete().in('id', gone);
+    const { error } = await supabaseAdmin.from('home_slides').delete().in('id', gone).eq('boutique_id', b);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const fresh = await readSettings();
-  const { data: slides } = await supabaseAdmin.from('home_slides').select('*').order('sort_order', { ascending: true });
+  // Même vue que le GET admin : tout sans boutique choisie, sinon la sienne.
+  const filtre = boutiqueExplicite(req) ? b : null;
+  const fresh = await readSettings(filtre);
+  let q = supabaseAdmin.from('home_slides').select('*');
+  if (filtre) q = q.eq('boutique_id', filtre);
+  const { data: slides } = await q.order('sort_order', { ascending: true });
   return NextResponse.json({ ...fresh, today: todayParis(), slides: slides || [] }, { headers: { 'Cache-Control': 'no-store' } });
 }

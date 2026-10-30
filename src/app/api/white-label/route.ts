@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete, configBoutique } from '@/lib/boutique';
 
 // Colonnes acceptées — évite une 500 si la page envoie un champ inconnu
 const ALLOWED = new Set([
@@ -70,9 +71,11 @@ export async function GET(req: NextRequest) {
   try {
     // Ligne complète pour les écrans d'admin (adminFetch) : même contrôle que le PUT.
     const admin = await requireAuth(req);
-    const { data, error } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
-    if (error) {
-      console.error('[white-label] GET:', error.message);
+    // Marque de la vitrine qui demande (?boutique=) — Swedish Cravings sans rien.
+    let data: Record<string, any> | null;
+    try { data = await configBoutique(boutiqueDeRequete(req), '*'); }
+    catch (error: any) {
+      console.error('[white-label] GET:', error?.message);
       return NextResponse.json({ config: {} });
     }
     if (admin) {
@@ -93,13 +96,18 @@ export async function PUT(req: NextRequest) {
     const body: Record<string, any> = Object.fromEntries(Object.entries(raw || {}).filter(([k]) => ALLOWED.has(k)));
     // Champ secret laissé vide (ou masque) : le secret enregistré est conservé, jamais écrasé.
     for (const k of SECRETS) if (k in body && secretInchange(body[k])) delete body[k];
-    const { data: existing } = await supabaseAdmin.from('white_label_config').select('id').limit(1).maybeSingle();
+    /* Réglages de la boutique visée : sans ?boutique, Swedish Cravings,
+       comme avant. Une nouvelle ligne naît rattachée à sa boutique ; pour
+       Swedish Cravings, la base pose le défaut. */
+    const b = boutiqueDeRequete(req);
+    const existing = await configBoutique(b, 'id');
     let result;
     if (existing) {
       result = await supabaseAdmin.from('white_label_config')
         .update({ ...body, updated_at: new Date().toISOString() }).eq('id', existing.id).select().maybeSingle();
     } else {
-      result = await supabaseAdmin.from('white_label_config').insert(body).select().maybeSingle();
+      result = await supabaseAdmin.from('white_label_config')
+        .insert({ ...body, ...(b !== BOUTIQUE_DEFAUT ? { boutique_code: b } : {}) }).select().maybeSingle();
     }
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
     return NextResponse.json({ config: sansSecrets(result.data) }, { headers: { 'Cache-Control': 'private, no-store' } });

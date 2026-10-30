@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { nextSequentialNumber, dateParis } from '@/lib/invoice-utils';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete, codeBoutique, configBoutique } from '@/lib/boutique';
 
 const PAGE = 1000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -25,6 +26,9 @@ export async function GET(req: NextRequest) {
       .range(debut, debut + PAGE - 1);
     if (searchParams.get('status')) q = q.eq('status', searchParams.get('status')!);
     if (searchParams.get('order_id')) q = q.eq('order_id', searchParams.get('order_id')!);
+    /* Sans ?boutique, l'admin voit toutes les factures (une seule
+       numérotation pour l'entreprise) ; le filtre vient sur demande. */
+    if (searchParams.get('boutique')) q = q.eq('boutique_id', codeBoutique(searchParams.get('boutique')));
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     invoices.push(...(data || []));
@@ -81,9 +85,10 @@ export async function POST(req: NextRequest) {
   /* Identité du vendeur figée à l'émission, comme pour les factures de
      commande : sans elle, la pièce sortait sans SIREN et son Factur-X
      était impossible à produire. Lecture ratée = pas de facture. */
-  const { data: cfg, error: cfgErr } = await supabaseAdmin
-    .from('white_label_config').select('*').limit(1).maybeSingle();
-  if (cfgErr) return NextResponse.json({ error: 'Configuration vendeur illisible — facture non créée.' }, { status: 503 });
+  const b = boutiqueDeRequete(req);
+  let cfg: Record<string, any> | null;
+  try { cfg = await configBoutique(b, '*'); }
+  catch { return NextResponse.json({ error: 'Configuration vendeur illisible — facture non créée.' }, { status: 503 }); }
 
   // Numéro séquentiel généré côté serveur — jamais celui fourni par le client
   // (Art. 242 nonies A CGI : séquence continue, unique, non falsifiable).
@@ -102,6 +107,8 @@ export async function POST(req: NextRequest) {
     seller_email: cfg?.email || '',
     seller_phone: cfg?.phone || '',
     ...(status === 'paid' ? { paid_at: new Date().toISOString() } : {}),
+    // Swedish Cravings : la base pose son défaut, comme avant.
+    ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
   };
 
   let data: any = null, error: any = null;

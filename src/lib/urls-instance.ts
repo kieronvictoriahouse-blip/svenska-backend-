@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, codeBoutique, configBoutique, boutique } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    URLS DE L'INSTANCE — vitrine et admin, blindées
@@ -24,20 +24,36 @@ function normaliser(brut: string | undefined | null): string | null {
   try { new URL(u); return u; } catch { return null; }
 }
 
-let cacheFront: string | null = null;
-let cacheAt = 0;
+/* Une entrée par boutique : deux vitrines n'ont jamais la même URL. */
+const cacheFront = new Map<string, { url: string; at: number }>();
 
-/** URL publique de la vitrine — env normalisée, sinon config, sinon erreur claire. */
-export async function urlVitrine(): Promise<string> {
-  const env = normaliser(process.env.NEXT_PUBLIC_FRONT_URL);
-  if (env) return env;
+/**
+ * URL publique de la vitrine — env normalisée, sinon config, sinon erreur claire.
+ * Sans code, Swedish Cravings : la variable d'environnement reste la sienne.
+ * Une autre boutique a sa propre URL (table `boutiques`, puis sa config).
+ */
+export async function urlVitrine(code: string = BOUTIQUE_DEFAUT): Promise<string> {
+  const b = codeBoutique(code);
+  if (b === BOUTIQUE_DEFAUT) {
+    const env = normaliser(process.env.NEXT_PUBLIC_FRONT_URL);
+    if (env) return env;
+  }
 
-  if (cacheFront && Date.now() - cacheAt < 60_000) return cacheFront;
-  const { data } = await supabaseAdmin
-    .from('white_label_config').select('front_url').limit(1).maybeSingle();
-  const cfg = normaliser((data as any)?.front_url);
-  if (cfg) { cacheFront = cfg; cacheAt = Date.now(); return cfg; }
+  const hit = cacheFront.get(b);
+  if (hit && Date.now() - hit.at < 60_000) return hit.url;
 
+  /* Autre vitrine : la fiche boutique prime sur sa config de marque. */
+  const fiche = b === BOUTIQUE_DEFAUT ? null : normaliser((await boutique(b)).front_url);
+  /* Lecture ratée = config vide : on garde l'erreur claire ci-dessous. */
+  const data = fiche ? null : await configBoutique(b, 'front_url').catch(() => null);
+  const cfg = fiche || normaliser((data as any)?.front_url);
+  if (cfg) { cacheFront.set(b, { url: cfg, at: Date.now() }); return cfg; }
+
+  if (b !== BOUTIQUE_DEFAUT) {
+    throw new Error(
+      `URL de la vitrine « ${b} » introuvable : renseigner front_url dans la table boutiques ` +
+      'ou le champ « URL de la boutique » dans les Réglages de cette boutique.');
+  }
   throw new Error(
     'URL de la vitrine introuvable : renseigner NEXT_PUBLIC_FRONT_URL (Vercel) ' +
     'ou le champ « URL de la boutique » dans Réglages.');

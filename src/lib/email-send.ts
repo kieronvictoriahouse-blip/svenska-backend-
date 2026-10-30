@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
@@ -13,9 +13,10 @@ export type SendOpts = {
   headers?: Record<string, string>;
 };
 
-export async function getWhiteLabelConfig(): Promise<Record<string, string>> {
+/* Marque + SMTP d'une boutique : sans code, Swedish Cravings, comme avant. */
+export async function getWhiteLabelConfig(code: string = BOUTIQUE_DEFAUT): Promise<Record<string, string>> {
   try {
-    const { data } = await supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle();
+    const data = await configBoutique(code, '*');
     return (data as Record<string, string>) || {};
   } catch {
     return {} as Record<string, string>;

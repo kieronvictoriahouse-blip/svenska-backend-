@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { categoryDef } from '@/lib/finance/pcg';
 import { toutLire } from '@/lib/finance/tout-lire';
+import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,9 @@ export async function GET(req: NextRequest) {
   /* Nom légal du fichier : <SIREN>FEC<date de clôture> (art. A47 A-1 LPF).
      Le SIREN vient de la configuration, plus d'un paramètre jamais passé
      (le fichier s'appelait FEC_000000000_…). */
-  const { data: cfg } = await supabaseAdmin.from('white_label_config').select('siret').limit(1).maybeSingle();
+  /* Une seule entreprise derrière toutes les vitrines : un seul FEC, au
+     SIREN de la config par défaut. Lecture ratée = repli, comme avant. */
+  const cfg = await configBoutique(BOUTIQUE_DEFAUT, 'siret').catch(() => null);
   const siren = req.nextUrl.searchParams.get('siren') || String(cfg?.siret || '').replace(/\D/g, '').slice(0, 9) || '000000000';
 
   /* Toutes les écritures de l'exercice (au-delà de 1000, la lecture

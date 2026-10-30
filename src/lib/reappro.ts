@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    DONNÉES DE L'ÉCRAN DE COMMANDE D'ACHAT
@@ -40,7 +41,9 @@ export async function donneesReappro() {
       supabaseAdmin.from('product_suppliers').select('*'),
       supabaseAdmin.from('purchase_orders').select('lines, status, supplier_id, created_at')
         .in('status', ['sent', 'confirmed', 'partial', 'draft']),
-      supabaseAdmin.from('white_label_config').select('*').limit(1).maybeSingle(),
+      /* Achats = l'entreprise, commune aux vitrines : config par défaut.
+         Une lecture ratée donne le taux de repli, comme avant. */
+      configBoutique(BOUTIQUE_DEFAUT, '*').then(data => ({ data }), () => ({ data: null })),
     ]);
 
   const vitesse = Object.fromEntries((velocites || []).map(v => [v.product_id, v]));

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { controlerRayon } from '@/lib/fiche-produit';
+import { codeBoutique } from '@/lib/boutique';
 
 /* Mise à jour et suppression d'une catégorie.
    Nécessaire à l'écran Catégories du handoff : réordonnancement par
@@ -14,7 +15,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const ALLOWED = ['slug', 'emoji', 'name_fr', 'name_sv', 'name_en', 'sort_order', 'is_active',
     'discount_type', 'discount_value', 'discount_start', 'discount_end'];
-  const payload = Object.fromEntries(Object.entries(body).filter(([k]) => ALLOWED.includes(k)));
+  const payload: Record<string, any> = Object.fromEntries(Object.entries(body).filter(([k]) => ALLOWED.includes(k)));
+  /* Changement de boutique : seulement si le corps la nomme (migration 066). */
+  if (typeof body.boutique_id === 'string' && body.boutique_id.trim()) payload.boutique_id = codeBoutique(body.boutique_id);
   if (!Object.keys(payload).length) return NextResponse.json({ error: 'Rien à mettre à jour' }, { status: 400 });
   /* Une promo de catégorie s'applique à TOUS ses produits, au checkout :
      150 % mettait le rayon entier à 0 €. Nom vide, adresse invalide :

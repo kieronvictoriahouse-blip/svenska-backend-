@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { SLUG } from '@/lib/fiche-produit';
+import { boutiqueDeRequete, codeBoutique } from '@/lib/boutique';
+
+/* Boutique nommée par l'appel (?boutique=, en-tête x-boutique). */
+const boutiqueExplicite = (req: NextRequest) =>
+  req.nextUrl.searchParams.has('boutique') || req.headers.has('x-boutique');
 
 export const dynamic = 'force-dynamic';
 /* Colonnes d'une page que l'écran écrit (le corps était inséré tel quel). */
@@ -22,6 +27,8 @@ export async function GET(req: NextRequest) {
       .select('id, slug, title_fr, title_sv, title_en, nav_label_fr, nav_label_sv, nav_label_en, show_in_nav, is_active, sort_order')
       .order('sort_order');
     if (!admin) q = q.eq('is_active', true);
+    // Vitrine : ses seules pages (migration 066) ; l'écran Pages, sans boutique demandée, voit tout.
+    if (!admin || boutiqueExplicite(req)) q = q.eq('boutique_id', boutiqueDeRequete(req));
     const { data, error } = await q;
     if (error) { console.error('[pages] GET:', error.message); return NextResponse.json({ pages: [] }); }
     return NextResponse.json({ pages: data || [] });
@@ -36,7 +43,10 @@ export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   try {
     const body = await req.json();
-    const row = Object.fromEntries(Object.entries(body || {}).filter(([k]) => CHAMPS_PAGE.includes(k)));
+    const row: Record<string, any> = Object.fromEntries(Object.entries(body || {}).filter(([k]) => CHAMPS_PAGE.includes(k)));
+    // Boutique : seulement si l'écran la nomme ; sinon défaut de la base (Swedish Cravings).
+    if (typeof body?.boutique_id === 'string' && body.boutique_id.trim()) row.boutique_id = codeBoutique(body.boutique_id);
+    else if (boutiqueExplicite(req)) row.boutique_id = boutiqueDeRequete(req);
     // L'adresse finit dans une URL publique (/pages/<slug>) : forme stricte.
     if (!SLUG.test(String(row.slug || ''))) {
       return NextResponse.json({ error: 'Adresse (slug) invalide : minuscules sans accent, chiffres et tirets seulement.' }, { status: 400 });
