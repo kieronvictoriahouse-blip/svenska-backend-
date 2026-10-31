@@ -50,14 +50,32 @@ function canonique(inv) {
     base[c] = ['total_ht', 'total_tva', 'total_ttc'].includes(c)
       ? (Number(inv[c]) || 0).toFixed(2) : String(inv[c] ?? '');
   }
-  return JSON.stringify({ ...base, lignes });
+  /* Hors EUR seulement : devise + contre-valeur scellées, même ordre et
+     mêmes formats que facture-integrite.ts. En EUR, extra = {}. */
+  const devise = String(inv.currency || 'EUR').trim().toUpperCase();
+  const extra = devise !== 'EUR'
+    ? {
+        devise,
+        ttc_eur: inv.total_ttc_eur == null ? '' : (Number(inv.total_ttc_eur) || 0).toFixed(2),
+        taux_eur: inv.fx_rate_eur == null ? '' : Number(inv.fx_rate_eur).toFixed(8),
+      }
+    : {};
+  return JSON.stringify({ ...base, lignes, ...extra });
 }
 const empreinte = (c, p) => createHash('sha256').update(p + '\n' + c, 'utf8').digest('hex');
 
 (async () => {
+  /* currency / total_eur / fx_rate n'existent qu'apres la migration 067 :
+     l'audit se lance AVANT et APRES, donc sans ces colonnes (42703) on
+     relit avec l'ancien select et tout est traite en EUR, comme avant. */
+  const SEL_COMMANDES = 'id, order_number, status, total, refunded_amount, refunds, is_test, exclude_from_stats, created_at, customer_name';
+  const lireCommandes = async () => {
+    const r = await sb.from('orders').select(SEL_COMMANDES + ', currency, total_eur, fx_rate');
+    return r.error && r.error.code === '42703' ? sb.from('orders').select(SEL_COMMANDES) : r;
+  };
   const [{ data: factures }, { data: commandes }, { data: ecritures }] = await Promise.all([
     sb.from('invoices').select('*'),
-    sb.from('orders').select('id, order_number, status, total, refunded_amount, refunds, is_test, exclude_from_stats, created_at, customer_name'),
+    lireCommandes(),
     sb.from('accounting_entries').select('*').eq('type', 'income'),
   ]);
 
@@ -175,6 +193,25 @@ const empreinte = (c, p) => createHash('sha256').update(p + '\n' + c, 'utf8').di
   /* ── 7. Les recettes recoupent les encaissements ──────────────── */
   titre('7. Les recettes comptables recoupent-elles les commandes ?');
   const annee = new Date().getFullYear();
+  /* Hors EUR (vitrine en couronnes) : le livre des recettes est en EUR,
+     donc le net se lit en EUR — contre-valeur encaissee (total_eur)
+     moins la contre-valeur de chaque remboursement. Meme regle que
+     netEurCommande de src/lib/seuil-ue.ts (copie : le script n'importe
+     rien). Sans total_eur, la commande compte 0 et est signalee a part. */
+  const horsEurSansContreValeur = [];
+  const netEurHorsEur = (o) => {
+    if (o.total_eur == null) { horsEurSansContreValeur.push(o); return 0; }
+    const taux = Number(o.fx_rate) || 0;
+    let rendu = 0;
+    try {
+      const h = typeof o.refunds === 'string' ? JSON.parse(o.refunds) : (o.refunds || []);
+      for (const r of Array.isArray(h) ? h : []) {
+        if (!r) continue;
+        rendu += Math.abs(r.amount_eur != null ? Number(r.amount_eur) || 0 : (Number(r.amount) || 0) * taux);
+      }
+    } catch { }
+    return Math.round(((Number(o.total_eur) || 0) - rendu) * 100) / 100;
+  };
   /* Le net encaisse d'une commande n'est PAS toujours total - rembourse :
      un remboursement partiel avec reecriture (order_modified) a DEJA
      retire le montant du total. Le re-deduire compterait le
@@ -182,6 +219,7 @@ const empreinte = (c, p) => createHash('sha256').update(p + '\n' + c, 'utf8').di
      Et une commande « refunded » d'avant la colonne refunded_amount
      porte 0 : son net est zero, pas son total. */
   const netDe = (o) => {
+    if (o.currency && o.currency !== 'EUR') return netEurHorsEur(o);
     const total = Number(o.total) || 0;
     const rembourse = Number(o.refunded_amount) || 0;
     if (o.status === 'refunded' && rembourse === 0) return 0;
@@ -205,6 +243,11 @@ const empreinte = (c, p) => createHash('sha256').update(p + '\n' + c, 'utf8').di
   else {
     ko(`${annee} : commandes nettes ${encaisse.toFixed(2)} EUR, recettes comptables ${recettes.toFixed(2)} EUR (ecart ${delta.toFixed(2)})`);
     info('la synchronisation Comptabilite > Synchroniser recale ce total');
+  }
+  if (horsEurSansContreValeur.length) {
+    ko(`${horsEurSansContreValeur.length} commande(s) hors EUR payee(s) sans contre-valeur EUR (total_eur vide) : comptees 0 ci-dessus`);
+    for (const o of horsEurSansContreValeur.slice(0, 6)) info(`${o.order_number} (${o.currency} ${(Number(o.total) || 0).toFixed(2)}, ${String(o.created_at).slice(0, 10)})`);
+    info('Comptabilite > Synchroniser pose la contre-valeur (releve Stripe, sinon taux BCE apres 48 h)');
   }
 
   console.log('\n' + '='.repeat(59));

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 
+/* Hors EUR, la lecture de la balance transaction Stripe (bornée à 4 s,
+   une relance) et le taux BCE allongent le traitement : marge explicite.
+   300 s = défaut de la plateforme (Fluid Compute), déjà déclaré par
+   d'autres routes : ne raccourcit jamais le chemin EUR. */
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   const stripeKey        = process.env.STRIPE_SECRET_KEY;
   const stripeKeyTest    = process.env.STRIPE_SECRET_KEY_TEST;

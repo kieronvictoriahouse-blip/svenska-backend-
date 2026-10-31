@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BOUTIQUE_DEFAUT, boutique, boutiqueDeRequete } from '@/lib/boutique';
+import { montantMinimum } from '@/lib/devise';
 
 // Returns only PUBLIC keys — safe to expose to the frontend.
 // The Supabase anon key is designed to be embedded in client code.
@@ -16,6 +17,10 @@ export async function GET(req: NextRequest) {
       boutique: {
         code: f.code, nom: f.nom, devise: f.devise, langue: f.langue,
         front_url: f.front_url, retrait_sur_place: f.retrait_sur_place, actif: f.actif,
+        /* Port et minimum de paiement dans la devise de la boutique : le
+           panier affiche ce que le checkout facturera (étape 3). */
+        livraison: { pays: f.livraison_pays, cout: f.livraison_cout, franco: f.livraison_franco },
+        montant_minimum: montantMinimum(f.devise),
       },
     };
   }

@@ -24,6 +24,12 @@ import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
    · Le SIREN part dans les identifiants du vendeur (schemeID 0002 =
      registre SIRENE). Sans lui, aucune plateforme n'acceptera la
      pièce : c'est la clé de l'annuaire.
+
+   · Hors EUR seulement (vitrine en couronnes) : devise de facture
+     BT-5 = devise de la commande, devise de comptabilisation de la TVA
+     BT-6 = EUR, donc deux TaxTotalAmount (BR-53), pays acheteur BT-55
+     = pays d'arrivée, et une note de contre-valeur EUR. Une facture en
+     EUR produit le même XML qu'avant, au caractère près.
    ═══════════════════════════════════════════════════════════════ */
 
 const esc = (s: any) =>
@@ -68,6 +74,8 @@ export function construireFacturX(inv0: any, repli: VendeurRepli = {}): FacturXR
     seller_address: inv0.seller_address || repli.seller_address,
     seller_email: inv0.seller_email || repli.seller_email,
   };
+  const devise = String(inv.currency || 'EUR').trim().toUpperCase();
+  const enEuro = devise === 'EUR';
   const lignes: any[] = (() => {
     try {
       const l = typeof inv.lines === 'string' ? JSON.parse(inv.lines) : (inv.lines || []);
@@ -147,6 +155,23 @@ export function construireFacturX(inv0: any, repli: VendeurRepli = {}): FacturXR
      BR-CO-16 (dû = total − prépayé) échoue sur chaque facture du site. */
   const payee = inv.status === 'paid';
 
+  /* Hors EUR : la contre-valeur figée sur la facture, à titre informatif
+     (le livre des recettes, lui, est tenu en EUR). */
+  const noteContreValeur = !enEuro && inv.total_ttc_eur != null ? `
+    <ram:IncludedNote>
+      <ram:Content>${esc(`Contre-valeur : ${abs(inv.total_ttc_eur)} EUR (1 ${devise} = ${Number(inv.fx_rate_eur).toFixed(6)} EUR, ${inv.fx_source === 'bce' ? 'taux BCE' : 'taux Stripe'} du ${inv.fx_date || inv.date}) — valeur informative, montants légaux en EUR au livre des recettes`)}</ram:Content>
+    </ram:IncludedNote>` : '';
+  /* Séquence CII : TaxCurrencyCode (BT-6) PRÉCÈDE InvoiceCurrencyCode (BT-5). */
+  const devisesXml = enEuro
+    ? `<ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>`
+    : `<ram:TaxCurrencyCode>EUR</ram:TaxCurrencyCode>
+      <ram:InvoiceCurrencyCode>${esc(devise)}</ram:InvoiceCurrencyCode>`;
+  /* BR-53 : BT-6 présent ⇒ total TVA aussi en devise de comptabilisation. */
+  const tvaTotalXml = enEuro
+    ? `<ram:TaxTotalAmount currencyID="EUR">0.00</ram:TaxTotalAmount>`
+    : `<ram:TaxTotalAmount currencyID="${esc(devise)}">0.00</ram:TaxTotalAmount>
+        <ram:TaxTotalAmount currencyID="EUR">0.00</ram:TaxTotalAmount>`;
+
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice
   xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
@@ -165,7 +190,7 @@ export function construireFacturX(inv0: any, repli: VendeurRepli = {}): FacturXR
     </ram:IssueDateTime>
     <ram:IncludedNote>
       <ram:Content>${esc(inv.legal_mention || 'TVA non applicable, art. 293 B du CGI')}</ram:Content>
-    </ram:IncludedNote>
+    </ram:IncludedNote>${noteContreValeur}
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>${lignesXml}
     <ram:ApplicableHeaderTradeAgreement>
@@ -185,14 +210,14 @@ export function construireFacturX(inv0: any, repli: VendeurRepli = {}): FacturXR
         <ram:Name>${esc(inv.client_name || 'Client')}</ram:Name>
         <ram:PostalTradeAddress>
           <ram:LineOne>${esc(inv.client_address || '')}</ram:LineOne>
-          <ram:CountryID>FR</ram:CountryID>
+          <ram:CountryID>${enEuro ? 'FR' : esc(inv.buyer_country || 'FR')}</ram:CountryID>
         </ram:PostalTradeAddress>
         ${inv.client_email ? `<ram:URIUniversalCommunication><ram:URIID schemeID="EM">${esc(inv.client_email)}</ram:URIID></ram:URIUniversalCommunication>` : ''}
       </ram:BuyerTradeParty>
     </ram:ApplicableHeaderTradeAgreement>
     <ram:ApplicableHeaderTradeDelivery/>
     <ram:ApplicableHeaderTradeSettlement>
-      <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
+      ${devisesXml}
       <ram:ApplicableTradeTax>
         <ram:CalculatedAmount>0.00</ram:CalculatedAmount>
         <ram:TypeCode>VAT</ram:TypeCode>
@@ -207,7 +232,7 @@ export function construireFacturX(inv0: any, repli: VendeurRepli = {}): FacturXR
         <ram:ChargeTotalAmount>${chargePied.toFixed(2)}</ram:ChargeTotalAmount>` : ''}${remisePied ? `
         <ram:AllowanceTotalAmount>${remisePied.toFixed(2)}</ram:AllowanceTotalAmount>` : ''}
         <ram:TaxBasisTotalAmount>${totalHt}</ram:TaxBasisTotalAmount>
-        <ram:TaxTotalAmount currencyID="EUR">0.00</ram:TaxTotalAmount>
+        ${tvaTotalXml}
         <ram:GrandTotalAmount>${totalTtc}</ram:GrandTotalAmount>${payee ? `
         <ram:TotalPrepaidAmount>${totalTtc}</ram:TotalPrepaidAmount>` : ''}
         <ram:DuePayableAmount>${payee ? '0.00' : totalTtc}</ram:DuePayableAmount>

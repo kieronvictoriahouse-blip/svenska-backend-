@@ -40,8 +40,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 
+  /* Écritures d'une vitrine hors euro : le montant reste en EUR, l'original
+     et le taux en colonnes de plus. Sans elles, l'export ne change pas. */
+  const multi = entries.some(e => e.currency && e.currency !== 'EUR');
+  const colonnesDevise = (e: any) => e.currency && e.currency !== 'EUR'
+    ? [e.amount_currency != null ? Number(e.amount_currency).toFixed(2).replace('.', ',') : '', String(e.currency), e.fx_rate != null ? String(e.fx_rate).replace('.', ',') : '']
+    : ['', '', ''];
   const rows: string[] = [
-    ['Date', 'Type', 'Catégorie', 'Description', 'Montant (€)', 'N° pièce', 'Source'].join(';'),
+    ['Date', 'Type', 'Catégorie', 'Description', 'Montant (€)', 'N° pièce', 'Source',
+      ...(multi ? ['Montant devise', 'Devise', 'Taux de change'] : [])].join(';'),
   ];
 
   for (const entry of entries) {
@@ -54,6 +61,7 @@ export async function GET(req: NextRequest) {
       String(parseFloat(entry.amount).toFixed(2)).replace('.', ','),
       entry.reference_number || '',
       entry.reference_type || '',
+      ...(multi ? colonnesDevise(entry) : []),
     ].join(';'));
   }
 

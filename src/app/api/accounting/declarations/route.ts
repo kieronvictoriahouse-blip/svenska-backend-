@@ -90,6 +90,22 @@ export async function GET(req: NextRequest) {
     label, value, max, pct: Math.min(100, Math.round(value / max * 100)), note,
   });
 
+  /* Ventes hors EUR payées mais pas encore comptées (contre-valeur EUR non
+     relevée) : le montant à déclarer serait trop bas. Lecture seule ; la
+     clé n'apparaît QUE s'il y en a (réponse inchangée pour l'euro seul). */
+  let alerteHorsEur: { commandes_sans_contre_valeur: number; numeros: string[] } | null = null;
+  try {
+    const { data: sansCv, error: errCv } = await supabaseAdmin.from('orders').select('order_number')
+      .neq('currency', 'EUR').is('total_eur', null)
+      .in('status', ['paid', 'confirmed', 'shipped', 'delivered'])
+      .or('is_test.is.null,is_test.eq.false')
+      .or('exclude_from_stats.is.null,exclude_from_stats.eq.false')
+      .gte('created_at', `${from}T00:00:00`).lte('created_at', `${to}T23:59:59`);
+    if (!errCv && sansCv && sansCv.length) {
+      alerteHorsEur = { commandes_sans_contre_valeur: sansCv.length, numeros: sansCv.map(o => o.order_number) };
+    }
+  } catch { /* simple alerte : on l'ignore si la lecture échoue */ }
+
   return NextResponse.json({
     year, quarter: quarter.q, quarterLabel: `${quarter.label} ${year}`,
     amount, cotis, tauxCotis: TAUX_COTIS,
@@ -105,6 +121,7 @@ export async function GET(req: NextRequest) {
       gauge('Objectif ' + year, yearIncome, OBJECTIF, yearIncome >= OBJECTIF ? 'Objectif atteint.' : `Il manque ${round(OBJECTIF - yearIncome).toLocaleString('fr-FR')} € pour atteindre l'objectif.`),
     ],
     deadlines: nextDeadlines(now),
+    ...(alerteHorsEur ? { alerte_hors_eur: alerteHorsEur } : {}),
   });
 }
 

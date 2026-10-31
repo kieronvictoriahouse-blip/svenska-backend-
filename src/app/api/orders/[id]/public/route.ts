@@ -27,14 +27,19 @@ const CORS = {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('id, order_number, status, delivery_mode, lines, subtotal, shipping, discount, total, created_at')
+    .select('id, order_number, status, delivery_mode, lines, subtotal, shipping, discount, total, created_at, currency')
     .eq('id', params.id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
   if (!data) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404, headers: CORS });
 
-  return NextResponse.json({ order: data }, { headers: { ...CORS, 'Cache-Control': 'no-store' } });
+  /* La devise n'est renvoyée que hors EUR : pour Swedish Cravings, le
+     JSON reste exactement celui d'avant. */
+  const { currency, ...reste } = data as any;
+  const order = currency && currency !== 'EUR' ? { ...reste, currency } : reste;
+
+  return NextResponse.json({ order }, { headers: { ...CORS, 'Cache-Control': 'no-store' } });
 }
 
 export async function OPTIONS() {

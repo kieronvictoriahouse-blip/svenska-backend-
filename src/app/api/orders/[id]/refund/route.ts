@@ -5,7 +5,10 @@ import { avoirEmail } from '@/lib/customer-emails';
 import { requireAuth } from '@/lib/auth';
 import { getWhiteLabelConfig, sendEmail, baseTemplate } from '@/lib/email-send';
 import { nextSequentialNumber } from '@/lib/invoice-utils';
+import { normDevise, formatMontant, reglementDeRemboursement, tauxBce, jourParis, type ReglementEur } from '@/lib/devise';
+import { logSystemEvent } from '@/lib/system-events';
 
+// round2 local conservé (accepte n'importe quelle entrée) : le chemin EUR reste identique.
 const round2 = (n: any) => Math.round((Number(n) || 0) * 100) / 100;
 const fmtEur = (n: number) => `${round2(n).toFixed(2)} €`;
 
@@ -40,6 +43,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (orderErr || !order) return NextResponse.json({ error: 'Commande non trouvée' }, { status: 404 });
   if (order.status === 'refunded') return NextResponse.json({ error: 'Déjà remboursée' }, { status: 400 });
 
+  /* Devise de la commande : en EUR (Swedish Cravings), tout reste comme avant.
+     Hors EUR, les montants affichés sont dans la devise de la commande et
+     la comptabilité est passée en euros (contre-valeur Stripe, sinon BCE). */
+  const devise = normDevise(order.currency);
+  const enEuro = devise === 'EUR';
+  const fmt = (n: number) => enEuro ? fmtEur(n) : formatMontant(round2(n), devise, 'fr');
+  const codeB: string = order.boutique_id || 'sc';
+
   const orderTotal      = round2(order.total);
   const alreadyRefunded = round2(order.refunded_amount);
 
@@ -60,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     if (amount > remaining + 0.005) {
       return NextResponse.json({
-        error: `Montant supérieur au reste remboursable (${fmtEur(remaining)})`,
+        error: `Montant supérieur au reste remboursable (${fmt(remaining)})`,
       }, { status: 400 });
     }
   }
@@ -117,9 +128,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // ── Remboursement Stripe ──────────────────────────────────────────
   let refundId: string | null = null;
+  // Gardés hors du try : hors EUR, on relit ensuite la balance transaction du remboursement.
+  let refundObj: Stripe.Refund | null = null;
+  let stripe: Stripe | null = null;
   if (stripeKey && order.stripe_session_id) {
     try {
-      const stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
+      stripe = new Stripe(stripeKey, { apiVersion: '2026-04-22.dahlia' });
       const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
       const paymentIntentId = session.payment_intent as string;
       if (paymentIntentId) {
@@ -141,9 +155,103 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           idempotencyKey: `refund-${order.id}-${Math.round(alreadyRefunded * 100)}-${Math.round(amount * 100)}`,
         });
         refundId = refund.id;
+        refundObj = refund;
       }
     } catch (e: any) {
       return NextResponse.json({ error: `Erreur Stripe : ${e.message}` }, { status: 500 });
+    }
+  }
+
+  /* ── Vente hors EUR pas encore en compta (hors EUR uniquement) ─────
+     Sans relevé Stripe au webhook, ni facture ni recette n'existent
+     encore : la synchro ne les crée que pour une commande payée, jamais
+     pour une commande 'refunded'. On les passe donc ICI, depuis la
+     commande encore intacte, AVANT l'update ci-dessous (qui réduit le
+     total avec order_modified et ajoute l'entrée à refunds) : sinon la
+     recette serait nette du remboursement, et la contre-passation le
+     retirerait une seconde fois (piège order_modified). L'argent est déjà
+     rendu : repli BCE immédiat. Module chargé à la demande : Swedish
+     Cravings ne l'importe jamais. */
+  if (!enEuro && !order.is_test && !order.exclude_from_stats) {
+    try {
+      const { assurerContreValeur, comptabiliserVenteHorsEur } = await import('@/lib/vente-hors-eur');
+      const cvVente = await assurerContreValeur(order, { stripe, repliBce: 'toujours' });
+      if (cvVente.ok) {
+        Object.assign(order, cvVente.order);
+        const { data: invVente } = await supabaseAdmin
+          .from('invoices').select('id').eq('order_id', params.id).limit(1);
+        if (!(invVente && invVente.length > 0) && order.customer_email) {
+          const { createInvoiceFromOrder } = await import('@/lib/invoice-utils');
+          const inv = await createInvoiceFromOrder({ ...order }).catch((e: any) => {
+            console.error('[refund] facture de vente hors EUR NON créée', order.order_number, e?.message);
+            return null;
+          });
+          if (inv?.number) {
+            await supabaseAdmin.from('orders').update({ invoice_number: inv.number }).eq('id', params.id);
+          }
+        }
+      }
+      const rVente = await comptabiliserVenteHorsEur(params.id, { stripe, repliBce: 'toujours' });
+      if (rVente.statut === 'reportee' || rVente.statut === 'incoherente') {
+        await logSystemEvent({
+          source: 'refund', level: 'error',
+          message: 'Recette hors EUR non passée avant remboursement — à passer à la main',
+          orderNumber: order.order_number,
+          context: { statut: rVente.statut },
+        });
+      }
+    } catch (e: any) {
+      await logSystemEvent({
+        source: 'refund', level: 'error',
+        message: 'Recette hors EUR non passée avant remboursement — à passer à la main',
+        orderNumber: order.order_number,
+        context: { error: e?.message },
+      });
+    }
+  }
+
+  /* ── Contre-valeur EUR du remboursement (hors EUR uniquement) ──────
+     L'argent est déjà rendu : le taux est TOUJOURS posé. Priorité au
+     relevé Stripe du remboursement, sinon taux de la vente, sinon BCE.
+     En EUR, rien de tout cela ne s'exécute (aucun appel Stripe ni BCE). */
+  // Jour de Paris (même formule que l'avoir) : date du remboursement hors EUR.
+  const todayHorsEur = enEuro ? '' : jourParis();
+  let eurRemb: number | null = null;
+  let tauxRemb: number | null = null;
+  let sourceRemb: 'stripe' | 'taux_vente' | 'bce' | null = null;
+  let dateRemb: string = todayHorsEur;
+  let reglementRemb: ReglementEur | null = null;
+  let contreValeurOk = true;
+  if (!enEuro) {
+    reglementRemb = refundObj && stripe
+      ? await reglementDeRemboursement(stripe, refundObj).catch(() => null)
+      : null;
+    if (reglementRemb && reglementRemb.taux) {
+      eurRemb    = round2(reglementRemb.montant_eur);
+      tauxRemb   = reglementRemb.taux;
+      sourceRemb = 'stripe';
+      dateRemb   = reglementRemb.date;
+    } else if (Number(order.fx_rate) > 0) {
+      tauxRemb   = Number(order.fx_rate);
+      eurRemb    = round2(amount * tauxRemb);
+      sourceRemb = 'taux_vente';
+      dateRemb   = order.fx_date || todayHorsEur;
+    } else {
+      const t = await tauxBce(devise, todayHorsEur).catch(() => null);
+      if (t) {
+        tauxRemb   = t;
+        eurRemb    = round2(amount * t);
+        sourceRemb = 'bce';
+      }
+    }
+    contreValeurOk = eurRemb != null && tauxRemb != null;
+    if (!contreValeurOk) {
+      await logSystemEvent({
+        source: 'refund', level: 'error',
+        message: 'Remboursement hors EUR sans contre-valeur — avoir et contre-passation à passer à la main',
+        orderNumber: order.order_number,
+        context: { amount, devise },
+      });
     }
   }
 
@@ -209,6 +317,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // jamais quitté le rayon et il n'y a rien à y remettre.
       restocked:  rentre.has(orderLines[it.index]?.product_id),
     })),
+    // Hors EUR : contre-valeur du remboursement (net EUR de la commande = total_eur − Σ amount_eur)
+    ...(!enEuro ? {
+      currency:          devise,
+      amount_eur:        eurRemb,
+      fx_rate:           tauxRemb,
+      fx_source:         sourceRemb,
+      stripe_balance_tx: reglementRemb?.balance_tx || null,
+    } : {}),
   };
   const prevHistory = history;
 
@@ -276,7 +392,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     /* Jour et année à PARIS : le serveur tourne en UTC, et un avoir émis
        le 1er janvier entre minuit et 1 h (2 h l'été) tombait la veille —
        daté de l'année close et numéroté dans sa série AV. */
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+    // Hors EUR : le même jour que celui retenu pour la contre-valeur.
+    const today = enEuro ? new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }) : todayHorsEur;
     const year  = Number(today.slice(0, 4));
 
     // Récupérer la facture originale
@@ -286,9 +403,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Pas de facture émise sur un remboursement partiel → rien à contre-passer :
     // la facture sera générée plus tard depuis la commande déjà corrigée.
     const skipAvoir = isPartial && !originalInv;
+    /* Hors EUR sans contre-valeur : un avoir scellé sans son EUR serait faux
+       (et refusé par invoices_contre_valeur_chk). Déjà journalisé plus haut :
+       il sera passé à la main. Toujours faux en EUR. */
+    const avoirHorsEurImpossible = !enEuro && !contreValeurOk;
 
     // Numéro d'avoir séquentiel (même logique fiable que les factures)
-    if (!skipAvoir) avoirNumber = await nextSequentialNumber(`AV-${year}-`);
+    if (!skipAvoir && !avoirHorsEurImpossible) avoirNumber = await nextSequentialNumber(`AV-${year}-`);
 
     // Lignes de l'avoir
     let avoirLines: any[];
@@ -342,11 +463,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       seller_address: originalInv?.seller_address || '',
       seller_email:   originalInv?.seller_email   || '',
       seller_phone:   originalInv?.seller_phone   || '',
+      // Boutique autre que Swedish Cravings : l'avoir lui est rattaché.
+      ...(codeB !== 'sc' ? { boutique_id: codeB } : {}),
+      // Hors EUR : devise et contre-valeur EUR (signée comme total_ttc), scellées dans l'empreinte.
+      ...(!enEuro ? {
+        currency:      devise,
+        total_ttc_eur: eurRemb == null ? null : -eurRemb,
+        fx_rate_eur:   tauxRemb,
+        fx_date:       dateRemb,
+        fx_source:     sourceRemb,
+        buyer_country: originalInv?.buyer_country || null,
+      } : {}),
     };
 
-    if (!skipAvoir) {
-      const { data: avoir } = await supabaseAdmin
+    if (!skipAvoir && !avoirHorsEurImpossible) {
+      const { data: avoir, error: avoirErr } = await supabaseAdmin
         .from('invoices').insert(avoirPayload).select().single();
+      /* L'erreur était avalée : un avoir manquant ne se voyait nulle part.
+         Journal seulement, le déroulé est inchangé. */
+      if (avoirErr) {
+        console.error('[refund] avoir NON créé', order.order_number, avoirErr.message);
+        await logSystemEvent({
+          source: 'refund', level: 'error', message: 'Avoir NON créé',
+          orderNumber: order.order_number,
+          context: { error: avoirErr.message },
+        });
+      }
       if (avoir?.id) {
         const { scellerFacture } = await import('@/lib/facture-integrite');
         await scellerFacture(avoir.id).catch(() => {});
@@ -365,7 +507,50 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .from('accounting_entries').select('*')
       .eq('reference_type', 'order').eq('reference_id', params.id).eq('type', 'income')
       .maybeSingle();
-    if (incomeEntry) {
+    if (!enEuro) {
+      /* Hors EUR : la contre-passation est en EUROS (contre-valeur du
+         remboursement). Sans contre-valeur, rien : déjà journalisé. */
+      if (contreValeurOk) {
+        /* La recette a été passée AVANT l'update de la commande (plus
+           haut) : la passer ici, sur la commande déjà réduite, la
+           déduirait deux fois. Absente → écriture à la main. */
+        if (incomeEntry) {
+          const { error: contreErr } = await supabaseAdmin.from('accounting_entries').insert({
+            date:                today,
+            type:                'income',
+            category:            incomeEntry.category,
+            description:         `${isPartial ? 'Remboursement partiel' : 'Remboursement'} — ${order.order_number}${reason ? ` (${reason})` : ''}`,
+            amount:              -(eurRemb as number),
+            currency:            devise,
+            amount_currency:     -round2(amount),
+            fx_rate:             tauxRemb,
+            fx_source:           sourceRemb,
+            stripe_balance_tx:   reglementRemb?.balance_tx || null,
+            destination_country: incomeEntry.destination_country || null,
+            reference_type:      'refund',
+            reference_id:        params.id,
+            reference_number:    order.order_number,
+            ...(codeB !== 'sc' ? { boutique_id: codeB } : {}),
+          });
+          if (contreErr) {
+            console.error('[refund] contre-passation NON enregistrée (index uniq_accounting_entry_ref ?)', order.order_number, contreErr.message);
+            await logSystemEvent({
+              source: 'refund', level: 'error',
+              message: 'Contre-passation hors EUR NON enregistrée',
+              orderNumber: order.order_number,
+              context: { error: contreErr.message, amount, devise, eur: eurRemb },
+            });
+          }
+        } else if (!order.is_test && !order.exclude_from_stats) {
+          await logSystemEvent({
+            source: 'refund', level: 'error',
+            message: 'Remboursement hors EUR sans recette à contre-passer — écriture à passer à la main',
+            orderNumber: order.order_number,
+            context: { amount, devise, eur: eurRemb },
+          });
+        }
+      }
+    } else if (incomeEntry) {
       const { error: contreErr } = await supabaseAdmin.from('accounting_entries').insert({
         date:             today,
         type:             'income',
@@ -401,21 +586,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             ...items.map(it => {
               const l = orderLines[it.index] || {};
               const label = l.name_fr || l.name || l.desc || 'Article';
-              return `<div class="line"><span>${label} × ${it.qty}</span><span>${fmtEur((l.price || 0) * it.qty)}</span></div>`;
+              return `<div class="line"><span>${label} × ${it.qty}</span><span>${fmt((l.price || 0) * it.qty)}</span></div>`;
             }),
             shippingKept > 0
-              ? `<div class="line"><span>Frais de livraison</span><span>−${fmtEur(shippingKept)}</span></div>`
+              ? `<div class="line"><span>Frais de livraison</span><span>−${fmt(shippingKept)}</span></div>`
               : '',
             `<hr class="divider">`,
-            `<div class="line total"><span>Montant remboursé</span><span>${fmtEur(amount)}</span></div>`,
+            `<div class="line total"><span>Montant remboursé</span><span>${fmt(amount)}</span></div>`,
           ].join('')
-        : `<div class="line total"><span>Total TTC</span><span>${fmtEur(amount)}</span></div>`;
+        : `<div class="line total"><span>Total TTC</span><span>${fmt(amount)}</span></div>`;
 
       const content = isPartial
         ? `
       <h1 class="title">Remboursement partiel</h1>
       <p class="text">Bonjour ${order.customer_name},</p>
-      <p class="text">Suite à la modification de votre commande <strong>${order.order_number}</strong>, un remboursement partiel de <strong>${fmtEur(amount)}</strong> a été initié.</p>
+      <p class="text">Suite à la modification de votre commande <strong>${order.order_number}</strong>, un remboursement partiel de <strong>${fmt(amount)}</strong> a été initié.</p>
       ${reason ? `<p class="text">${reason}</p>` : ''}
       <div class="box">
         <div class="box-title">💶 Détail du remboursement</div>

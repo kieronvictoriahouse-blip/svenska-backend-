@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { round2, tauxBce, contreValeurEur } from '@/lib/devise';
 
 const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 
@@ -212,6 +213,12 @@ export async function createLogspherRelayLabel(
     total: number;
     /** Poids réel pesé (g), saisi dans l'admin ; remplace l'estimation catalogue. */
     weight_grams?: number;
+    /** Devise de la commande (absente ou EUR = Swedish Cravings, inchangé). */
+    currency?: string;
+    /** Contre-valeur EUR relevée au paiement (hors EUR). */
+    total_eur?: number | null;
+    /** Valeur en EUR d'une unité de la devise (hors EUR). */
+    fx_rate?: number | null;
   },
   wlConfig: {
     address?: string;
@@ -220,6 +227,22 @@ export async function createLogspherRelayLabel(
     phone?: string;
   }
 ): Promise<LogspherLabelResult> {
+  /* Valeur déclarée à UGO : toujours en EUR. Hors EUR, contre-valeur
+     relevée au paiement, sinon total × taux de la vente, sinon taux BCE.
+     Calculée AVANT /rate : on échoue avant d'avoir réservé quoi que ce
+     soit chez UGO. En EUR, valeur = order.total, comme avant. */
+  const horsEur = !!order.currency && order.currency.toUpperCase() !== 'EUR';
+  let valeur = order.total;
+  if (horsEur) {
+    let v: number | null = order.total_eur ?? (Number(order.fx_rate) > 0 ? round2(order.total * Number(order.fx_rate)) : null);
+    if (v == null) {
+      const t = await tauxBce(order.currency!);
+      v = t ? contreValeurEur(order.total, t) : null;
+    }
+    if (v == null) throw new Error('Contre-valeur EUR introuvable pour la valeur déclarée UGO');
+    valeur = v;
+  }
+
   const shipFrom = parseAddress(wlConfig.address || '');
 
   // Adresse du client = adresse du point relais (c'est là que la livraison va)
@@ -382,8 +405,8 @@ export async function createLogspherRelayLabel(
         {
           number:      totalQty,
           currency:    'EUR',
-          value:       order.total,
-          value_eur:   order.total,
+          value:       valeur,
+          value_eur:   valeur,
           description: 'Produits alimentaires suedois',
           country_code: 'FR',
         },

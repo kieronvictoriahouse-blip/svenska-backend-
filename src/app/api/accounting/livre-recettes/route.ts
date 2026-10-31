@@ -65,8 +65,17 @@ export async function GET(req: NextRequest) {
   };
 
   const SEP = ';';
+  /* Recettes d'une vitrine hors euro : le montant reste en EUR (c'est lui
+     qui compte), l'original et le taux sont ajoutés en colonnes. Sans
+     écriture hors EUR, le registre garde exactement ses colonnes. */
+  const multi = entries.some(e => e.currency && e.currency !== 'EUR');
+  const horsEur = (e: any) => !!e.currency && e.currency !== 'EUR';
+  const colonnesDevise = (e: any) => horsEur(e)
+    ? [e.amount_currency != null ? eur(Number(e.amount_currency)) : '', String(e.currency), e.fx_rate != null ? String(e.fx_rate).replace('.', ',') : '']
+    : ['', '', ''];
   const lignes: string[] = [
-    ['Date', 'Référence pièce', 'Client', 'Nature', 'Montant (EUR)', 'Mode d’encaissement'].join(SEP),
+    ['Date', 'Référence pièce', 'Client', 'Nature', 'Montant (EUR)', 'Mode d’encaissement',
+      ...(multi ? ['Montant devise', 'Devise', 'Taux de change'] : [])].join(SEP),
   ];
 
   let total = 0;
@@ -103,11 +112,12 @@ export async function GET(req: NextRequest) {
       nature,
       eur(montant),
       mode,
+      ...(multi ? colonnesDevise(e) : []),
     ].join(SEP));
   }
 
   lignes.push('');
-  lignes.push(['', '', '', `TOTAL ${year}`, eur(Math.round(total * 100) / 100), ''].join(SEP));
+  lignes.push(['', '', '', `TOTAL ${year}`, eur(Math.round(total * 100) / 100), '', ...(multi ? ['', '', ''] : [])].join(SEP));
 
   /* BOM UTF-8 : sans lui, Excel affiche les accents en vrac. */
   const csv = '﻿' + lignes.join('\r\n');

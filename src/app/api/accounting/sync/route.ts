@@ -3,6 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { requireAuth } from '@/lib/auth';
 import { toutLire } from '@/lib/finance/tout-lire';
+import { normDevise } from '@/lib/devise';
+import { assurerContreValeur, comptabiliserVenteHorsEur } from '@/lib/vente-hors-eur';
+import { etatSeuilUe } from '@/lib/seuil-ue';
+import { logSystemEvent } from '@/lib/system-events';
+import { getStripe, stripeConfigured } from '@/lib/finance/stripe-payout';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +52,31 @@ export async function POST(req: NextRequest) {
     .order('id', { ascending: true }));
 
   for (const order of orders || []) {
+    /* Vente hors EUR (boutique en couronnes) : la recette se passe en
+       EUROS, au montant réellement crédité par Stripe. On pose d'abord la
+       contre-valeur (relevé Stripe, BCE après 48 h), puis la facture, puis
+       la recette, par le module partagé. Une commande en EUR (Swedish
+       Cravings) ne passe jamais ici : son chemin plus bas est inchangé. */
+    const devise = normDevise(order.currency);
+    if (devise !== 'EUR') {
+      const stripe = stripeConfigured() ? getStripe() : null;
+      const cv = await assurerContreValeur(order, { stripe, repliBce: 'si_ancienne' });
+      if (!cv.ok) { skipped.push(`${order.order_number} (contre-valeur EUR ${cv.raison})`); continue; }
+      Object.assign(order, cv.order);
+      const { data: invRowsHe } = await supabaseAdmin
+        .from('invoices').select('id').eq('order_id', order.id).limit(1);
+      if (!(invRowsHe && invRowsHe.length > 0) && order.customer_email) {
+        try {
+          const inv = await createInvoiceFromOrder(order);
+          if (inv) invoicesCreated.push(order.order_number);
+        } catch { /* non bloquant */ }
+      }
+      const r = await comptabiliserVenteHorsEur(order.id, { stripe, repliBce: 'si_ancienne' });
+      if (r.statut === 'inscrite' || r.statut === 'rattachee') created.push(order.order_number);
+      else skipped.push(`${order.order_number} (${r.statut})`);
+      continue;
+    }
+
     // Créer la facture si manquante
     const { data: invRows } = await supabaseAdmin
       .from('invoices').select('id').eq('order_id', order.id).limit(1);
@@ -189,6 +219,19 @@ export async function POST(req: NextRequest) {
     });
     created.push(`LC-${lc.id.slice(0, 6)}`);
   }
+
+  /* Seuil européen de vente à distance (10 000 €) : simple lecture, on
+     journalise à partir de 75 %. Ne change ni la synchro ni sa réponse. */
+  try {
+    const e = await etatSeuilUe();
+    if (e.niveau !== 'ok') {
+      await logSystemEvent({
+        source: 'accounting', level: e.niveau === 'bloque' ? 'error' : 'warn',
+        message: `Seuil européen de vente à distance : ${Math.round(e.ratio * 100)} %`,
+        context: { ...e },
+      });
+    }
+  } catch { /* garde-fou, jamais bloquant */ }
 
   return NextResponse.json({ created, skipped, removed, count: created.length, removedCount: removed.length });
 }

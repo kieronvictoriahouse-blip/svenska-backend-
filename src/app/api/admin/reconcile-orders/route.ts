@@ -48,7 +48,13 @@ export async function POST(req: NextRequest) {
       if (r.status !== 200) { skipped.push(`${order.order_number} (erreur: ${String(r.body?.error || r.status)})`); continue; }
       if (r.body?.duplicate) { skipped.push(`${order.order_number} (déjà traitée entre-temps)`); continue; }
 
-      fixed.push({ order: order.order_number, email: (s as any).customer_details?.email || '', total: (s.amount_total || 0) / 100 });
+      // Devise ajoutée hors EUR seulement : la sortie SC reste identique.
+      fixed.push({
+        order: order.order_number,
+        email: (s as any).customer_details?.email || '',
+        total: (s.amount_total || 0) / 100,
+        ...(s.currency && s.currency !== 'eur' ? { currency: s.currency.toUpperCase() } : {}),
+      });
     }
     if (!sessions.has_more) break;
     startingAfter = sessions.data[sessions.data.length - 1]?.id;

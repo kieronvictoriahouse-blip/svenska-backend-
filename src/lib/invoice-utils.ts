@@ -1,5 +1,7 @@
 import { supabaseAdmin } from './supabase';
 import { BOUTIQUE_DEFAUT, configBoutique } from './boutique';
+import { normDevise, contreValeurEur, round2 } from '@/lib/devise';
+import { paysDestinationCommande } from '@/lib/seuil-ue';
 import PDFDocument from 'pdfkit';
 
 /**
@@ -137,6 +139,10 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
   /* Boutique de la commande : la facture porte sa marque et lui reste
      rattachée. Swedish Cravings laisse la base poser son défaut. */
   const boutiqueCmd: string = order.boutique_id ?? BOUTIQUE_DEFAUT;
+  /* Devise de la commande. En EUR (Swedish Cravings) rien de ce qui suit
+     ne s'ouvre : aucun appel de plus, insertion identique. */
+  const devise = normDevise(order.currency);
+  const enEuro = devise === 'EUR';
   let config: Record<string, any> | null;
   try {
     config = await configBoutique(boutiqueCmd, '*');
@@ -146,6 +152,67 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
   } catch (cfgErr: any) {
     console.error('[invoice-utils] config vendeur illisible — facture NON créée :', cfgErr?.message);
     return null;
+  }
+
+  const totalTtc = parseFloat(order.total) || 0;
+
+  /* Hors EUR : la facture naît avec sa contre-valeur EUR, scellée avec
+     elle (la base le refuse sinon). Taux relevé au paiement sur la
+     commande (Stripe) ; à défaut, pour une vente Stripe, on N'émet PAS
+     au taux BCE : la synchro posera le vrai taux puis créera la facture,
+     pour que facture et livre des recettes disent le même EUR. Le repli
+     BCE ne vaut que pour une commande sans session Stripe, et il passe
+     par lib/vente-hors-eur (seul module qui pose la contre-valeur) : le
+     taux est écrit sur la commande avant la facture, la recette reprendra
+     le même. Tout cela avant le numéro : un refus ne consomme rien. */
+  let tauxEur: number | null = null;
+  let fxSource = '';
+  let fxDate = '';
+  let totalTtcEur: number | null = null;
+  if (!enEuro) {
+    tauxEur = Number(order.fx_rate) > 0 ? Number(order.fx_rate) : null;
+    fxSource = order.fx_source || 'stripe';
+    fxDate = order.fx_date || dateFacture;
+    if (!tauxEur) {
+      if (order.stripe_session_id || order.stripe_balance_tx || order.payment_method === 'stripe') {
+        console.error('[invoice-utils] contre-valeur Stripe pas encore relevée — facture laissée à /api/accounting/sync', order.order_number);
+        return null;
+      }
+      /* Commande manuelle pas encore payée (POST /api/orders facture dès la
+         création) : on ne fige aucun taux avant l'encaissement — sinon un
+         paiement par lien Stripe resterait au taux BCE du jour de création. */
+      if (!['paid', 'confirmed', 'shipped', 'delivered'].includes(order.status)) {
+        console.error('[invoice-utils] commande hors EUR non payée — facture créée au paiement', order.order_number);
+        return null;
+      }
+      try {
+        const { assurerContreValeur, extraireContreValeur } = await import('@/lib/vente-hors-eur');
+        const cv = await assurerContreValeur(order, { stripe: null, repliBce: 'toujours' });
+        if (!cv.ok) {
+          console.error('[invoice-utils] contre-valeur EUR non posée (', cv.raison, ') — facture NON créée', order.order_number);
+          return null;
+        }
+        Object.assign(order, extraireContreValeur(cv.order));
+      } catch (e: any) {
+        console.error('[invoice-utils] contre-valeur EUR en échec — facture NON créée', order.order_number, e?.message);
+        return null;
+      }
+      tauxEur = Number(order.fx_rate) > 0 ? Number(order.fx_rate) : null;
+      fxSource = order.fx_source || 'bce';
+      fxDate = order.fx_date || dateFacture;
+    }
+    if (!tauxEur) {
+      console.error('[invoice-utils] aucun taux de change pour', devise, '— facture NON créée', order.order_number);
+      return null;
+    }
+    /* total_eur est la contre-valeur du montant RÉGLÉ : on ne la reprend
+       que si la facture porte ce même montant. Une commande modifiée
+       après coup est convertie au même taux, jamais scellée à un EUR
+       qui ne correspond plus à son total. */
+    const regle = order.montant_regle_devise != null ? round2(Number(order.montant_regle_devise)) : null;
+    totalTtcEur = (order.total_eur != null && regle != null && round2(totalTtc) === regle)
+      ? round2(Number(order.total_eur))
+      : contreValeurEur(totalTtc, tauxEur);
   }
 
   // Numéro de facture séquentiel par année (Art. 242 nonies A CGI)
@@ -169,8 +236,6 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
   if (order.shipping && parseFloat(order.shipping) > 0) {
     lines.push({ desc: 'Frais de livraison', qty: 1, price: parseFloat(order.shipping), tva: 0 });
   }
-
-  const totalTtc = parseFloat(order.total) || 0;
 
   /* Remise d'un code promo (orders.discount) : elle porte sur la commande,
      pas sur les lignes. Sans ligne de remise, la facture affichait
@@ -237,6 +302,20 @@ export async function createInvoiceFromOrder(order: any): Promise<any> {
     seller_phone:    config?.phone       || '',
     ...(boutiqueCmd !== BOUTIQUE_DEFAUT
       ? { boutique_id: boutiqueCmd, ...(order.currency ? { currency: order.currency } : {}) }
+      : {}),
+    /* Hors EUR seulement : devise normalisée, contre-valeur figée (scellée
+       par l'empreinte), pays d'arrivée (Factur-X BT-55). */
+    ...(!enEuro
+      ? {
+          currency:      devise,
+          total_ttc_eur: totalTtcEur,
+          fx_rate_eur:   tauxEur,
+          fx_date:       fxDate,
+          fx_source:     fxSource,
+          buyer_country: paysDestinationCommande(order),
+          paid_at:       status === 'paid' ? new Date().toISOString() : null,
+          ...(order.stripe_session_id ? { payment_method: 'stripe' } : {}),
+        }
       : {}),
     }).select().single();
     if (res.data) { invoice = res.data; break; }

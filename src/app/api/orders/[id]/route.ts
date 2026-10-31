@@ -6,6 +6,10 @@ import { createInvoiceFromOrder } from '@/lib/invoice-utils';
 import { getWhiteLabelConfig, sendEmail } from '@/lib/email-send';
 import { envoyerEmailLivraison } from '@/lib/email-livraison';
 import { resteDu, sortirColis } from '@/lib/expedition';
+import { normDevise } from '@/lib/devise';
+import { comptabiliserVenteHorsEur } from '@/lib/vente-hors-eur';
+import { logSystemEvent } from '@/lib/system-events';
+import { getStripe, stripeConfigured } from '@/lib/finance/stripe-payout';
 
 /** Statuts où la marchandise a quitté l'étagère. */
 const PARTIS = ['shipped', 'delivered'];
@@ -136,25 +140,49 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     // 2. Sync compta automatique (évite le clic manuel)
-    const { data: existingEntry } = await supabaseAdmin
-      .from('accounting_entries')
-      .select('id').eq('reference_type', 'order').eq('reference_id', params.id).maybeSingle();
+    if (normDevise(order.currency) === 'EUR') {
+      const { data: existingEntry } = await supabaseAdmin
+        .from('accounting_entries')
+        .select('id').eq('reference_type', 'order').eq('reference_id', params.id).maybeSingle();
 
-    if (!existingEntry) {
-      const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
+      if (!existingEntry) {
+        const category = order.source === 'manual' ? 'vente_directe' : 'vente_en_ligne';
+        try {
+          await supabaseAdmin.from('accounting_entries').insert({
+            // Jour de Paris : une commande de 0 h 30 le 1er janvier n'est pas de l'année précédente.
+            date:             new Date(order.created_at || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }),
+            type:             'income',
+            category,
+            description:      `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
+            amount:           order.total || 0,
+            reference_type:   'order',
+            reference_id:     params.id,
+            reference_number: order.order_number,
+          });
+        } catch { /* non bloquant */ }
+      }
+    } else if (!order.is_test) {
+      /* Vente hors EUR : la recette se passe en EUROS (montant crédité par
+         Stripe), par le module partagé. Sans contre-valeur sûre, on la
+         laisse à la synchro plutôt que d'inscrire des couronnes. */
       try {
-        await supabaseAdmin.from('accounting_entries').insert({
-          // Jour de Paris : une commande de 0 h 30 le 1er janvier n'est pas de l'année précédente.
-          date:             new Date(order.created_at || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }),
-          type:             'income',
-          category,
-          description:      `Commande ${order.order_number}${order.customer_name ? ' — ' + order.customer_name : ''}`,
-          amount:           order.total || 0,
-          reference_type:   'order',
-          reference_id:     params.id,
-          reference_number: order.order_number,
-        });
-      } catch { /* non bloquant */ }
+        const r = await comptabiliserVenteHorsEur(order.id, { stripe: stripeConfigured() ? getStripe() : null, repliBce: 'si_ancienne' });
+        if (r.statut === 'reportee' || r.statut === 'incoherente') {
+          console.warn('[orders PUT] recette hors EUR reportée', order.order_number, r.statut);
+          await logSystemEvent({
+            source: 'accounting', level: 'warn',
+            message: 'Recette hors EUR laissée à /api/accounting/sync',
+            orderNumber: order.order_number, context: { statut: r.statut },
+          });
+        }
+        /* L'étape 1 a pu refuser la facture (contre-valeur pas encore
+           posée) : maintenant qu'elle l'est, on la crée, sinon l'email
+           d'expédition ci-dessous (qui attend une facture) ne part pas. */
+        if (!invoice && (r.statut === 'inscrite' || r.statut === 'rattachee' || r.statut === 'deja')) {
+          const { data: relue } = await supabaseAdmin.from('orders').select('*').eq('id', params.id).maybeSingle();
+          if (relue) invoice = await createInvoiceFromOrder({ ...relue, status: newStatus }).catch(() => null);
+        }
+      } catch (e) { console.error('[orders PUT] recette hors EUR :', e); /* non bloquant */ }
     }
 
     // 3. Emails client : suivi à l'expédition, remerciement + avis à la livraison

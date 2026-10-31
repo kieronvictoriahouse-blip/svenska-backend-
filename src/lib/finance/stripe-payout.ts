@@ -26,6 +26,12 @@ export interface PayoutCharge {
   description: string;
   orderNumber?: string;
   customer?: string;
+  /* Rapprochement hors EUR : clé Stripe de la charge et de quoi retrouver
+     la commande. Retirés avant d'enregistrer le versement (JSON inchangé). */
+  balanceTxId?: string;
+  deviseCharge?: string;
+  paymentIntentId?: string;
+  orderId?: string;
 }
 
 export interface PayoutBreakdown {
@@ -71,6 +77,10 @@ export async function explodePayout(payoutId: string): Promise<PayoutBreakdown> 
         description: src?.description || meta.order_number || 'Commande en ligne',
         orderNumber: meta.order_number || meta.orderNumber || undefined,
         customer: (src?.billing_details?.name) || meta.customer_name || undefined,
+        balanceTxId: bt.id,
+        deviseCharge: src?.currency,
+        paymentIntentId: typeof src?.payment_intent === 'string' ? src.payment_intent : src?.payment_intent?.id,
+        orderId: meta.order_id || undefined,
       });
       feeTotal += bt.fee / 100;
       grossTotal += bt.amount / 100;

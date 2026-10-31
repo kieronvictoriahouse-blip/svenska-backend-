@@ -4,6 +4,10 @@ import { getWlConfig } from '@/lib/mailer';
 import { confirmationCommande } from '@/lib/customer-emails';
 import { sendEmail } from '@/lib/email-send';
 import { secretServeur } from '@/lib/secret-interne';
+import { normDevise, formatMontant, reglementDeSessionAvecRelance, type ReglementEur } from '@/lib/devise';
+import { assurerContreValeur, comptabiliserVenteHorsEur, extraireContreValeur } from '@/lib/vente-hors-eur';
+import { logSystemEvent } from '@/lib/system-events';
+import { codeBoutique } from '@/lib/boutique';
 
 /* ═══════════════════════════════════════════════════════════════
    SESSION STRIPE PAYÉE — tout ce qui suit un paiement
@@ -80,6 +84,17 @@ export async function traiterSessionPayee(
     ? await supabaseAdmin.from('orders').select('*').eq('id', orderId).maybeSingle()
     : { data: null as any };
 
+  /* Devise de la commande (celle de sa boutique, posée au checkout).
+     En EUR (Swedish Cravings), rien de ce qui suit ne change : les
+     branches hors EUR ne s'ouvrent que si devise ≠ EUR. Une session dans
+     une autre devise que la commande est une anomalie (Adaptive Pricing
+     coupé hors EUR) : jamais de contre-valeur, de facture ni d'écriture
+     calculées dessus. */
+  const devise              = normDevise(existing?.currency);
+  const enEuro              = devise === 'EUR';
+  const deviseSession       = session.currency ? normDevise(session.currency) : devise;
+  const devisesIncoherentes = deviseSession !== devise;
+
   if (orderId && existing) {
     // Commande draft créée au checkout → mettre à jour
     const orderLines = existing?.lines
@@ -131,6 +146,20 @@ export async function traiterSessionPayee(
       return { status: 200, body: { received: true, duplicate: true } };
     }
 
+    /* Anomalie journalisée sans bloquer le « payé » : l'argent est
+       encaissé, la suite (contre-valeur, facture, compta) se traite à la
+       main. Pour une commande EUR, c'est le seul effet. */
+    if (devisesIncoherentes) {
+      console.error('[webhook] devise de la session différente de la commande', { devise, deviseSession, orderId });
+      await logSystemEvent({
+        source:      'stripe-webhook',
+        level:       'error',
+        message:     'Devise de la session différente de la commande',
+        orderNumber: existing?.order_number,
+        context:     { devise, deviseSession },
+      });
+    }
+
     // 2) Champs OPTIONNELS (téléphone, adresse) — séparés et non bloquants :
     //    une colonne manquante ou un type jsonb ne doit pas empêcher le "payé".
     const optional: Record<string, unknown> = {};
@@ -179,70 +208,115 @@ export async function traiterSessionPayee(
        inventaire, et faisait apparaitre a zero des produits encore
        presents. */
 
+    /* Contre-valeur EUR (hors EUR uniquement) : montant réellement
+       crédité par Stripe (balance_transaction). Relevée aussi pour les
+       paiements test, pour qu'elle soit vérifiable sur la commande. Sans
+       relevé Stripe, pas de repli BCE ici : facture et recette seraient
+       à un autre EUR que le livre. La synchro les passera ensuite. */
+    let reglement: ReglementEur | null = null;
+    let champsEur: Record<string, unknown> = {};
+    if (!enEuro && !devisesIncoherentes) {
+      reglement = await reglementDeSessionAvecRelance(stripe, session).catch((e) => {
+        console.error('[webhook] balance transaction', e?.message);
+        return null;
+      });
+      if (reglement) {
+        const cv = await assurerContreValeur({ ...existing, total, stripe_session_id: session.id }, { stripe, reglement, repliBce: 'jamais' });
+        /* stripe_session_id : le brouillon lu plus haut ne le porte pas
+           encore (seul l'update de ce webhook l'écrit). La facture doit le
+           voir pour ne jamais retomber sur le taux BCE. */
+        if (cv.ok) champsEur = { ...extraireContreValeur(cv.order), stripe_session_id: session.id };
+        else console.error('[webhook] contre-valeur EUR non posée — facture reportée à la synchro', cv.raison);
+      } else {
+        await logSystemEvent({
+          source:      'stripe-webhook',
+          level:       'warn',
+          message:     'Contre-valeur EUR indisponible — facture et compta reportées à /api/accounting/sync',
+          orderNumber: existing?.order_number,
+        });
+      }
+    }
+
     // Facture + compta : skip pour les commandes test
     if (isTestEvent || existing?.is_test) { /* skip */ } else
     // Facture automatique via invoice-utils (format correct)
     try {
-      const { data: existingInv } = await supabaseAdmin
-        .from('invoices').select('id').eq('order_id', orderId).maybeSingle();
+      /* Hors EUR sans contre-valeur posée (relevé Stripe absent, écriture
+         en échec ou devises incohérentes) : pas de facture ici, la synchro
+         la crée avec la contre-valeur. */
+      if (enEuro || (reglement && champsEur.fx_rate != null)) {
+        const { data: existingInv } = await supabaseAdmin
+          .from('invoices').select('id').eq('order_id', orderId).maybeSingle();
 
-      if (!existingInv) {
-        const { createInvoiceFromOrder } = await import('@/lib/invoice-utils');
-        const invoice = await createInvoiceFromOrder({
-          ...existing,
-          customer_name:    customerName,
-          customer_email:   customerEmail,
-          shipping_address: effectiveAddress,
-          subtotal:         subtotal > 0 ? subtotal : total,
-          shipping:         shippingCost,
-          total,
-          lines:            orderLines,
-          status:           'paid',
-        });
+        if (!existingInv) {
+          const { createInvoiceFromOrder } = await import('@/lib/invoice-utils');
+          const invoice = await createInvoiceFromOrder({
+            ...existing,
+            customer_name:    customerName,
+            customer_email:   customerEmail,
+            shipping_address: effectiveAddress,
+            subtotal:         subtotal > 0 ? subtotal : total,
+            shipping:         shippingCost,
+            total,
+            lines:            orderLines,
+            status:           'paid',
+            // Vide en EUR : la facture SC reste identique.
+            ...champsEur,
+          });
 
-        if (invoice?.number) {
-          await supabaseAdmin.from('orders')
-            .update({ invoice_number: invoice.number }).eq('id', orderId);
+          if (invoice?.number) {
+            await supabaseAdmin.from('orders')
+              .update({ invoice_number: invoice.number }).eq('id', orderId);
+          }
         }
       }
 
-      // Entrée comptable automatique
-      // .limit(1) et non .maybeSingle() : sur doublons existants, maybeSingle
-      // renvoie une erreur → data null → réinsertion (cause du CA gonflé).
-      const { data: entryRows } = await supabaseAdmin
-        .from('accounting_entries').select('id')
-        .eq('reference_type', 'order').eq('reference_id', orderId).eq('type', 'income')
-        .limit(1);
-      if (!(entryRows && entryRows.length > 0)) {
-        await supabaseAdmin.from('accounting_entries').insert({
-          date:             jourParis(),
-          type:             'income',
-          category:         'vente_en_ligne',
-          description:      `Commande ${existing?.order_number || ''}${customerName ? ' — ' + customerName : ''}`,
-          amount:           total,
-          reference_type:   'order',
-          reference_id:     orderId,
-          reference_number: existing?.order_number || '',
-        });
-      }
+      if (enEuro) {
+        // Entrée comptable automatique
+        // .limit(1) et non .maybeSingle() : sur doublons existants, maybeSingle
+        // renvoie une erreur → data null → réinsertion (cause du CA gonflé).
+        const { data: entryRows } = await supabaseAdmin
+          .from('accounting_entries').select('id')
+          .eq('reference_type', 'order').eq('reference_id', orderId).eq('type', 'income')
+          .limit(1);
+        if (!(entryRows && entryRows.length > 0)) {
+          await supabaseAdmin.from('accounting_entries').insert({
+            date:             jourParis(),
+            type:             'income',
+            category:         'vente_en_ligne',
+            description:      `Commande ${existing?.order_number || ''}${customerName ? ' — ' + customerName : ''}`,
+            amount:           total,
+            reference_type:   'order',
+            reference_id:     orderId,
+            reference_number: existing?.order_number || '',
+          });
+        }
 
-      // Frais Stripe automatiques (~1,5% + 0,25€ par transaction)
-      const { data: stripeEntryRows } = await supabaseAdmin
-        .from('accounting_entries').select('id')
-        .eq('reference_type', 'order').eq('reference_id', orderId).eq('category', 'frais_stripe')
-        .limit(1);
-      if (!(stripeEntryRows && stripeEntryRows.length > 0) && total > 0) {
-        const stripeFee = Math.round((total * 0.015 + 0.25) * 100) / 100;
-        await supabaseAdmin.from('accounting_entries').insert({
-          date:             jourParis(),
-          type:             'expense',
-          category:         'frais_stripe',
-          description:      `Frais Stripe — ${existing?.order_number || ''}`,
-          amount:           stripeFee,
-          reference_type:   'order',
-          reference_id:     orderId,
-          reference_number: existing?.order_number || '',
-        });
+        // Frais Stripe automatiques (~1,5% + 0,25€ par transaction)
+        const { data: stripeEntryRows } = await supabaseAdmin
+          .from('accounting_entries').select('id')
+          .eq('reference_type', 'order').eq('reference_id', orderId).eq('category', 'frais_stripe')
+          .limit(1);
+        if (!(stripeEntryRows && stripeEntryRows.length > 0) && total > 0) {
+          const stripeFee = Math.round((total * 0.015 + 0.25) * 100) / 100;
+          await supabaseAdmin.from('accounting_entries').insert({
+            date:             jourParis(),
+            type:             'expense',
+            category:         'frais_stripe',
+            description:      `Frais Stripe — ${existing?.order_number || ''}`,
+            amount:           stripeFee,
+            reference_type:   'order',
+            reference_id:     orderId,
+            reference_number: existing?.order_number || '',
+          });
+        }
+      } else if (reglement && !devisesIncoherentes) {
+        /* Hors EUR : recette = EUR crédité, frais = frais Stripe réels,
+           via le module partagé (même logique que la synchro, idempotente). */
+        const r = await comptabiliserVenteHorsEur(orderId, { stripe, reglement, repliBce: 'jamais' });
+        if (r.statut === 'reportee' || r.statut === 'incoherente') {
+          console.error('[webhook] recette hors EUR non passée', r.statut);
+        }
       }
     } catch (invErr) {
       console.error('[webhook] invoice/accounting error:', invErr);
@@ -293,11 +367,17 @@ export async function traiterSessionPayee(
 
       // Notification interne — nouvelle commande
       try {
+        /* Montants dans la devise de la commande. En EUR, exactement
+           l'ancien format « 12.34 € » ; hors EUR, la contre-valeur EUR
+           (si connue) est rappelée dans le sujet. */
+        const fmtNotif = (n: number) => enEuro ? `${n.toFixed(2)} €` : formatMontant(n, devise, 'fr');
+        const equivEur = !enEuro && champsEur.total_eur != null
+          ? ` ≈ ${Number(champsEur.total_eur).toFixed(2)} €` : '';
         const linesHtml = orderLines.map((l: any) =>
           `<tr>
             <td style="padding:4px 8px;border-bottom:1px solid #eee">${l.name || l.product_name || ''}</td>
             <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center">${l.qty}</td>
-            <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">${((l.price || 0) * (l.qty || 1)).toFixed(2)} €</td>
+            <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">${fmtNotif((l.price || 0) * (l.qty || 1))}</td>
           </tr>`
         ).join('');
 
@@ -312,7 +392,7 @@ export async function traiterSessionPayee(
             <div style="padding:22px 24px">
               <div style="font-size:10px;letter-spacing:2.6px;text-transform:uppercase;color:#B49256;font-weight:bold">Nouvelle commande</div>
               <div style="font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:36px;color:#1F231C;padding-top:8px">
-                ${existing?.order_number || ''} · ${total.toFixed(2)} €
+                ${existing?.order_number || ''} · ${fmtNotif(total)}
               </div>
 
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:16px;background:#F4EEE1">
@@ -328,16 +408,16 @@ export async function traiterSessionPayee(
                   <tr>
                     <td style="padding:9px 0;border-bottom:1px solid #EFE9DC;font-size:13px;color:#1F231C">${l.name || l.product_name || ''}</td>
                     <td style="padding:9px 8px;border-bottom:1px solid #EFE9DC;font-size:13px;color:#948B79;text-align:center">x${l.qty}</td>
-                    <td style="padding:9px 0;border-bottom:1px solid #EFE9DC;font-size:13px;color:#1F231C;text-align:right;font-weight:bold">${((l.price || 0) * (l.qty || 1)).toFixed(2)} €</td>
+                    <td style="padding:9px 0;border-bottom:1px solid #EFE9DC;font-size:13px;color:#1F231C;text-align:right;font-weight:bold">${fmtNotif((l.price || 0) * (l.qty || 1))}</td>
                   </tr>`).join('')}
               </table>
 
-              ${shippingCost > 0 ? `<div style="text-align:right;font-size:12.5px;color:#5F5A4E;padding-top:10px">Livraison ${shippingCost.toFixed(2)} €</div>` : ''}
+              ${shippingCost > 0 ? `<div style="text-align:right;font-size:12.5px;color:#5F5A4E;padding-top:10px">Livraison ${fmtNotif(shippingCost)}</div>` : ''}
 
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:14px;background:#44573D">
                 <tr>
                   <td style="padding:14px 16px;font-size:10px;letter-spacing:2.4px;text-transform:uppercase;color:#D8DCD2;font-weight:bold">Total</td>
-                  <td style="padding:14px 16px;text-align:right;font-family:Georgia,serif;font-size:24px;color:#FDFBF5">${total.toFixed(2)} €</td>
+                  <td style="padding:14px 16px;text-align:right;font-family:Georgia,serif;font-size:24px;color:#FDFBF5">${fmtNotif(total)}</td>
                 </tr>
               </table>
 
@@ -352,7 +432,7 @@ export async function traiterSessionPayee(
           /* L'alerte interne va a la boite du marchand — sa config,
               jamais une adresse en dur. */
           to:      (cfg as any).email || (cfg as any).smtp_user || process.env.SMTP_FROM || '',
-          subject: `Nouvelle commande ${existing?.order_number || ''} — ${customerName} (${total.toFixed(2)} €)`,
+          subject: `Nouvelle commande ${existing?.order_number || ''} — ${customerName} (${fmtNotif(total)}${equivEur})`,
           html:    notifHtml,
         }, cfg);
       } catch (notifErr) {
@@ -387,6 +467,13 @@ export async function traiterSessionPayee(
             relay_carrier_uuid:  relayCarrierUuid,
             lines:               orderLines,
             total,
+            /* Hors EUR : la valeur déclarée à UGO doit être en euros
+               (contre-valeur relevée au paiement). Rien de plus en EUR. */
+            ...(!enEuro ? {
+              currency:  devise,
+              total_eur: (champsEur.total_eur as number) ?? null,
+              fx_rate:   (champsEur.fx_rate as number) ?? null,
+            } : {}),
           }, cfg);
 
           await supabaseAdmin.from('orders').update({
@@ -445,6 +532,11 @@ export async function traiterSessionPayee(
       .from('orders').select('id', { count: 'exact', head: true });
     const num = String((orderCount || 0) + 1).padStart(4, '0');
 
+    /* Hors EUR, la commande garde la devise réellement encaissée (et sa
+       boutique si la session la porte). Pas de compta ici : la synchro
+       pose la contre-valeur et passe la recette. En EUR, insert inchangé. */
+    const deviseFb = normDevise(session.currency);
+
     await supabaseAdmin.from('orders').insert({
       order_number:     `SD-${num}`,
       customer_name:    customerName,
@@ -454,6 +546,10 @@ export async function traiterSessionPayee(
       status:           'paid',
       lines:            JSON.stringify(lines),
       stripe_session_id: session.id,
+      ...(deviseFb !== 'EUR' ? {
+        currency: deviseFb,
+        ...(session.metadata?.boutique ? { boutique_id: codeBoutique(session.metadata.boutique) } : {}),
+      } : {}),
     });
   }
 

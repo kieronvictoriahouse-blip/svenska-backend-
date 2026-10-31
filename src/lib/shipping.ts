@@ -91,3 +91,97 @@ export function resolveShipping(
 
   return { threshold: baseThreshold, cost: base.cost, promoActive: false, baseThreshold, label };
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   LIVRAISON PAR BOUTIQUE (étape 3, migration 067)
+
+   Swedish Cravings (fiche === null) : exactement le calcul que faisait
+   le checkout, délégué à resolveShipping avec les mêmes arguments.
+   Autre boutique : ses propres règles, dans SA devise. Jamais les
+   barèmes de SC (4,90 / 29 €) appliqués à des couronnes : une boutique
+   non configurée est signalée (configIncomplete) et le checkout refuse.
+   ═══════════════════════════════════════════════════════════════ */
+
+export type FicheLivraison = {
+  livraison_pays?: string[] | null;
+  livraison_cout?: number | string | null;
+  livraison_franco?: number | string | null;
+};
+
+export type Livraison = {
+  /** Pays de livraison retenu (ISO-2) */
+  pays: string;
+  /** false : le pays demandé n'est pas desservi par cette boutique */
+  servi: boolean;
+  /** Zone internationale de SC (toujours false pour une autre boutique) */
+  international: boolean;
+  rules: ShippingRules;
+  /** Pays proposés pour la livraison à domicile */
+  paysDomicile: string[];
+  /** Boutique non-sc sans pays ou sans coût de port : à refuser */
+  configIncomplete: boolean;
+};
+
+export function livraisonBoutique(
+  fiche: FicheLivraison | null,
+  cfg: any,
+  opts: { pays?: string | null; relais: boolean; at?: Date },
+): Livraison {
+  // Swedish Cravings : copie conforme de l'ancien calcul du checkout.
+  if (fiche === null) {
+    const pays = String(opts.pays || 'FR').toUpperCase();
+    const international = opts.relais && INTERNATIONAL_COUNTRIES.includes(pays);
+    const servi = !opts.relais || pays === 'FR' || international;
+    const rules = resolveShipping(cfg, { isInternational: international, at: opts.at });
+    return { pays, servi, international, rules, paysDomicile: ['FR', 'MC'], configIncomplete: false };
+  }
+
+  const liste = (Array.isArray(fiche.livraison_pays) ? fiche.livraison_pays : [])
+    .map(p => String(p || '').trim().toUpperCase())
+    .filter(Boolean);
+  const coutBrut = fiche.livraison_cout;
+  if (!liste.length || coutBrut == null || coutBrut === '') {
+    return {
+      pays: String(opts.pays || '').toUpperCase(),
+      servi: false,
+      international: false,
+      // Port nul et franco jamais atteint : rien de facturable ne doit en sortir.
+      rules: { ...resolveShipping(cfg, { isInternational: false, at: opts.at }), cost: 0, threshold: Number.POSITIVE_INFINITY },
+      paysDomicile: [],
+      configIncomplete: true,
+    };
+  }
+
+  const pays = String(opts.pays || liste[0]).toUpperCase();
+  const servi = !opts.relais || liste.includes(pays);
+  const cost = Number(coutBrut);
+  const franco = Number(fiche.livraison_franco);
+  // Pas de seuil renseigné : la livraison n'est jamais offerte.
+  const baseThreshold = franco > 0 ? franco : Number.POSITIVE_INFINITY;
+  const label = {
+    fr: cfg?.ship_promo_label_fr || '',
+    sv: cfg?.ship_promo_label_sv || '',
+    en: cfg?.ship_promo_label_en || '',
+  };
+
+  let threshold = baseThreshold;
+  let promoActive = false;
+  if (isShipPromoActive(cfg, opts.at)) {
+    const raw = cfg?.ship_promo_threshold;
+    const promoThreshold = Number(raw);
+    if (raw != null && raw !== '' && promoThreshold >= 0) {
+      threshold = promoThreshold;
+      promoActive = true;
+    }
+  }
+
+  return {
+    pays,
+    servi,
+    international: false,
+    rules: { threshold, cost, promoActive, baseThreshold, label },
+    paysDomicile: liste,
+    configIncomplete: false,
+  };
+}
+

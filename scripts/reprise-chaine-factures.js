@@ -49,7 +49,17 @@ function canonique(inv) {
     base[c] = ['total_ht', 'total_tva', 'total_ttc'].includes(c)
       ? (Number(v) || 0).toFixed(2) : String(v ?? '');
   }
-  return JSON.stringify({ ...base, lignes });
+  /* Hors EUR seulement : devise + contre-valeur scellées, même ordre et
+     mêmes formats que facture-integrite.ts. En EUR, extra = {}. */
+  const devise = String(inv.currency || 'EUR').trim().toUpperCase();
+  const extra = devise !== 'EUR'
+    ? {
+        devise,
+        ttc_eur: inv.total_ttc_eur == null ? '' : (Number(inv.total_ttc_eur) || 0).toFixed(2),
+        taux_eur: inv.fx_rate_eur == null ? '' : Number(inv.fx_rate_eur).toFixed(8),
+      }
+    : {};
+  return JSON.stringify({ ...base, lignes, ...extra });
 }
 const empreinte = (contenu, prev) =>
   createHash('sha256').update(prev + '\n' + contenu, 'utf8').digest('hex');

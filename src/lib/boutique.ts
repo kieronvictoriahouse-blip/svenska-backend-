@@ -70,11 +70,17 @@ export type Boutique = {
   prefixe_commande: string | null;
   retrait_sur_place: boolean;
   actif: boolean;
+  /* Livraison dans la devise de la boutique (migration 067). Toujours
+     null pour sc : ses règles restent celles de src/lib/shipping.ts. */
+  livraison_pays: string[] | null;
+  livraison_cout: number | null;
+  livraison_franco: number | null;
 };
 
 const SC: Boutique = {
   code: 'sc', nom: 'Swedish Cravings', devise: 'EUR', langue: 'fr',
   front_url: null, prefixe_commande: null, retrait_sur_place: true, actif: true,
+  livraison_pays: null, livraison_cout: null, livraison_franco: null,
 };
 
 let cache: { at: number; liste: Boutique[] } | null = null;
@@ -87,4 +93,26 @@ export async function boutique(code: string = BOUTIQUE_DEFAUT): Promise<Boutique
     cache = { at: Date.now(), liste: error ? [SC] : ((data as Boutique[]) || [SC]) };
   }
   return cache.liste.find(x => x.code === b) || (b === BOUTIQUE_DEFAUT ? SC : { ...SC, code: b, nom: b });
+}
+
+/* Lectures réussies seulement : une erreur passagère ne doit pas rester
+   en cache une minute, ni surtout faire passer une boutique pour une autre. */
+const cacheStrict = new Map<string, { at: number; fiche: Boutique }>();
+
+/**
+ * Fiche d'une boutique SANS repli : null si elle est absente ou illisible.
+ * Pour l'argent (checkout, lien de paiement) : là où `boutique()` retombe
+ * sur les valeurs de Swedish Cravings, on refuse plutôt que de débiter
+ * 149 kr comme 149 €. Swedish Cravings ne lit jamais la base ici.
+ */
+export async function boutiqueStricte(code: string): Promise<Boutique | null> {
+  const b = codeBoutique(code);
+  if (b === BOUTIQUE_DEFAUT) return SC;
+  const c = cacheStrict.get(b);
+  if (c && Date.now() - c.at <= 60_000) return c.fiche;
+  const { data, error } = await supabaseAdmin.from('boutiques').select('*').eq('code', b).maybeSingle();
+  if (error || !data) return null;
+  const fiche = data as Boutique;
+  cacheStrict.set(b, { at: Date.now(), fiche });
+  return fiche;
 }

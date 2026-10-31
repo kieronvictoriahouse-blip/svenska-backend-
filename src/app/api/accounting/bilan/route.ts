@@ -8,6 +8,21 @@ export const dynamic = 'force-dynamic';
 
 const TAUX_COTIS = 0.123;
 const round = (n: number) => Math.round(n * 100) / 100;
+/* Créance d'une facture hors euro : sa contre-valeur EUR figée, jamais des
+   couronnes additionnées à des euros. En EUR : total_ttc, comme avant. */
+const ttcEur = (i: any) => i.currency && i.currency !== 'EUR' ? (Number(i.total_ttc_eur) || 0) : (Number(i.total_ttc) || 0);
+
+/* Factures ouvertes. Le select avec la contre-valeur échoue (42703) tant
+   que la migration 067 n'est pas passée : on relit alors l'ancien. */
+async function facturesOuvertes(): Promise<{ data: any[] | null }> {
+  const lire = async (cols: string) => {
+    const { data, error } = await supabaseAdmin.from('invoices').select(cols).in('status', ['sent', 'late']);
+    return { data: (data as any[] | null) ?? null, error };
+  };
+  const r = await lire('total_ttc, total_ttc_eur, currency, status, due_date, client_name');
+  if (r.error && (r.error as any).code === '42703') return lire('total_ttc, status, due_date, client_name');
+  return r;
+}
 
 export async function GET(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -26,7 +41,7 @@ export async function GET(req: NextRequest) {
   }
   const [{ data: accounts }, { data: invoices }, { data: pos }] = await Promise.all([
     supabaseAdmin.from('bank_accounts').select('balance'),
-    supabaseAdmin.from('invoices').select('total_ttc, status, due_date, client_name').in('status', ['sent', 'late']),
+    facturesOuvertes(),
     supabaseAdmin.from('purchase_orders').select('total, status'),
   ]);
 
@@ -73,7 +88,7 @@ export async function GET(req: NextRequest) {
 
   // ── Bilan ──
   const banque = round((accounts || []).reduce((s, a) => s + (Number(a.balance) || 0), 0));
-  const creances = round((invoices || []).reduce((s, i) => s + (Number(i.total_ttc) || 0), 0));
+  const creances = round((invoices || []).reduce((s, i) => s + ttcEur(i), 0));
   const stock = round((products || []).reduce((s, p: any) => {
     const cost = Number(p.cost_price ?? p.cost ?? p.purchase_price ?? 0);
     const qty = Number(p.stock ?? p.stock_qty ?? p.quantity ?? p.qty ?? 0);
@@ -115,7 +130,7 @@ export async function GET(req: NextRequest) {
     const v = round((invoices || []).filter((i: any) => {
       const due = i.due_date ? new Date(i.due_date).getTime() : now;
       return test(Math.floor((now - due) / 86400000));
-    }).reduce((s, i: any) => s + (Number(i.total_ttc) || 0), 0));
+    }).reduce((s, i: any) => s + ttcEur(i), 0));
     return { label, color, value: v };
   });
   const agedMax = Math.max(1, ...aged.map(a => a.value));

@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
-import { resolveShipping, INTERNATIONAL_COUNTRIES } from '@/lib/shipping';
+import { livraisonBoutique } from '@/lib/shipping';
 import { evaluatePromo, PromoRefusal } from '@/lib/promo';
 import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/product-price';
 import { precommandeActive, SUFFIXE_PRECOMMANDE } from '@/lib/precommande';
 import crypto from 'crypto';
 import { secretServeur } from '@/lib/secret-interne';
-import { BOUTIQUE_DEFAUT, boutiqueDeRequete, configBoutique } from '@/lib/boutique';
+import { BOUTIQUE_DEFAUT, boutiqueDeRequete, configBoutique, boutiqueStricte, type Boutique } from '@/lib/boutique';
+import { normDevise, deviseStripe, versMinor, montantMinimum, formatMontant } from '@/lib/devise';
+import { etatSeuilUe } from '@/lib/seuil-ue';
 
 function verifyCustomerToken(token: string): string | null {
   try {
@@ -96,14 +98,18 @@ const ERREURS = {
   email:    { fr: 'Adresse email invalide.', en: 'Invalid email address.', sv: 'Ogiltig e-postadress.' },
   retrait:  { fr: 'Votre panier contient un produit disponible en retrait en magasin uniquement (click & collect). Sélectionnez ce mode de livraison pour finaliser la commande.', en: 'Your basket contains an item available for in-store pickup only (click & collect). Please select this delivery method to complete your order.', sv: 'Din varukorg innehåller en vara som bara kan hämtas i butik (click & collect). Välj det leveranssättet för att slutföra beställningen.' },
   pays:     { fr: 'Nous ne livrons pas encore ce pays en point relais.', en: 'We do not deliver to relay points in this country yet.', sv: 'Vi levererar ännu inte till utlämningsställen i det här landet.' },
+  // Étape 3 : refus propres à une boutique autre que Swedish Cravings.
+  boutiqueIndispo: { fr: 'Cette boutique est momentanément indisponible.', en: 'This shop is temporarily unavailable.', sv: 'Den här butiken är tillfälligt otillgänglig.' },
+  retraitIndispo:  { fr: 'Le retrait en magasin n’est pas proposé par cette boutique. Choisissez une livraison.', en: 'In-store pickup is not offered by this shop. Please choose a delivery method.', sv: 'Den här butiken erbjuder inte hämtning i butik. Välj ett leveranssätt.' },
+  livraisonIndispo: { fr: 'La livraison n’est pas encore disponible pour cette boutique.', en: 'Delivery is not yet available for this shop.', sv: 'Leverans är ännu inte tillgänglig för den här butiken.' },
 };
 
 /* Numéro de commande : count + 1, colonne UNIQUE. Une seule commande
    supprimée suffit à faire retomber le compte sur un numéro déjà pris.
    Aux essais suivants, on repart du plus grand numéro récent, un cran
    plus loin à chaque fois au cas où un paiement concurrent vient de le
-   prendre. */
-async function numeroCommande(essai: number): Promise<string> {
+   prendre. Préfixe : celui de la boutique (« SD- » pour Swedish Cravings). */
+async function numeroCommande(essai: number, prefixe = 'SD-'): Promise<string> {
   const { count } = await supabaseAdmin.from('orders').select('id', { count: 'exact', head: true });
   let n = (count || 0) + 1;
   if (essai > 0) {
@@ -114,7 +120,7 @@ async function numeroCommande(essai: number): Promise<string> {
       .filter(Number.isFinite);
     n = Math.max(n, Math.max(0, ...nums) + 1) + (essai - 1);
   }
-  return `SD-${String(n).padStart(4, '0')}`;
+  return `${prefixe}${String(n).padStart(4, '0')}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -138,6 +144,35 @@ export async function POST(req: NextRequest) {
     }
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
+
+    /* Étape 3 : une autre vitrine encaisse dans SA devise. Sa fiche est
+       lue sans repli : absente, illisible ou inactive, on refuse plutôt
+       que de débiter 149 kr comme 149 €. Swedish Cravings ne lit rien
+       (fiche reste null) : son chemin est câblé en euros. */
+    let fiche: Boutique | null = null;
+    if (b !== BOUTIQUE_DEFAUT) {
+      fiche = await boutiqueStricte(b);
+      if (!fiche || fiche.actif === false) {
+        return NextResponse.json({ error: ERREURS.boutiqueIndispo[langue], code: 'SHOP_UNAVAILABLE' }, { status: 503, headers: CORS });
+      }
+      /* Seuil européen de 10 000 € : garde-fou, pas la source légale. Une
+         erreur de calcul laisse passer (journalisée). */
+      const seuil = await etatSeuilUe().catch((e) => {
+        console.error('[checkout] seuil UE illisible', e?.message);
+        return null;
+      });
+      if (seuil?.niveau === 'bloque') {
+        return NextResponse.json({ error: ERREURS.boutiqueIndispo[langue], code: 'EU_THRESHOLD' }, { status: 503, headers: CORS });
+      }
+    }
+    const devise = fiche ? normDevise(fiche.devise) : 'EUR';
+    const enEuro = devise === 'EUR';
+    const cur = deviseStripe(devise);
+
+    // Click & Collect : seulement si la boutique a un lieu de retrait.
+    if (fiche && isPickup && fiche.retrait_sur_place === false) {
+      return NextResponse.json({ error: ERREURS.retraitIndispo[langue], code: 'PICKUP_UNAVAILABLE' }, { status: 400, headers: CORS });
+    }
 
     const isTestMode = !!customer_email && ADMIN_TEST_EMAILS.includes(customer_email.toLowerCase());
     const stripeKey = isTestMode
@@ -295,12 +330,13 @@ export async function POST(req: NextRequest) {
       const image = imageAbsolue(product.image_url, baseUrl);
       lineItems.push({
         price_data: {
-          currency: 'eur',
+          currency: cur,
           product_data: {
             name: langue === 'en' ? name_en : langue === 'sv' ? name_sv : name,
             ...(image ? { images: [image] } : {}),
           },
-          unit_amount: Math.round(price * 100),
+          // Prix natif de la boutique, en unités mineures de sa devise.
+          unit_amount: versMinor(price, devise),
         },
         quantity: item.quantity,
       });
@@ -501,7 +537,7 @@ export async function POST(req: NextRequest) {
         if (!verdict.ok) return refuser(verdict.reason);
         /* Montant fixe et non pourcentage Stripe : un pourcentage
            porterait aussi sur les articles déjà en promotion. */
-        coupon = { amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' };
+        coupon = { amount_off: versMinor(verdict.discount, devise), currency: cur, duration: 'once' };
         discountAmount = verdict.discount;
       } else {
         // Usage du client vérifié avant d'évaluer (une seule requête, si utile)
@@ -522,24 +558,13 @@ export async function POST(req: NextRequest) {
           coupon = { percent_off: Number(promo.value), duration: 'once' };
           discountAmount = verdict.discount;
         } else if (promo.type === 'fixed' && verdict.discount > 0) {
-          coupon = { amount_off: Math.round(verdict.discount * 100), currency: 'eur', duration: 'once' };
+          coupon = { amount_off: versMinor(verdict.discount, devise), currency: cur, duration: 'once' };
           discountAmount = verdict.discount;
         } else if (promo.type === 'free_shipping') {
           isFreeShippingPromo = true;
         }
       }
       promoCodeId = promo.id;
-    }
-
-    const relayCountry = (relay_point_pays || 'FR').toUpperCase();
-    const isInternational = isMondialRelay && INTERNATIONAL_COUNTRIES.includes(relayCountry);
-    /* Un pays hors barème (ex. Suisse, encore proposée par l'ancien panier)
-       partait au tarif France. On refuse plutôt que de vendre à perte. */
-    if (isMondialRelay && relayCountry !== 'FR' && !isInternational) {
-      return NextResponse.json(
-        { error: ERREURS.pays[langue], code: 'COUNTRY_NOT_SERVED' },
-        { status: 400, headers: CORS },
-      );
     }
 
     // Barème + opération « livraison offerte » : le serveur fait autorité,
@@ -551,13 +576,34 @@ export async function POST(req: NextRequest) {
       console.error('[checkout] lecture white_label_config', e?.message || e);
       return null;
     });
-    const shipRules = resolveShipping(shipCfg, { isInternational });
+    /* Swedish Cravings (fiche null) : barème de lib/shipping inchangé.
+       Autre boutique : ses propres pays et montants, dans sa devise. */
+    const livraison = livraisonBoutique(fiche, shipCfg, { pays: relay_point_pays, relais: isMondialRelay });
+    // Boutique sans livraison configurée : jamais les barèmes de SC.
+    if (fiche && !isPickup && livraison.configIncomplete) {
+      return NextResponse.json({ error: ERREURS.livraisonIndispo[langue], code: 'SHIPPING_NOT_CONFIGURED' }, { status: 503, headers: CORS });
+    }
+    const isInternational = livraison.international;
+    /* Un pays hors barème (ex. Suisse, encore proposée par l'ancien panier)
+       partait au tarif France. On refuse plutôt que de vendre à perte. */
+    if (isMondialRelay && !livraison.servi) {
+      return NextResponse.json(
+        { error: ERREURS.pays[langue], code: 'COUNTRY_NOT_SERVED' },
+        { status: 400, headers: CORS },
+      );
+    }
+    const shipRules = livraison.rules;
 
     const freeShipping = subtotal >= shipRules.threshold || isFreeShippingPromo;
     const shippingCost = isPickup ? 0 : (freeShipping ? 0 : shipRules.cost);
     const grandTotal = Math.max(0, subtotal - discountAmount) + shippingCost;
-    if (grandTotal < 0.50) {
-      return NextResponse.json({ error: `Total minimum de commande non atteint (${grandTotal.toFixed(2)} € < 0.50 €)` }, { status: 400, headers: CORS });
+    // Minimum Stripe dans la devise de la boutique (0,50 € pour l'euro).
+    const minimum = montantMinimum(devise);
+    if (grandTotal < minimum) {
+      const detail = enEuro
+        ? `${grandTotal.toFixed(2)} € < 0.50 €`
+        : `${formatMontant(grandTotal, devise, langue)} < ${formatMontant(minimum, devise, langue)}`;
+      return NextResponse.json({ error: `Total minimum de commande non atteint (${detail})` }, { status: 400, headers: CORS });
     }
 
     // Créer la commande en statut pending AVANT Stripe
@@ -585,12 +631,15 @@ export async function POST(req: NextRequest) {
         relay_point_id,
         relay_point_name: relay_point_name || null,
         relay_point_address: relay_point_address || null,
-        relay_point_pays: relay_point_pays || 'FR',
+        // Pays par défaut : celui de la boutique (France pour Swedish Cravings).
+        relay_point_pays: relay_point_pays || (fiche ? livraison.pays : 'FR'),
       } : {}),
       ...(codeSaisi && (discountAmount > 0 || isFreeShippingPromo) ? { promo_code: codeSaisi } : {}),
       ...(customer_note ? { notes: String(customer_note).slice(0, 1000) } : {}),
       // Swedish Cravings : la base pose 'sc' par défaut, insertion inchangée.
       ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
+      // Devise : la base pose 'EUR' par défaut, écrite seulement hors euro.
+      ...(!enEuro ? { currency: devise } : {}),
     };
 
     /* L'insertion n'était pas vérifiée : sur un numéro déjà pris, la
@@ -601,7 +650,7 @@ export async function POST(req: NextRequest) {
     for (let essai = 0; essai < 3 && !draftOrder; essai++) {
       const { data, error } = await supabaseAdmin
         .from('orders')
-        .insert({ ...brouillon, order_number: await numeroCommande(essai) })
+        .insert({ ...brouillon, order_number: await numeroCommande(essai, fiche?.prefixe_commande || 'SD-') })
         .select('id, order_number')
         .single();
       if (!error && data) { draftOrder = data; break; }
@@ -650,14 +699,15 @@ export async function POST(req: NextRequest) {
          ici. L'ancienne liste laissait partir la Suisse ou le Royaume-Uni
          à 4,90 €. */
       ...(isPickup || isMondialRelay ? {} : {
-        shipping_address_collection: { allowed_countries: ['FR', 'MC'] },
+        // Autre boutique : les pays de SA livraison (son barème est unique).
+        shipping_address_collection: { allowed_countries: (fiche ? livraison.paysDomicile : ['FR', 'MC']) as any },
       }),
       shipping_options: [
         isPickup
           ? {
               shipping_rate_data: {
                 type: 'fixed_amount',
-                fixed_amount: { amount: 0, currency: 'eur' },
+                fixed_amount: { amount: 0, currency: cur },
                 display_name: LIBELLES.retrait[langue],
               },
             }
@@ -665,11 +715,11 @@ export async function POST(req: NextRequest) {
           ? {
               shipping_rate_data: {
                 type: 'fixed_amount',
-                fixed_amount: { amount: freeShipping ? 0 : Math.round(shipRules.cost * 100), currency: 'eur' },
+                fixed_amount: { amount: freeShipping ? 0 : versMinor(shipRules.cost, devise), currency: cur },
                 display_name: freeShipping
                   ? LIBELLES.relaisGratuit[langue]
                   : isInternational
-                  ? `${LIBELLES.relaisIntl[langue]} (${eur(shipRules.cost, langue)})`
+                  ? `${LIBELLES.relaisIntl[langue]} (${enEuro ? eur(shipRules.cost, langue) : formatMontant(shipRules.cost, devise, langue)})`
                   : LIBELLES.relais[langue],
               },
             }
@@ -677,7 +727,7 @@ export async function POST(req: NextRequest) {
           ? {
               shipping_rate_data: {
                 type: 'fixed_amount',
-                fixed_amount: { amount: 0, currency: 'eur' },
+                fixed_amount: { amount: 0, currency: cur },
                 display_name: LIBELLES.gratuite[langue],
               },
             }
@@ -685,7 +735,7 @@ export async function POST(req: NextRequest) {
               shipping_rate_data: {
                 type: 'fixed_amount',
                 // Même barème que le panier (lib/shipping) — plus de 4,90 € en dur.
-                fixed_amount: { amount: Math.round(shipRules.cost * 100), currency: 'eur' },
+                fixed_amount: { amount: versMinor(shipRules.cost, devise), currency: cur },
                 display_name: LIBELLES.standard[langue],
               },
             },
@@ -700,6 +750,13 @@ export async function POST(req: NextRequest) {
         ...(promoCodeId ? { promo_code_id: promoCodeId } : {}),
         ...(b !== BOUTIQUE_DEFAUT ? { boutique: b } : {}),
       },
+      /* Hors euro seulement : la commande se retrouve depuis le paiement
+         (rapprochement des versements), et Adaptive Pricing est coupé
+         pour que le client paie bien dans la devise de la boutique. */
+      ...(!enEuro ? {
+        payment_intent_data: { metadata: { order_id: orderId, order_number: draftOrder.order_number, boutique: b } },
+        adaptive_pricing: { enabled: false },
+      } : {}),
       /* 3 h au lieu de 24 : l'expiration déclenche la 1re relance
          (webhook checkout.session.expired). Un client qui revient après
          repasse par le panier, qui recrée une session. */

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '@/lib/supabase';
 import { BOUTIQUE_DEFAUT, configBoutique } from '@/lib/boutique';
+import { formatMontant } from '@/lib/devise';
 
 /* ═══════════════════════════════════════════════════════════════
    FACTURE / AVOIR EN PDF
@@ -123,6 +124,12 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     inv = byOrder.data || null;
   }
   if (!inv) throw new Error('Facture introuvable');
+
+  /* Devise de la pièce : une facture hors EUR s'affiche dans sa devise,
+     avec la contre-valeur EUR sous le total. En EUR, money === eur. */
+  const devise = String(inv.currency || 'EUR').trim().toUpperCase();
+  const enEuro = devise === 'EUR';
+  const money = enEuro ? eur : (n: number) => formatMontant(n, devise, 'fr');
 
   /* Marque de la boutique qui a émis la facture. Lecture ratée = config
      vide, comme l'ancienne lecture qui ignorait l'erreur. */
@@ -356,8 +363,8 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
     const labelH = doc.heightOfString(String(l.desc || 'Article'), { width: cQty - M - PX(12) });
     text(String(l.desc || 'Article'), M, y, { size: PX(13), color: D.ink, width: cQty - M - PX(12) });
     text(String(qty), cQty, y, { size: PX(13), color: D.ink, width: PX(52), align: 'center' });
-    text(eur(unit), cUnit, y, { size: PX(13), color: D.ink, width: PX(88), align: 'right' });
-    text(sign + eur(qty * unit), cAmount, y, { size: PX(13), color: D.ink, font: SANS_B, width: PX(96), align: 'right' });
+    text(money(unit), cUnit, y, { size: PX(13), color: D.ink, width: PX(88), align: 'right' });
+    text(sign + money(qty * unit), cAmount, y, { size: PX(13), color: D.ink, font: SANS_B, width: PX(96), align: 'right' });
     y += Math.max(labelH, PX(13)) + PX(11);
     doc.rect(M, y, CW, 0.75).fill(D.ruleRow);
     y += PX(11);
@@ -372,10 +379,10 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
      (« − »), port retenu sur un avoir (le crédit diminue : « + »). */
   const signeInverse = isAvoir ? '+ ' : '− ';
   const rows: Array<{ label: string; value: string }> = [
-    { label: 'Sous-total', value: sign + eur(subtotal) },
-    ...(shipping != null ? [{ label: shipLine?.desc || 'Livraison', value: shipping > 0 ? sign + eur(shipping) : 'Offerte' }] : []),
-    ...negatives.map(l => ({ label: String(l.desc || (isAvoir ? 'Retenue' : 'Remise')), value: signeInverse + eur(Math.abs(montant(l))) })),
-    ...(ecartRemise >= 0.01 ? [{ label: promoCode ? `Remise (code ${promoCode})` : 'Remise', value: '− ' + eur(ecartRemise) }] : []),
+    { label: 'Sous-total', value: sign + money(subtotal) },
+    ...(shipping != null ? [{ label: shipLine?.desc || 'Livraison', value: shipping > 0 ? sign + money(shipping) : 'Offerte' }] : []),
+    ...negatives.map(l => ({ label: String(l.desc || (isAvoir ? 'Retenue' : 'Remise')), value: signeInverse + money(Math.abs(montant(l))) })),
+    ...(ecartRemise >= 0.01 ? [{ label: promoCode ? `Remise (code ${promoCode})` : 'Remise', value: '− ' + money(ecartRemise) }] : []),
     { label: 'TVA', value: 'Non applicable' },
   ];
 
@@ -393,13 +400,24 @@ export async function generateInvoicePdf(invoiceId: string): Promise<{ buffer: B
   text(isAvoir ? 'TOTAL DE L’AVOIR' : isPaid ? 'TOTAL PAYÉ' : 'TOTAL À RÉGLER', totalsX + PX(16), ty + PX(19), {
     size: PX(10), color: isAvoir ? D.paper : D.cream, font: SANS_B, spacing: PX(10) * 0.24,
   });
-  text(sign + eur(total), totalsX, ty + PX(13), {
+  text(sign + money(total), totalsX, ty + PX(13), {
     font: SERIF_B, size: PX(26), color: isAvoir ? D.paper : D.cream, width: totalsW - PX(16), align: 'right',
   });
   ty += totalH + PX(7);
-  text('TVA non applicable, art. 293 B du CGI', totalsX, ty, {
+  const finMentionTva = text('TVA non applicable, art. 293 B du CGI', totalsX, ty, {
     size: PX(10.5), color: D.soft2, width: totalsW, align: 'right',
   });
+  /* Hors EUR : la contre-valeur figée (scellée avec la facture), pour
+     que la pièce dise aussi ce qu'elle vaut en euros, et à quel taux. */
+  if (!enEuro && inv.total_ttc_eur != null) {
+    const taux = (Number(inv.fx_rate_eur) || 0)
+      .toLocaleString('fr-FR', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+    const origine = inv.fx_source === 'bce' ? 'taux BCE' : 'taux appliqué par Stripe';
+    text(
+      `Contre-valeur : ${eur(Math.abs(Number(inv.total_ttc_eur) || 0))} — 1 ${devise} = ${taux} € (${origine} du ${dateLong(inv.fx_date || inv.date)})`,
+      totalsX, finMentionTva + PX(4), { size: PX(10.5), color: D.soft2, width: totalsW, align: 'right' },
+    );
+  }
 
   if (!isAvoir && !isPaid) {
     text(

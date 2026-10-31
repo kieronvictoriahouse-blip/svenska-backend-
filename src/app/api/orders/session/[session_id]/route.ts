@@ -21,12 +21,16 @@ export async function GET(_: NextRequest, { params }: { params: { session_id: st
      affichés au back-office. Même projection que /api/orders/[id]/public. */
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('id,order_number,status,delivery_mode,lines,subtotal,shipping,discount,total,created_at')
+    .select('id,order_number,status,delivery_mode,lines,subtotal,shipping,discount,total,created_at,currency')
     .eq('stripe_session_id', session_id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
   if (!data) return NextResponse.json({ error: 'not_found' }, { status: 404, headers: CORS });
 
-  return NextResponse.json({ order: data }, { headers: CORS });
+  // Devise renvoyée hors EUR seulement : JSON identique pour Swedish Cravings.
+  const { currency, ...reste } = data as any;
+  const order = currency && currency !== 'EUR' ? { ...reste, currency } : reste;
+
+  return NextResponse.json({ order }, { headers: CORS });
 }

@@ -24,11 +24,18 @@ import { supabaseAdmin } from '@/lib/supabase';
    Le CONTENU FACTURÉ : numéro, date, identités, lignes, montants,
    mention légale. PAS le cycle de vie (statut, paiement, note) : une
    facture qui passe de « envoyée » à « payée » reste la même pièce.
+
+   Hors EUR seulement (vitrine en couronnes, étape 3), la devise, la
+   contre-valeur EUR et le taux s'ajoutent au contenu scellé : changer
+   la contre-valeur d'une facture en SEK doit casser la chaîne. Une
+   facture en EUR ne reçoit RIEN de plus : les empreintes déjà émises
+   ne changent jamais.
    ═══════════════════════════════════════════════════════════════ */
 
 export const GENESIS = 'GENESIS';
 
-/** Champs couverts par l'empreinte — l'ordre fait partie du contrat. */
+/** Champs couverts par l'empreinte — l'ordre fait partie du contrat.
+ *  Hors EUR seulement, canonique() y ajoute devise, ttc_eur et taux_eur. */
 const CHAMPS_SCELLES = [
   'number', 'date',
   'client_name', 'client_email', 'client_address',
@@ -62,7 +69,18 @@ export function canonique(inv: any): string {
       ? (Number(v) || 0).toFixed(2)
       : String(v ?? '');
   }
-  return JSON.stringify({ ...base, lignes });
+  /* Devise et contre-valeur scellées UNIQUEMENT hors EUR : pour une
+     facture en euros, extra = {} et la chaîne canonique reste celle
+     d'avant l'étape 3, au caractère près. */
+  const devise = String(inv.currency || 'EUR').trim().toUpperCase();
+  const extra = devise !== 'EUR'
+    ? {
+        devise,
+        ttc_eur: inv.total_ttc_eur == null ? '' : (Number(inv.total_ttc_eur) || 0).toFixed(2),
+        taux_eur: inv.fx_rate_eur == null ? '' : Number(inv.fx_rate_eur).toFixed(8),
+      }
+    : {};
+  return JSON.stringify({ ...base, lignes, ...extra });
 }
 
 export const empreinte = (contenu: string, precedente: string): string =>

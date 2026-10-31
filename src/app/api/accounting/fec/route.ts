@@ -94,6 +94,11 @@ export async function GET(req: NextRequest) {
     const ref = escapeFec(entry.reference_number || entry.id.slice(0, 8));
     const lib = escapeFec(entry.description);
     const isNegative = parseFloat(entry.amount) < 0;
+    /* Écriture hors EUR : Montantdevise / Idevise portent l'original (en
+       valeur absolue, le sens est dans Débit/Crédit). Vides pour l'euro. */
+    const dev = entry.currency && entry.currency !== 'EUR' && entry.amount_currency != null
+      ? { m: fecAmount(Math.abs(Number(entry.amount_currency))), i: String(entry.currency) }
+      : { m: '', i: '' };
 
     if (entry.type === 'income') {
       // Vente normale : Débit 512 / Crédit 706
@@ -101,16 +106,16 @@ export async function GET(req: NextRequest) {
       const [debitNum, debitLib, creditNum, creditLib] = isNegative
         ? [account.num, account.lib, BANK.num, BANK.lib]
         : [BANK.num, BANK.lib, account.num, account.lib];
-      lines.push([journal.code, journal.lib, `${year}${num}`, date, debitNum, debitLib, '', '', ref, date, lib, fecAmount(amount), '0,00', '', '', date, '', ''].join('\t'));
-      lines.push([journal.code, journal.lib, `${year}${num}`, date, creditNum, creditLib, '', '', ref, date, lib, '0,00', fecAmount(amount), '', '', date, '', ''].join('\t'));
+      lines.push([journal.code, journal.lib, `${year}${num}`, date, debitNum, debitLib, '', '', ref, date, lib, fecAmount(amount), '0,00', '', '', date, dev.m, dev.i].join('\t'));
+      lines.push([journal.code, journal.lib, `${year}${num}`, date, creditNum, creditLib, '', '', ref, date, lib, '0,00', fecAmount(amount), '', '', date, dev.m, dev.i].join('\t'));
     } else {
       // Dépense normale : Débit 607/624 / Crédit 512
       // Remboursement frais (négatif) : Débit 512 / Crédit 627 (contre-passation)
       const [debitNum, debitLib, creditNum, creditLib] = isNegative
         ? [BANK.num, BANK.lib, account.num, account.lib]
         : [account.num, account.lib, BANK.num, BANK.lib];
-      lines.push([journal.code, journal.lib, `${year}${num}`, date, debitNum, debitLib, '', '', ref, date, lib, fecAmount(amount), '0,00', '', '', date, '', ''].join('\t'));
-      lines.push([journal.code, journal.lib, `${year}${num}`, date, creditNum, creditLib, '', '', ref, date, lib, '0,00', fecAmount(amount), '', '', date, '', ''].join('\t'));
+      lines.push([journal.code, journal.lib, `${year}${num}`, date, debitNum, debitLib, '', '', ref, date, lib, fecAmount(amount), '0,00', '', '', date, dev.m, dev.i].join('\t'));
+      lines.push([journal.code, journal.lib, `${year}${num}`, date, creditNum, creditLib, '', '', ref, date, lib, '0,00', fecAmount(amount), '', '', date, dev.m, dev.i].join('\t'));
     }
   }
 

@@ -68,6 +68,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       lines,
       total:               Number(order.total) || 0,
       weight_grams:        weightGrams,
+      // Hors EUR : la valeur déclarée à UGO reste en euros (contre-valeur relevée au paiement).
+      ...(order.currency && order.currency !== 'EUR' ? {
+        currency:  order.currency,
+        total_eur: order.total_eur != null ? Number(order.total_eur) : null,
+        fx_rate:   order.fx_rate   != null ? Number(order.fx_rate)   : null,
+      } : {}),
     }, cfg as any);
 
     const patch = {

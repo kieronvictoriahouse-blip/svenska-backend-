@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
+import { OPTS_STRIPE } from '@/lib/devise';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -29,17 +30,26 @@ export async function GET(req: NextRequest) {
 
   // ── 2) Commandes payées en base ───────────────────────────────────
   const PAID = ['paid', 'confirmed', 'shipped', 'delivered'];
-  const { data: orders } = await supabaseAdmin
-    .from('orders')
-    .select('total, status, is_test, exclude_from_stats, created_at')
-    .in('status', PAID)
-    .gte('created_at', `${from}T00:00:00`).lte('created_at', `${to}T23:59:59`);
+  /* currency / total_eur : une commande hors euro compte pour l'EUR
+     encaissé. Avant la migration 067 (colonne absente, 42703), ancien select. */
+  const lireCommandes = async (cols: string) => {
+    const { data, error } = await supabaseAdmin
+      .from('orders')
+      .select(cols)
+      .in('status', PAID)
+      .gte('created_at', `${from}T00:00:00`).lte('created_at', `${to}T23:59:59`);
+    return { data: (data as any[] | null) ?? null, error };
+  };
+  let lu = await lireCommandes('total, status, is_test, exclude_from_stats, created_at, currency, total_eur');
+  if (lu.error && (lu.error as any).code === '42703') lu = await lireCommandes('total, status, is_test, exclude_from_stats, created_at');
+  const orders = lu.data;
   const realOrders = (orders || []).filter(o => !o.is_test && !o.exclude_from_stats);
-  const ordersPaidTotal = realOrders.reduce((s, o) => s + Number(o.total || 0), 0);
+  const ordersPaidTotal = realOrders.reduce((s, o) => s + (o.currency && o.currency !== 'EUR' ? Number(o.total_eur || 0) : Number(o.total || 0)), 0);
 
   // ── 3) Stripe réel (encaissé net = charges réussies − remboursements) ─
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   let stripeGross = 0, stripeRefunded = 0, stripeCount = 0, stripeError: string | null = null;
+  let chargesHorsEur = 0, chargesHorsEurNonConverties = 0;
   if (!stripeKey) {
     stripeError = 'Clé Stripe absente';
   } else {
@@ -51,6 +61,25 @@ export async function GET(req: NextRequest) {
         const charges = await stripe.charges.list({ limit: 100, created, ...(startingAfter ? { starting_after: startingAfter } : {}) });
         for (const c of charges.data) {
           if (c.status !== 'succeeded') continue;
+          /* Charge hors euro : on compte l'EUR crédité (balance transaction).
+             Le remboursé est approché au taux de la vente (signalé en note). */
+          if (c.currency !== 'eur') {
+            chargesHorsEur++;
+            try {
+              const bt = typeof c.balance_transaction === 'string'
+                ? await stripe.balanceTransactions.retrieve(c.balance_transaction, {}, OPTS_STRIPE)
+                : c.balance_transaction;
+              if (bt && bt.currency === 'eur') {
+                const ratio = c.amount ? bt.amount / c.amount : 0;
+                stripeGross    += (c.amount_captured || 0) * ratio / 100;
+                stripeRefunded += (c.amount_refunded || 0) * ratio / 100;
+                stripeCount++;
+                continue;
+              }
+            } catch { /* non convertie, comptée à part */ }
+            chargesHorsEurNonConverties++;
+            continue;
+          }
           stripeGross    += (c.amount_captured || 0) / 100;
           stripeRefunded += (c.amount_refunded || 0) / 100;
           stripeCount++;
@@ -77,6 +106,9 @@ export async function GET(req: NextRequest) {
       orders_total_vs_stripe_gross: { delta: deltaOrdersStripe, ok: Math.abs(deltaOrdersStripe) <= tol },
       allMatch: !stripeError && Math.abs(deltaComptaStripe) <= tol && Math.abs(deltaOrdersStripe) <= tol,
     },
-    note: 'compta.income doit ≈ stripe.net ; orders.paidTotal doit ≈ stripe.gross. Un écart révèle une écriture manquante/en trop ou une commande non synchronisée.',
+    note: 'compta.income doit ≈ stripe.net ; orders.paidTotal doit ≈ stripe.gross. Un écart révèle une écriture manquante/en trop ou une commande non synchronisée.'
+      + (chargesHorsEur
+        ? ` ${chargesHorsEur} charge(s) hors EUR : comptées à l'EUR crédité par Stripe, remboursements approchés au taux de la vente${chargesHorsEurNonConverties ? ` ; ${chargesHorsEurNonConverties} non convertie(s), exclue(s) des totaux Stripe` : ''}.`
+        : ''),
   });
 }

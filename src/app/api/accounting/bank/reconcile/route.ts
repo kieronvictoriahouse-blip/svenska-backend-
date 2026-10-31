@@ -3,8 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { categoryDef, typeFromSens, type Sens } from '@/lib/finance/pcg';
 import { learnFromCorrection } from '@/lib/finance/categorize';
-import { findPayout, explodePayout, stripeConfigured } from '@/lib/finance/stripe-payout';
+import { findPayout, explodePayout, stripeConfigured, getStripe } from '@/lib/finance/stripe-payout';
 import { groupeRapprochement, plusProche } from '@/lib/finance/rapprochement';
+import { OPTS_STRIPE, normDevise } from '@/lib/devise';
+import { comptabiliserVenteHorsEur } from '@/lib/vente-hors-eur';
+import { logSystemEvent } from '@/lib/system-events';
 
 export const dynamic = 'force-dynamic';
 
@@ -159,12 +162,73 @@ export async function POST(req: NextRequest) {
       for (const ch of bd.charges) {
         /* La vente est déjà en compta (webhook) : on la rattache au
            versement au lieu de l'inscrire une seconde fois. */
-        const { data: cands } = await supabaseAdmin.from('accounting_entries')
-          .select('id, date, amount, category, reference_id')
-          .eq('type', 'income').eq('reference_type', 'order').is('bank_transaction_id', null)
-          .gte('amount', ch.amount - 0.005).lte('amount', ch.amount + 0.005)
-          .gte('date', decaler(ch.date, -3)).lte('date', decaler(ch.date, 3)).limit(20);
-        const existante = plusProche(cands || [], ch.date);
+        /* Hors EUR : la recette porte la référence Stripe de la charge
+           (txn_…), on la retrouve par elle. Une charge en EUR (Swedish
+           Cravings) ne passe par rien de tout cela : repli par montant,
+           exactement comme avant. La charge non-EUR n'est qu'un indice :
+           c'est la devise de la COMMANDE qui décide (une vente SC présentée
+           en SEK reste une vente EUR). */
+        const chargeHorsEur = !!ch.deviseCharge && ch.deviseCharge !== 'eur';
+        let venteHorsEur = false;
+        let existante: any = null;
+        const parBt = async () => {
+          if (!ch.balanceTxId) return null;
+          const { data } = await supabaseAdmin.from('accounting_entries')
+            .select('id, date, amount, category, reference_id')
+            .eq('type', 'income').in('reference_type', ['order', 'bank']).is('bank_transaction_id', null)
+            .eq('stripe_balance_tx', ch.balanceTxId).limit(1);
+          return data?.[0] || null;
+        };
+        if (chargeHorsEur) existante = await parBt();
+        /* Vente hors EUR pas encore en compta : on la passe d'abord (au
+           montant Stripe), puis on la rattache. Jamais de seconde recette. */
+        if (!existante && chargeHorsEur) {
+          let oid: string | null = ch.orderId || null;
+          if (!oid && ch.paymentIntentId) {
+            const l = await getStripe().checkout.sessions.list({ payment_intent: ch.paymentIntentId, limit: 1 }, OPTS_STRIPE).catch(() => null);
+            oid = l?.data?.[0]?.metadata?.order_id || null;
+          }
+          if (oid) {
+            const { data: oRow } = await supabaseAdmin.from('orders')
+              .select('currency, is_test, exclude_from_stats').eq('id', oid).maybeSingle();
+            if (!oRow || normDevise(oRow.currency) === 'EUR') {
+              oid = null;                       // commande EUR ou inconnue : chemin d'avant
+            } else if (oRow.is_test || oRow.exclude_from_stats) {
+              /* Exclue des stats : la synchro supprimerait la recette 'order'.
+                 Elle passe en écriture « bank » (référence Stripe gardée). */
+              venteHorsEur = true;
+              oid = null;
+            }
+          }
+          if (oid) {
+            const r = await comptabiliserVenteHorsEur(oid, { stripe: getStripe(), repliBce: 'jamais' });
+            venteHorsEur = r.statut !== 'eur' && r.statut !== 'introuvable';
+            existante = await parBt();
+            if (!existante && (r.statut === 'deja' || r.statut === 'inscrite' || r.statut === 'rattachee')) {
+              // Recette passée sans référence Stripe (taux BCE) : on la rattache quand même.
+              const { data } = await supabaseAdmin.from('accounting_entries')
+                .select('id, date, amount, category, reference_id')
+                .eq('type', 'income').eq('reference_type', 'order').eq('reference_id', oid)
+                .is('bank_transaction_id', null).limit(1);
+              existante = data?.[0] || null;
+              if (existante && Math.abs(Number(existante.amount) - ch.amount) > 0.005) {
+                await logSystemEvent({
+                  source: 'accounting', level: 'warn',
+                  message: 'Recette hors EUR (taux BCE) différente du montant Stripe versé',
+                  context: { oid, recette: existante.amount, stripe: ch.amount },
+                });
+              }
+            }
+          }
+        }
+        if (!existante) {
+          const { data: cands } = await supabaseAdmin.from('accounting_entries')
+            .select('id, date, amount, category, reference_id')
+            .eq('type', 'income').eq('reference_type', 'order').is('bank_transaction_id', null)
+            .gte('amount', ch.amount - 0.005).lte('amount', ch.amount + 0.005)
+            .gte('date', decaler(ch.date, -3)).lte('date', decaler(ch.date, 3)).limit(20);
+          existante = plusProche(cands || [], ch.date);
+        }
         if (existante) {
           const { error } = await supabaseAdmin.from('accounting_entries')
             .update({ reconciled: true, bank_transaction_id: tx.id }).eq('id', existante.id);
@@ -180,6 +244,8 @@ export async function POST(req: NextRequest) {
           account_code: vente.account, counterparty_account: BANK, journal: 'VE',
           source: 'stripe', reconciled: true, sorted_at: new Date().toISOString(),
           bank_transaction_id: tx.id, period: tx.period,
+          // Vente hors EUR seulement : la référence Stripe permet au module de vente de la retrouver (pas de doublon).
+          ...(venteHorsEur && ch.balanceTxId ? { stripe_balance_tx: ch.balanceTxId } : {}),
         });
         if (error) throw new Error(error.message);   // plus de « décomposé » sur une écriture perdue
         count++;
@@ -214,7 +280,8 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.from('bank_transactions').update({
         reconciled: true, reconciled_at: new Date().toISOString(),
         is_split_parent: true, match_kind: 'split',
-        raw: { ...(tx.raw || {}), stripe_payout: bd },
+        // Champs de rapprochement retirés : le versement stocké reste celui d'avant.
+        raw: { ...(tx.raw || {}), stripe_payout: { ...bd, charges: bd.charges.map(({ balanceTxId: _a, deviseCharge: _b, paymentIntentId: _c, orderId: _d, ...c }) => c) } },
       }).eq('id', tx_id);
       return NextResponse.json({ ok: true, split: true, charges: count, linked: lies, fee: bd.fee });
     }
