@@ -159,5 +159,5 @@ CREATE INDEX IF NOT EXISTS accounting_entries_currency_hors_eur_idx
 
 -- Exemple (NON exécuté) pour une prévisualisation de la 2e boutique :
 -- INSERT INTO boutiques (code, nom, devise, langue, retrait_sur_place, livraison_pays, livraison_cout, livraison_franco, actif)
--- VALUES ('fc', 'French Cravings', 'SEK', 'sv', FALSE, ARRAY['SE'], 149.00, 795.00, FALSE)
+-- VALUES ('fc', 'French Cravings', 'SEK', 'sv', FALSE, ARRAY['SE'], 149.00, 800.00, FALSE)
 -- ON CONFLICT (code) DO NOTHING;
