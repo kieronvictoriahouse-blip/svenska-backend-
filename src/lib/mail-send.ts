@@ -37,10 +37,29 @@ function marqueDe(cfg: Record<string, any>) {
   };
 }
 
-export function signature(cfg: Record<string, any>): string {
+const CID_LOGO = 'logo-signature@swedishcravings';
+
+function urlLogo(): string {
+  const site = process.env.NEXT_PUBLIC_FRONT_URL || '';
+  return `${site.replace(/\/$/, '')}/img/sc-monogramme-96.png`;
+}
+
+/* Le logo voyage DANS le message (image en ligne, cid) : beaucoup de
+   messageries d'entreprise — IONOS, Outlook — bloquent les images distantes,
+   et la signature arrivait avec un cadre vide. S'il ne se télécharge pas,
+   on garde le lien distant plutôt que de bloquer l'envoi. */
+async function logoEnLigne(): Promise<Buffer | null> {
+  try {
+    const r = await fetch(urlLogo());
+    return r.ok ? Buffer.from(await r.arrayBuffer()) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function signature(cfg: Record<string, any>, logo: string = urlLogo()): string {
   const marque = marqueDe(cfg);
   const site = process.env.NEXT_PUBLIC_FRONT_URL || '';
-  const logo = `${site.replace(/\/$/, '')}/emails/sc-monogramme.png`;
   const tel = cfg.phone ? ` · ${cfg.phone}` : '';
   /* Même identité que les factures et les emails clients : monogramme,
      wordmark en Cormorant, filet vert. En tables et styles inline — une
@@ -80,7 +99,11 @@ export async function composer(m: Message): Promise<Buffer> {
   const cfg = await getWhiteLabelConfig();
   const marque = marqueDe(cfg);
   const { pieces } = decoderPJ(m.attachments);
-  const corps = `${m.html || ''}${m.signer === false ? '' : signature(cfg)}`;
+  const logo = m.signer === false ? null : await logoEnLigne();
+  const corps = `${m.html || ''}${m.signer === false ? '' : signature(cfg, logo ? `cid:${CID_LOGO}` : urlLogo())}`;
+  const jointes = logo
+    ? [...pieces, { filename: 'swedish-cravings.png', content: logo, cid: CID_LOGO, contentDisposition: 'inline' }]
+    : pieces;
 
   const MailComposer = (await import('nodemailer/lib/mail-composer')).default as any;
   const composeur = new MailComposer({
@@ -89,7 +112,7 @@ export async function composer(m: Message): Promise<Buffer> {
     cc: m.cc || undefined,
     subject: m.subject,
     html: corps,
-    ...(pieces.length ? { attachments: pieces } : {}),
+    ...(jointes.length ? { attachments: jointes } : {}),
     ...(m.inReplyTo ? { inReplyTo: m.inReplyTo, references: m.inReplyTo } : {}),
   });
   return new Promise((res, rej) =>
