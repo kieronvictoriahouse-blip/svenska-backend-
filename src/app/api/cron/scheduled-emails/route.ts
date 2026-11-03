@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { viderFileProgrammee } from '@/lib/mail-send';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+/* 300 s : chaque envoi (SMTP + copie dans les Envoyés, PDF joint) prend
+   ~6 s ; à 120 s la fonction était coupée au 17e message d'une série de 20,
+   laissant une ligne bloquée en « sending ». */
+export const maxDuration = 300;
 
 /* ═══════════════════════════════════════════════════════════════
    ENVOIS PROGRAMMÉS
