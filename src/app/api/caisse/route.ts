@@ -81,6 +81,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ produits: data || [] });
   }
 
+  /* Tuiles « sans code-barres ». La caisse peut épingler ses propres
+     articles (ids=…, gardés dans le navigateur) ; sinon, par défaut, les
+     articles actifs qui n'ont pas d'EAN — ceux qu'on ne peut pas scanner —
+     les box en tête. */
+  if (u.has('tuiles')) {
+    const champs = 'id, name_fr, price, stock, track_stock, image_url, bundle_items';
+    const ids = (u.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 12);
+    if (ids.length) {
+      const { data } = await supabaseAdmin.from('products').select(champs).in('id', ids).eq('is_active', true);
+      const rang = new Map(ids.map((id, i) => [id, i]));
+      return NextResponse.json({ produits: (data || []).sort((a, b) => (rang.get(a.id) ?? 0) - (rang.get(b.id) ?? 0)) });
+    }
+    const { data } = await supabaseAdmin.from('products').select(champs)
+      .eq('is_active', true).or('ean.is.null,ean.eq.').order('name_fr').limit(40);
+    const estBox = (p: any) => !!(p.bundle_items && JSON.stringify(p.bundle_items).length > 4);
+    const tri = (data || []).sort((a, b) => Number(estBox(b)) - Number(estBox(a)));
+    return NextResponse.json({ produits: tri.slice(0, 10) });
+  }
+
   /* Suivi d'un paiement par QR : la caisse sonde la commande. Dès que le
      webhook l'a passée payée, on la remet (stock + statut). */
   const id = u.get('vente');
@@ -108,7 +127,15 @@ export async function GET(req: NextRequest) {
   const par = (m: string) => r2(encaissees.filter(v => String(v.notes).includes(m)).reduce((s, v) => s + Number(v.total), 0));
   return NextResponse.json({
     jour,
-    ventes: dujour.map(v => ({ id: v.id, numero: v.order_number, total: Number(v.total), statut: v.status, notes: v.notes, heure: v.created_at, test: !!v.is_test })),
+    ventes: dujour.map(v => {
+      let lignes: any[] = [];
+      try { lignes = typeof v.lines === 'string' ? JSON.parse(v.lines) : (v.lines || []); } catch { /* ligne illisible */ }
+      return {
+        id: v.id, numero: v.order_number, total: Number(v.total), statut: v.status, notes: v.notes, heure: v.created_at, test: !!v.is_test,
+        mode: String(v.notes).includes('QR') ? 'QR code' : 'Carte',
+        lignes: lignes.map(l => ({ product_id: l.product_id, nom: l.name, qty: Number(l.qty) || 0, prix: Number(l.price) || 0, image: l.image_url || null })),
+      };
+    }),
     total: r2(encaissees.reduce((s, v) => s + Number(v.total), 0)),
     nb: encaissees.length,
     carte: par('Carte'),
