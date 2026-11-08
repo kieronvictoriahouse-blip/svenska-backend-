@@ -43,7 +43,7 @@ const CSS = `
   .cs-top { display: flex; align-items: center; gap: 16px; padding: 0 24px; background: ${C.nuit}; color: #F5F1EA; }
   .cs-pill { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 8px 12px; border-radius: 999px; border: none; }
   .cs-main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; min-height: 0; }
-  .cs-gauche { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px; min-height: 0; }
+  .cs-gauche { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px; min-height: 0; overflow-y: auto; }
   .cs-scan { display: flex; align-items: center; gap: 14px; height: 72px; box-sizing: border-box; padding: 0 20px; background: #fff; border: 2px solid ${C.vert}; border-radius: 14px; box-shadow: 0 0 0 4px rgba(62, 82, 56, .12); position: relative; }
   .cs-scan input { flex: 1; border: none; outline: none; font-size: 22px; font-family: inherit; background: transparent; color: ${C.encre}; min-width: 0; }
   .cs-scan input::placeholder { color: #8B7E72; }
@@ -52,14 +52,16 @@ const CSS = `
   .cs-res button { display: flex; width: 100%; align-items: center; gap: 12px; padding: 10px 12px; border: none; background: none; text-align: left; cursor: pointer; font-size: 17px; border-radius: 10px; color: ${C.encre}; }
   .cs-res button:hover { background: ${C.fond}; }
   .cs-toast { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-radius: 12px; font-size: 17px; }
-  .cs-tuiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-  .cs-tuile { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #fff; border: 1px solid ${C.bord}; border-radius: 14px; cursor: pointer; text-align: left; color: ${C.encre}; }
+  /* Les tuiles ne prennent jamais plus d'un tiers de l'écran : au-delà,
+     elles défilent dans leur cadre et le ticket garde sa place. */
+  .cs-tuiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; max-height: 32vh; overflow-y: auto; padding-right: 4px; }
+  .cs-tuile { position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center; padding: 8px; background: #fff; border: 1px solid ${C.bord}; border-radius: 14px; cursor: pointer; text-align: left; color: ${C.encre}; }
   .cs-tuile:hover { border-color: ${C.vert}; }
-  .cs-tuile img, .cs-tuile .cs-ph { width: 100%; height: 84px; object-fit: cover; border-radius: 9px; background: ${C.creme}; }
-  .cs-tuile .nom { font-size: 15px; font-weight: 500; line-height: 1.25; min-height: 38px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .cs-tuile .px { font-size: 17px; font-weight: 600; color: ${C.vert}; }
-  .cs-tuile .moins { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border-radius: 50%; border: none; background: ${C.rouge}; color: #fff; display: flex; align-items: center; justify-content: center; }
-  .cs-ticket { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border: 1px solid ${C.bord}; border-radius: 16px; overflow: hidden; }
+  .cs-tuile img, .cs-tuile .cs-ph { grid-row: span 2; width: 56px; height: 56px; object-fit: cover; border-radius: 9px; background: ${C.creme}; }
+  .cs-tuile .nom { font-size: 15px; font-weight: 500; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .cs-tuile .px { font-size: 16px; font-weight: 600; color: ${C.vert}; }
+  .cs-tuile .moins { position: absolute; top: -8px; right: -8px; width: 30px; height: 30px; border-radius: 50%; border: none; background: ${C.rouge}; color: #fff; display: flex; align-items: center; justify-content: center; }
+  .cs-ticket { flex: 1 0 300px; min-height: 300px; display: flex; flex-direction: column; background: #fff; border: 1px solid ${C.bord}; border-radius: 16px; overflow: hidden; }
   .cs-ligne { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto 112px 44px; align-items: center; gap: 16px; padding: 12px 18px; border-bottom: 1px solid #F1EDE7; }
   .cs-ligne img, .cs-ligne .cs-ph { width: 56px; height: 56px; object-fit: contain; background: ${C.creme}; border-radius: 10px; }
   .cs-pas { display: flex; align-items: center; gap: 4px; background: ${C.fond}; border-radius: 12px; padding: 4px; }
@@ -440,7 +442,7 @@ export default function CaissePage() {
                 ))}
                 {editTuiles && tuiles.length < 12 && (
                   <button className="cs-tuile" onClick={() => { setAjoutTuile(true); focus(); }}
-                    style={{ alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', color: C.vert, minHeight: 170 }}>
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderStyle: 'dashed', color: C.vert, minHeight: 72 }}>
                     <span className="ms" style={{ fontSize: 36 }} aria-hidden="true">add</span>
                     <span style={{ fontSize: 15, fontWeight: 500 }}>Épingler un article</span>
                   </button>
