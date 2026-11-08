@@ -62,6 +62,9 @@ export const NAV: NavGroup[] = [
       { href: '/admin/commandes', icon: 'receipt_long', badge: 'orders',
         label: { fr: 'Commandes', en: 'Orders', sv: 'Beställningar' },
         desc: { fr: 'Suivi des ventes', en: 'Sales tracking', sv: 'Uppföljning av försäljning' } },
+      { href: '/admin/caisse', icon: 'point_of_sale',
+        label: { fr: 'Caisse', en: 'Till', sv: 'Kassa' },
+        desc: { fr: 'Vendre en direct : marché, salon, boutique', en: 'Sell in person: market, fair, shop', sv: 'Sälj direkt: marknad, mässa, butik' } },
       { href: '/admin/commandes/preparation', icon: 'barcode_scanner',
         label: { fr: 'Préparation', en: 'Picking', sv: 'Plockning' },
         desc: { fr: 'Picking scanné au téléphone', en: 'Scan-based picking on your phone', sv: 'Plockning med mobilskanner' } },
@@ -214,7 +217,8 @@ export function isFullBleed(pathname: string): boolean {
  *  Elles restent protégées par le middleware et le contrôle d'auth du layout. */
 export function isBare(pathname: string): boolean {
   return pathname.startsWith('/admin/documents/')
-      || pathname.startsWith('/admin/etiquettes');
+      || pathname.startsWith('/admin/etiquettes')
+      || pathname.startsWith('/admin/caisse');
 }
 
 /**
