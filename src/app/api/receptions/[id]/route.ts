@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { applyStockAndPmp, majCommandeAchat, lignesDe, recuDe } from '@/lib/reception-utils';
+import { applyStockAndPmp, majCommandeAchat, lignesDe, recuDe, coutEntreEnStock } from '@/lib/reception-utils';
 import { requireAuth } from '@/lib/auth';
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
@@ -25,8 +25,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   for (const line of lines) {
     const qty = recuDe(line);
     if (!line.product_id || qty <= 0) continue;
-    // Prix en euros : les anciennes lignes de ticket avaient des couronnes dans unit_cost.
-    const cost = parseFloat(line.unit_cost_eur ?? line.unit_cost) || 0;
+    /* Le coût que la réception a fait entrer (port compris pour un
+       ticket) ; en euros — les anciennes lignes de ticket avaient des
+       couronnes dans unit_cost. */
+    const cost = coutEntreEnStock(line);
 
     const { data: product } = await supabaseAdmin.from('products')
       .select('stock, cost_price').eq('id', line.product_id).single();

@@ -13,6 +13,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { repartir, type LigneAImputer, type Methode, type Part } from '@/lib/landed';
+import { versEuros } from '@/lib/cout-achat';
 export type { Methode, Part };
 
 export type Source = {
@@ -96,13 +97,14 @@ export function trier(a: Enrichi, b: Enrichi): number {
 }
 
 /**
- * Conversion couronnes → euros HT.
+ * Conversion couronnes → euros, moms comprise.
  *
- * Même calcul que la saisie de ticket : la moms suédoise de 12 % est
- * déduite AVANT la conversion. Sans cette déduction, le coût d'achat
- * est surévalué de 12 % et toutes les marges avec.
+ * Même calcul que la saisie de ticket (lib/cout-achat) : la boutique, en
+ * franchise de TVA, ne récupère pas la moms — elle fait partie du coût.
+ * L'ancienne version divisait par 1,12 : coût sous-évalué (la moms
+ * alimentaire est d'ailleurs de 6 % en 2026) et toutes les marges avec.
  */
-export const sekVersEur = (sek: number, taux: number) => (sek / 1.12) * taux;
+export const sekVersEur = (sek: number, taux: number) => versEuros(sek, taux);
 
 export const eur = (n: number) =>
   (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -161,7 +163,7 @@ export function totaux(
     unites += u;
     const puEuro = p.sek != null ? sekVersEur(p.sek, taux) : p.prix;
     if (p.sek != null) { sek += p.sek * u; sekEquivalent += p.sek * u; euros += sekVersEur(p.sek * u, taux); }
-    else { euros += p.prix * u; if (taux > 0) sekEquivalent += (p.prix * u / taux) * 1.12; }
+    else { euros += p.prix * u; if (taux > 0) sekEquivalent += p.prix * u / taux; }
     aImputer.push({ key: p.id, qty: u, unit_cost: puEuro, retenue: !port.exclus[p.id] });
     // Couverture une fois la commande reçue.
     couvertures.push(p.daily > 0 ? (p.stock + u) / p.daily : 999);

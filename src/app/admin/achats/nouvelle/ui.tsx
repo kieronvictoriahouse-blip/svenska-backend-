@@ -129,7 +129,7 @@ export function LigneCatalogue({ p, semaines, cartons, onAdd }: {
 
         <div className="nc-ligne-sub" style={{ fontSize: 11, color: C.t5, marginTop: 3 }}>
           {p.ref} · carton de {p.packEffectif}
-          {p.sek != null ? ` · ${kr(p.sek)} /u.` : p.prix ? ` · ${eur(p.prix)} HT /u.` : ''}
+          {p.sek != null ? ` · ${kr(p.sek)} /u.` : p.prix ? ` · ${eur(p.prix)} /u.` : ''}
           {p.onOrder > 0 ? ` · ${p.onOrder} en route` : ''}
           {/* Payer 70 % de plus parce qu'on a l'habitude d'un magasin est
               une perte qu'on ne voit jamais : elle est dite ici, au moment

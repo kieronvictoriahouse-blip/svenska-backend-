@@ -135,12 +135,6 @@ export function matchLine(
   };
 }
 
-/* ── Conversion couronnes → euros HT ───────────────────────────
-   Les prix du ticket sont TTC en SEK : on déduit la moms puis on
-   convertit. Formules imposées par le handoff. */
-
-export const lineEurHt = (sek: number, vatRate: number, rate: number) =>
-  Math.round((sek / (1 + vatRate / 100)) * rate * 100) / 100;
-
-export const unitEurHt = (unitSek: number, vatRate: number, rate: number) =>
-  Math.round((unitSek / (1 + vatRate / 100)) * rate * 10000) / 10000;
+/* La conversion couronnes → euros (moms comprise, port réparti) est dans
+   lib/cout-achat. Elle déduisait la moms ici : la boutique, en franchise
+   de TVA, ne la récupère pas — c'est un coût. */

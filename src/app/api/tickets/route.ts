@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
-import { matchLine, normalize, lineEurHt } from '@/lib/ticket-match';
+import { matchLine, normalize } from '@/lib/ticket-match';
+import { coutsDuTicket, partPortDuTicket, versEuros, taxeIncluse, round2 } from '@/lib/cout-achat';
 
 /* ═══════════════════════════════════════════════════════════════
    TICKETS DE CAISSE
@@ -10,6 +11,17 @@ import { matchLine, normalize, lineEurHt } from '@/lib/ticket-match';
    POST   { action: 'finalize' } → crée commande d'achat + réception,
                                    met à jour stock et prix d'achat,
                                    apprend les alias, archive le ticket
+
+   Coût d'un article (lib/cout-achat) : prix payé moms COMPRISE × taux,
+   plus la part du port du voyage au prorata du prix. La moms n'est pas
+   récupérable (franchise 293 B) : elle est notée pour mémoire, jamais
+   retirée du coût.
+
+   POST accepte `shipping` : { amount_eur, trip_goods? }
+     amount_eur  port en euros ;
+     trip_goods  total des achats du voyage dans la devise du ticket,
+                 quand ce port couvre plusieurs tickets. Absent, le port
+                 ne concerne que ce ticket.
    ═══════════════════════════════════════════════════════════════ */
 
 async function loadCatalog() {
@@ -55,9 +67,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({} as any));
   const {
-    store, purchased_at, exchange_rate, vat_rate = 12,
+    store, purchased_at, exchange_rate, vat_rate = 6,
     total_ocr, image_urls = [], lines = [], draft = false,
-    currency = 'SEK',
+    currency = 'SEK', shipping = null,
   } = body;
 
   if (!Array.isArray(lines) || lines.length === 0) {
@@ -67,11 +79,51 @@ export async function POST(req: NextRequest) {
   if (!draft && (!rate || rate <= 0)) {
     return NextResponse.json({ error: 'Taux de change manquant' }, { status: 400 });
   }
+  const vat = Math.max(0, Number(vat_rate) || 0);
 
   const kept = lines.filter((l: any) => !l.ignored);
   const totalLines = lines.reduce((s: number, l: any) => s + (Number(l.qty) || 0) * (Number(l.unit_sek) || 0), 0);
   const goodsSek = kept.reduce((s: number, l: any) => s + (Number(l.qty) || 0) * (Number(l.unit_sek) || 0), 0);
-  const goodsEur = lineEurHt(goodsSek, Number(vat_rate), rate || 0);
+  // Payé en caisse, moms comprise : c'est le coût de la marchandise.
+  const goodsEur = round2(versEuros(goodsSek, rate || 0));
+  // Hors moms, POUR MÉMOIRE (comptabilité) — jamais utilisé comme coût.
+  const goodsEurHt = round2(goodsEur - taxeIncluse(goodsEur, vat));
+  const momsEur = round2(goodsEur - goodsEurHt);
+
+  /* ── Port du voyage ─────────────────────────────────────────────
+     Un voyage = plusieurs tickets et un seul port. Réparti au prorata
+     du prix sur tous les articles du voyage, il revient à chaque ticket
+     en proportion de son montant (lib/cout-achat). */
+  const portVoyage = Math.max(0, Number(shipping?.amount_eur) || 0);
+  const achatsVoyage = Math.max(0, Number(shipping?.trip_goods) || 0);
+  if (portVoyage > 0 && achatsVoyage > 0 && achatsVoyage + 0.005 < goodsSek) {
+    return NextResponse.json({
+      error: `Le total des achats du voyage (${achatsVoyage.toFixed(2)} ${currency}) est inférieur à ce seul ticket (${goodsSek.toFixed(2)} ${currency}) : vérifie-le, ou vide-le si le port ne concerne que ce ticket.`,
+    }, { status: 400 });
+  }
+  const portTicket = partPortDuTicket(portVoyage, goodsSek, achatsVoyage);
+
+  // Une quantité de stock est entière et positive (garde côté serveur).
+  const qtyDe = (l: any) => Math.max(1, Math.round(Number(l.qty) || 1));
+  const couts = coutsDuTicket(
+    kept.map((l: any, i: number) => ({ key: String(i), qty: qtyDe(l), prix: Number(l.unit_sek) || 0 })),
+    { taux: rate || 0, tauxTaxe: vat, port: portTicket },
+  );
+
+  /* Les lignes archivées gardent le coût calculé à côté du prix lu :
+     le ticket se relit seul, sans refaire le calcul. */
+  let k = -1;
+  const lignesArchivees = lines.map((l: any) => {
+    if (l.ignored) return l;
+    const c = couts.lignes[String(++k)];
+    return c ? {
+      ...l,
+      unit_cost_eur: c.unit_eur,
+      moms_unit_eur: c.taxe_unit_eur,
+      shipping_per_unit: c.port_unit,
+      landed_unit_cost: c.revient_unit,
+    } : l;
+  });
 
   // ── Brouillon : on archive et on s'arrête là ──────────────────
   const ticketPayload = {
@@ -79,12 +131,14 @@ export async function POST(req: NextRequest) {
     purchased_at: purchased_at || null,
     currency,
     exchange_rate: rate || null,
-    vat_rate: Number(vat_rate),
+    vat_rate: vat,
     total_ocr: total_ocr != null ? Number(total_ocr) : null,
     total_lines: Math.round(totalLines * 100) / 100,
-    goods_eur_ht: goodsEur,
+    /* Hors moms, pour mémoire : TTC (commande d'achat) − ce montant =
+       moms payée. Le coût des articles, lui, garde la moms. */
+    goods_eur_ht: goodsEurHt,
     image_urls,
-    lines,
+    lines: lignesArchivees,
     status: draft ? 'draft' : 'validated',
   };
 
@@ -117,10 +171,9 @@ export async function POST(req: NextRequest) {
   const precedent = Number(String(dernier?.[0]?.number || '').split('-')[2]) || 0;
   const number = `PO-${annee}-${String(precedent + 1).padStart(3, '0')}`;
 
-  const poLines = kept.map((l: any) => {
-    // Une quantité de stock est entière et positive (garde côté serveur).
-    const qty = Math.max(1, Math.round(Number(l.qty) || 1));
-    const unitEur = rate ? (Number(l.unit_sek) || 0) / (1 + Number(vat_rate) / 100) * rate : 0;
+  const poLines = kept.map((l: any, i: number) => {
+    const qty = qtyDe(l);
+    const c = couts.lignes[String(i)];
     return {
       product_id: l.product_id || null,
       name: l.product_name || l.raw_label,
@@ -129,23 +182,50 @@ export async function POST(req: NextRequest) {
          d'achat : le bon PDF, l'annulation de réception (PMP) et la
          répartition du port le lisent comme tel. Il portait le prix en
          couronnes TTC, imprimé « 32,90 € » sur le bon. Le prix du ticket
-         reste dans `unit_cost_sek`. */
-      unit_cost: Math.round(unitEur * 10000) / 10000,
-      unit_cost_eur: Math.round(unitEur * 10000) / 10000,
+         reste dans `unit_cost_sek`. C'est le prix payé, moms comprise :
+         la boutique ne la récupère pas. */
+      unit_cost: c.unit_eur,
+      unit_cost_eur: c.unit_eur,
       unit_cost_sek: Number(l.unit_sek) || 0,
-      total: Math.round(unitEur * qty * 100) / 100,
+      vat_rate: vat,
+      moms_unit_eur: c.taxe_unit_eur,
+      total: round2(c.unit_eur * qty),
+      // Port reversé sur l'article : mêmes champs que la composition de commande.
+      ...(portTicket > 0 ? {
+        shipping_share: c.port_total,
+        shipping_per_unit: c.port_unit,
+        landed_unit_cost: c.revient_unit,
+        bears_shipping: true,
+      } : {}),
+      /* Coût effectivement écrit sur la fiche produit (marchandise +
+         port). L'annulation et le rejeu de la réception le relisent pour
+         défaire ou refaire exactement ce qui a été posé. */
+      stock_unit_cost: c.revient_unit,
     };
   });
+
+  const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const notes = [
+    `Ticket de caisse${store ? ' · ' + store : ''}`,
+    momsEur > 0
+      ? `${currency === 'EUR' ? 'TVA' : 'moms'} ${String(vat).replace('.', ',')} % ≈ ${fmt(momsEur)} € incluse dans le coût (non récupérable)`
+      : '',
+    portTicket > 0
+      ? `port ${fmt(portTicket)} € réparti au prorata du prix`
+        + (achatsVoyage > 0 ? ` (port du voyage ${fmt(portVoyage)} € pour ${fmt(achatsVoyage)} ${currency} d'achats)` : '')
+      : '',
+  ].filter(Boolean).join(' · ');
 
   const { data: po, error: poErr } = await supabaseAdmin.from('purchase_orders').insert({
     number,
     status: 'received',
     supplier_name: store || 'Achat magasin',
     expected_date: purchased_at || null,
-    notes: `Ticket de caisse${store ? ' · ' + store : ''}`,
+    notes,
     lines: JSON.stringify(poLines),
     subtotal: goodsEur,
-    total: goodsEur,
+    shipping: portTicket,
+    total: round2(goodsEur + portTicket),
     currency,
     exchange_rate: rate,
     payment_date: purchased_at || null,
@@ -182,10 +262,11 @@ export async function POST(req: NextRequest) {
         .select('bundle_items').eq('id', l.product_id).maybeSingle();
       if (composition((cible as any)?.bundle_items)) { stockErrors.push(`${l.name} (box)`); continue; }
 
-      // Le PA HT calculé alimente la fiche produit ; la quantité, elle,
-      // passe par adjustStock — un seul point d'écriture pour le stock.
+      // Le coût de revient (moms comprise + port) alimente la fiche
+      // produit ; la quantité, elle, passe par adjustStock — un seul
+      // point d'écriture pour le stock.
       await supabaseAdmin.from('products').update({
-        cost_price: l.unit_cost_eur,
+        cost_price: l.stock_unit_cost,
       }).eq('id', l.product_id);
 
       const { adjustStock } = await import('@/lib/stock');
@@ -209,7 +290,10 @@ export async function POST(req: NextRequest) {
     ticket,
     purchase_order: po,
     reception,
-    goods_eur_ht: goodsEur,
+    goods_eur: goodsEur,
+    goods_eur_ht: goodsEurHt,
+    moms_eur: momsEur,
+    shipping_eur: portTicket,
     ...(stockErrors.length ? { warning: `Stock non mis à jour pour : ${stockErrors.join(', ')}` } : {}),
   });
 }

@@ -5,6 +5,7 @@ import { T, BADGE, thumbStyle, initials } from '@/lib/admin-theme';
 import { nomProduit, useT } from '@/lib/admin-i18n';
 import { useIsMobile } from '@/lib/use-mobile';
 import { TTI, lignesLues, commandeCreee, ecartPrix } from './i18n';
+import { coutsDuTicket, partPortDuTicket, versEuros, taxeIncluse } from '@/lib/cout-achat';
 
 /* Téléphone (ticket photographié en magasin) :
    · contexte (pays, magasin, date, taux, moms) replié en une ligne ;
@@ -67,8 +68,11 @@ const CSS = `
 /* ═══════════════════════════════════════════════════════════════
    ACHATS › SAISIE TICKET DE CAISSE
    Handoff v2 §1. Deux modes : photo du ticket (OCR) et saisie rapide.
-   Les prix du ticket sont TTC en couronnes : moms déduite puis
-   conversion en euros HT. Le PA HT unitaire alimente la fiche produit.
+   Les prix du ticket sont TTC en couronnes. La boutique (franchise de
+   TVA) ne récupère pas la moms : elle reste dans le coût. Coût d'un
+   article = prix payé × taux + part du port du voyage au prorata du
+   prix (lib/cout-achat, même calcul que le serveur). Ce coût de revient
+   alimente la fiche produit.
    ═══════════════════════════════════════════════════════════════ */
 
 type Status = 'matched' | 'review' | 'new' | 'ignored' | 'validated';
@@ -91,8 +95,11 @@ type Product = {
   cost_price?: number; category_id?: string; sort_order?: number; ean?: string;
 };
 
-/* Pays du ticket : la Suède convertit SEK→EUR et déduit la moms ;
-   la France est déjà en euros, TVA française, sans conversion. */
+/* Pays du ticket : la Suède convertit SEK→EUR ; la France est déjà en
+   euros, sans conversion. Dans les deux cas la taxe reste dans le coût
+   (non récupérable) : le taux choisi sert seulement à noter, pour
+   mémoire, combien de moms ou de TVA a été payée. Moms alimentaire
+   suédoise : 6 % depuis avril 2026 (baisse temporaire), 12 % avant. */
 type Country = 'SE' | 'FR';
 const COUNTRY: Record<Country, {
   label: string; flag: string; currency: string; symbol: string;
@@ -101,13 +108,17 @@ const COUNTRY: Record<Country, {
 }> = {
   SE: {
     label: 'Suède', flag: '🇸🇪', currency: 'SEK', symbol: 'kr',
-    defaultRate: '0,0876', fixedRate: false, vatLabel: 'Moms (TVA suédoise)',
+    defaultRate: '0,0876', fixedRate: false, vatLabel: 'Moms payée (pour mémoire)',
     stores: ['ICA Maxi · Malmö', 'Willys · Helsingborg', 'Coop · Göteborg', 'Systembolaget'],
-    vats: [{ value: '12', label: 'Alimentaire 12 %' }, { value: '25', label: 'Standard 25 %' }],
+    vats: [
+      { value: '6', label: 'Alimentaire 6 %' },
+      { value: '12', label: 'Alimentaire 12 % (ancien taux)' },
+      { value: '25', label: 'Standard 25 %' },
+    ],
   },
   FR: {
     label: 'France', flag: '🇫🇷', currency: 'EUR', symbol: '€',
-    defaultRate: '1', fixedRate: true, vatLabel: 'TVA française',
+    defaultRate: '1', fixedRate: true, vatLabel: 'TVA payée (pour mémoire)',
     stores: ['Carrefour', 'E.Leclerc', 'Auchan', 'Intermarché', 'Système U', 'Metro / grossiste', 'Autre'],
     vats: [{ value: '5.5', label: 'Alimentaire 5,5 %' }, { value: '10', label: 'Restauration 10 %' }, { value: '20', label: 'Standard 20 %' }],
   },
@@ -117,6 +128,19 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 const money = (n: number, sym: string) => (Number(n) || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + sym;
 const eur = (n: number) => money(n, '€');
+const pct = (r: number) => (r * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' %';
+const nombre = (s: string) => parseFloat(String(s || '').replace(/\s/g, '').replace(',', '.')) || 0;
+
+/* Port du voyage : un seul montant pour tous les tickets d'un même
+   voyage. Mémorisé sur cet appareil pour le ticket suivant, 30 jours au
+   plus après la dernière saisie — au-delà, c'est un autre voyage. */
+const CLE_PORT = 'sd_ticket_port_voyage';
+function memoriserPort(port: string, achats: string) {
+  try {
+    if (port.trim() || achats.trim()) localStorage.setItem(CLE_PORT, JSON.stringify({ port, achats, at: Date.now() }));
+    else localStorage.removeItem(CLE_PORT);
+  } catch { /* stockage indisponible : la saisie reste à la main */ }
+}
 const isPdf = (url: string) => /\.pdf($|\?)/i.test(url || '');
 
 const STATUS_META: Record<Status, { border: string; label: string; tone: keyof typeof BADGE }> = {
@@ -135,8 +159,19 @@ export default function TicketPage() {
   const [store, setStore] = useState(COUNTRY.SE.stores[0]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [rate, setRate] = useState('0,0876');
-  const [vat, setVat] = useState('12');
+  const [vat, setVat] = useState(COUNTRY.SE.vats[0].value);
   const [totalOcr, setTotalOcr] = useState('');
+  const [portVoyage, setPortVoyage] = useState('');
+  const [achatsVoyage, setAchatsVoyage] = useState('');
+  useEffect(() => {
+    try {
+      const m = JSON.parse(localStorage.getItem(CLE_PORT) || 'null');
+      if (m && Date.now() - Number(m.at) < 30 * 86400000) {
+        setPortVoyage(String(m.port || ''));
+        setAchatsVoyage(String(m.achats || ''));
+      }
+    } catch { /* rien de mémorisé, ou stockage indisponible */ }
+  }, []);
 
   const cur = (n: number) => money(n, cfg.symbol);
 
@@ -170,7 +205,11 @@ export default function TicketPage() {
   const [ctxOuvert, setCtxOuvert] = useState(false);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 4000); };
-  const rateNum = parseFloat(rate.replace(',', '.')) || 0;
+  /* Le taux se dit « 10,80 » (kr pour 1 €) aussi bien que « 0,0926 »
+     (€ pour 1 kr, ce que le calcul utilise). Une couronne ne vaut jamais
+     plus d'un euro : au-dessus de 1, c'est des kr pour 1 €, on inverse. */
+  const saisieTaux = nombre(rate);
+  const rateNum = !cfg.fixedRate && saisieTaux > 1 ? 1 / saisieTaux : saisieTaux;
   const vatNum = parseFloat(vat) || 0;
 
   useEffect(() => {
@@ -178,15 +217,35 @@ export default function TicketPage() {
       .then(d => setProducts(d.products || [])).catch(() => {});
   }, []);
 
-  /* ── Calculs du handoff ─────────────────────────────────── */
+  /* ── Calculs (lib/cout-achat, les mêmes que le serveur) ──── */
   const lineSek = (l: Line) => (Number(l.qty) || 0) * (Number(l.unit_sek) || 0);
-  const toEurHt = (sek: number) => vatNum >= 0 ? (sek / (1 + vatNum / 100)) * rateNum : 0;
-  const lineEur = (l: Line) => toEurHt(lineSek(l));
-  const unitEur = (l: Line) => toEurHt(Number(l.unit_sek) || 0);
+  const exclue = (l: Line) => !!l.ignored || l.status === 'ignored';
 
-  const totalLines = useMemo(() => lines.reduce((s, l) => s + lineSek(l), 0), [lines, rateNum, vatNum]);
-  const goodsSek = useMemo(() => lines.filter(l => !l.ignored && l.status !== 'ignored').reduce((s, l) => s + lineSek(l), 0), [lines]);
-  const goodsEur = toEurHt(goodsSek);
+  const totalLines = useMemo(() => lines.reduce((s, l) => s + lineSek(l), 0), [lines]);
+  const goodsSek = useMemo(() => lines.filter(l => !exclue(l)).reduce((s, l) => s + lineSek(l), 0), [lines]);
+  // Prix payé converti, moms comprise : c'est le coût de la marchandise.
+  const goodsEur = versEuros(goodsSek, rateNum);
+  const momsEur = taxeIncluse(goodsEur, vatNum);
+
+  const portNum = nombre(portVoyage);
+  const achatsVoyageNum = nombre(achatsVoyage);
+  const voyageTropPetit = portNum > 0 && achatsVoyageNum > 0 && achatsVoyageNum + 0.005 < goodsSek;
+  const portTicket = partPortDuTicket(portNum, goodsSek, achatsVoyageNum);
+  /** Majoration du port en % du prix : 94 € pour 6 817,55 kr à 10,80 → 14,89 %. */
+  const pctPort = achatsVoyageNum > 0 && rateNum > 0
+    ? portNum / versEuros(achatsVoyageNum, rateNum)
+    : goodsEur > 0 ? portTicket / goodsEur : 0;
+
+  const couts = useMemo(() => coutsDuTicket(
+    lines.filter(l => !exclue(l)).map(l => ({
+      key: l.key, qty: Math.max(1, Math.round(Number(l.qty) || 1)), prix: Number(l.unit_sek) || 0,
+    })),
+    { taux: rateNum, tauxTaxe: vatNum, port: portTicket },
+  ), [lines, rateNum, vatNum, portTicket]);
+  /** Coût de revient unitaire (moms comprise + port) : ce qui ira sur la fiche. */
+  const unitEur = (l: Line) => couts.lignes[l.key]?.revient_unit ?? versEuros(Number(l.unit_sek) || 0, rateNum);
+  const lineEur = (l: Line) => unitEur(l) * (Number(l.qty) || 0);
+  const coutTotal = goodsEur + portTicket;
   const ocrNum = parseFloat(totalOcr.replace(',', '.')) || 0;
   const gap = totalLines - ocrNum;
   const gapOk = !ocrNum || Math.abs(gap) < 0.01;
@@ -284,9 +343,10 @@ export default function TicketPage() {
     setQPick(p);
     setQName(p.name_fr);
     setSugOpen(false);
-    // Pré-remplit le prix depuis le dernier PA connu, reconverti en couronnes.
+    /* Pré-remplit le prix depuis le dernier coût connu, reconverti en
+       couronnes, part du port retirée (la moms, elle, est dans les deux). */
     if (p.cost_price && rateNum > 0 && !qPrice) {
-      const sek = (p.cost_price / rateNum) * (1 + vatNum / 100);
+      const sek = p.cost_price / (1 + pctPort) / rateNum;
       setQPrice(String(Math.round(sek * 100) / 100).replace('.', ','));
     }
   }
@@ -299,7 +359,8 @@ export default function TicketPage() {
 
     // Garde-fou du handoff : écart de plus de 15 % avec le dernier PA connu.
     if (qPick?.cost_price && rateNum > 0) {
-      const newPa = (price / (1 + vatNum / 100)) * rateNum;
+      // Comparé au coût de la fiche, qui comprend la moms et le port.
+      const newPa = versEuros(price, rateNum) * (1 + pctPort);
       const drift = Math.abs(newPa - qPick.cost_price) / qPick.cost_price;
       if (drift > 0.15) {
         const ok = window.confirm(
@@ -323,6 +384,7 @@ export default function TicketPage() {
   async function submit(draft: boolean) {
     if (!lines.length) { say(t('msgAucuneLigne')); return; }
     if (!draft && !rateNum) { say(t('msgTaux')); return; }
+    if (!draft && voyageTropPetit) { say(t('msgVoyage')); return; }
     /* « À vérifier » = rapprochement deviné (score 0,4–0,8). Sans cette
        question, la validation l'appliquait en silence : stock et prix sur
        le produit deviné, et l'alias appris le resservait ensuite. */
@@ -335,6 +397,7 @@ export default function TicketPage() {
         body: JSON.stringify({
           store, purchased_at: date, exchange_rate: rateNum, vat_rate: vatNum,
           currency: cfg.currency, country,
+          shipping: portNum > 0 ? { amount_eur: portNum, trip_goods: achatsVoyageNum || null } : null,
           total_ocr: ocrNum || null, image_urls: images, draft,
           lines: lines.map(l => ({
             raw_label: l.raw_label, product_id: l.product_id, product_name: l.product_name,
@@ -363,7 +426,7 @@ export default function TicketPage() {
     <>
       <div className="ti-total" style={{ textAlign: 'right' }}>
         <div style={{ fontSize: mobile ? 12 : 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{libelleTotal}</div>
-        <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: couleurTotal }}>{eur(goodsEur)}</div>
+        <div className="sc-num" style={{ fontSize: 20, fontWeight: 700, color: couleurTotal }}>{eur(coutTotal)}</div>
       </div>
       {avecBrouillon && (
         <button className="sc-btn sc-btn-secondary" onClick={() => submit(true)} disabled={busy || !lines.length}
@@ -380,8 +443,10 @@ export default function TicketPage() {
   const resumeContexte = [
     `${cfg.flag} ${store}`,
     new Date(date).toLocaleDateString('fr-FR'),
-    cfg.fixedRate ? cfg.currency : `${rate} ${cfg.currency}→EUR`,
-    `${country === 'FR' ? 'TVA' : 'moms'} ${vat.replace('.', ',')} %`,
+    cfg.fixedRate ? cfg.currency
+      : rateNum > 0 ? `1 € = ${(1 / rateNum).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kr` : `${cfg.currency}→EUR ?`,
+    `${country === 'FR' ? 'TVA' : 'moms'} ${vat.replace('.', ',')} % comprise`,
+    ...(portNum > 0 ? [`port +${pct(pctPort)}`] : []),
   ].join(' · ');
 
   return (
@@ -463,7 +528,9 @@ export default function TicketPage() {
           </div>
         ) : (
           <div style={cell}>
-            <div className="ti-ctx-l" style={cellLabel}>{t('taux')}</div>
+            <div className="ti-ctx-l" style={cellLabel}>
+              {t('taux')}{rateNum > 0 ? ` · 1 € = ${(1 / rateNum).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kr` : ''}
+            </div>
             <input className="sc-input sc-num" inputMode="decimal" style={{ height: 30 }} value={rate} onChange={e => setRate(e.target.value)} placeholder={cfg.defaultRate} />
           </div>
         )}
@@ -472,6 +539,25 @@ export default function TicketPage() {
           <select className="sc-input sc-select" style={{ height: 30 }} value={vat} onChange={e => setVat(e.target.value)}>
             {cfg.vats.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
           </select>
+        </div>
+        {/* Port : un montant pour tout le voyage, réparti au prorata du
+            prix ; le total des achats du voyage dit quelle part en revient
+            à ce ticket. */}
+        <div style={cell}>
+          <label className="ti-ctx-l" htmlFor="ti-port" style={{ ...cellLabel, display: 'block' }}>
+            {t('portVoyage')}{pctPort > 0 ? ` · +${pct(pctPort)}` : ''}
+          </label>
+          <input id="ti-port" className="sc-input sc-num" inputMode="decimal" style={{ height: 30 }} value={portVoyage}
+                 placeholder="0,00"
+                 onChange={e => { setPortVoyage(e.target.value); memoriserPort(e.target.value, achatsVoyage); }} />
+        </div>
+        <div style={cell}>
+          <label className="ti-ctx-l" htmlFor="ti-voyage" style={{ ...cellLabel, display: 'block', color: voyageTropPetit ? T.red : T.muted }}>
+            {t('achatsVoyage')} · {cfg.symbol}
+          </label>
+          <input id="ti-voyage" className="sc-input sc-num" inputMode="decimal" style={{ height: 30 }} value={achatsVoyage}
+                 placeholder={t('achatsVoyagePh')} aria-invalid={voyageTropPetit || undefined}
+                 onChange={e => { setAchatsVoyage(e.target.value); memoriserPort(portVoyage, e.target.value); }} />
         </div>
       </div>
       )}
@@ -576,9 +662,23 @@ export default function TicketPage() {
                   <span style={{ fontSize: 12, color: T.text2b }}>{t('marchandises')}</span>
                   <span className="sc-num" style={{ fontSize: 15, fontWeight: 700, color: T.green }}>{eur(goodsEur)}</span>
                 </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: T.muted, padding: '3px 0' }}>
+                  <span>{country === 'FR' ? t('dontTva') : t('dontMoms')} · {vat.replace('.', ',')} %</span>
+                  <span className="sc-num">{eur(momsEur)}</span>
+                </div>
+                {portTicket > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.text2b, padding: '3px 0' }}>
+                    <span>{t('partPort')} · +{pct(pctPort)}</span>
+                    <span className="sc-num">{eur(portTicket)}</span>
+                  </div>
+                )}
+                {voyageTropPetit && (
+                  <div role="alert" style={{ fontSize: 11.5, color: T.red, marginTop: 6, lineHeight: 1.5 }}>{t('msgVoyage')}</div>
+                )}
                 <div className="ti-note" style={{ fontSize: 10.5, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
-                  Prix relevés TTC · {country === 'FR' ? 'TVA' : 'moms'} {vat.replace('.', ',')} % déduite
-                  {country === 'FR' ? '' : ' puis conversion en euros'} pour obtenir le prix d’achat.
+                  Prix payés, {country === 'FR' ? 'TVA' : 'moms'} comprise : la boutique ne la récupère pas, elle fait
+                  partie du prix d’achat{country === 'FR' ? '' : ', converti en euros'}
+                  {portTicket > 0 ? ', plus la part du port au prorata du prix' : ''}.
                 </div>
               </div>
             </div>
@@ -680,7 +780,7 @@ export default function TicketPage() {
                         {off ? '—' : eur(lineEur(l))}
                       </div>
                       <div className="sc-num" style={{ fontSize: 10, color: T.muted }}>
-                        {off ? 'exclue' : `${eur(unitEur(l))} PA HT/u.`}
+                        {off ? 'exclue' : `${eur(unitEur(l))}/u.${portTicket > 0 ? ' port compris' : ''}`}
                       </div>
                     </div>
 

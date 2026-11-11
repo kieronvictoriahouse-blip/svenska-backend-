@@ -12,14 +12,20 @@ export const lignesDe = (v: any): any[] => {
 export const recuDe = (l: any): number =>
   parseInt(l?.received_qty ?? l?.qty_received) || 0;
 
+/** Coût unitaire en euros qu'une ligne de réception fait entrer en stock.
+ *  `stock_unit_cost` d'abord : posé par la saisie de ticket, il comprend
+ *  la part du port (les autres réceptions reçoivent le port à part, par
+ *  les coûts logistiques). Puis `unit_cost_eur` : les anciennes lignes de
+ *  ticket portaient dans `unit_cost` le prix en couronnes. */
+export const coutEntreEnStock = (line: any): number =>
+  parseFloat(line?.stock_unit_cost ?? line?.unit_cost_eur ?? line?.unit_cost) || 0;
+
 export async function applyStockAndPmp(line: any, reason: string, reference?: string) {
   const receivedQty = recuDe(line);
   /* Une quantité négative n'est pas une réception : ce serait une sortie
      de stock déguisée, avec un PMP recalculé à l'envers. */
   if (receivedQty <= 0) return;
-  /* `unit_cost_eur` d'abord : les anciennes lignes de ticket portaient
-     dans `unit_cost` le prix en couronnes. */
-  const unitCostEur = parseFloat(line.unit_cost_eur ?? line.unit_cost) || 0;
+  const unitCostEur = coutEntreEnStock(line);
 
   const { data: product } = await supabaseAdmin.from('products')
     .select('stock, cost_price, bundle_items').eq('id', line.product_id).single();

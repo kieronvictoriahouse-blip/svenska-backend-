@@ -492,7 +492,7 @@ function Composition() {
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 6 }}>
             <span style={{ fontSize: 9.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.t5, fontWeight: 600 }}>
-              {t.port > 0 ? 'Prix de revient HT' : 'Coût d’achat HT'}
+              {t.port > 0 ? 'Prix de revient' : 'Coût d’achat'}
             </span>
             <span className="sc-num" style={{ fontSize: 22, fontWeight: 700, color: C.t1 }}>{eur(t.eurAvecPort)}</span>
           </div>

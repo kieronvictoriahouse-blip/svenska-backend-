@@ -4,7 +4,7 @@ export const TNC = {
   remplirAuto: { fr: 'Remplir automatiquement', en: 'Fill automatically', sv: 'Fyll automatiskt' },
   transportTnt: { fr: 'Transport (TNT, colis)', en: 'Freight (TNT, parcel)', sv: 'Frakt (TNT, paket)' },
   marchandiseMagasin: { fr: 'Marchandise (magasin)', en: 'Goods (store)', sv: 'Varor (butik)' },
-  marchandiseHt: { fr: 'Marchandise HT', en: 'Goods excl. VAT', sv: 'Varor exkl. moms' },
+  marchandiseHt: { fr: 'Marchandise, moms comprise', en: 'Goods, VAT included', sv: 'Varor inkl. moms' },
   transport: { fr: 'Transport', en: 'Freight', sv: 'Frakt' },
   auMoinsUne: { fr: 'Au moins une ligne', en: 'At least one line', sv: 'Minst en rad' },
   rienAReappro: {

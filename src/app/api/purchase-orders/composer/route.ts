@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { repartir, type Methode } from '@/lib/landed';
+import { versEuros } from '@/lib/cout-achat';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +24,10 @@ type Ligne = {
   unit_cost_eur: number; unit_cost_sek: number | null;
 };
 
-/** Conversion identique à la saisie de ticket : la moms de 12 % est
- *  déduite AVANT la conversion, sinon le coût d'achat est surévalué. */
-const sekVersEur = (sek: number, taux: number) => (sek / 1.12) * taux;
+/** Conversion identique à la saisie de ticket (lib/cout-achat) : moms
+ *  COMPRISE. La boutique, en franchise de TVA, ne la récupère pas ; la
+ *  retirer (ancien ÷ 1,12) sous-évaluait le coût et gonflait la marge. */
+const sekVersEur = (sek: number, taux: number) => versEuros(sek, taux);
 
 export async function POST(req: NextRequest) {
   if (!await requireAuth(req)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -224,7 +226,7 @@ export async function POST(req: NextRequest) {
 
   const dateFr = new Date(attendue).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
   let message = `${existante ? 'Modifiée · ' : ''}${numero} — ${lignes.length} référence(s), ${unites} unités, `
-    + `${sousTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € HT`
+    + `${sousTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € moms comprise`
     + (port > 0 ? ` + ${port.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € de transport reversés sur les articles` : '')
     + `. Attendue vers le ${dateFr}.`;
 
