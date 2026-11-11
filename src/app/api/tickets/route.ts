@@ -7,7 +7,7 @@ import { coutsDuTicket, partPortDuTicket, versEuros, taxeIncluse, round2 } from 
 /* ═══════════════════════════════════════════════════════════════
    TICKETS DE CAISSE
 
-   GET    ?labels=a|b|c&store=…  → rapproche des libellés au catalogue
+   GET    ?labels=a|b|c&store=<enseigne> → rapproche des libellés au catalogue
    POST   { action: 'finalize' } → crée commande d'achat + réception,
                                    met à jour stock et prix d'achat,
                                    apprend les alias, archive le ticket
@@ -22,7 +22,17 @@ import { coutsDuTicket, partPortDuTicket, versEuros, taxeIncluse, round2 } from 
      trip_goods  total des achats du voyage dans la devise du ticket,
                  quand ce port couvre plusieurs tickets. Absent, le port
                  ne concerne que ce ticket.
+
+   Magasin : `supplier_id` (un contact fournisseur : GEKAS, WILLYS…)
+   rattache la commande et la réception à son magasin ; `store`, texte
+   libre, garde la succursale (« Willys Värnamo Gröndal »). Les alias de
+   libellés sont rangés par enseigne — le nom du fournisseur quand il est
+   choisi, sinon le texte libre : un libellé de caisse dépend de
+   l'enseigne, pas de la succursale.
    ═══════════════════════════════════════════════════════════════ */
+
+const nomContact = (c: any) =>
+  c?.company || `${c?.first_name || ''} ${c?.last_name || ''}`.trim() || 'Fournisseur';
 
 async function loadCatalog() {
   const { data } = await supabaseAdmin
@@ -37,11 +47,58 @@ async function loadAliases(store?: string) {
   const { data } = await supabaseAdmin
     .from('ticket_aliases').select('raw_label, store, product_id').limit(2000);
   const map: Record<string, string> = {};
-  for (const a of data || []) {
-    // Un alias propre au magasin l'emporte sur un alias générique.
-    if (!a.store || a.store === store) map[normalize(a.raw_label)] = a.product_id;
-  }
+  /* Un alias propre au magasin l'emporte sur un alias générique : les
+     génériques d'abord, ceux du magasin les écrasent ensuite. En une
+     seule passe, c'était le dernier lu qui gagnait. */
+  for (const a of data || []) if (!a.store) map[normalize(a.raw_label)] = a.product_id;
+  for (const a of data || []) if (store && a.store === store) map[normalize(a.raw_label)] = a.product_id;
   return map;
+}
+
+/**
+ * Mémorise libellé de caisse → produit pour une enseigne.
+ *
+ * L'index unique de ticket_aliases (migration 030) porte sur des
+ * EXPRESSIONS : (lower(raw_label), coalesce(store, '')). Un upsert
+ * `onConflict: 'raw_label,store'` ne peut pas le désigner : Postgres
+ * refusait chaque écriture (42P10), l'erreur était dans le résultat et
+ * personne ne la lisait — aucun alias n'a jamais été appris. On lit donc
+ * les alias de l'enseigne, puis on met à jour ou on insère, avec la même
+ * clé que l'index (libellé en minuscules).
+ *
+ * Renvoie le nombre de libellés qui n'ont pas pu être mémorisés.
+ */
+async function apprendreAlias(lignes: any[], cle: string | null): Promise<number> {
+  let q = supabaseAdmin.from('ticket_aliases').select('id, raw_label, product_id, hits');
+  q = cle ? q.eq('store', cle) : q.is('store', null);
+  const { data: connus, error } = await q.limit(5000);
+  if (error) { console.error('[tickets] alias illisibles', error.message); return lignes.length; }
+
+  const parLibelle = new Map<string, any>((connus || []).map(a => [String(a.raw_label).toLowerCase(), a]));
+  const vus = new Set<string>();
+  let echecs = 0;
+  for (const l of lignes) {
+    const libelle = String(l.raw_label || '').trim();
+    if (!l.product_id || !libelle) continue;
+    const k = libelle.toLowerCase();
+    // Le même libellé deux fois sur un ticket : la première ligne fait foi.
+    if (vus.has(k)) continue;
+    vus.add(k);
+
+    const existant = parLibelle.get(k);
+    const maintenant = new Date().toISOString();
+    const { error: e } = existant
+      ? await supabaseAdmin.from('ticket_aliases').update({
+          product_id: l.product_id,
+          hits: (Number(existant.hits) || 0) + 1,
+          updated_at: maintenant,
+        }).eq('id', existant.id)
+      : await supabaseAdmin.from('ticket_aliases').insert({
+          raw_label: libelle, store: cle, product_id: l.product_id, updated_at: maintenant,
+        });
+    if (e) { echecs++; console.error('[tickets] alias non mémorisé', libelle, e.message); }
+  }
+  return echecs;
 }
 
 export async function GET(req: NextRequest) {
@@ -69,7 +126,7 @@ export async function POST(req: NextRequest) {
   const {
     store, purchased_at, exchange_rate, vat_rate = 6,
     total_ocr, image_urls = [], lines = [], draft = false,
-    currency = 'SEK', shipping = null,
+    currency = 'SEK', shipping = null, supplier_id = null,
   } = body;
 
   if (!Array.isArray(lines) || lines.length === 0) {
@@ -80,6 +137,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Taux de change manquant' }, { status: 400 });
   }
   const vat = Math.max(0, Number(vat_rate) || 0);
+
+  /* Magasin choisi dans les fournisseurs : relu en base, jamais pris tel
+     quel de l'écran — un identifiant inconnu rattacherait la commande à
+     rien, ou au mauvais magasin. */
+  let fournisseur: { id: string; nom: string } | null = null;
+  if (supplier_id) {
+    const { data: c } = await supabaseAdmin.from('contacts')
+      .select('id, company, first_name, last_name').eq('id', supplier_id).maybeSingle();
+    if (!c) return NextResponse.json({ error: 'Magasin introuvable parmi les fournisseurs' }, { status: 400 });
+    fournisseur = { id: c.id, nom: nomContact(c) };
+  }
+  // Succursale en texte libre ; à défaut, le nom du magasin choisi.
+  const magasin: string | null = String(store || '').trim() || fournisseur?.nom || null;
+  // Clé des alias : l'enseigne (cf. en-tête).
+  const cleAlias: string | null = fournisseur?.nom || magasin;
 
   const kept = lines.filter((l: any) => !l.ignored);
   const totalLines = lines.reduce((s: number, l: any) => s + (Number(l.qty) || 0) * (Number(l.unit_sek) || 0), 0);
@@ -127,7 +199,7 @@ export async function POST(req: NextRequest) {
 
   // ── Brouillon : on archive et on s'arrête là ──────────────────
   const ticketPayload = {
-    store: store || null,
+    store: magasin,
     purchased_at: purchased_at || null,
     currency,
     exchange_rate: rate || null,
@@ -148,18 +220,12 @@ export async function POST(req: NextRequest) {
   if (draft) return NextResponse.json({ ok: true, ticket, draft: true });
 
   // ── Apprentissage des alias ───────────────────────────────────
-  // Chaque ligne validée sur un produit enseigne la correspondance.
-  for (const l of kept) {
-    if (!l.product_id || !l.raw_label) continue;
-    try {
-      await supabaseAdmin.from('ticket_aliases').upsert({
-        raw_label: l.raw_label,
-        store: store || null,
-        product_id: l.product_id,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'raw_label,store', ignoreDuplicates: false });
-    } catch { /* l'apprentissage ne doit jamais bloquer la validation */ }
-  }
+  /* Chaque ligne validée sur un produit enseigne la correspondance.
+     L'apprentissage ne bloque jamais la validation, mais un échec est
+     désormais dit (avertissement) au lieu d'être avalé. */
+  let aliasNonAppris = 0;
+  try { aliasNonAppris = await apprendreAlias(kept, cleAlias); }
+  catch (e: any) { aliasNonAppris = kept.length; console.error('[tickets] alias', e?.message); }
 
   // ── Commande d'achat ──────────────────────────────────────────
   /* Numérotation par le maximum de l'année, pas par le nombre total de
@@ -206,7 +272,7 @@ export async function POST(req: NextRequest) {
 
   const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const notes = [
-    `Ticket de caisse${store ? ' · ' + store : ''}`,
+    `Ticket de caisse${magasin ? ' · ' + magasin : ''}`,
     momsEur > 0
       ? `${currency === 'EUR' ? 'TVA' : 'moms'} ${String(vat).replace('.', ',')} % ≈ ${fmt(momsEur)} € incluse dans le coût (non récupérable)`
       : '',
@@ -219,7 +285,9 @@ export async function POST(req: NextRequest) {
   const { data: po, error: poErr } = await supabaseAdmin.from('purchase_orders').insert({
     number,
     status: 'received',
-    supplier_name: store || 'Achat magasin',
+    // Le magasin est rattaché : la commande paraît sur sa fiche fournisseur.
+    supplier_id: fournisseur?.id || null,
+    supplier_name: magasin || 'Achat magasin',
     expected_date: purchased_at || null,
     notes,
     lines: JSON.stringify(poLines),
@@ -232,13 +300,22 @@ export async function POST(req: NextRequest) {
   }).select().single();
   if (poErr) return NextResponse.json({ error: poErr.message }, { status: 500 });
 
+  // Dernier achat chez ce magasin, comme le fait la composition de commande.
+  if (fournisseur) {
+    try {
+      await supabaseAdmin.from('contacts')
+        .update({ last_order_at: new Date().toISOString() }).eq('id', fournisseur.id);
+    } catch { /* confort d'affichage, jamais bloquant */ }
+  }
+
   // ── Réception ─────────────────────────────────────────────────
   let reception: any = null;
   try {
     const { data } = await supabaseAdmin.from('receptions').insert({
       number: `REC-${number.replace('PO-', '')}`,
       status: 'received',
-      supplier_name: store || 'Achat magasin',
+      supplier_id: fournisseur?.id || null,
+      supplier_name: magasin || 'Achat magasin',
       received_at: new Date().toISOString(),
       purchase_order_id: po.id,
       /* `received_qty` est le nom que lisent l'annulation, le rejeu et
@@ -273,7 +350,7 @@ export async function POST(req: NextRequest) {
       await adjustStock(l.product_id, l.qty, {
         reason: 'reception',
         reference: number,
-        note: `Ticket ${store || ''}`.trim(),
+        note: `Ticket ${magasin || ''}`.trim(),
       });
     } catch (e: any) {
       stockErrors.push(l.name);
@@ -285,6 +362,11 @@ export async function POST(req: NextRequest) {
     reception_id: reception?.id || null,
   }).eq('id', ticket.id);
 
+  const avertissements = [
+    stockErrors.length ? `Stock non mis à jour pour : ${stockErrors.join(', ')}` : '',
+    aliasNonAppris ? `${aliasNonAppris} libellé(s) non mémorisé(s) pour les prochains tickets` : '',
+  ].filter(Boolean);
+
   return NextResponse.json({
     ok: true,
     ticket,
@@ -294,6 +376,6 @@ export async function POST(req: NextRequest) {
     goods_eur_ht: goodsEurHt,
     moms_eur: momsEur,
     shipping_eur: portTicket,
-    ...(stockErrors.length ? { warning: `Stock non mis à jour pour : ${stockErrors.join(', ')}` } : {}),
+    ...(avertissements.length ? { warning: avertissements.join(' · ') } : {}),
   });
 }

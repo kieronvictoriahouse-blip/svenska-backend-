@@ -109,7 +109,9 @@ const COUNTRY: Record<Country, {
   SE: {
     label: 'Suède', flag: '🇸🇪', currency: 'SEK', symbol: 'kr',
     defaultRate: '0,0876', fixedRate: false, vatLabel: 'Moms payée (pour mémoire)',
-    stores: ['ICA Maxi · Malmö', 'Willys · Helsingborg', 'Coop · Göteborg', 'Systembolaget'],
+    // Les magasins suédois viennent des fiches fournisseurs (plus de liste
+    // d'exemple : « ICA Maxi · Malmö » n'était pas un vrai magasin).
+    stores: [],
     vats: [
       { value: '6', label: 'Alimentaire 6 %' },
       { value: '12', label: 'Alimentaire 12 % (ancien taux)' },
@@ -156,7 +158,18 @@ export default function TicketPage() {
   const [mode, setMode] = useState<'photo' | 'quick'>('photo');
   const [country, setCountry] = useState<Country>('SE');
   const cfg = COUNTRY[country];
-  const [store, setStore] = useState(COUNTRY.SE.stores[0]);
+  /* Magasin : choisi parmi les fournisseurs (GEKAS, WILLYS…) pour que la
+     commande soit rattachée à sa fiche ; la succursale reste en texte
+     libre (« Willys Värnamo Gröndal »). Sans fournisseur, le texte libre
+     est le nom du magasin, comme avant. */
+  const [fournisseurs, setFournisseurs] = useState<Array<{ id: string; nom: string }>>([]);
+  const [fournisseurId, setFournisseurId] = useState('');
+  const [succursale, setSuccursale] = useState('');
+  const nomFournisseur = fournisseurs.find(f => f.id === fournisseurId)?.nom || '';
+  /** Ce qui s'affiche et s'archive : la succursale, à défaut l'enseigne. */
+  const store = succursale.trim() || nomFournisseur;
+  /** Clé des correspondances apprises : l'enseigne (même règle que le serveur). */
+  const cleAlias = nomFournisseur || succursale.trim();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [rate, setRate] = useState('0,0876');
   const [vat, setVat] = useState(COUNTRY.SE.vats[0].value);
@@ -175,14 +188,25 @@ export default function TicketPage() {
 
   const cur = (n: number) => money(n, cfg.symbol);
 
-  /** Bascule Suède ⇄ France : réaligne devise, taux, TVA et magasin. */
+  /** Bascule Suède ⇄ France : réaligne devise, taux et TVA. */
   function switchCountry(c: Country) {
     const next = COUNTRY[c];
     setCountry(c);
     setRate(next.defaultRate);
     setVat(next.vats[0].value);
-    setStore(next.stores[0]);
   }
+
+  useEffect(() => {
+    adminFetch('/api/contacts?type=supplier').then(r => r.json())
+      .then(d => setFournisseurs((d.contacts || [])
+        .filter((c: any) => c.is_active !== false)
+        .map((c: any) => ({
+          id: c.id,
+          nom: c.company || `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Fournisseur',
+        }))
+        .sort((a: { nom: string }, b: { nom: string }) => a.nom.localeCompare(b.nom, 'fr'))))
+      .catch(() => { /* sans liste, le texte libre reste possible */ });
+  }, []);
 
   const [lines, setLines] = useState<Line[]>([]);
   const [images, setImages] = useState<string[]>([]);
@@ -299,7 +323,7 @@ export default function TicketPage() {
     let matches: any[] = [];
     try {
       const q = encodeURIComponent(raw.map(r => r.raw_label).join('|'));
-      const d = await adminFetch(`/api/tickets?labels=${q}&store=${encodeURIComponent(store)}`).then(r => r.json());
+      const d = await adminFetch(`/api/tickets?labels=${q}&store=${encodeURIComponent(cleAlias)}`).then(r => r.json());
       matches = d.results || [];
     } catch { /* sans rapprochement, tout arrive en « nouveau produit » */ }
 
@@ -385,6 +409,7 @@ export default function TicketPage() {
     if (!lines.length) { say(t('msgAucuneLigne')); return; }
     if (!draft && !rateNum) { say(t('msgTaux')); return; }
     if (!draft && voyageTropPetit) { say(t('msgVoyage')); return; }
+    if (!draft && !store) { say(t('msgMagasin')); return; }
     /* « À vérifier » = rapprochement deviné (score 0,4–0,8). Sans cette
        question, la validation l'appliquait en silence : stock et prix sur
        le produit deviné, et l'alias appris le resservait ensuite. */
@@ -395,7 +420,8 @@ export default function TicketPage() {
       const res = await adminFetch('/api/tickets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          store, purchased_at: date, exchange_rate: rateNum, vat_rate: vatNum,
+          store: store || null, supplier_id: fournisseurId || null,
+          purchased_at: date, exchange_rate: rateNum, vat_rate: vatNum,
           currency: cfg.currency, country,
           shipping: portNum > 0 ? { amount_eur: portNum, trip_goods: achatsVoyageNum || null } : null,
           total_ocr: ocrNum || null, image_urls: images, draft,
@@ -441,7 +467,7 @@ export default function TicketPage() {
   );
 
   const resumeContexte = [
-    `${cfg.flag} ${store}`,
+    `${cfg.flag} ${store || '—'}`,
     new Date(date).toLocaleDateString('fr-FR'),
     cfg.fixedRate ? cfg.currency
       : rateNum > 0 ? `1 € = ${(1 / rateNum).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kr` : `${cfg.currency}→EUR ?`,
@@ -510,10 +536,24 @@ export default function TicketPage() {
           </select>
         </div>
         <div style={cell}>
-          <div className="ti-ctx-l" style={cellLabel}>{t('magasin')}</div>
-          <select className="sc-input sc-select" style={{ height: 30 }} value={store} onChange={e => setStore(e.target.value)}>
-            {cfg.stores.map(s => <option key={s} value={s}>{s}</option>)}
+          <label className="ti-ctx-l" htmlFor="ti-fournisseur" style={{ ...cellLabel, display: 'block' }}>{t('magasin')}</label>
+          <select id="ti-fournisseur" className="sc-input sc-select" style={{ height: 30 }} value={fournisseurId}
+                  onChange={e => setFournisseurId(e.target.value)}>
+            <option value="">{t('choisirMagasin')}</option>
+            {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
           </select>
+        </div>
+        <div style={cell}>
+          <label className="ti-ctx-l" htmlFor="ti-succursale" style={{ ...cellLabel, display: 'block' }}>
+            {fournisseurId ? t('succursale') : t('magasinLibre')}
+          </label>
+          <input id="ti-succursale" className="sc-input" style={{ height: 30 }} value={succursale}
+                 list={cfg.stores.length ? 'ti-magasins' : undefined}
+                 placeholder={fournisseurId ? t('succursalePh') : t('magasinLibrePh')}
+                 onChange={e => setSuccursale(e.target.value)} />
+          {cfg.stores.length > 0 && (
+            <datalist id="ti-magasins">{cfg.stores.map(s => <option key={s} value={s} />)}</datalist>
+          )}
         </div>
         <div style={cell}>
           <div className="ti-ctx-l" style={cellLabel}>{t('dateAchat')}</div>
@@ -572,7 +612,7 @@ export default function TicketPage() {
             <div className="sc-card ti-photo">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 15px', borderBottom: `1px solid ${T.border}` }}>
                 <span className="ms" style={{ fontSize: 18, color: 'var(--accent)' }}>receipt_long</span>
-                <span className="sc-card-title">Ticket {store.split(' · ')[0]}</span>
+                <span className="sc-card-title">Ticket {nomFournisseur || store || '—'}</span>
                 <span style={{ flex: 1 }} />
                 <span className="ti-note" style={{ fontSize: 10.5, color: T.muted }}>{new Date(date).toLocaleDateString('fr-FR')}</span>
               </div>

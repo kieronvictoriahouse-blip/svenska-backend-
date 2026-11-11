@@ -71,6 +71,13 @@ const fmt = (n: number, currency = 'EUR') => {
 };
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 
+/* Une commande issue d'un ticket de caisse (série PO-AAAA-NNN) est déjà
+   reçue : l'écran de composition refuserait de l'enregistrer. Depuis que
+   le ticket rattache son magasin (supplier_id), elle garde la fiche
+   simple, comme avant. */
+const seModifieEnComposition = (o: PurchaseOrder) =>
+  !!o.supplier_id && !/^PO-/.test(o.number || '');
+
 export default function AchatsPage() {
   const [lang, setLang] = useState<AdminLang>('fr');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -852,7 +859,7 @@ export default function AchatsPage() {
                           value={o.status} onChange={e => updateStatus(o.id, e.target.value)}>
                     {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{(v as any)[L] || (v as any).fr}</option>)}
                   </select>
-                  {o.supplier_id ? (
+                  {seModifieEnComposition(o) ? (
                     <Link className="sc-iconbtn" href={`/admin/achats/nouvelle?id=${o.id}`} aria-label={t('editTitle')}>
                       <span className="ms">edit</span>
                     </Link>
@@ -940,7 +947,7 @@ export default function AchatsPage() {
                             ruptures. Sans magasin rattaché, l'écran de
                             composition n'a rien à afficher : la saisie
                             manuelle reste le seul recours. */}
-                        {o.supplier_id ? (
+                        {seModifieEnComposition(o) ? (
                           <Link className="sc-iconbtn" href={`/admin/achats/nouvelle?id=${o.id}`} title={t('editTitle')}>
                             <span className="ms">edit</span>
                           </Link>
