@@ -662,6 +662,16 @@ export async function POST(req: NextRequest) {
     }
 
     const orderId = draftOrder.id;
+
+    /* Paniers en cours : le panier suivi en direct est rattaché à sa
+       commande, l'écran /admin/paniers suit ensuite son statut. Jamais
+       bloquant : le paiement passe même si ce suivi échoue. */
+    if (typeof body.panier_sid === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.panier_sid)) {
+      try {
+        await supabaseAdmin.from('live_carts').update({ order_id: orderId, updated_at: new Date().toISOString() }).eq('sid', body.panier_sid);
+      } catch { /* migration 069 absente */ }
+    }
+
     const successUrl = `${baseUrl}/success.html?order_id=${orderId}`;
     const cancelUrl  = `${baseUrl}/panier.html`;
     console.log('[checkout] successUrl:', successUrl, 'orderId:', orderId);
