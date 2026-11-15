@@ -179,6 +179,19 @@ export async function traiterSessionPayee(
       catch (e) { console.error('[webhook] usage du code promo non enregistré (non bloquant):', e); }
     }
 
+    /* Case « nouveautés » cochée au panier : inscription à la newsletter,
+       maintenant que la commande est payée. Non bloquant. */
+    if (session.metadata?.newsletter === '1' && (customerEmail || existing?.customer_email)) {
+      try {
+        const { inscrireNewsletter } = await import('@/lib/newsletter-inscrire');
+        const r = await inscrireNewsletter(customerEmail || existing.customer_email, {
+          lang: session.metadata?.lang, nom: customerName,
+          ...(session.metadata?.boutique ? { boutique: codeBoutique(session.metadata.boutique) } : {}),
+        });
+        if (!r.ok) console.error('[webhook] inscription newsletter (non bloquant):', r.error);
+      } catch (e) { console.error('[webhook] inscription newsletter (non bloquant):', e); }
+    }
+
     /* Relance des paniers : si ce client avait été relancé, son panier
        abandonné est marqué « récupéré » — AVANT l'annulation des
        brouillons ci-dessous, qui les sortirait du périmètre. */

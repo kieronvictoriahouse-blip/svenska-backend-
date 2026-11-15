@@ -759,6 +759,10 @@ export async function POST(req: NextRequest) {
         order_id: orderId,
         ...(promoCodeId ? { promo_code_id: promoCodeId } : {}),
         ...(b !== BOUTIQUE_DEFAUT ? { boutique: b } : {}),
+        /* Case « nouveautés » cochée dans le panier : l'inscription à la
+           newsletter se fait au paiement (session-payee), pas avant —
+           un panier abandonné n'inscrit personne. */
+        ...(body.newsletter_optin === true ? { newsletter: '1', ...(langClient ? { lang: langClient } : {}) } : {}),
       },
       /* Hors euro seulement : la commande se retrouve depuis le paiement
          (rapprochement des versements), et Adaptive Pricing est coupé

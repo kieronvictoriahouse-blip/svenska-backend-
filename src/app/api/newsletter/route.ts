@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
-import { BOUTIQUE_DEFAUT, boutiqueDeRequete } from '@/lib/boutique';
+import { boutiqueDeRequete } from '@/lib/boutique';
+import { inscrireNewsletter } from '@/lib/newsletter-inscrire';
 
 // Inscription newsletter — PUBLIC (pas d'auth). Enregistre l'email dans le CRM (contacts)
 // pour qu'il soit exploitable par le module Marketing (campagnes).
@@ -45,73 +45,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Email invalide' }, { status: 400, headers: CORS });
   }
 
-  // Langue du site au moment de l'inscription : la newsletter part dans cette langue.
-  const lang = ['fr', 'en', 'sv'].includes(body.lang) ? body.lang : null;
-
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'inconnu';
   if (tropDInscriptions(ip)) {
     return NextResponse.json({ error: 'Trop de tentatives, réessayez plus tard' }, { status: 429, headers: CORS });
   }
 
-  /* Une nouvelle inscription vaut nouveau consentement : une
-     désinscription NEWSLETTER antérieure est levée. Une opposition aux
-     relances de panier, elle, reste (ce n'est pas le même accord). */
-  /* email_optouts n'a pas encore de boutique : une inscription sur une
-     autre vitrine ne doit pas lever l'opposition donnée à Swedish Cravings. */
-  const b = boutiqueDeRequete(req);
-  if (b === BOUTIQUE_DEFAUT) {
-    await supabaseAdmin.from('email_optouts').delete().eq('email', email).eq('source', 'newsletter');
-  }
-
-  /* Anti-doublon : si l'email existe déjà, on le marque abonné (idempotent).
-     Dans la boutique de la vitrine seulement : s'inscrire chez l'une ne
-     doit pas abonner à la newsletter de l'autre. */
-  const { data: existing, error: exErr } = await supabaseAdmin
-    .from('contacts')
-    .select('id, tags, is_active')
-    .eq('email', email)
-    .eq('boutique_id', b)
-    .limit(1);
-
-  // Recherche ratée : on n'insère pas un doublon à l'aveugle.
-  if (exErr) {
-    console.error('[newsletter] recherche contact :', exErr.message);
+  /* Langue du site au moment de l'inscription : la newsletter part dans
+     cette langue. Logique d'inscription partagée avec le paiement (case
+     « nouveautés » du panier) : lib/newsletter-inscrire. */
+  const r = await inscrireNewsletter(email, { lang: body.lang, boutique: boutiqueDeRequete(req) });
+  if (!r.ok) {
+    console.error('[newsletter] inscription impossible :', r.error);
     return NextResponse.json({ error: 'Inscription impossible' }, { status: 500, headers: CORS });
   }
-
-  if (existing && existing.length > 0) {
-    /* Un client déjà présent dans le CRM qui s'inscrit était ignoré :
-       « déjà inscrit » sans rien marquer, il ne recevait jamais la
-       newsletter. */
-    const c = existing[0];
-    const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
-    if (!tags.includes('newsletter') || c.is_active === false || lang) {
-      await supabaseAdmin.from('contacts').update({
-        tags: Array.from(new Set([...tags, 'newsletter'])),
-        is_active: true,
-        ...(lang ? { lang } : {}),
-        updated_at: new Date().toISOString(),
-      }).eq('id', c.id);
-    }
-    return NextResponse.json({ ok: true, already: true }, { headers: CORS });
-  }
-
-  const { error } = await supabaseAdmin.from('contacts').insert({
-    email,
-    type: 'client',
-    company: 'Inscrit newsletter',
-    tags: ['newsletter'],
-    ...(lang ? { lang } : {}),
-    first_name: '',
-    last_name: '',
-    updated_at: new Date().toISOString(),
-    // Swedish Cravings : le défaut de la base suffit, comme avant.
-    ...(b !== BOUTIQUE_DEFAUT ? { boutique_id: b } : {}),
-  });
-
-  if (error) {
-    console.error('[newsletter] inscription impossible :', error.message);
-    return NextResponse.json({ error: 'Inscription impossible' }, { status: 500, headers: CORS });
-  }
-  return NextResponse.json({ ok: true }, { headers: CORS });
+  return NextResponse.json(r.already ? { ok: true, already: true } : { ok: true }, { headers: CORS });
 }
