@@ -38,6 +38,24 @@ const STATUTS_PAYES = ['paid', 'confirmed', 'preparing', 'partial', 'shipped', '
    plainte, adresse en échec définitif).
    ═══════════════════════════════════════════════════════════════ */
 async function destinataires(segment: string): Promise<string[]> {
+  /* « clients » : toute personne ayant PAYÉ une commande sur le site
+     (prospection de produits analogues auprès de ses clients, art.
+     L34-5 CPCE). Hors commandes de test et ventes de la caisse, hors
+     adresses de la boutique, moins toute opposition. Chaque email porte
+     le lien de désinscription en un clic, avec la raison « vous avez
+     commandé chez nous ». */
+  if (segment === 'clients') {
+    const cmd = await toutes(() => supabaseAdmin.from('orders').select('customer_email, is_test, notes')
+      .in('status', STATUTS_PAYES).not('customer_email', 'is', null));
+    const clients = new Set(cmd
+      .filter((o: any) => !o.is_test && !/^\[CAISSE\]/.test(o.notes || ''))
+      .map((o: any) => norm(o.customer_email))
+      .filter(e => e.includes('@') && !e.endsWith('@swedishcravings.fr')));
+    const opposes = await toutes(() => supabaseAdmin.from('email_optouts').select('email'));
+    const non = new Set(opposes.map((o: any) => norm(o.email)));
+    return Array.from(clients).filter(e => !non.has(e));
+  }
+
   const abonnes = await toutes(() => supabaseAdmin.from('contacts')
     .select('email, is_active')
     .or('tags.cs.{newsletter},company.eq."Inscrit newsletter"')
@@ -153,9 +171,9 @@ export async function POST(req: NextRequest) {
       if (!campaign) return NextResponse.json({ error: 'Campagne non trouvée' }, { status: 404 });
 
       const segment = campaign.target_segment || 'all';
-      if (!['all', 'newsletter', 'new_customers'].includes(segment)) {
+      if (!['all', 'newsletter', 'new_customers', 'clients'].includes(segment)) {
         return NextResponse.json({
-          error: `Segment « ${segment} » non pris en charge : une campagne ne part qu’aux abonnés newsletter (tous, ou ceux qui ont commandé ces 30 derniers jours).`,
+          error: `Segment « ${segment} » non pris en charge : une campagne ne part qu’aux abonnés newsletter (tous, ou ceux qui ont commandé ces 30 derniers jours) ou aux clients ayant déjà commandé.`,
         }, { status: 400 });
       }
 
@@ -186,7 +204,7 @@ export async function POST(req: NextRequest) {
 
         if (!tous.length) {
           await liberer({ status: statutAvant });
-          return NextResponse.json({ error: 'Aucun abonné à la newsletter (hors désinscrits) pour ce segment.' }, { status: 400 });
+          return NextResponse.json({ error: segment === 'clients' ? 'Aucun client (hors désinscrits) pour ce segment.' : 'Aucun abonné à la newsletter (hors désinscrits) pour ce segment.' }, { status: 400 });
         }
         if (!aFaire.length) {
           await liberer({ status: 'completed', sent_count: deja.size });
@@ -211,6 +229,8 @@ export async function POST(req: NextRequest) {
         const pause = viaResend ? 600 : 150;
         const debut = Date.now();
         const campaignTags = [{ name: 'campaign_id', value: campaign_id }];
+        const raisonPied = segment === 'clients'
+          ? 'Vous recevez cet email car vous avez passé commande sur Swedish Cravings.' : undefined;
         let sent = 0;
         let interrompu = false;
         const echecs: string[] = [];
@@ -220,7 +240,7 @@ export async function POST(req: NextRequest) {
           try {
             await sendEmail({
               from: fromEmail, to: email, subject: campaign.subject || campaign.name,
-              html: avecDesinscription(contentHtml, d.url), tags: campaignTags, headers: d.headers,
+              html: avecDesinscription(contentHtml, d.url, raisonPied), tags: campaignTags, headers: d.headers,
             }, cfg);
             sent++;
             const { error: eLog } = await supabaseAdmin.from('email_events')

@@ -104,15 +104,15 @@ export async function envoyeurGroupe(cfg: Record<string, string>) {
 /** Bloc « se désinscrire » ajouté au bas de tout email marketing (lien
  *  signé, propre au destinataire). Libellé minimal, à valider par la
  *  boutique : c'est sa présence que la loi exige. */
-export function piedDesinscription(url: string): string {
+export function piedDesinscription(url: string, raison = 'Vous recevez cet email car vous êtes inscrit à notre newsletter.'): string {
   return `<div style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.6;color:#8A8067;padding:16px 12px 24px">`
-    + `Vous recevez cet email car vous êtes inscrit à notre newsletter. `
+    + `${raison} `
     + `<a href="${url}" style="color:#8A8067;text-decoration:underline">Se désinscrire</a></div>`;
 }
 
 /** Ajoute le pied de désinscription à un HTML complet (avant </body>) ou à un fragment. */
-export function avecDesinscription(html: string, url: string): string {
-  const pied = piedDesinscription(url);
+export function avecDesinscription(html: string, url: string, raison?: string): string {
+  const pied = piedDesinscription(url, raison);
   return /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${pied}</body>`) : html + pied;
 }
 
