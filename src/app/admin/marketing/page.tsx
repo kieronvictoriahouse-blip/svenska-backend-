@@ -49,7 +49,7 @@ const CAMP_TYPES: Record<string, string> = { email: '📧 Email', sms: '📱 SMS
    les anciennes campagnes. */
 const SEGMENTS_ENVOI: Record<string, string> = { all: 'Abonnés newsletter', new_customers: 'Abonnés ayant commandé (30 j)', clients: 'Tous les clients (ont déjà commandé)' };
 const SEGMENTS: Record<string, string> = { ...SEGMENTS_ENVOI, loyal: 'Clients fidèles', inactive: 'Clients inactifs', abandoned_cart: 'Panier abandonné' };
-const STATUS_C: Record<string, { label: string; color: string }> = { draft: { label: 'Brouillon', color: '#6A7280' }, active: { label: 'Active', color: '#10B981' }, paused: { label: 'Pausée', color: '#F59E0B' }, completed: { label: 'Terminée', color: '#2563EB' } };
+const STATUS_C: Record<string, { label: string; color: string }> = { draft: { label: 'Brouillon', color: '#6A7280' }, active: { label: 'Active', color: '#10B981' }, paused: { label: 'Pausée', color: '#F59E0B' }, completed: { label: 'Terminée', color: '#2563EB' }, scheduled: { label: 'Programmée', color: '#7B4F7B' }, sending: { label: 'Envoi en cours', color: '#2563EB' } };
 const fmt = (n: number) => (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 const fmtPct = (n: number) => (n || 0).toFixed(1) + '%';
