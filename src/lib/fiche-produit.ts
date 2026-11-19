@@ -35,6 +35,8 @@ export const CHAMPS_FICHE = [
   'discount_type', 'discount_value', 'discount_start', 'discount_end',
   // Pré-commande (migration 065)
   'preorder', 'preorder_ship_date', 'preorder_end',
+  // Produit frais, livré en Chrono 18 à domicile (migration 070)
+  'frais',
 ] as const;
 
 /** Ne garde que les colonnes modifiables (les clés absentes restent absentes).

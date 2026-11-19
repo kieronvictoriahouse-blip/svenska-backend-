@@ -151,6 +151,7 @@ const T = {
   confirmDeliv:  { fr: 'Confirmer ?', en: 'Confirm?', sv: 'Bekräfta?' },
   modeRelay:     { fr: 'Point relais', en: 'Pickup point', sv: 'Ombud' },
   modeHome:      { fr: 'Livraison', en: 'Delivery', sv: 'Leverans' },
+  modeFresh:     { fr: 'Chrono 18 · frais', en: 'Chrono 18 · fresh', sv: 'Chrono 18 · färskt' },
   callClient:    { fr: 'Appeler', en: 'Call', sv: 'Ring' },
   mailClient:    { fr: 'Écrire', en: 'Email', sv: 'Mejla' },
   documentsA4:   { fr: 'Documents A4', en: 'A4 documents', sv: 'A4-dokument' },
@@ -1321,6 +1322,7 @@ export default function CommandesPage() {
               const n = linesOf(o).length;
               const mode = o.delivery_mode === 'pickup' ? { icon: 'storefront', label: t('clickCollect') }
                 : o.delivery_mode === 'mondial_relay' ? { icon: 'local_shipping', label: t('modeRelay') }
+                : o.delivery_mode === 'domicile_frais' ? { icon: 'ac_unit', label: t('modeFresh') }
                 : { icon: 'home', label: t('modeHome') };
               return (
                 <button key={o.id} className="o-item"
@@ -1396,7 +1398,8 @@ export default function CommandesPage() {
                         {fmtDate(o.created_at)}
                         {o.source ? ` · ${o.source}` : ''}
                         {o.delivery_mode === 'pickup' ? ' · Click & Collect'
-                          : o.delivery_mode === 'mondial_relay' ? ' · Point relais' : ' · Livraison'}
+                          : o.delivery_mode === 'mondial_relay' ? ' · Point relais'
+                          : o.delivery_mode === 'domicile_frais' ? ' · Chrono 18 (frais)' : ' · Livraison'}
                         {mobile ? ` · ${fmt(netOf(o))}` : ''}
                       </div>
                     </div>
@@ -1711,7 +1714,7 @@ export default function CommandesPage() {
                             <span className="sc-card-title">{t('shipment')}</span>
                           </div>
                           <div style={{ padding: '13px 15px' }}>
-                            {(o.logspher_label_url || o.logspher_error || (o.delivery_mode === 'mondial_relay' && !o.mondial_relay_tracking && !['shipped', 'delivered'].includes(o.status))) && (
+                            {(o.logspher_label_url || o.logspher_error || ((o.delivery_mode === 'mondial_relay' || o.delivery_mode === 'domicile_frais') && !o.mondial_relay_tracking && !['shipped', 'delivered'].includes(o.status))) && (
                               <div style={{ background: o.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${o.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
                                 {o.logspher_label_url
                                   ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">{t('downloadPdf')}</a></>
@@ -1720,7 +1723,9 @@ export default function CommandesPage() {
                                         /^https?:\/\//.test(part)
                                           ? <a key={i} href={part} target="_blank" rel="noopener" style={{ wordBreak: 'break-all' }}>{part}</a>
                                           : part)}</>
-                                    : <>Pas d’étiquette UGO pour ce point relais.</>}
+                                    : o.delivery_mode === 'domicile_frais'
+                                      ? <><b>Produits frais · Chronopost Chrono 18 à domicile.</b> Crée l’étiquette le jour du dépôt (du lundi au jeudi, pour qu’il ne passe pas le week-end en transit). Le poids estimé compte 300 g de poche isotherme et pain de glace : pèse le colis pour être exact.</>
+                                      : <>Pas d’étiquette UGO pour ce point relais.</>}
                                 <div style={{ marginTop: 8 }}>
                                   {o.logspher_label_url ? (
                                     <button className="sc-btn sc-btn-danger" onClick={cancelLogspherLabel} disabled={lsRetrying}>
@@ -1731,7 +1736,10 @@ export default function CommandesPage() {
                                     <input className={mobile ? 'sc-input' : 'form-control'} type="number" inputMode="numeric" min={1} placeholder="Poids pesé (g), facultatif"
                                       value={lsWeight} onChange={e => setLsWeight(e.target.value)} style={{ width: mobile ? '100%' : 200 }} />
                                     <button className="sc-btn sc-btn-secondary" onClick={retryLogspherLabel} disabled={lsRetrying}>
-                                      {lsRetrying ? 'Création…' : o.logspher_error ? 'Relancer l’étiquette UGO' : 'Créer l’étiquette UGO'}
+                                      {lsRetrying ? 'Création…'
+                                        : o.delivery_mode === 'domicile_frais'
+                                          ? (o.logspher_error ? 'Relancer l’étiquette Chrono 18' : 'Créer l’étiquette Chrono 18')
+                                          : o.logspher_error ? 'Relancer l’étiquette UGO' : 'Créer l’étiquette UGO'}
                                     </button>
                                     </span>
                                   )}
@@ -1757,6 +1765,11 @@ export default function CommandesPage() {
                             {o.relay_point_name && (
                               <div style={{ fontSize: 12, color: TH.text2b, marginBottom: 8 }}>
                                 Point relais : {o.relay_point_name} — {o.relay_point_address}
+                              </div>
+                            )}
+                            {o.delivery_mode === 'domicile_frais' && (
+                              <div style={{ fontSize: 12, color: TH.text2b, marginBottom: 8 }}>
+                                Livraison à domicile (Chrono 18) : {o.shipping_address || 'adresse non renseignée'}{o.customer_phone ? ` · ${o.customer_phone}` : ''}
                               </div>
                             )}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>

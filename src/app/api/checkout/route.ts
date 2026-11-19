@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase';
-import { livraisonBoutique } from '@/lib/shipping';
+import { livraisonBoutique, SUPPLEMENT_FRAIS, PAYS_FRAIS } from '@/lib/shipping';
 import { evaluatePromo, PromoRefusal } from '@/lib/promo';
 import { effectiveUnitPrice, isDiscountActive, resolveDiscount } from '@/lib/product-price';
 import { precommandeActive, SUFFIXE_PRECOMMANDE } from '@/lib/precommande';
@@ -58,6 +58,11 @@ const LIBELLES = {
   relaisIntl:    { fr: 'Livraison en point relais — International', en: 'Delivery to a relay point — International', sv: 'Leverans till utlämningsställe — internationellt' },
   gratuite:      { fr: 'Livraison gratuite', en: 'Free delivery', sv: 'Fri frakt' },
   standard:      { fr: 'Livraison standard', en: 'Standard delivery', sv: 'Standardleverans' },
+  // Produits frais (migration 070) : Chronopost Chrono 18 à domicile.
+  frais:         { fr: 'Chronopost à domicile en 24 h (produits frais)', en: 'Chronopost home delivery in 24 h (fresh products)', sv: 'Chronopost hemleverans inom 24 h (färskvaror)' },
+  portOffert:    { fr: 'port offert', en: 'free shipping', sv: 'fri frakt' },
+  port:          { fr: 'port', en: 'shipping', sv: 'frakt' },
+  supplement:    { fr: 'supplément frais', en: 'fresh supplement', sv: 'tillägg färskvaror' },
 };
 
 /* Rappel sous le bouton « Payer » : où va la commande, et le cadeau
@@ -67,6 +72,7 @@ const LIBELLES = {
 const RAPPEL = {
   relais:   { fr: 'Livraison : ', en: 'Delivery to: ', sv: 'Leverans till: ' },
   retrait:  { fr: 'Retrait : ', en: 'Pickup at: ', sv: 'Hämtas i butiken: ' },
+  frais:    { fr: 'Livraison à domicile par Chronopost, en 24 h après l’expédition (produits frais).', en: 'Home delivery by Chronopost, within 24 h of dispatch (fresh products).', sv: 'Hemleverans med Chronopost, inom 24 h efter avsändning (färskvaror).' },
   cadeau:   { fr: 'Cadeau offert : ', en: 'Free gift: ', sv: 'Gåva: ' },
   cadeaux:  { fr: 'Cadeaux offerts : ', en: 'Free gifts: ', sv: 'Gåvor: ' },
 };
@@ -102,6 +108,9 @@ const ERREURS = {
   boutiqueIndispo: { fr: 'Cette boutique est momentanément indisponible.', en: 'This shop is temporarily unavailable.', sv: 'Den här butiken är tillfälligt otillgänglig.' },
   retraitIndispo:  { fr: 'Le retrait en magasin n’est pas proposé par cette boutique. Choisissez une livraison.', en: 'In-store pickup is not offered by this shop. Please choose a delivery method.', sv: 'Den här butiken erbjuder inte hämtning i butik. Välj ett leveranssätt.' },
   livraisonIndispo: { fr: 'La livraison n’est pas encore disponible pour cette boutique.', en: 'Delivery is not yet available for this shop.', sv: 'Leverans är ännu inte tillgänglig för den här butiken.' },
+  // Produits frais (migration 070)
+  frais:      { fr: 'Votre panier contient un produit frais : il ne part pas en point relais. Choisissez la livraison Chronopost à domicile en 24 h, ou le retrait à l’atelier.', en: 'Your basket contains a fresh product, which cannot go to a relay point. Please choose Chronopost home delivery in 24 h, or pickup at the workshop.', sv: 'Din varukorg innehåller en färskvara, som inte kan skickas till ett utlämningsställe. Välj hemleverans med Chronopost inom 24 h, eller hämtning i ateljén.' },
+  fraisSeul:  { fr: 'La livraison Chronopost à domicile est réservée aux paniers avec produits frais. Choisissez un point relais ou le retrait.', en: 'Chronopost home delivery is only for baskets with fresh products. Please choose a relay point or pickup.', sv: 'Hemleverans med Chronopost gäller bara varukorgar med färskvaror. Välj ett utlämningsställe eller hämtning.' },
 };
 
 /* Numéro de commande : count + 1, colonne UNIQUE. Une seule commande
@@ -144,6 +153,9 @@ export async function POST(req: NextRequest) {
     }
     const isPickup = delivery_mode === 'pickup';
     const isMondialRelay = delivery_mode === 'mondial_relay';
+    /* Produits frais (migration 070) : Chronopost Chrono 18 à domicile,
+       proposé seulement aux paniers qui en contiennent (vérifié plus bas). */
+    const isDomicileFrais = delivery_mode === 'domicile_frais';
 
     /* Étape 3 : une autre vitrine encaisse dans SA devise. Sa fiche est
        lue sans repli : absente, illisible ou inactive, on refuse plutôt
@@ -241,6 +253,7 @@ export async function POST(req: NextRequest) {
        sur laquelle portent le code fidélité et le code ami. */
     let baseRemisable = 0;
     let hasPickupOnly = false;
+    let hasFrais = false;
     const stockErrors: Array<{ name: string; available: number; requested: number }> = [];
 
     /* Calculé une fois pour tout le panier : le réservé se déduit des
@@ -266,6 +279,7 @@ export async function POST(req: NextRequest) {
       const { data: product } = await q.maybeSingle();
       if (!product) continue;
       if (product.pickup_only) hasPickupOnly = true;
+      if (product.frais === true) hasFrais = true;
 
       /* Contrôle de stock côté serveur (l'UI peut être contournée).
          On compare au DISPONIBLE — stock physique moins ce qui est déjà
@@ -503,6 +517,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    /* Produits frais (migration 070) : jamais en point relais. Ils partent
+       en Chronopost Chrono 18 à domicile (France), ou se retirent à
+       l'atelier. Cette livraison n'est proposée qu'aux paniers frais, et
+       seulement par Swedish Cravings. */
+    if (hasFrais && !isPickup && !isDomicileFrais) {
+      return NextResponse.json({ error: ERREURS.frais[langue], code: 'FRESH_HOME_ONLY' }, { status: 400, headers: CORS });
+    }
+    if (isDomicileFrais && (!hasFrais || fiche)) {
+      return NextResponse.json({ error: ERREURS.fraisSeul[langue], code: 'FRESH_DELIVERY_ONLY' }, { status: 400, headers: CORS });
+    }
+
     console.log('[checkout] lineItems:', JSON.stringify(lineItems), 'subtotal:', subtotal);
 
     if (subtotal <= 0) {
@@ -578,7 +603,7 @@ export async function POST(req: NextRequest) {
     });
     /* Swedish Cravings (fiche null) : barème de lib/shipping inchangé.
        Autre boutique : ses propres pays et montants, dans sa devise. */
-    const livraison = livraisonBoutique(fiche, shipCfg, { pays: relay_point_pays, relais: isMondialRelay });
+    const livraison = livraisonBoutique(fiche, shipCfg, { pays: isDomicileFrais ? 'FR' : relay_point_pays, relais: isMondialRelay });
     // Boutique sans livraison configurée : jamais les barèmes de SC.
     if (fiche && !isPickup && livraison.configIncomplete) {
       return NextResponse.json({ error: ERREURS.livraisonIndispo[langue], code: 'SHIPPING_NOT_CONFIGURED' }, { status: 503, headers: CORS });
@@ -595,7 +620,12 @@ export async function POST(req: NextRequest) {
     const shipRules = livraison.rules;
 
     const freeShipping = subtotal >= shipRules.threshold || isFreeShippingPromo;
-    const shippingCost = isPickup ? 0 : (freeShipping ? 0 : shipRules.cost);
+    /* Produits frais : le supplément s'ajoute au port normal et reste dû
+       même franco atteint ou code « livraison offerte » (décision du
+       19/11/2026 : le Chrono 18 coûte ~12 € TTC le colis). */
+    const portBase = isPickup ? 0 : (freeShipping ? 0 : shipRules.cost);
+    const supplementFrais = isDomicileFrais ? SUPPLEMENT_FRAIS : 0;
+    const shippingCost = Math.round((portBase + supplementFrais) * 100) / 100;
     const grandTotal = Math.max(0, subtotal - discountAmount) + shippingCost;
     // Minimum Stripe dans la devise de la boutique (0,50 € pour l'euro).
     const minimum = montantMinimum(devise);
@@ -621,11 +651,11 @@ export async function POST(req: NextRequest) {
       discount:         discountAmount > 0 ? Math.round(discountAmount * 100) / 100 : 0,
       total:            grandTotal,
       lines:            orderLines,
-      delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : 'delivery',
+      delivery_mode:    isPickup ? 'pickup' : isMondialRelay ? 'mondial_relay' : isDomicileFrais ? 'domicile_frais' : 'delivery',
       /* Le transporteur du point relais choisi : c'est lui qui doit
          produire l'etiquette. Sans cette valeur, tout partait en
          Mondial Relay, y compris un point Shop2Shop. */
-      relay_carrier_uuid: relay_carrier_uuid || null,
+      relay_carrier_uuid: isMondialRelay ? (relay_carrier_uuid || null) : null,
       ...(isTestMode ? { is_test: true } : {}),
       ...(isMondialRelay && relay_point_id ? {
         relay_point_id,
@@ -681,6 +711,8 @@ export async function POST(req: NextRequest) {
       rappel.push(RAPPEL.relais[langue] + [uneLigne(relay_point_name, 120), uneLigne(relay_point_address)].filter(Boolean).join(', '));
     } else if (isPickup && uneLigne(shipCfg?.address)) {
       rappel.push(RAPPEL.retrait[langue] + uneLigne(shipCfg?.address));
+    } else if (isDomicileFrais) {
+      rappel.push(RAPPEL.frais[langue]);
     }
     const nomsCadeaux = cadeaux.map(c => c[langue]).filter(Boolean);
     if (nomsCadeaux.length) {
@@ -710,7 +742,8 @@ export async function POST(req: NextRequest) {
          à 4,90 €. */
       ...(isPickup || isMondialRelay ? {} : {
         // Autre boutique : les pays de SA livraison (son barème est unique).
-        shipping_address_collection: { allowed_countries: (fiche ? livraison.paysDomicile : ['FR', 'MC']) as any },
+        // Produits frais : Chrono 18, France seulement.
+        shipping_address_collection: { allowed_countries: (isDomicileFrais ? PAYS_FRAIS : fiche ? livraison.paysDomicile : ['FR', 'MC']) as any },
       }),
       shipping_options: [
         isPickup
@@ -731,6 +764,17 @@ export async function POST(req: NextRequest) {
                   : isInternational
                   ? `${LIBELLES.relaisIntl[langue]} (${enEuro ? eur(shipRules.cost, langue) : formatMontant(shipRules.cost, devise, langue)})`
                   : LIBELLES.relais[langue],
+              },
+            }
+          : isDomicileFrais
+          ? {
+              shipping_rate_data: {
+                type: 'fixed_amount',
+                fixed_amount: { amount: versMinor(shippingCost, devise), currency: cur },
+                // Le détail (port + supplément) se lit chez Stripe, comme dans le panier.
+                display_name: `${LIBELLES.frais[langue]} — ${freeShipping
+                  ? LIBELLES.portOffert[langue]
+                  : `${LIBELLES.port[langue]} ${eur(shipRules.cost, langue)}`} + ${LIBELLES.supplement[langue]} ${eur(SUPPLEMENT_FRAIS, langue)}`.slice(0, 100),
               },
             }
           : freeShipping

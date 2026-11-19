@@ -435,7 +435,9 @@ export async function traiterSessionPayee(
               </table>
 
               <div style="font-size:11px;color:#948B79;padding-top:14px">
-                ${existing?.relay_point_name ? 'Point relais · ' + existing.relay_point_name : 'Livraison a domicile'}
+                ${existing?.delivery_mode === 'domicile_frais'
+                  ? '<strong style="color:#1C2028">Produits frais · Chronopost Chrono 18 à domicile</strong><br>Étiquette à créer dans l’admin le jour du dépôt (du lundi au jeudi), avec poche isotherme et pain de glace.'
+                  : existing?.relay_point_name ? 'Point relais · ' + existing.relay_point_name : 'Livraison a domicile'}
               </div>
             </div>
           </div>`;

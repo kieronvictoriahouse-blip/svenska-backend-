@@ -41,6 +41,10 @@ export const maxDuration = 300;
 
 const API_URL = process.env.LOGSPHER_API_URL || 'https://upelgo.com';
 const UUID_DEFAUT = process.env.LOGSPHER_MR_UUID || 'b139ac1f-bbb9-4235-b87e-aedcb3c32132';
+/* Chronopost (produits frais, Chrono 18 à domicile — migration 070) :
+   carrier_id UGO relevé sur un devis le 19/11/2026. L'étiquette le
+   recopie dans relay_carrier_uuid ; celui-ci ne sert que de repli. */
+const UUID_CHRONOPOST = process.env.LOGSPHER_CHRONOPOST_UUID || '8c242fd4-bd1a-4fb9-8188-5586b3f1e807';
 const ABANDON_JOURS = 60;
 
 async function estLivre(carrierUuid: string, tracking: string) {
@@ -98,7 +102,7 @@ export async function GET(req: NextRequest) {
   const { data: sansEtiquette } = await supabaseAdmin
     .from('orders')
     .select('*')
-    .eq('delivery_mode', 'mondial_relay')
+    .in('delivery_mode', ['mondial_relay', 'domicile_frais'])
     .is('logspher_label_url', null)
     .in('status', ['paid', 'confirmed', 'preparing', 'partial', 'shipped'])
     .gte('created_at', limite)
@@ -137,7 +141,8 @@ export async function GET(req: NextRequest) {
     rapport.examinees++;
 
     try {
-      const { livre, date } = await estLivre(o.relay_carrier_uuid || UUID_DEFAUT, tracking);
+      const { livre, date } = await estLivre(
+        o.relay_carrier_uuid || (o.delivery_mode === 'domicile_frais' ? UUID_CHRONOPOST : UUID_DEFAUT), tracking);
       if (!livre) { rapport.en_transit++; continue; }
 
       const { data: passee, error: errMaj } = await supabaseAdmin.from('orders')

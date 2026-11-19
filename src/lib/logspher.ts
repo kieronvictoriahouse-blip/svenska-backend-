@@ -426,3 +426,174 @@ export async function createLogspherRelayLabel(
     carrier_code: shipRes.carrier_code || best.carrier_code || '',
   };
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PRODUITS FRAIS — Chronopost Chrono 18 à domicile (migration 070)
+
+   Commandes `delivery_mode = 'domicile_frais'`. Même API UGO que le
+   point relais, avec trois différences relevées le 19/11/2026 sur un
+   devis réel (multi-rate, rien de facturé) :
+     · pas de `delivery_type` : c'est sans lui que UGO renvoie les offres
+       à domicile (DELIVERY_TO_COLLECTION_POINT = relais seulement, et
+       aucune autre valeur n'est acceptée) ;
+     · l'offre retenue est « Chrono 18 Dropoff » (CHRONOPOST, code 16,
+       allow_dropoff) : la boutique dépose le colis, livraison le
+       lendemain avant 18 h. « Chrono 18 » tout court = enlèvement chez
+       nous, ~2× plus cher : jamais choisi ici ;
+     · pas de `dropoff_to` : l'adresse de livraison est ship_to.
+   L'étiquette n'est PAS créée au paiement : elle se crée depuis l'admin
+   le jour du dépôt, pour que la date d'envoi soit la vraie (un produit
+   frais ne doit pas attendre un week-end en transit).
+   ═══════════════════════════════════════════════════════════════ */
+
+/** Poche isotherme + pain de glace, en plus de la tare habituelle. */
+const TARE_FRAIS_G = Number(process.env.LOGSPHER_TARE_FRAIS_G) || 300;
+
+export interface LogspherChronoLabelResult extends LogspherLabelResult {
+  /** carrier_id UGO de Chronopost : sert au suivi (is-delivered). */
+  carrier_uuid: string;
+}
+
+/** Offre Chrono 18 « dépôt » parmi celles de multi-rate, null sinon. */
+export function offreChrono18Depot(offres: any[]): any | null {
+  const liste = Array.isArray(offres) ? offres : [];
+  const estChrono = (o: any) => String(o?.carrier_name || '').toUpperCase() === 'CHRONOPOST';
+  return liste.find(o => estChrono(o) && String(o.service_code) === '16'
+      && o.allow_dropoff === true && o.delivery_to_collection_point !== true)
+    || liste.find(o => estChrono(o) && /chrono\s*18\s*drop/i.test(String(o.service_name || '')))
+    || null;
+}
+
+/** « 12 rue X, Bât. B, 75011 Paris, FR » → champs d'adresse (ligne 2 séparée). */
+export function adresseDomicile(brut: string) {
+  const a = parseAddress(String(brut || '').replace(/^Point relais\b.*$/i, ''));
+  const [ligne1, ...reste] = a.address1.split(',').map(s => s.trim()).filter(Boolean);
+  return { address1: ligne1 || '', address2: reste.join(', '), postcode: a.postcode, city: a.city, country: a.country };
+}
+
+export async function createLogspherChronoFraisLabel(
+  order: {
+    order_number: string;
+    customer_name: string;
+    customer_email: string;
+    customer_phone?: string;
+    /** Adresse de livraison saisie chez Stripe (« ligne 1, ligne 2, CP Ville, FR »). */
+    shipping_address: string;
+    lines: Array<{ qty?: number; [key: string]: any }>;
+    total: number;
+    /** Poids réel pesé (g), saisi dans l'admin ; remplace l'estimation. */
+    weight_grams?: number;
+  },
+  wlConfig: { address?: string; site_name?: string; email?: string; phone?: string },
+): Promise<LogspherChronoLabelResult> {
+  const dest = adresseDomicile(order.shipping_address);
+  if (!dest.address1 || !dest.postcode || !dest.city) {
+    throw new Error(`Adresse de livraison incomplète (« ${order.shipping_address || 'vide'} ») : corrige-la dans la commande avant de créer l'étiquette Chrono 18.`);
+  }
+  if (dest.country !== 'FR') {
+    throw new Error(`Chrono 18 : livraison en France seulement (pays de l'adresse : ${dest.country}).`);
+  }
+  const phone = String(order.customer_phone || '').trim();
+  if (!phone) throw new Error('Téléphone du client manquant : Chronopost en a besoin pour prévenir de la livraison.');
+
+  const senderPhone = (wlConfig.phone || process.env.LOGSPHER_SENDER_PHONE || '').trim();
+  if (!senderPhone) {
+    throw new Error('Téléphone expéditeur manquant : renseigner le téléphone dans Admin › Marque blanche (ou LOGSPHER_SENDER_PHONE).');
+  }
+
+  const shipFrom = parseAddress(wlConfig.address || '');
+  const nameParts = (order.customer_name || '').trim().split(/\s+/);
+  const lastname = nameParts[0] || '';
+  const firstname = nameParts.slice(1).join(' ') || lastname;
+  const totalQty = (order.lines || []).reduce((acc, l) => acc + (l.qty || 1), 0);
+  const weightGrams = order.weight_grams && order.weight_grams > 0
+    ? Math.round(order.weight_grams)
+    : (await poidsDuColis(order.lines || [])) + TARE_FRAIS_G;
+  const weightKg = weightGrams / 1000;
+  const parcels = [{ number: 1, weight: weightKg, volumetric_weight: weightKg, x: 30, y: 20, z: 20 }];
+  const shipmentDate = new Date().toISOString().split('T')[0];
+
+  // 1. Tarif : sans delivery_type → offres à domicile.
+  const rateRes = await apiFetch('/api/carrier/multi-rate', {
+    method: 'POST',
+    body: JSON.stringify({
+      order_id: order.order_number,
+      shipment: { id: 1, type: 2, shipment_date: shipmentDate },
+      ship_from: { pro: true, country_code: shipFrom.country.slice(0, 2), postcode: shipFrom.postcode, city: shipFrom.city },
+      ship_to: { pro: false, country_code: 'FR', postcode: dest.postcode, city: dest.city },
+      parcels,
+    }),
+  });
+  const offre = offreChrono18Depot(rateRes?.offers);
+  if (!offre) {
+    const vues = (rateRes?.offers || []).map((o: any) => `${o.carrier_name} ${o.service_name}`).join(', ') || 'aucune';
+    throw new Error(`Pas d'offre Chronopost « Chrono 18 Dropoff » chez UGO pour ${dest.postcode} ${dest.city} (offres reçues : ${vues}).`);
+  }
+
+  // 2. Étiquette
+  const shipRes = await apiFetch('/api/carrier/ship', {
+    method: 'POST',
+    body: JSON.stringify({
+      order_id: order.order_number,
+      process_shipment: true,
+      shipment: {
+        id: 1,
+        type: 2,
+        shipment_date: shipmentDate,
+        dropoff: true,
+        content: 'Produits alimentaires suedois',
+        reason: 'Commercial',
+        insurance: false,
+        service_id: offre.service_id,
+        service_code: offre.service_code,
+        label_format: 'PDF',
+      },
+      ship_from: {
+        pro: true,
+        country_code: shipFrom.country.slice(0, 2),
+        postcode: shipFrom.postcode,
+        city: shipFrom.city,
+        address1: shipFrom.address1,
+        company: wlConfig.site_name || '',
+        lastname: wlConfig.site_name || '',
+        email: wlConfig.email || '',
+        phone: senderPhone,
+      },
+      // UGO exige ship_to.company non vide, même pour un particulier.
+      ship_to: {
+        pro: false,
+        country_code: 'FR',
+        postcode: dest.postcode,
+        city: dest.city,
+        address1: dest.address1,
+        ...(dest.address2 ? { address2: dest.address2 } : {}),
+        company: (order.customer_name || '').trim() || lastname,
+        lastname,
+        firstname,
+        email: order.customer_email || '',
+        phone,
+      },
+      parcels,
+      products: [{
+        number: totalQty,
+        currency: 'EUR',
+        value: order.total,
+        value_eur: order.total,
+        description: 'Produits alimentaires suedois',
+        country_code: 'FR',
+      }],
+    }),
+  });
+  if (!shipRes.success) {
+    throw new Error('Erreur création étiquette Chrono 18 : ' + JSON.stringify(shipRes.errors || {}));
+  }
+
+  return {
+    shipment_id: shipRes.shipment_id || 0,
+    tracking_number: shipRes.tracking_numbers?.[0] || '',
+    label_url: shipRes.waybills_uri?.[0] || shipRes.waybills?.[0] || '',
+    carrier_name: shipRes.carrier_name || offre.carrier_name || 'CHRONOPOST',
+    carrier_code: shipRes.carrier_code || offre.service_code || '',
+    carrier_uuid: offre.carrier_id || '',
+  };
+}

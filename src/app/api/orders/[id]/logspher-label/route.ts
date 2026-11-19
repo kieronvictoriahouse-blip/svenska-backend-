@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { getWlConfig } from '@/lib/mailer';
-import { createLogspherRelayLabel, cancelLogspherLabel } from '@/lib/logspher';
+import { createLogspherRelayLabel, createLogspherChronoFraisLabel, cancelLogspherLabel } from '@/lib/logspher';
 import { attachExistingLogspherLabel } from '@/lib/logspher-sync';
 
 /* Relance l'étiquette point relais UGO d'une commande.
@@ -17,8 +17,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .from('orders').select('*').eq('id', params.id).single();
   if (error || !order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
 
-  if (order.delivery_mode !== 'mondial_relay') {
-    return NextResponse.json({ error: 'Commande sans point relais' }, { status: 400 });
+  /* Point relais, ou produits frais en Chrono 18 à domicile (migration 070) :
+     pour ceux-là, l'étiquette ne se crée qu'ici, le jour du dépôt. */
+  const estFrais = order.delivery_mode === 'domicile_frais';
+  if (order.delivery_mode !== 'mondial_relay' && !estFrais) {
+    return NextResponse.json({ error: 'Commande sans point relais ni livraison Chrono 18' }, { status: 400 });
   }
   // Une étiquette UGO se paie : jamais pour une commande annulée ou remboursée.
   if (['cancelled', 'refunded', 'pending', 'abandoned'].includes(order.status)) {
@@ -55,6 +58,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   try {
     const cfg = await getWlConfig();
+    if (estFrais) {
+      const chrono = await createLogspherChronoFraisLabel({
+        order_number:     order.order_number || '',
+        customer_name:    order.customer_name || '',
+        customer_email:   order.customer_email || '',
+        customer_phone:   order.customer_phone || '',
+        shipping_address: order.shipping_address || '',
+        lines,
+        total:            Number(order.total) || 0,
+        weight_grams:     weightGrams,
+      }, cfg as any);
+      const patchFrais = {
+        tracking_number:       chrono.tracking_number,
+        logspher_shipment_id:  chrono.shipment_id,
+        logspher_tracking:     chrono.tracking_number,
+        logspher_label_url:    chrono.label_url,
+        logspher_carrier_name: chrono.carrier_name,
+        logspher_carrier_code: chrono.carrier_code,
+        logspher_error:        null,
+        // Transporteur UGO de l'envoi : le suivi quotidien (cron livraisons) en a besoin.
+        ...(chrono.carrier_uuid ? { relay_carrier_uuid: chrono.carrier_uuid } : {}),
+        updated_at:            new Date().toISOString(),
+      };
+      await supabaseAdmin.from('orders').update(patchFrais).eq('id', order.id);
+      return NextResponse.json({ success: true, ...patchFrais });
+    }
     const label = await createLogspherRelayLabel({
       order_number:        order.order_number || '',
       customer_name:       order.customer_name || '',

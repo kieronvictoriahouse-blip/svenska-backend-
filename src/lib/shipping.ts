@@ -20,6 +20,15 @@
    Elle est retiree du selecteur du panier dans le meme mouvement. */
 export const INTERNATIONAL_COUNTRIES = ['ES', 'PT', 'IT', 'DE', 'NL', 'BE', 'LU', 'SE'];
 
+/* Produits frais (migration 070) : jamais en point relais. Ils partent
+   en Chronopost Chrono 18 à domicile (dépôt par la boutique, livraison
+   le lendemain avant 18 h), en France seulement. Le client paie le port
+   normal + ce supplément, dû même franco atteint (décision du
+   19/11/2026 : le Chrono 18 coûte ~12 € TTC le colis).
+   Réplique côté front : js/app.js (window.SD_SHIP.frais). */
+export const SUPPLEMENT_FRAIS = 6.99;
+export const PAYS_FRAIS = ['FR'];
+
 /** Barème par défaut si rien n'est configuré en base */
 export const SHIPPING_DEFAULTS = {
   FR:   { threshold: 29, cost: 4.90 },

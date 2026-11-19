@@ -56,6 +56,8 @@ type ProductFormData = {
   is_new: boolean;
   is_active: boolean;
   pickup_only: boolean;
+  /** Produit frais : Chrono 18 à domicile ou retrait, jamais en relais (migration 070). */
+  frais: boolean;
   track_stock: boolean;
   stock: string;
   reorder_qty: string;
@@ -85,7 +87,7 @@ const EMPTY: ProductFormData = {
   origin_sv: 'Suède', origin_fr: 'Suède', origin_en: 'Sweden',
   image_url: '',
   badge: '', is_bestseller: false, is_new: false, is_active: true,
-  pickup_only: false, track_stock: false, stock: '', reorder_qty: '',
+  pickup_only: false, frais: false, track_stock: false, stock: '', reorder_qty: '',
   rating: '4.5', reviews_count: '0', tags: '',
   usage_sv: '', usage_fr: '', usage_en: '',
   ingredients_sv: '', ingredients_fr: '', ingredients_en: '',
@@ -258,6 +260,7 @@ export default function ProductForm({
     preorder_ship_date: (initialData as any)?.preorder_ship_date ? String((initialData as any).preorder_ship_date).slice(0, 10) : '',
     preorder_end: (initialData as any)?.preorder_end ? String((initialData as any).preorder_end).slice(0, 10) : '',
     pickup_only: !!(initialData?.pickup_only),
+    frais: !!(initialData as any)?.frais,
     track_stock: !!(initialData?.track_stock),
     stock: initialData?.stock != null ? String(initialData.stock) : '',
     reorder_qty: (initialData as any)?.reorder_qty != null ? String((initialData as any).reorder_qty) : '',
@@ -292,7 +295,7 @@ export default function ProductForm({
        migration 049 n'a pas ajouté les colonnes, un produit sans remise
        s'enregistre normalement — on n'écrit jamais de colonne absente. */
     const { discount_type: _dt, discount_value: _dv, discount_start: _ds, discount_end: _de, bundle_items: _bi,
-            preorder: _po, preorder_ship_date: _ps, preorder_end: _pe, ...rest } = f;
+            preorder: _po, preorder_ship_date: _ps, preorder_end: _pe, frais: _fr, ...rest } = f;
     const hasDisc = !!_dt && parseFloat(_dv) > 0;
     const hadDisc = !!(initialData as any)?.discount_type;
     const payload: Record<string, any> = {
@@ -330,6 +333,9 @@ export default function ProductForm({
       payload.preorder_ship_date = _po && _ps ? _ps : null;
       payload.preorder_end = _po && _pe ? _pe : null;
     }
+    /* Produit frais (migration 070) : même prudence, envoyé seulement s'il
+       est (ou était) coché — la fiche s'enregistre même avant la migration. */
+    if (_fr || (initialData as any)?.frais) payload.frais = !!_fr;
     /* Box (migration 054) : n'est envoyée que si elle existe (ou existait),
        et une box n'a jamais de stock propre — ce sont ses sachets. */
     const lot = (_bi || [])
@@ -949,6 +955,12 @@ export default function ProductForm({
                 )}
                 <Switch on={form.pickup_only}   onChange={v => set('pickup_only', v)}   label="Retrait uniquement"
                         hint={form.pickup_only ? 'Produit non expédiable. Tout panier le contenant passe en retrait en magasin.' : undefined} />
+                <Switch on={form.frais}         onChange={v => set('frais', v)}         label="Produit frais (Chrono 18)"
+                        hint={form.frais
+                          ? (form.pickup_only
+                            ? '« Retrait uniquement » est aussi coché : il l’emporte, le produit ne sera pas expédié.'
+                            : 'Jamais en point relais : livré à domicile par Chronopost en 24 h (port + supplément 6,99 €), ou retiré à l’atelier.')
+                          : undefined} />
               </div>
               <Field label="Badge affiché">
                 <select className="sc-input sc-select" value={form.badge} onChange={e => set('badge', e.target.value)}>
