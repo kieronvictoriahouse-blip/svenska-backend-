@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { requireAuth } from '@/lib/auth';
 import { getWlConfig } from '@/lib/mailer';
-import { createLogspherRelayLabel, createLogspherChronoFraisLabel, cancelLogspherLabel } from '@/lib/logspher';
+import { createLogspherRelayLabel, createLogspherChronoFraisLabel, cancelLogspherLabel, referenceUgo } from '@/lib/logspher';
 import { attachExistingLogspherLabel } from '@/lib/logspher-sync';
 
 /* Relance l'étiquette point relais UGO d'une commande.
@@ -32,20 +32,31 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Une étiquette existe déjà pour cette commande' }, { status: 409 });
   }
 
-  /* L'étiquette existe peut-être déjà chez UGO (402 réglé via le lien,
-     cas SD-0146) : on la relit et on la rattache, sans rien refacturer.
-     Recréer renverrait 412 « already used and shipped ». */
+  /* Référence UGO : SD-0238, ou SD-0238-2… si une étiquette annulée a déjà
+     consommé le numéro (UGO refuse alors de le réutiliser : 412).
+     Un envoi encore actif sous l'une de ces références (402 réglé via le
+     lien, cas SD-0146) est relu et rattaché, sans rien refacturer. */
+  let ref: { active: string | null; libre: string | null };
   try {
-    const att = await attachExistingLogspherLabel(order);
-    if (att.attached) {
-      return NextResponse.json({
-        success: true, recovered: true, emailed: att.emailed,
-        ...att.patch, tracking_number: order.tracking_number || att.tracking_number,
-      });
-    }
+    ref = await referenceUgo(order.order_number);
   } catch (e: any) {
-    console.error('[logspher-label] relecture UGO :', e?.message || e);
+    return NextResponse.json({ error: `Lecture UGO impossible, rien n’a été créé : ${String(e?.message || e).slice(0, 300)}` }, { status: 502 });
   }
+  if (ref.active) {
+    try {
+      const att = await attachExistingLogspherLabel(order, { reference: ref.active });
+      if (att.attached) {
+        return NextResponse.json({
+          success: true, recovered: true, emailed: att.emailed,
+          ...att.patch, tracking_number: order.tracking_number || att.tracking_number,
+        });
+      }
+    } catch (e: any) {
+      console.error('[logspher-label] relecture UGO :', e?.message || e);
+    }
+    return NextResponse.json({ error: `Un envoi UGO ${ref.active} existe déjà pour cette commande, sans étiquette prête (paiement en attente ?) : vois upelgo.com, section Envois.` }, { status: 409 });
+  }
+  const ugoReference = ref.libre || order.order_number;
 
   // `lines` est stockée comme chaîne JSON (voir jsonb-lines).
   const lines = order.lines
@@ -68,6 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         lines,
         total:            Number(order.total) || 0,
         weight_grams:     weightGrams,
+        ugo_reference:    ugoReference,
       }, cfg as any);
       const patchFrais = {
         tracking_number:       chrono.tracking_number,
@@ -97,6 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       lines,
       total:               Number(order.total) || 0,
       weight_grams:        weightGrams,
+      ugo_reference:       ugoReference,
       // Hors EUR : la valeur déclarée à UGO reste en euros (contre-valeur relevée au paiement).
       ...(order.currency && order.currency !== 'EUR' ? {
         currency:  order.currency,
@@ -140,7 +153,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   }
 
   try {
-    await cancelLogspherLabel(order.order_number);
+    // L'étiquette active peut être sous SD-0238-2… (recréée après une annulation).
+    let aAnnuler = order.order_number;
+    try { aAnnuler = (await referenceUgo(order.order_number)).active || order.order_number; }
+    catch (e: any) { console.error('[logspher-label] référence UGO :', e?.message || e); }
+    await cancelLogspherLabel(aAnnuler);
   } catch (e: any) {
     const msg = String(e?.message || e);
     // 404 = UGO ne connaît plus l'envoi (déjà annulé) : on nettoie quand même.

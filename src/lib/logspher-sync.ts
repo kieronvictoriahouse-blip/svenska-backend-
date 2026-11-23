@@ -22,13 +22,14 @@ export type AttachResult =
   | { attached: false; reason: string }
   | { attached: true; tracking_number: string; label_url: string; emailed: boolean; patch: Record<string, any> };
 
-export async function attachExistingLogspherLabel(order: any, opts: { sendEmail?: boolean } = {}): Promise<AttachResult> {
+export async function attachExistingLogspherLabel(order: any, opts: { sendEmail?: boolean; reference?: string } = {}): Promise<AttachResult> {
   if (!order?.order_number) return { attached: false, reason: 'sans numéro de commande' };
   if (order.logspher_label_url && (order.logspher_tracking || order.tracking_number)) {
     return { attached: false, reason: 'déjà rattachée' };
   }
 
-  const found = await fetchLogspherOrder(order.order_number);
+  // Référence UGO : le numéro de commande, ou SD-0238-2… après une étiquette annulée (voir referenceUgo).
+  const found = await fetchLogspherOrder(opts.reference || order.order_number);
   if (!found) return { attached: false, reason: 'aucun envoi généré chez UGO' };
 
   const patch: Record<string, any> = {

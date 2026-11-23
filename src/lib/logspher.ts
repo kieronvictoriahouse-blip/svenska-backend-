@@ -187,9 +187,43 @@ export async function fetchLogspherOrder(orderNumber: string): Promise<LogspherE
   };
 }
 
+/* ── Référence UGO d'une commande ─────────────────────────────────
+   UGO identifie un envoi par l'order_id envoyé à /ship : notre numéro de
+   commande. Mais il refuse de réutiliser un order_id déjà consommé, même
+   par une étiquette ANNULÉE (412 « already used and shipped », cas
+   SD-0238, 23/11/2026). Une nouvelle étiquette passe alors sous
+   SD-0238-2, puis -3… */
+export type EtatReferenceUgo = 'inconnue' | 'annulee' | 'active';
+
+export async function etatReferenceUgo(ref: string): Promise<EtatReferenceUgo> {
+  const res = await fetch(`${API_URL}/api/order/reference/${encodeURIComponent(ref)}`, {
+    headers: { Authorization: `Bearer ${getApiKey()}`, Accept: 'application/json' },
+  });
+  if (res.status === 404) return 'inconnue';
+  const text = await res.text();
+  if (!res.ok) throw new Error(`LogSpher /api/order/reference → ${res.status}: ${text.slice(0, 200)}`);
+  let j: any;
+  try { j = JSON.parse(text); } catch { return 'inconnue'; }
+  if (!j || !j.order_id) return 'inconnue';
+  return j.is_cancel ? 'annulee' : 'active';
+}
+
+/** Parcourt SD-0238, SD-0238-2, -3… : renvoie la première référence encore
+    active chez UGO (à relire/annuler, jamais à repayer), sinon la première
+    libre pour une nouvelle étiquette. */
+export async function referenceUgo(orderNumber: string): Promise<{ active: string | null; libre: string | null }> {
+  for (let i = 1; i <= 9; i++) {
+    const ref = i === 1 ? orderNumber : `${orderNumber}-${i}`;
+    const etat = await etatReferenceUgo(ref);
+    if (etat === 'active') return { active: ref, libre: null };
+    if (etat === 'inconnue') return { active: null, libre: ref };
+  }
+  throw new Error(`Déjà 9 étiquettes UGO annulées pour ${orderNumber} : crée la suivante sur upelgo.com.`);
+}
+
 /** Annule l'étiquette UGO d'une commande (passage en Click & Collect,
-    commande annulée). UGO l'identifie par l'order_id envoyé à /ship,
-    c'est-à-dire notre numéro de commande. */
+    commande annulée). UGO l'identifie par l'order_id envoyé à /ship :
+    notre numéro de commande, ou SD-0238-2… (voir referenceUgo). */
 export async function cancelLogspherLabel(orderNumber: string): Promise<void> {
   const res = await apiFetch('/api/carrier/cancel', {
     method: 'POST',
@@ -213,6 +247,8 @@ export async function createLogspherRelayLabel(
     total: number;
     /** Poids réel pesé (g), saisi dans l'admin ; remplace l'estimation catalogue. */
     weight_grams?: number;
+    /** order_id envoyé à UGO quand le numéro de commande est déjà consommé (voir referenceUgo). */
+    ugo_reference?: string;
     /** Devise de la commande (absente ou EUR = Swedish Cravings, inchangé). */
     currency?: string;
     /** Contre-valeur EUR relevée au paiement (hors EUR). */
@@ -353,7 +389,7 @@ export async function createLogspherRelayLabel(
     city: baseShipTo.city,
   };
   const chargeTarif = {
-    order_id: order.order_number,
+    order_id: order.ugo_reference || order.order_number,
     shipment: rateShipment,
     ship_from: rateShipFrom,
     ship_to: rateShipTo,
@@ -389,7 +425,7 @@ export async function createLogspherRelayLabel(
   const shipRes = await apiFetch('/api/carrier/ship', {
     method: 'POST',
     body: JSON.stringify({
-      order_id: order.order_number,
+      order_id: order.ugo_reference || order.order_number,
       process_shipment: true,
       shipment: {
         ...baseShipment,
@@ -483,6 +519,8 @@ export async function createLogspherChronoFraisLabel(
     total: number;
     /** Poids réel pesé (g), saisi dans l'admin ; remplace l'estimation. */
     weight_grams?: number;
+    /** order_id envoyé à UGO quand le numéro de commande est déjà consommé (voir referenceUgo). */
+    ugo_reference?: string;
   },
   wlConfig: { address?: string; site_name?: string; email?: string; phone?: string },
 ): Promise<LogspherChronoLabelResult> {
@@ -517,7 +555,7 @@ export async function createLogspherChronoFraisLabel(
   const rateRes = await apiFetch('/api/carrier/multi-rate', {
     method: 'POST',
     body: JSON.stringify({
-      order_id: order.order_number,
+      order_id: order.ugo_reference || order.order_number,
       shipment: { id: 1, type: 2, shipment_date: shipmentDate },
       ship_from: { pro: true, country_code: shipFrom.country.slice(0, 2), postcode: shipFrom.postcode, city: shipFrom.city },
       ship_to: { pro: false, country_code: 'FR', postcode: dest.postcode, city: dest.city },
@@ -534,7 +572,7 @@ export async function createLogspherChronoFraisLabel(
   const shipRes = await apiFetch('/api/carrier/ship', {
     method: 'POST',
     body: JSON.stringify({
-      order_id: order.order_number,
+      order_id: order.ugo_reference || order.order_number,
       process_shipment: true,
       shipment: {
         id: 1,
