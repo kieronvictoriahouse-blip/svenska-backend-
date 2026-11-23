@@ -1714,7 +1714,10 @@ export default function CommandesPage() {
                             <span className="sc-card-title">{t('shipment')}</span>
                           </div>
                           <div style={{ padding: '13px 15px' }}>
-                            {(o.logspher_label_url || o.logspher_error || ((o.delivery_mode === 'mondial_relay' || o.delivery_mode === 'domicile_frais') && !o.mondial_relay_tracking && !['shipped', 'delivered'].includes(o.status))) && (
+                            {/* Une commande déjà « expédiée » dont l'étiquette a été annulée (plus de suivi) doit
+                                pouvoir en recevoir une nouvelle : son statut ne peut plus revenir en arrière (cas SD-0238). */}
+                            {(o.logspher_label_url || o.logspher_error || ((o.delivery_mode === 'mondial_relay' || o.delivery_mode === 'domicile_frais') && !o.mondial_relay_tracking
+                              && (!['shipped', 'delivered'].includes(o.status) || (o.status === 'shipped' && !o.tracking_number)))) && (
                               <div style={{ background: o.logspher_label_url ? '#F0FDF4' : '#FFF7ED', border: `1px solid ${o.logspher_label_url ? '#86EFAC' : '#FED7AA'}`, borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
                                 {o.logspher_label_url
                                   ? <>Étiquette {o.logspher_carrier_name || 'LogSpher'} · {o.logspher_tracking} · <a href={o.logspher_label_url} target="_blank" rel="noopener">{t('downloadPdf')}</a></>
