@@ -500,9 +500,21 @@ export function offreChrono18Depot(offres: any[]): any | null {
     || null;
 }
 
-/** « 12 rue X, Bât. B, 75011 Paris, FR » → champs d'adresse (ligne 2 séparée). */
-export function adresseDomicile(brut: string) {
-  const a = parseAddress(String(brut || '').replace(/^Point relais\b.*$/i, ''));
+/** Adresse de livraison en texte « ligne 1, ligne 2, CP Ville, FR ». D'ordinaire stockée en
+ *  texte, elle arrive parfois en objet (line1/postal_code… ou address1/postcode…) :
+ *  String() en faisait « [object Object] » et l'étiquette Chrono 18 était refusée. */
+export function adresseEnTexte(v: unknown): string {
+  if (!v) return '';
+  if (typeof v !== 'object') return String(v);
+  const o = v as Record<string, any>;
+  const cp = o.postal_code || o.postcode || o.zip || '';
+  return [o.line1 || o.address1 || o.street, o.line2 || o.address2, [cp, o.city].filter(Boolean).join(' '), o.country]
+    .filter(Boolean).join(', ');
+}
+
+/** « 12 rue X, Bât. B, 75011 Paris, FR » (ou le même en objet) → champs d'adresse (ligne 2 séparée). */
+export function adresseDomicile(brut: unknown) {
+  const a = parseAddress(adresseEnTexte(brut).replace(/^Point relais\b.*$/i, ''));
   const [ligne1, ...reste] = a.address1.split(',').map(s => s.trim()).filter(Boolean);
   return { address1: ligne1 || '', address2: reste.join(', '), postcode: a.postcode, city: a.city, country: a.country };
 }
@@ -513,8 +525,8 @@ export async function createLogspherChronoFraisLabel(
     customer_name: string;
     customer_email: string;
     customer_phone?: string;
-    /** Adresse de livraison saisie chez Stripe (« ligne 1, ligne 2, CP Ville, FR »). */
-    shipping_address: string;
+    /** Adresse de livraison saisie chez Stripe (« ligne 1, ligne 2, CP Ville, FR »), ou en objet. */
+    shipping_address: string | Record<string, any>;
     lines: Array<{ qty?: number; [key: string]: any }>;
     total: number;
     /** Poids réel pesé (g), saisi dans l'admin ; remplace l'estimation. */
@@ -526,7 +538,7 @@ export async function createLogspherChronoFraisLabel(
 ): Promise<LogspherChronoLabelResult> {
   const dest = adresseDomicile(order.shipping_address);
   if (!dest.address1 || !dest.postcode || !dest.city) {
-    throw new Error(`Adresse de livraison incomplète (« ${order.shipping_address || 'vide'} ») : corrige-la dans la commande avant de créer l'étiquette Chrono 18.`);
+    throw new Error(`Adresse de livraison incomplète (« ${adresseEnTexte(order.shipping_address) || 'vide'} ») : corrige-la dans la commande avant de créer l'étiquette Chrono 18.`);
   }
   if (dest.country !== 'FR') {
     throw new Error(`Chrono 18 : livraison en France seulement (pays de l'adresse : ${dest.country}).`);

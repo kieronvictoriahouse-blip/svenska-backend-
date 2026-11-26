@@ -166,8 +166,16 @@ const fmtL = (n: number, lang: AdminLang) =>
   (n || 0).toLocaleString(LOCALES[lang], { minimumFractionDigits: 2 }) + ' €';
 const fmtDateL = (d: string, lang: AdminLang) =>
   new Date(d).toLocaleDateString(LOCALES[lang], { day: '2-digit', month: '2-digit', year: 'numeric' });
-// shipping_address peut être string ou objet JSONB selon la source
-const toAddrStr = (v: any): string => !v ? '' : typeof v === 'string' ? v : [v.line1, v.line2, v.postal_code && v.city ? `${v.postal_code} ${v.city}` : (v.postal_code || v.city), v.country].filter(Boolean).join(', ');
+// shipping_address peut être string ou objet JSONB selon la source (Stripe : line1/postal_code,
+// profil : address1/postcode). Ne jamais l'afficher brute : un objet en enfant React fait
+// planter tout l'écran (cas SD-0323, Chrono 18 en attente).
+const toAddrStr = (v: any): string => {
+  if (!v) return '';
+  if (typeof v !== 'object') return String(v);
+  const cp = v.postal_code || v.postcode || v.zip || '';
+  return [v.line1 || v.address1 || v.street, v.line2 || v.address2, [cp, v.city].filter(Boolean).join(' '), v.country]
+    .filter(Boolean).join(', ');
+};
 
 /* « À traiter » = tout ce qui reste à expédier : la file de préparation,
    le badge du menu et la réservation de stock (STATUTS_DUS) comptent ces
@@ -1772,7 +1780,7 @@ export default function CommandesPage() {
                             )}
                             {o.delivery_mode === 'domicile_frais' && (
                               <div style={{ fontSize: 12, color: TH.text2b, marginBottom: 8 }}>
-                                Livraison à domicile (Chrono 18) : {o.shipping_address || 'adresse non renseignée'}{o.customer_phone ? ` · ${o.customer_phone}` : ''}
+                                Livraison à domicile (Chrono 18) : {toAddrStr(o.shipping_address) || 'adresse non renseignée'}{o.customer_phone ? ` · ${o.customer_phone}` : ''}
                               </div>
                             )}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>
